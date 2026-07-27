@@ -132,7 +132,7 @@ uv run office-adapter validate-profile      # проверка .office/profile.y
 ### jira
 
 - Jira Server REST v2 (`/rest/api/2`), basic auth `JIRA_LOGIN` + `JIRA_API_TOKEN`
-  (Bearer на этом инстансе не работает).
+  (Bearer на этом инстансе не работает). Базовый URL берётся из `tracker.url` профиля; создание карточек — в `tracker.project` с типом `tracker.issue_type`.
 - Маппинг: абстрактное состояние → статус (+ опционально метка):
   `states.<state>: {status: "...", label: "..."}`; фенс — `label:<name>`.
 - `move` — через discovery `/transitions`: ищется переход, ведущий в целевой статус;
@@ -154,6 +154,7 @@ uv run office-adapter validate-profile      # проверка .office/profile.y
 - `tracker.fence`: `label:<name>` (jira) | `board:<id>` (yougile).
 - `tracker.states`: объект «абстрактное состояние → представление провайдера»
   (формы выше). Валидатор проверяет, что представления соответствуют провайдеру.
+- Провайдер-специфичные ключи tracker: jira требует url (базовый URL сервера), project (ключ проекта), issue_type (тип создаваемых карточек); для yougile дополнительных ключей нет. Валидатор проверяет их вместе с формой фенса и представлений.
 - Неизвестные ключи верхнего уровня и внутри `tracker` — **ошибка** валидации
   (опечатка в ключе не должна тонуть молча); расширение схемы едет вместе с
   версией плагина.

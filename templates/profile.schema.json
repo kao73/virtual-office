@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kao73/virtual-office/templates/profile.schema.json",
+  "title": "Virtual office client profile (.office/profile.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tracker"],
+  "properties": {
+    "tracker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "fence", "states"],
+      "properties": {
+        "provider": {"enum": ["jira", "yougile"]},
+        "fence": {"type": "string", "pattern": "^(label|board):.+$"},
+        "office_account": {"type": ["string", "null"]},
+        "url": {"type": "string", "format": "uri"},
+        "project": {"type": "string"},
+        "issue_type": {"type": "string"},
+        "states": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "propertyNames": {
+            "enum": ["idea", "analysis", "design_gate", "ready_for_dev",
+                     "in_dev", "ai_qa", "merge_gate", "bookkeeping",
+                     "external_qa", "done", "needs_input"]
+          },
+          "patternProperties": {".*": {"type": "object"}}
+        }
+      }
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base_branch": {"type": "string"},
+        "branch_naming": {"type": "string"},
+        "merge_policy": {"type": "string"}
+      }
+    },
+    "gates": {"type": "object"},
+    "limits": {"type": "object"},
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "design_docs": {"type": "string"},
+        "language": {"type": "string"}
+      }
+    },
+    "mockups": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {"enum": ["real-components", "standalone"]},
+        "command": {"type": "string"}
+      }
+    },
+    "rituals": {"type": "object"},
+    "extensions": {"type": "object"}
+  }
+}
