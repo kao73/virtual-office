@@ -5,7 +5,8 @@ from office_adapter.providers.jira import _issue_to_card, _pick_transition
 
 STATES = {"idea": {"status": "Backlog"},
           "analysis": {"status": "To Do"},
-          "design_gate": {"status": "In Progress", "label": "office:design-gate"}}
+          "design_gate": {"status": "In Progress", "label": "office:design-gate"},
+          "merge_gate": {"status": "In Progress", "label": "office:merge-gate"}}
 
 ISSUE = {
     "key": "CRM3-999",
@@ -37,6 +38,7 @@ def test_issue_to_card_maps_everything():
     assert card.url == "https://jira.example.com/browse/CRM3-999"
     assert card.labels == ["ai-office"]
     assert card.comments[0].office_marker is None
+    assert card.comments[0].author == "kao"
     assert card.comments[1].office_marker == "clerk"
     assert card.attachments == ["shot.png"]
     assert sorted(card.links) == ["CRM3-1000", "CRM3-998"]
@@ -48,6 +50,22 @@ def test_state_disambiguation_by_label():
              "labels": ["ai-office", "office:design-gate"]}}
     card = _issue_to_card(issue, STATES, "ai-office", "https://j")
     assert card.state == "design_gate"
+
+
+def test_state_disambiguation_other_label():
+    issue = {"key": "X-3", "fields": {**ISSUE["fields"],
+             "status": {"name": "In Progress"},
+             "labels": ["ai-office", "office:merge-gate"]}}
+    card = _issue_to_card(issue, STATES, "ai-office", "https://j")
+    assert card.state == "merge_gate"
+
+
+def test_state_ambiguous_without_label_gives_none():
+    issue = {"key": "X-4", "fields": {**ISSUE["fields"],
+             "status": {"name": "In Progress"},
+             "labels": ["ai-office"]}}  # ни одной state-метки — кандидатов два, выбрать нельзя
+    card = _issue_to_card(issue, STATES, "ai-office", "https://j")
+    assert card.state is None
 
 
 def test_unknown_status_gives_none_state():
