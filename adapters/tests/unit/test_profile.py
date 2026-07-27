@@ -95,3 +95,13 @@ def test_find_profile_walks_up(tmp_path):
 def test_find_profile_missing_raises(tmp_path):
     with pytest.raises(ProfileError):
         find_profile_path(tmp_path)
+
+
+def test_find_profile_returns_absolute_path(tmp_path, monkeypatch):
+    office = tmp_path / ".office"
+    office.mkdir()
+    (office / "profile.yaml").write_text(yaml.safe_dump(YOUGILE_OK))
+    monkeypatch.chdir(tmp_path)
+    found = find_profile_path(Path("."))
+    assert found.is_absolute()
+    assert found == (tmp_path / ".office" / "profile.yaml").resolve()

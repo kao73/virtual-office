@@ -51,7 +51,8 @@ class Profile:
 
 
 def find_profile_path(start: Path) -> Path:
-    for directory in [start, *start.resolve().parents]:
+    start = start.resolve()
+    for directory in [start, *start.parents]:
         candidate = directory / ".office" / "profile.yaml"
         if candidate.is_file():
             return candidate
