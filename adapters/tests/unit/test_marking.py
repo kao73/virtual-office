@@ -24,3 +24,13 @@ def test_detect_marker_must_be_first_line():
 def test_invalid_role_rejected():
     with pytest.raises(UsageError):
         mark("Clerk!", "body")
+
+
+def test_role_with_trailing_newline_rejected():
+    with pytest.raises(UsageError):
+        mark("clerk\n", "body")
+
+
+def test_empty_role_rejected():
+    with pytest.raises(UsageError):
+        mark("", "body")
