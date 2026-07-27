@@ -82,3 +82,17 @@ def test_error_json_on_stderr(client_dir, capsys):
     err = json.loads(captured.err)
     assert code == 2
     assert err["error"] == "tracker_error"
+
+
+def test_missing_required_arg_yields_usage_error_json(client_dir, capsys):
+    code = cli.main(["comment", "some-id", "--body-file", "x.txt"])  # нет --role
+    err = json.loads(capsys.readouterr().err)
+    assert code == 1
+    assert err["error"] == "usage_error"
+
+
+def test_missing_subcommand_yields_usage_error_json(client_dir, capsys):
+    code = cli.main([])
+    err = json.loads(capsys.readouterr().err)
+    assert code == 1
+    assert err["error"] == "usage_error"

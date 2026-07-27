@@ -13,10 +13,17 @@ from office_adapter.errors import AdapterError, UsageError
 from office_adapter.profile import Profile, find_profile_path, load_profile
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """Ошибки разбора аргументов — в JSON-контракт (usage_error, exit 1)."""
+
+    def error(self, message: str):
+        raise UsageError(f"invalid arguments: {message}")
+
+
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="office-adapter")
+    parser = _ArgumentParser(prog="office-adapter")
     parser.add_argument("--profile", help="explicit path to .office/profile.yaml")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=_ArgumentParser)
 
     p = sub.add_parser("list-cards")
     p.add_argument("--state", required=True)
@@ -76,8 +83,8 @@ def _emit(payload: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
     try:
+        args = _parser().parse_args(argv)
         profile = _load(args)
         if args.command == "validate-profile":
             _emit({"ok": True, "provider": profile.provider_name,
