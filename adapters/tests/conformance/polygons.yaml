@@ -1,0 +1,17 @@
+yougile:
+  profile:
+    tracker:
+      provider: yougile
+      fence: board:92f9b0a1-4dea-43c0-9328-d804dac0c002
+      states:
+        idea:
+          column: a37e67db-0290-4817-89ab-5a0e9953d720
+        analysis:
+          column: 127811d4-7191-40f0-8b1c-94fe032a8154
+        done:
+          column: 41fe4182-b595-410d-bea6-b0a0947f5801
+  cleanup:
+    mode: delete
+  outside:
+    board: eb78f055-d43a-4f05-b045-395ff8ba2d90
+    column: 5d64a040-6609-4c30-874b-8de05c20904f
