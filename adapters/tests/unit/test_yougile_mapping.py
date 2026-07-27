@@ -27,3 +27,37 @@ def test_task_to_card_unknown_column():
                          comments=[])
     assert card.state is None
     assert card.labels == ["b2"]
+
+
+def test_attach_sends_bytes_not_live_handle(tmp_path, monkeypatch):
+    monkeypatch.setenv("YOUGILE_API_KEY", "test-key")
+    from office_adapter.profile import load_profile_data
+    from office_adapter.providers.yougile import YougileProvider
+
+    profile = load_profile_data({"tracker": {
+        "provider": "yougile", "fence": "board:b1",
+        "states": {"idea": {"column": "c1"}}}})
+    provider = YougileProvider(profile)
+
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        text = '{"url": "https://yougile.com/files/report.txt"}'
+
+        def json(self):
+            return {"url": "https://yougile.com/files/report.txt"}
+
+    def fake_request(method, url, timeout=None, **kwargs):
+        if "upload-file" in url:
+            captured.update(kwargs.get("files", {}))
+        return _Resp()
+
+    monkeypatch.setattr(provider._session, "request", fake_request)
+    artifact = tmp_path / "report.txt"
+    artifact.write_text("отчёт")
+    provider.attach("t1", str(artifact))
+
+    name, payload = captured["file"]
+    assert name == "report.txt"
+    assert isinstance(payload, bytes)

@@ -125,9 +125,9 @@ class YougileProvider:
 
     def attach(self, card_id: str, file_path: str) -> None:
         path = Path(file_path)
-        with path.open("rb") as fh:
-            uploaded = self._request("POST", "upload-file",
-                                     files={"file": (path.name, fh)})
+        payload = path.read_bytes()
+        uploaded = self._request("POST", "upload-file",
+                                 files={"file": (path.name, payload)})
         url = uploaded.get("url") or uploaded.get("fileUrl")
         if not url:
             raise TrackerError("yougile upload-file: no url in response",
