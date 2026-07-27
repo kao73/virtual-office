@@ -2,7 +2,7 @@ import pytest
 
 from office_adapter.base import Adapter
 from office_adapter.errors import (CapabilityMissing, FenceViolation,
-                                   VerificationFailed)
+                                   UsageError, VerificationFailed)
 from office_adapter.interface import Capabilities, Card
 from office_adapter.profile import load_profile_data
 from office_adapter.testing import FakeProvider
@@ -89,3 +89,44 @@ def test_link_verified_when_supported():
     a = adapter.create_card("clerk", "a", "", "idea")
     b = adapter.create_card("clerk", "b", "", "idea")
     assert b.key in adapter.link(a.id, b.id).links
+
+
+def test_attach_verified_and_counted(tmp_path):
+    adapter, _ = make_adapter()
+    card = adapter.create_card("clerk", "t", "", "idea")
+    artifact = tmp_path / "report.txt"
+    artifact.write_text("отчёт")
+    updated = adapter.attach(card.id, str(artifact))
+    assert updated.attachments == ["report.txt"]
+
+
+def test_attach_missing_file_raises_usage_error(tmp_path):
+    adapter, _ = make_adapter()
+    card = adapter.create_card("clerk", "t", "", "idea")
+    with pytest.raises(UsageError):
+        adapter.attach(card.id, str(tmp_path / "no-such.txt"))
+
+
+def test_attach_capability_missing():
+    adapter, _ = make_adapter(capabilities=Capabilities(attach=False, link=True))
+    card = adapter.create_card("clerk", "t", "", "idea")
+    with pytest.raises(CapabilityMissing):
+        adapter.attach(card.id, "irrelevant.txt")
+
+
+def test_lost_attach_raises_verification_failed(tmp_path):
+    adapter, _ = make_adapter(lose_writes=True)
+    card_id = adapter.create_card_unverified("clerk", "t", "", "idea")
+    artifact = tmp_path / "report.txt"
+    artifact.write_text("отчёт")
+    with pytest.raises(VerificationFailed):
+        adapter.attach(card_id, str(artifact))
+
+
+def test_duplicate_comment_lost_write_detected():
+    adapter, provider = make_adapter()
+    card = adapter.create_card("clerk", "t", "", "idea")
+    adapter.comment(card.id, "clerk", "тот же текст")
+    provider._lose = True  # вторая публикация теряется
+    with pytest.raises(VerificationFailed):
+        adapter.comment(card.id, "clerk", "тот же текст")

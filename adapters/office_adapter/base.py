@@ -44,13 +44,17 @@ class Adapter:
         return updated
 
     def comment(self, card_id: str, role: str, body: str) -> Card:
-        self.read_card(card_id)
+        before = self.read_card(card_id)
         marked = mark(role, body)
+
+        def _matching(card: Card) -> int:
+            return sum(1 for c in card.comments
+                       if c.body == marked and c.office_marker == role)
+
+        already = _matching(before)
         self._provider.comment(card_id, marked)
         updated = self.read_card(card_id)
-        published = [c for c in updated.comments
-                     if c.body == marked and c.office_marker == role]
-        if not published:
+        if _matching(updated) <= already:
             raise VerificationFailed(
                 "comment not confirmed by read-back", card_id=card_id, role=role)
         return updated
