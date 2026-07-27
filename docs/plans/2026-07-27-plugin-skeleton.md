@@ -33,12 +33,12 @@
 **Interfaces:**
 - Produces: имя `virtual-office` и версия `0.1.0` — на них ссылаются Task 2 (запись маркетплейса), Task 3 (текст скилла), Task 4 (CHANGELOG) и Task 5 (адрес установки `virtual-office@virtual-office`).
 
-- [ ] **Step 1: Проверить, что валидация падает без манифеста**
+- [x] **Step 1: Проверить, что валидация падает без манифеста**
 
 Run: `claude plugin validate . --strict; echo "exit: $?"`
 Expected: ошибка (манифест не найден), exit ≠ 0.
 
-- [ ] **Step 2: Создать `.claude-plugin/plugin.json`**
+- [x] **Step 2: Создать `.claude-plugin/plugin.json`**
 
 ```json
 {
@@ -50,12 +50,12 @@ Expected: ошибка (манифест не найден), exit ≠ 0.
 }
 ```
 
-- [ ] **Step 3: Валидация зелёная**
+- [x] **Step 3: Валидация зелёная**
 
 Run: `claude plugin validate . --strict; echo "exit: $?"`
 Expected: `✔ Validation passed` для plugin manifest, exit 0.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add .claude-plugin/plugin.json
@@ -75,7 +75,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: имя плагина `virtual-office` из Task 1.
 - Produces: маркетплейс `virtual-office` с плагином `source: "./"` — адрес установки `virtual-office@virtual-office` для Task 5.
 
-- [ ] **Step 1: Создать `.claude-plugin/marketplace.json`**
+- [x] **Step 1: Создать `.claude-plugin/marketplace.json`**
 
 ```json
 {
@@ -94,12 +94,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 Ключевое: поля `version` в записи плагина **нет** — версия резолвится из `plugin.json` (закон версии из спеки).
 
-- [ ] **Step 2: Валидация зелёная (теперь проверяется и маркетплейс)**
+- [x] **Step 2: Валидация зелёная (теперь проверяется и маркетплейс)**
 
 Run: `claude plugin validate . --strict; echo "exit: $?"`
 Expected: `✔ Validation passed`, exit 0. В выводе — валидация marketplace manifest.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add .claude-plugin/marketplace.json
@@ -119,7 +119,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: имя/версия из Task 1.
 - Produces: скилл `virtual-office:office-about` — его наличие в инвентаре проверяет Task 5.
 
-- [ ] **Step 1: Создать `skills/office-about/SKILL.md`**
+- [x] **Step 1: Создать `skills/office-about/SKILL.md`**
 
 ```markdown
 ---
@@ -158,17 +158,17 @@ description: Справка о плагине virtual-office — что тако
 или не реализовано, и отсылай к конституции.
 ```
 
-- [ ] **Step 2: Валидация зелёная (frontmatter скилла проверяется)**
+- [x] **Step 2: Валидация зелёная (frontmatter скилла проверяется)**
 
 Run: `claude plugin validate . --strict; echo "exit: $?"`
 Expected: `✔ Validation passed`, exit 0.
 
-- [ ] **Step 3: Инвентарь плагина видит скилл**
+- [x] **Step 3: Инвентарь плагина видит скилл**
 
 Run: `claude plugin details . 2>&1 | head -20`
 Expected: в инвентаре компонентов — skill `office-about` (если `details` не принимает путь — пропустить шаг, проверка уйдёт в Task 5 после установки).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add skills/office-about/SKILL.md
@@ -188,7 +188,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: версия `0.1.0` из Task 1.
 
-- [ ] **Step 1: Создать `CHANGELOG.md`**
+- [x] **Step 1: Создать `CHANGELOG.md`**
 
 ```markdown
 # Changelog
@@ -209,7 +209,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   проверяет путь «установка → загрузка скилла» для этапа 1.
 ```
 
-- [ ] **Step 2: Обновить секцию «Статус» в README.md**
+- [x] **Step 2: Обновить секцию «Статус» в README.md**
 
 Заменить строки 11–17 (от `## Статус` до строки `(скелет плагина).` включительно) на:
 
@@ -227,12 +227,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 Остальное содержимое README не трогать.
 
-- [ ] **Step 3: Валидация всё ещё зелёная**
+- [x] **Step 3: Валидация всё ещё зелёная**
 
 Run: `claude plugin validate . --strict; echo "exit: $?"`
 Expected: `✔ Validation passed`, exit 0.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add CHANGELOG.md README.md
@@ -251,7 +251,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: адрес `virtual-office@virtual-office` (Task 1–2), скилл `office-about` (Task 3).
 
-- [ ] **Step 1: Создать демо-клиента**
+- [x] **Step 1: Создать демо-клиента**
 
 ```bash
 mkdir -p ~/IdeaProjects/office-demo
@@ -264,35 +264,35 @@ git commit -m "init: демо-клиент для проверки плагин�
 
 Expected: пустой (кроме README) git-репозиторий — «клиент, пусть пустой» из §12.
 
-- [ ] **Step 2: Подключить маркетплейс с локального пути**
+- [x] **Step 2: Подключить маркетплейс с локального пути**
 
 Run (из `~/IdeaProjects/office-demo`):
 `claude plugin marketplace add /Users/aleksejkolesnikov/IdeaProjects/virtual-office`
 Expected: маркетплейс `virtual-office` добавлен; `claude plugin marketplace list` его показывает.
 
-- [ ] **Step 3: Установить плагин в scope local**
+- [x] **Step 3: Установить плагин в scope local**
 
 Run (из `~/IdeaProjects/office-demo`):
 `claude plugin install virtual-office@virtual-office --scope local`
 Expected: установка успешна, версия 0.1.0.
 
-- [ ] **Step 4: Плагин и скилл видны**
+- [x] **Step 4: Плагин и скилл видны**
 
 Run: `claude plugin list` и `claude plugin details virtual-office`
 Expected: плагин `virtual-office 0.1.0` установлен; в инвентаре — skill `office-about`.
 
-- [ ] **Step 5: Git демо-клиента чист**
+- [x] **Step 5: Git демо-клиента чист**
 
 Run (из `~/IdeaProjects/office-demo`): `git status --porcelain`
 Expected: пусто, либо только неотслеживаемые файлы Claude-конфигурации, не предлагаемые к коммиту (scope `local` не наследил в отслеживаемых файлах).
 
-- [ ] **Step 6: Скилл работает в сессии демо-клиента**
+- [x] **Step 6: Скилл работает в сессии демо-клиента**
 
 Ручная проверка владельцем ИЛИ headless-прогон:
 `cd ~/IdeaProjects/office-demo && claude -p "Что такое установленный плагин virtual-office и что он умеет?"`
 Expected: ответ по фактам `office-about` — версия 0.1.0, этап 0, роли не реализованы.
 
-- [ ] **Step 7: Зафиксировать готовность этапа**
+- [x] **Step 7: Зафиксировать готовность этапа**
 
 Отметить чекбоксы плана, доложить владельцу результат приёмки (вывод команд шагов 2–6).
 
@@ -303,3 +303,24 @@ Expected: ответ по фактам `office-about` — версия 0.1.0, э
 - **Покрытие спеки:** артефакты 1–5 спеки → Task 1–4; «Проверка готовности» п.1–6 → Task 5 и шаги валидации в каждой задаче. Разделы «Вне скоупа» и «Риски» задач не требуют.
 - **Плейсхолдеров нет:** весь контент файлов приведён дословно.
 - **Согласованность имён:** `virtual-office`, `office-about`, `0.1.0`, `virtual-office@virtual-office` — единообразны во всех задачах.
+
+## Отчёт о выполнении (2026-07-28)
+
+Все задачи выполнены, приёмка на демо-клиенте пройдена. Отступления от плана:
+
+1. **`CLAUDE.md` перенесён в `.claude/CLAUDE.md`** (коммит Task 1): strict-валидация
+   плагина предупреждает о CLAUDE.md в корне плагина (он не поставляется клиентам).
+   `./.claude/CLAUDE.md` — документированное равнозначное расположение проектной
+   памяти (docs/en/memory.md); dev-инструкции сохранены, плагин чист.
+2. **Валидация усилена**: при наличии обоих манифестов `validate .` проверяет только
+   маркетплейс, поэтому с Task 2 гоняются оба пути:
+   `claude plugin validate . --strict` и `claude plugin validate .claude-plugin/plugin.json --strict`.
+3. **Дата релиза в CHANGELOG — 2026-07-28** (фактическая), не 2026-07-27 из текста плана.
+4. Task 3 Step 3 (`plugin details` по пути) пропущен по предусмотренной планом ветке —
+   CLI не принимает путь; скилл подтверждён в инвентаре после установки (Task 5).
+
+Приёмка (Task 5): маркетплейс добавлен с локального пути; плагин 0.1.0 установлен
+в `~/IdeaProjects/office-demo` со scope local; `plugin list`/`details` показывают
+плагин и скилл `office-about`; `git status --porcelain` демо-клиента пуст;
+headless-сессия в демо-клиенте ответила по фактам скилла (версия, этап 0,
+«роли не реализованы»).
