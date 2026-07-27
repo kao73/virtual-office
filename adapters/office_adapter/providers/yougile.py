@@ -128,7 +128,9 @@ class YougileProvider:
         payload = path.read_bytes()
         uploaded = self._request("POST", "upload-file",
                                  files={"file": (path.name, payload)})
-        url = uploaded.get("url") or uploaded.get("fileUrl")
+        # "url" в ответе — относительный путь (/user-data/...), не начинается
+        # с http и не проходит фильтр вложений в _task_to_card; берём "fullUrl".
+        url = uploaded.get("fullUrl") or uploaded.get("url") or uploaded.get("fileUrl")
         if not url:
             raise TrackerError("yougile upload-file: no url in response",
                                response=uploaded)
