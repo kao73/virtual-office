@@ -2436,7 +2436,7 @@ git commit -m "feat: jira-провайдер — Server REST v2, транзиш�
 единый воркфлоу `Backlog, To Do, In Progress, Code Review, Ready for Test,
 Testing, Closed, Reopened, Suspended, Cancelled, Ready for prod`.
 
-- [ ] **Step 1: Добавить jira-секцию в polygons.yaml**
+- [x] **Step 1: Добавить jira-секцию в polygons.yaml**
 
 ```yaml
 jira:
@@ -2464,7 +2464,7 @@ jira:
 подобрать другую тройку статусов по факту `GET issue/{key}/transitions` и
 поправить секцию (это правка данных полигона, не кода).
 
-- [ ] **Step 2: Прогон**
+- [x] **Step 2: Прогон**
 
 ```bash
 cd adapters
@@ -2474,7 +2474,7 @@ OFFICE_TEST_PROVIDER=jira uv run pytest tests/conformance -v
 
 Ожидание: все тесты PASS (link-тест идёт по ветке живого `link`).
 
-- [ ] **Step 3: Проверка уборки**
+- [x] **Step 3: Проверка уборки**
 
 ```bash
 ~/.claude/skills/jira-cli/scripts/jira-rest.sh GET '/search?jql=labels%20in%20("ai-office-sandbox","ai-office-sandbox-outside")%20AND%20status%20!=%20Cancelled&fields=key'
@@ -2483,7 +2483,7 @@ OFFICE_TEST_PROVIDER=jira uv run pytest tests/conformance -v
 Ожидание: `"total": 0` — вся песочница увезена в Cancelled, метки сняты
 teardown'ом. Если нет — дочистить руками и починить `_cleanup`.
 
-- [ ] **Step 4: Зафиксировать результат**
+- [x] **Step 4: Зафиксировать результат**
 
 Отметить в этом файле чекбоксы Task 12 и дописать строку с датой прогона и
 количеством пройденных тестов. Commit:
@@ -2492,6 +2492,38 @@ teardown'ом. Если нет — дочистить руками и почин
 git add adapters/tests/conformance/polygons.yaml docs/plans/2026-07-28-adapter-seam.md
 git commit -m "test: jira-смоук конформанс-сьюта против песочницы CRM3"
 ```
+
+**Результат прогона (2026-07-28):** `OFFICE_TEST_PROVIDER=jira uv run pytest
+tests/conformance -v` → **10 passed** (включая живую ветку `link` —
+`test_link_or_explicit_capability_error` реально дёрнул `POST issueLink` и
+подтвердил связь read-back'ом; первый живой прогон этой ветки). Юниты после
+правок: `uv run pytest tests/unit -v` → **62 passed**. Уборка подтверждена
+JQL (`labels in ("ai-office-sandbox","ai-office-sandbox-outside") AND status
+!= Cancelled`) → `"total": 0`.
+
+Расхождения факта с исходным планом Step 1, обе — правки данных полигона по
+фактическому воркфлоу CRM3/Story (`GET issue/{key}/transitions` на пробных
+CRM3-161/CRM3-162):
+1. `done` отображён на `"In Progress"`, а не `"Closed"` — прямого перехода
+   `To Do → Closed` в воркфлоу нет (из `To Do` доступны только `Cancelled` и
+   `Start Progress → In Progress`; до `Closed` есть прямой переход только из
+   `In Progress`). Сьют достигает `done` исключительно через `move()` из
+   `analysis` (`create_card` никогда не создаёт карточку сразу в `done`),
+   поэтому `analysis(To Do) → done(In Progress)` как единственный имеющийся
+   прямой переход подходит без потери покрытия контракта.
+2. Транзишн `Cancelled` в CRM3 несёт обязательные поля (`resolution` +
+   текстовая «Причина отмены», `customfield_12307`) через post-function
+   валидатор воркфлоу — они не отмечены `required: true` в editmeta самого
+   транзишна и всплывают только в ответе `HTTP 400` при попытке выполнить
+   переход без них. Это **правка провайдера**, не только данных:
+   `JiraProvider._transition_to` (`office_adapter/providers/jira.py`)
+   получил необязательный параметр `fields: dict | None`, прокидываемый в
+   тело `POST transitions`; `conftest._cleanup` передаёт туда
+   `polygon["cleanup"]["fields"]`. Значения полей — в `polygons.yaml`
+   (`cleanup.fields`), т.к. это деталь конкретного воркфлоу CRM3, а не общая
+   логика провайдера. Обе прочие транзишны сьюта (`Backlog → To Do`,
+   `To Do → In Progress`) обязательных полей не несут — проверено тем же
+   способом на пробных карточках.
 
 ---
 

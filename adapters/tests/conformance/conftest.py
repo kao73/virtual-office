@@ -63,9 +63,12 @@ def _cleanup(provider, polygon, card_id: str) -> None:
     if mode == "delete":  # yougile: пометить задачу удалённой
         provider._request("PUT", f"tasks/{card_id}", json={"deleted": True})
     elif mode == "jira":  # jira: сначала снять метки (закрытые задачи часто
-        # нередактируемы), затем увести в терминальный статус
+        # нередактируемы), затем увести в терминальный статус; полигон может
+        # нести обязательные поля транзишна (пример: CRM3 Cancelled требует
+        # resolution + причину — см. JiraProvider._transition_to)
         provider._set_labels(card_id, [])
-        provider._transition_to(card_id, polygon["cleanup"]["state"])
+        provider._transition_to(card_id, polygon["cleanup"]["state"],
+                                fields=polygon["cleanup"].get("fields"))
     else:
         raise AssertionError(f"unknown cleanup mode: {mode}")
 

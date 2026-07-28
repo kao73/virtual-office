@@ -193,11 +193,20 @@ class JiraProvider:
         return self._fence_label in card.labels
 
     # --- сырые операции для конформанс-сьюта (teardown, посадка чужого) ---
-    def _transition_to(self, card_id: str, status_name: str) -> None:
+    def _transition_to(self, card_id: str, status_name: str,
+                       fields: dict | None = None) -> None:
+        # Живой смоук против CRM3 (Task 12): некоторые транзишны воркфлоу несут
+        # обязательные поля через post-function валидатор, не объявленные как
+        # required в editmeta транзишна (например Cancelled требует resolution
+        # и текстовое поле причины) — без них Jira отвечает HTTP 400. Профиль
+        # клиента ими не управляет (это деталь конкретного воркфлоу трекера),
+        # поэтому полигон/вызывающий код может передать их явно.
         data = self._request("GET", f"issue/{card_id}/transitions")
         transition_id = _pick_transition(data.get("transitions", []), status_name)
-        self._request("POST", f"issue/{card_id}/transitions",
-                      json={"transition": {"id": transition_id}})
+        payload: dict = {"transition": {"id": transition_id}}
+        if fields:
+            payload["fields"] = fields
+        self._request("POST", f"issue/{card_id}/transitions", json=payload)
 
     def _set_labels(self, card_id: str, labels: list[str]) -> None:
         self._request("PUT", f"issue/{card_id}",
