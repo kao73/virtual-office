@@ -114,6 +114,12 @@ def main(argv: list[str] | None = None) -> int:
         json.dump(err.to_json(), sys.stderr, ensure_ascii=False)
         sys.stderr.write("\n")
         return err.exit_code
+    except Exception as exc:  # noqa: BLE001 — контракт stderr для ролей важнее чистоты
+        json.dump({"error": "internal_error",
+                   "message": f"{type(exc).__name__}: {exc}", "details": {}},
+                  sys.stderr, ensure_ascii=False)
+        sys.stderr.write("\n")
+        return 2
 
 
 def run() -> None:

@@ -20,10 +20,13 @@ def _issue_to_card(issue: dict, states: dict, fence_label: str,
     status = fields.get("status", {}).get("name", "")
     labels = fields.get("labels", [])
 
-    candidates = [s for s, r in states.items() if r.get("status") == status]
-    if len(candidates) > 1:
-        candidates = [s for s in candidates
-                      if states[s].get("label") in labels]
+    candidates = []
+    for state_name, repr_ in states.items():
+        if repr_.get("status") != status:
+            continue
+        if repr_.get("label") and repr_["label"] not in labels:
+            continue
+        candidates.append(state_name)
     state = candidates[0] if len(candidates) == 1 else None
 
     comments = []
@@ -123,9 +126,12 @@ class JiraProvider:
 
     def move(self, card_id: str, state: str) -> None:
         repr_ = self._profile.state_repr(state)
-        self._transition_to(card_id, repr_["status"])
+        card = self.read_card(card_id)
+        if card.raw_state.lower() != repr_["status"].lower():
+            self._transition_to(card_id, repr_["status"])
+            card = self.read_card(card_id)
         # Смена метки состояния: добавить новую, снять прочие состояние-метки.
-        current = set(self.read_card(card_id).labels)
+        current = set(card.labels)
         target = {repr_["label"]} if repr_.get("label") else set()
         stale = (current & self._state_labels) - target
         update = ([{"add": lbl} for lbl in target - current]

@@ -96,3 +96,16 @@ def test_missing_subcommand_yields_usage_error_json(client_dir, capsys):
     err = json.loads(capsys.readouterr().err)
     assert code == 1
     assert err["error"] == "usage_error"
+
+
+def test_non_adapter_exception_yields_internal_error_json(client_dir, monkeypatch, capsys):
+    """Находка 3: сырой баг (не AdapterError) не должен ронять JSON-контракт
+    stderr трейсбеком — CLI обязан завернуть его в internal_error."""
+    def boom(profile):
+        raise KeyError("boom")
+
+    monkeypatch.setattr(providers, "get_provider", boom)
+    code = cli.main(["capabilities"])
+    err = json.loads(capsys.readouterr().err)
+    assert code == 2
+    assert err["error"] == "internal_error"

@@ -54,8 +54,13 @@ def adapter(provider, profile):
 def tracked(provider, polygon):
     created: list[str] = []
     yield created.append
+    failures = []
     for card_id in created:
-        _cleanup(provider, polygon, card_id)
+        try:
+            _cleanup(provider, polygon, card_id)
+        except Exception as exc:  # noqa: BLE001 — уборка обязана дойти до конца списка
+            failures.append(f"{card_id}: {exc}")
+    assert not failures, f"cleanup failed for: {failures}"
 
 
 def _cleanup(provider, polygon, card_id: str) -> None:

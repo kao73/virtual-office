@@ -68,6 +68,15 @@ def test_state_ambiguous_without_label_gives_none():
     assert card.state is None
 
 
+def test_declared_label_missing_gives_none():
+    states = {"design_gate": {"status": "In Progress", "label": "office:design-gate"}}
+    issue = {"key": "X-5", "fields": {**ISSUE["fields"],
+             "status": {"name": "In Progress"},
+             "labels": ["ai-office"]}}
+    card = _issue_to_card(issue, states, "ai-office", "https://j")
+    assert card.state is None
+
+
 def test_unknown_status_gives_none_state():
     issue = {"key": "X-2", "fields": {**ISSUE["fields"],
              "status": {"name": "Suspended"}}}
@@ -124,3 +133,62 @@ def test_attach_sends_bytes_not_live_handle(tmp_path, monkeypatch):
     name, payload = captured["file"]
     assert name == "report.txt"
     assert isinstance(payload, bytes)
+
+
+def _jira_provider(monkeypatch, states=None):
+    monkeypatch.setenv("JIRA_LOGIN", "kao")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    from office_adapter.profile import load_profile_data
+    from office_adapter.providers.jira import JiraProvider
+
+    profile = load_profile_data({"tracker": {
+        "provider": "jira", "fence": "label:ai-office",
+        "url": "https://jira.example.com", "project": "CRM3", "issue_type": "Task",
+        "states": states or {"idea": {"status": "Backlog"}}}})
+    return JiraProvider(profile)
+
+
+def _fake_card(raw_state: str, labels: list[str] | None = None):
+    from office_adapter.interface import Card
+
+    return Card(id="CRM3-1", key="CRM3-1", title="T", description="",
+               state=None, raw_state=raw_state,
+               url="https://jira.example.com/browse/CRM3-1",
+               labels=labels or [], comments=[], links=[], attachments=[])
+
+
+def test_move_is_idempotent_when_already_in_target_status(monkeypatch):
+    """Находка 1: ретрай move после успешного транзишна (например, когда упал
+    только PUT меток) не должен падать в _pick_transition — self-transition
+    в Jira, как правило, не объявлен."""
+    provider = _jira_provider(monkeypatch)
+    monkeypatch.setattr(provider, "read_card", lambda card_id: _fake_card("Backlog"))
+
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((method, path))
+        return {}
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    provider.move("CRM3-1", "idea")
+
+    assert not any(path.endswith("/transitions") for _, path in calls)
+
+
+def test_move_transitions_when_status_differs(monkeypatch):
+    provider = _jira_provider(monkeypatch)
+    monkeypatch.setattr(provider, "read_card", lambda card_id: _fake_card("To Do"))
+
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((method, path))
+        if method == "GET" and path.endswith("/transitions"):
+            return {"transitions": [{"id": "31", "to": {"name": "Backlog"}}]}
+        return {}
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    provider.move("CRM3-1", "idea")
+
+    assert ("POST", "issue/CRM3-1/transitions") in calls
