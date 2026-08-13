@@ -83,7 +83,7 @@ project = {PROJECT} AND labels = "{fence}" AND status = "{status}"
 ORDER BY created ASC
 ```
 
-Сортировка по дате создания даёт приоритет порядком на доске (§5 концепта).
+Сортировка по дате создания даёт приоритет порядком на доске (`docs/decisions.md`, §5).
 
 ## Вложения
 
