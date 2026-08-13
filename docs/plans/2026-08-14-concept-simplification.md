@@ -589,10 +589,16 @@ grep -rn "concept\.md\|v1-scope\.md" --include="*.md" . | grep -v '^./docs/plans
 
 ```bash
 grep -rn "concept\.md\|v1-scope\.md" --include="*.md" --include="*.json" . \
-  | grep -v '/superseded/' | grep -v 'CHANGELOG.md:1[12]'
+  | grep -v '/superseded/'
 ```
 
-Ожидание: пустой вывод.
+Ожидание: ровно три попадания, все в `CHANGELOG.md`, все внутри исторической
+записи о ревизии Р-28…Р-35 (та, что начинается «Ревизия концепта 2026-08-14»).
+Эту запись править нельзя: она описывает то, что было сделано тогда.
+Любое попадание вне её — битая ссылка, вернуться к шагу 4.
+
+Проверять по содержанию, а не по номерам строк: запись, добавленная на шаге 5,
+сдвигает историческую вниз.
 
 - [ ] **Шаг 7: Проверить, что новые документы найдены отовсюду**
 
@@ -605,8 +611,19 @@ grep -rln "office\.md" --include="*.md" . | sort
 
 - [ ] **Шаг 8: Коммит**
 
+Явным списком файлов, не `git add -A`: за время исполнения четырёх задач
+в дереве мог появиться посторонний файл, и `-A` утащил бы его в коммит.
+
 ```bash
-git add -A
+git add docs/concept.md docs/v1-scope.md \
+        .claude/CLAUDE.md README.md CHANGELOG.md \
+        skills/office-about/SKILL.md \
+        docs/plans/2026-07-27-plugin-skeleton.md \
+        docs/specs/2026-07-27-plugin-skeleton-design.md \
+        docs/specs/superseded/README.md docs/plans/superseded/README.md \
+        docs/research/2026-08-14-tracker-adapter-clean-research.md \
+        docs/providers/jira.md
+git status --short   # ожидание: ничего незастейдженного из правленых файлов
 git commit -m "docs: concept.md и v1-scope.md заменены справочником, ссылки поправлены
 
 Р-36: исходники удалены после переноса содержимого в docs/office.md
