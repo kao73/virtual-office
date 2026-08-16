@@ -45,6 +45,9 @@ func fixtureOffice(t *testing.T, yaml string, skills ...string) string {
 	write(filepath.Join("roles", "tester", "role.md"), "# Роль: tester\n\nДелай, что сказано.\n")
 	write(filepath.Join("roles", "tester", "role.yaml"), yaml)
 	write(filepath.Join("hooks", "require-result.sh"), "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(filepath.Join(root, "hooks", "require-result.sh"), 0o755); err != nil {
+		t.Fatalf("хук не сделан исполняемым: %v", err)
+	}
 	for _, skill := range skills {
 		write(filepath.Join("skills", skill, "SKILL.md"), "# "+skill+"\n")
 	}

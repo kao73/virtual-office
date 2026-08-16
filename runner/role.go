@@ -115,8 +115,13 @@ func (r Role) validate(dirName string) error {
 		}
 	}
 	for _, path := range r.HookFiles() {
-		if _, err := os.Stat(path); err != nil {
+		// Неисполняемый хук даёт код 126, а всё, кроме 2, считается неблокирующей
+		// ошибкой — ограждение молча перестанет ограждать. Ловим на загрузке.
+		switch fi, err := os.Stat(path); {
+		case err != nil:
 			errs = append(errs, fmt.Errorf("хук не найден: %w", err))
+		case fi.Mode()&0o111 == 0:
+			errs = append(errs, fmt.Errorf("хук %s не исполняемый: ограждение не сработает и не пожалуется", path))
 		}
 	}
 

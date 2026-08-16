@@ -43,6 +43,9 @@ func fixtureOffice(t *testing.T, roleYAML string) string {
 	write(filepath.Join(RolesDir, "tester", "role.md"), "# Роль: tester\n\nДелай, что сказано.\n")
 	write(filepath.Join(RolesDir, "tester", RoleFile), roleYAML)
 	write(filepath.Join("hooks", "require-result.sh"), "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(filepath.Join(root, "hooks", "require-result.sh"), 0o755); err != nil {
+		t.Fatalf("хук не сделан исполняемым: %v", err)
+	}
 
 	return root
 }
@@ -143,6 +146,23 @@ func TestSystemPromptGluesIncludesThenRoleThenSpec(t *testing.T) {
 	// прочитать docs/contracts/agent-io.md из репозитория клиента.
 	if !strings.Contains(prompt, role.ResultFile) {
 		t.Error("в промпте нет пути к файлу результата")
+	}
+}
+
+// Неисполняемый хук — худший вид поломки: Claude Code сочтёт код 126
+// неблокирующей ошибкой, и ограждение перестанет ограждать беззвучно.
+func TestLoadRoleRejectsNonExecutableHook(t *testing.T) {
+	root := fixtureOffice(t, fixtureRoleYAML)
+	if err := os.Chmod(filepath.Join(root, "hooks", "require-result.sh"), 0o644); err != nil {
+		t.Fatalf("права не сняты: %v", err)
+	}
+
+	_, err := LoadRole(root, "tester")
+	if err == nil {
+		t.Fatal("хук неисполняемый, но роль принята")
+	}
+	if !strings.Contains(err.Error(), "не исполняемый") {
+		t.Errorf("ошибка не объясняет причину: %v", err)
 	}
 }
 
