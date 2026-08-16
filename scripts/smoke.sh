@@ -16,6 +16,10 @@ root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 scenario=${1:-all}
 base=${SMOKE_DIR:-$(mktemp -d -t office-smoke)}
 
+# Роль от бэкенда не зависит: оба сценария обязаны проходить и без изоляции,
+# и в песочнице, без единой правки в roles/.
+backend=${OFFICE_BACKEND:-local}
+
 failures=0
 ok() { printf '    ✓ %s\n' "$1"; }
 bad() {
@@ -59,14 +63,14 @@ JSON
 run_case() {
 	local name=$1 task=$2 dir="$base/$1"
 
-	printf '\n== %s ==\n  каталог: %s\n' "$name" "$dir"
+	printf '\n== %s (бэкенд %s) ==\n  каталог: %s\n' "$name" "$backend" "$dir"
 	mkdir -p "$dir"
 	new_repo "$dir"
 	printf '%s\n' "$task" >"$base/$name-task.md"
 
 	local started elapsed code
 	started=$(date +%s)
-	"$root/bin/run-agent" --role implementer --workdir "$dir" --task "$base/$name-task.md" --backend local
+	"$root/bin/run-agent" --role implementer --workdir "$dir" --task "$base/$name-task.md" --backend "$backend"
 	code=$?
 	elapsed=$(($(date +%s) - started))
 

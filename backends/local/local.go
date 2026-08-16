@@ -34,7 +34,9 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 
 	cmd := exec.CommandContext(ctx, l.Argv[0], l.Argv[1:]...)
 	cmd.Dir = l.Workdir
-	cmd.Env = l.Env
+	// Изоляции здесь нет, поэтому окружение хоста воспроизводится целиком,
+	// а поверх ложится то, что задал сам запуск.
+	cmd.Env = append(append(make([]string, 0, len(l.HostEnv)+len(l.Env)), l.HostEnv...), l.Env...)
 	cmd.Stdin = strings.NewReader(l.Stdin)
 	cmd.Stdout = log
 	cmd.Stderr = log

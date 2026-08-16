@@ -107,8 +107,15 @@ func TestBuildCommandLine(t *testing.T) {
 	if got := argValue(t, launch.Argv, "--permission-mode"); got != "dontAsk" {
 		t.Errorf("режим разрешений %q: в headless диалог показать некому", got)
 	}
-	if got := argValue(t, launch.Argv, "--setting-sources"); got != "" {
-		t.Errorf("источники настроек %q: ожидался пустой список, иначе подтянутся чужие слои", got)
+	if !slices.Contains(launch.Argv, "--setting-sources=") {
+		t.Errorf("источники настроек не отсечены, подтянутся чужие слои: %q", launch.Argv)
+	}
+	// Пустой элемент командной строки изолированный бэкенд не примет: sbx отвечает
+	// «cmd element is empty». Флаги с пустым значением пишутся через равенство.
+	for i, arg := range launch.Argv {
+		if arg == "" {
+			t.Errorf("аргумент %d пуст: такую команду песочница отвергнет", i)
+		}
 	}
 	// Роль разрешает три инструмента; без --tools агенту достались бы все встроенные,
 	// включая сетевые и порождающие процессы.
@@ -173,12 +180,14 @@ func TestBuildIsolatesHostConfig(t *testing.T) {
 	t.Setenv("OFFICE_HOST_ONLY", "не должно доехать")
 	launch, _, _ := fixtureLaunch(t, roleYAML)
 
-	env := strings.Join(launch.Env, "\n")
-	if strings.Contains(env, "OFFICE_HOST_ONLY") {
+	all := strings.Join(append(slices.Clone(launch.Env), launch.HostEnv...), "\n")
+	if strings.Contains(all, "OFFICE_HOST_ONLY") {
 		t.Error("посторонняя переменная хоста доехала до агента")
 	}
-	if !strings.Contains(env, "CLAUDE_CONFIG_DIR="+launch.ConfigDir) {
-		t.Errorf("конфиг-каталог не подменён:\n%s", env)
+	// CLAUDE_CONFIG_DIR задаёт сам запуск, значит он нужен в любом окружении,
+	// изолированном или нет, и лежать обязан в Env, а не в HostEnv.
+	if !slices.Contains(launch.Env, "CLAUDE_CONFIG_DIR="+launch.ConfigDir) {
+		t.Errorf("конфиг-каталог не подменён: %q", launch.Env)
 	}
 	if fi, err := os.Stat(launch.ConfigDir); err != nil || !fi.IsDir() {
 		t.Errorf("изолированный конфиг-каталог не создан: %v", err)
@@ -186,6 +195,61 @@ func TestBuildIsolatesHostConfig(t *testing.T) {
 	entries, err := os.ReadDir(launch.ConfigDir)
 	if err != nil || len(entries) != 0 {
 		t.Errorf("конфиг-каталог не пуст: %v, %d записей", err, len(entries))
+	}
+}
+
+// Изолированному бэкенду надо знать, что отдать агенту и на каких правах.
+func TestBuildWorkspaces(t *testing.T) {
+	launch, _, workdir := fixtureLaunch(t, roleYAML)
+
+	byPath := make(map[string]runner.Workspace, len(launch.Workspaces))
+	for _, ws := range launch.Workspaces {
+		byPath[ws.Path] = ws
+	}
+
+	work, found := byPath[workdir]
+	if !found {
+		t.Fatalf("рабочая папка не отдана агенту: %+v", launch.Workspaces)
+	}
+	if work.ReadOnly {
+		t.Error("рабочая папка отдана только на чтение: агенту некуда писать результат")
+	}
+
+	cfg, found := byPath[launch.ConfigDir]
+	if !found || cfg.ReadOnly {
+		t.Errorf("конфиг-каталог должен быть отдан на запись: %+v", launch.Workspaces)
+	}
+
+	// Материалы роли агент менять не должен: промпт, разрешения и ограждения
+	// не подлежат правке тем, кого они ограничивают.
+	roleDir := filepath.Dir(argValue(t, launch.Argv, "--settings"))
+	ws, found := byPath[roleDir]
+	if !found {
+		t.Fatalf("материалы роли не отданы агенту: %+v", launch.Workspaces)
+	}
+	if !ws.ReadOnly {
+		t.Error("материалы роли отданы на запись: агент может переписать собственные ограничения")
+	}
+}
+
+// Ограждения переносятся в каталог запуска: иначе изолированному бэкенду
+// пришлось бы отдавать агенту конфиг-репозиторий ради пары скриптов.
+func TestBuildCopiesHooksOutOfConfigRepo(t *testing.T) {
+	launch, _, _ := fixtureLaunch(t, roleYAML)
+
+	command := stopHookCommand(t, launch.Settings)
+	roleDir := filepath.Dir(argValue(t, launch.Argv, "--settings"))
+	if !strings.Contains(command, roleDir) {
+		t.Errorf("ограждение запускается не из каталога запуска: %s", command)
+	}
+
+	copied := filepath.Join(roleDir, "hooks", "require-result.sh")
+	info, err := os.Stat(copied)
+	if err != nil {
+		t.Fatalf("ограждение не скопировано: %v", err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Error("копия ограждения не исполняемая: код 126 считается неблокирующей ошибкой")
 	}
 }
 
@@ -204,11 +268,11 @@ func TestBuildPassesOnlyChosenCredential(t *testing.T) {
 	}
 	defer launch.Cleanup()
 
-	env := strings.Join(launch.Env, "\n")
-	if !strings.Contains(env, "ANTHROPIC_API_KEY=ключ") {
+	if !slices.Contains(launch.Env, "ANTHROPIC_API_KEY=ключ") {
 		t.Error("API-ключ не передан, хотя задан: приоритет должен совпадать с поведением CLI")
 	}
-	if strings.Contains(env, "токен") {
+	all := strings.Join(append(slices.Clone(launch.Env), launch.HostEnv...), "\n")
+	if strings.Contains(all, "токен") {
 		t.Error("невыбранный кред доехал до агента: в процессе должен быть только один")
 	}
 	if !slices.Contains(launch.SecretVars, "ANTHROPIC_API_KEY") {

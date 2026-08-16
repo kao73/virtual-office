@@ -18,6 +18,7 @@ import (
 
 	"github.com/kao73/virtual-office/adapters/claude"
 	"github.com/kao73/virtual-office/backends/local"
+	"github.com/kao73/virtual-office/backends/sbx"
 	"github.com/kao73/virtual-office/runner"
 )
 
@@ -33,7 +34,7 @@ func main() {
 func execute() (int, error) {
 	roleName := flag.String("role", "", "имя роли из roles/")
 	workdirFlag := flag.String("workdir", "", "рабочая папка агента: git-репозиторий")
-	backend := flag.String("backend", "local", "бэкенд запуска: local или docker")
+	backend := flag.String("backend", "local", "бэкенд запуска: local (без изоляции) или sbx (песочница)")
 	taskFlag := flag.String("task", "", "файл с постановкой задачи; без него берётся уже лежащий .agent/task.md")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
 	flag.Parse()
@@ -93,15 +94,20 @@ func execute() (int, error) {
 		return 0, nil
 	}
 
-	if *backend != "local" {
-		if *backend == "docker" {
-			return 0, errors.New("бэкенд docker появится на шаге 5")
-		}
-		return 0, fmt.Errorf("неизвестный бэкенд %q: доступен local", *backend)
-	}
-
 	logPath := filepath.Join(workdir, runner.Dir, runner.FileLog)
-	exitCode, runErr := local.Run(context.Background(), launch, logPath)
+
+	var exitCode int
+	var runErr error
+	switch *backend {
+	case "local":
+		exitCode, runErr = local.Run(context.Background(), launch, logPath)
+	case "sbx":
+		exitCode, runErr = sbx.Run(context.Background(), launch, logPath)
+	case "docker":
+		return 0, errors.New("бэкенд docker отложен: изоляцию закрывает sbx, докер понадобится на машине без KVM")
+	default:
+		return 0, fmt.Errorf("неизвестный бэкенд %q: доступны local и sbx", *backend)
+	}
 
 	result, err := runner.ReadResult(workdir)
 	if err != nil {
@@ -165,9 +171,18 @@ func printDryRun(l *runner.Launch, passport runner.Run) {
 		fmt.Printf("  %s\n", arg)
 	}
 
-	fmt.Println("\n== окружение ==")
+	fmt.Println("\n== окружение запуска ==")
 	for _, kv := range l.Env {
 		fmt.Printf("  %s\n", mask(kv, l.SecretVars))
+	}
+
+	fmt.Println("\n== рабочие пространства ==")
+	for _, ws := range l.Workspaces {
+		mode := "чтение и запись"
+		if ws.ReadOnly {
+			mode = "только чтение"
+		}
+		fmt.Printf("  %-16s %s\n", mode, ws.Path)
 	}
 
 	fmt.Println("\n== скиллы ==")
