@@ -1,0 +1,35 @@
+# Машиночитаемая спецификация роли. Агент её не видит: адаптер переводит её
+# в нативные механизмы Claude Code.
+name: implementer
+
+# Системный промпт роли и то, что склеивается перед ним.
+prompt: role.md
+includes:
+  - ../_base/base.md
+
+# Имена папок из skills/, которые видит эта роль. Пусто — скиллов нет.
+skills: []
+
+# Синтаксис правил — как у claude: пробел перед * значим,
+# Bash(git diff*) поймал бы и git diff-index.
+tools:
+  allow:
+    - Read
+    - Edit
+    - Write
+    - "Bash(git *)"
+    - "Bash(uv *)"
+    - "Bash(pytest *)"
+  deny: []
+
+# Детерминированные ограждения, скрипты из репозитория.
+hooks:
+  stop:
+    - hooks/require-result.sh   # не даёт завершиться без валидного result.json
+
+limits:
+  max_turns: 50                 # --max-turns существует, проверено
+  timeout_sec: 1800             # флага таймаута нет — держит бэкенд
+
+# Где агент обязан оставить результат, относительно workdir.
+result_file: .agent/result.json
