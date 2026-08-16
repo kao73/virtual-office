@@ -47,6 +47,13 @@ type RoleFlow struct {
 	Outcomes  map[string]Outcome `yaml:"outcomes"`
 }
 
+// Blocked — колонка, в которой задача ждёт человека. Отдельной настройки для неё
+// нет намеренно: это ровно то место, куда роль отправляет задачу с вопросом,
+// и раздваивать его — значит однажды развести их по разным колонкам.
+func (r RoleFlow) Blocked() string {
+	return r.Outcomes[string(runner.OutcomeNeedsHuman)].To
+}
+
 // Outcome — что делать с задачей при таком исходе.
 type Outcome struct {
 	To    string `yaml:"to"`

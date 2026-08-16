@@ -1,0 +1,141 @@
+// Package runagent — один прогон агента: роль плюс рабочая папка на входе,
+// машиночитаемый результат на выходе.
+//
+// Здесь сходятся три части, которые друг о друге не знают: контракт обмена
+// (runner), перевод роли в вызов конкретного агента (adapters) и место
+// исполнения (backends). Пакет нужен затем, чтобы прогон звали одинаково
+// и CLI `run-agent` для ручной отладки, и конвейер этапа 2.
+//
+// Каталог обмена пакет **не готовит**: постановку и контекст собирает тот,
+// кто их знает, — CLI из файла, конвейер из тикета.
+package runagent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+
+	"github.com/kao73/virtual-office/adapters/claude"
+	"github.com/kao73/virtual-office/backends/local"
+	"github.com/kao73/virtual-office/backends/sbx"
+	"github.com/kao73/virtual-office/runner"
+)
+
+// Backend по умолчанию: изоляция должна быть тем, что получаешь, ничего не указав.
+const DefaultBackend = "sbx"
+
+// Options — что нужно для прогона.
+type Options struct {
+	ConfigRoot string      // корень конфиг-репозитория: оттуда роль и ограждения
+	Role       runner.Role // уже загруженная роль
+	Workdir    string      // рабочая папка агента; каталог обмена уже подготовлен
+	Backend    string      // local или sbx
+	Passport   runner.Run  // паспорт прогона
+
+	// Mounts — что отдать изоляции сверх рабочей папки. Для worktree сюда идёт
+	// bare-репозиторий: без него git внутри песочницы не заводится.
+	Mounts []runner.Workspace
+}
+
+// Launch — подготовленный, но не исполненный запуск. Им пользуется --dry-run:
+// посмотреть, что получит агент, не тратя токенов.
+type Launch struct {
+	*runner.Launch
+	Platform  runner.Platform
+	Validator string
+}
+
+// Outcome — чем кончился прогон.
+type Outcome struct {
+	Result   runner.Result
+	ExitCode int    // код выхода агента; результат всё равно считается истиной
+	LogPath  string // куда писался вывод агента
+	Archive  string // копия каталога обмена; пусто, если заархивировать не вышло
+}
+
+// Prepare собирает запуск: ограждение под платформу бэкенда, промпты, настройки,
+// командную строку. Ничего не исполняет.
+func Prepare(opts Options) (Launch, error) {
+	_, target, err := backendByName(opts.Backend)
+	if err != nil {
+		return Launch{}, err
+	}
+
+	// Ограждение проверяет результат тем же кодом, что и раннер, поэтому бинарник
+	// собирается из конфиг-репозитория под платформу выбранного бэкенда.
+	validator, err := runner.EnsureValidator(opts.ConfigRoot, target)
+	if err != nil {
+		return Launch{}, err
+	}
+
+	launch, err := claude.Build(opts.Role, opts.Workdir, opts.Passport, validator)
+	if err != nil {
+		return Launch{}, err
+	}
+	launch.Workspaces = append(launch.Workspaces, opts.Mounts...)
+
+	return Launch{Launch: launch, Platform: target, Validator: validator}, nil
+}
+
+// Execute готовит запуск, исполняет его и разбирает результат.
+//
+// Ошибку возвращает только инфраструктура: не собралась роль, нет креда, не встал
+// бэкенд. Всё, что случилось с самим агентом, — это Outcome с исходом, в том числе
+// синтетический failed, когда агент не оставил валидного результата.
+func Execute(ctx context.Context, opts Options) (Outcome, error) {
+	run, _, err := backendByName(opts.Backend)
+	if err != nil {
+		return Outcome{}, err
+	}
+
+	launch, err := Prepare(opts)
+	if err != nil {
+		return Outcome{}, err
+	}
+	defer func() { _ = launch.Cleanup() }()
+
+	logPath := filepath.Join(opts.Workdir, runner.Dir, runner.FileLog)
+	exitCode, runErr := run(ctx, launch.Launch, logPath)
+
+	result, err := runner.ReadResult(opts.Workdir)
+	if err != nil {
+		// Раннер не додумывает исход за агента: молчание — это failed.
+		reason := err.Error()
+		switch {
+		case runErr != nil:
+			reason = runErr.Error() + "; " + reason
+		case exitCode != 0:
+			reason = fmt.Sprintf("агент завершился с кодом %d; %s", exitCode, reason)
+		}
+		result = runner.FailedResult(reason)
+	}
+
+	out := Outcome{Result: result, ExitCode: exitCode, LogPath: logPath}
+
+	// Каталог обмена эфемерен: рабочей папкой служит worktree, а его удаляют.
+	// Неудача архивации не подменяет исход прогона — материал в этот момент
+	// ещё цел, — но и молчать о ней нельзя, поэтому она видна в Outcome.
+	if out.Archive, err = runner.Archive(opts.Workdir, opts.Passport.RunID); err != nil {
+		return out, fmt.Errorf("прогон не заархивирован: %w", err)
+	}
+	return out, nil
+}
+
+// backendRun — исполнение подготовленного запуска. Подпись одна у всех бэкендов:
+// адаптер знает устройство агента, бэкенд — устройство изоляции.
+type backendRun func(context.Context, *runner.Launch, string) (int, error)
+
+// backendByName выдаёт исполнителя и платформу, под которой он запускает агента.
+func backendByName(name string) (backendRun, runner.Platform, error) {
+	switch name {
+	case "local":
+		return local.Run, local.Platform(), nil
+	case "sbx", "":
+		return sbx.Run, sbx.Platform(), nil
+	case "docker":
+		return nil, runner.Platform{}, errors.New("бэкенд docker отложен: изоляцию закрывает sbx, докер понадобится на машине без KVM")
+	default:
+		return nil, runner.Platform{}, fmt.Errorf("неизвестный бэкенд %q: доступны local и sbx", name)
+	}
+}

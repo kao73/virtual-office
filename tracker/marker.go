@@ -102,13 +102,18 @@ func MarkerOf(body string) (Marker, bool) {
 	return ParseMarker(strings.TrimRight(first, "\r"))
 }
 
-// TailAfterRole отдаёт комментарии после последнего отчёта указанной роли.
+// TailAfterRole отдаёт комментарии после последнего **отчёта** указанной роли.
 // Это и есть контекст, который получит агент: перечитывать историю тикета
 // целиком он не должен (DESIGN §2.4).
 //
-// Записи других ролей границу не двигают: у каждой роли своя нить разговора.
+// Границу двигают только отчёты о прогонах. Системные записи — «аренда истекла»,
+// «ответ человека разобран» — остаются внутри хвоста, и это важно: иначе
+// подтверждение разбора, написанное после ответа человека, отрезало бы сам ответ,
+// и агент не увидел бы того, ради чего его и разбудили.
+//
+// Записи других ролей границу не двигают тоже: у каждой роли своя нить разговора.
 func TailAfterRole(comments []Comment, role string) []Comment {
-	last := lastOfRole(comments, role)
+	last := lastOfRole(comments, role, func(m Marker) bool { return m.Outcome != "" })
 	if last < 0 {
 		return comments
 	}
@@ -123,7 +128,9 @@ func TailAfterRole(comments []Comment, role string) []Comment {
 // ответа записью `event:human-reply`, вопрос закрыт. Иначе каждый следующий tick
 // разбирал бы тот же ответ заново.
 func HumanReply(comments []Comment, role string, agents []string) (Comment, bool) {
-	last := lastOfRole(comments, role)
+	// Здесь, в отличие от нарезки хвоста, годится любая запись роли: подтверждение
+	// разбора `event:human-reply` обязано закрывать вопрос.
+	last := lastOfRole(comments, role, func(Marker) bool { return true })
 	if last < 0 {
 		return Comment{}, false
 	}
@@ -142,10 +149,11 @@ func HumanReply(comments []Comment, role string, agents []string) (Comment, bool
 	return Comment{}, false
 }
 
-// lastOfRole — индекс последнего комментария офиса, помеченного этой ролью.
-func lastOfRole(comments []Comment, role string) int {
+// lastOfRole — индекс последней записи офиса, помеченной этой ролью и подошедшей
+// под match.
+func lastOfRole(comments []Comment, role string, match func(Marker) bool) int {
 	for i := len(comments) - 1; i >= 0; i-- {
-		if m, ok := MarkerOf(comments[i].Body); ok && m.Role == role {
+		if m, ok := MarkerOf(comments[i].Body); ok && m.Role == role && match(m) {
 			return i
 		}
 	}

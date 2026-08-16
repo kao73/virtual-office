@@ -1,0 +1,148 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/kao73/virtual-office/pipeline"
+	"github.com/kao73/virtual-office/runagent"
+	"github.com/kao73/virtual-office/runner"
+	"github.com/kao73/virtual-office/tracker"
+	"github.com/kao73/virtual-office/tracker/mock"
+	"github.com/kao73/virtual-office/workspace"
+)
+
+// office собирает конвейер: трекер, хозяйство рабочих папок, граф, проекты
+// и настоящий запуск агента.
+//
+// Сборка вся здесь, в точке входа: pipeline не знает, какой трекер и какой
+// бэкенд ему достались, и именно поэтому его можно проверить целиком
+// на файловом трекере с поддельным агентом.
+func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, error) {
+	trackerName := fs.String("tracker", "mock", "трекер задач: пока только mock")
+	backend := fs.String("backend", runagent.DefaultBackend, "бэкенд агента: sbx или local")
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+
+	configRoot, err := configRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	var tasks tracker.Tracker
+	switch *trackerName {
+	case "mock":
+		if tasks, err = mock.Default(); err != nil {
+			return nil, err
+		}
+	case "jira":
+		return nil, errors.New("трекер jira ещё не сделан: это шаг 5")
+	default:
+		return nil, fmt.Errorf("неизвестный трекер %q: доступен mock", *trackerName)
+	}
+
+	workflow, err := tracker.LoadWorkflow(filepath.Join(configRoot, tracker.WorkflowFile))
+	if err != nil {
+		return nil, err
+	}
+	projects, err := tracker.LoadProjects(filepath.Join(configRoot, tracker.ProjectsFile))
+	if err != nil {
+		return nil, err
+	}
+	workspaces, err := workspace.Default()
+	if err != nil {
+		return nil, err
+	}
+	configSHA, err := runner.ConfigSHA(configRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pipeline.Office{
+		Tracker:    tasks,
+		Workspaces: workspaces,
+		Workflow:   workflow,
+		Projects:   projects,
+		Agent:      pipeline.SandboxAgent{ConfigRoot: configRoot, Backend: *backend, Log: out},
+		ConfigRoot: configRoot,
+		ConfigSHA:  configSHA,
+		Log:        out,
+	}, nil
+}
+
+// tickCommand — один цикл: разобрать ответы человека, взять не больше одной
+// задачи, выполнить и вернуть в граф.
+func tickCommand(args []string, out io.Writer) error {
+	fs := flags("tick")
+	role := fs.String("role", "", "роль из workflow.yaml; без неё — по циклу на каждую роль")
+
+	o, err := office(fs, args, out)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	if *role == "" {
+		return o.TickAll(ctx)
+	}
+	worked, err := o.Tick(ctx, *role)
+	if err != nil {
+		return err
+	}
+	if !worked {
+		fmt.Fprintf(out, "%s: работы нет\n", *role)
+	}
+	return nil
+}
+
+// reapCommand возвращает в очередь задачи с истёкшей арендой.
+func reapCommand(args []string, out io.Writer) error {
+	o, err := office(flags("reap"), args, out)
+	if err != nil {
+		return err
+	}
+	return o.Reap(context.Background())
+}
+
+// loopCommand гоняет цикл по расписанию, пока не остановят сигналом.
+//
+// Это не демон: он не следит за собой и не перезапускается. Запускать его
+// должен cron, launchd или systemd-timer — примеры в bootstrap/.
+func loopCommand(args []string, out io.Writer) error {
+	fs := flags("loop")
+	role := fs.String("role", "", "роль из workflow.yaml; без неё — по циклу на каждую роль")
+	every := fs.Duration("every", 2*time.Minute, "пауза между циклами")
+
+	o, err := office(fs, args, out)
+	if err != nil {
+		return err
+	}
+
+	// Остановка между циклами, а не посреди: прерванный прогон оставил бы
+	// задачу арендованной до истечения аренды.
+	ctx, stop := signalContext()
+	defer stop()
+
+	fmt.Fprintf(out, "цикл каждые %s, остановка по SIGINT или SIGTERM\n", *every)
+	return o.Loop(ctx, *every, *role)
+}
+
+// configRoot — корень конфиг-репозитория. Его сообщает обёртка bin/runner;
+// при прямом запуске берётся текущий каталог.
+func configRoot() (string, error) {
+	if root := os.Getenv("OFFICE_CONFIG_ROOT"); root != "" {
+		return root, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("корень конфигурации не определён: %w", err)
+	}
+	return cwd, nil
+}

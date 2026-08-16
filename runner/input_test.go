@@ -50,12 +50,7 @@ func TestPrepareInputWritesExchange(t *testing.T) {
 	workdir := gitRepo(t)
 	role, passport := fixtureRole(t), fixturePassport()
 
-	taskFile := filepath.Join(t.TempDir(), "task.md")
-	if err := os.WriteFile(taskFile, []byte("Сделай хорошо.\n"), 0o644); err != nil {
-		t.Fatalf("постановка не записана: %v", err)
-	}
-
-	if err := PrepareInput(workdir, role, passport, taskFile); err != nil {
+	if err := PrepareInput(workdir, role, passport, Input{Task: "Сделай хорошо.\n"}); err != nil {
 		t.Fatalf("вход не подготовлен: %v", err)
 	}
 
@@ -89,7 +84,7 @@ func TestPrepareInputWritesExchange(t *testing.T) {
 }
 
 func TestPrepareInputRequiresTask(t *testing.T) {
-	err := PrepareInput(gitRepo(t), fixtureRole(t), fixturePassport(), "")
+	err := PrepareInput(gitRepo(t), fixtureRole(t), fixturePassport(), Input{})
 	if err == nil {
 		t.Fatal("постановки задачи нет, но вход подготовлен")
 	}
@@ -108,7 +103,7 @@ func TestPrepareInputKeepsTaskAlreadyInPlace(t *testing.T) {
 		t.Fatalf("постановка не записана: %v", err)
 	}
 
-	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), ""); err != nil {
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), Input{}); err != nil {
 		t.Fatalf("вход не подготовлен: %v", err)
 	}
 	if task := read(t, workdir, FileTask); task != "уже лежит\n" {
@@ -121,12 +116,7 @@ func TestStateFileGoesIntoContext(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workdir, StateFile), []byte("Дошёл до третьего шага.\n"), 0o644); err != nil {
 		t.Fatalf("состояние не записано: %v", err)
 	}
-	taskFile := filepath.Join(t.TempDir(), "task.md")
-	if err := os.WriteFile(taskFile, []byte("Задача\n"), 0o644); err != nil {
-		t.Fatalf("постановка не записана: %v", err)
-	}
-
-	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), taskFile); err != nil {
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), Input{Task: "Задача\n"}); err != nil {
 		t.Fatalf("вход не подготовлен: %v", err)
 	}
 	if context := read(t, workdir, FileContext); !strings.Contains(context, "Дошёл до третьего шага") {
@@ -195,4 +185,36 @@ func read(t *testing.T, workdir, name string) string {
 		t.Fatalf("%s не прочитан: %v", name, err)
 	}
 	return string(raw)
+}
+
+// Раннер этапа 2 приносит агенту переписку тикета, номер попытки и ключ задачи —
+// всё, чего он не может узнать сам, сидя в рабочей папке.
+func TestContextCarriesRunnerSections(t *testing.T) {
+	workdir := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(workdir, PlanFile), []byte("1. Сделать\n2. Проверить\n"), 0o644); err != nil {
+		t.Fatalf("план не записан: %v", err)
+	}
+
+	passport := fixturePassport()
+	passport.TaskKey = "OFF-1"
+	extra := "## Переписка\n\nЧеловек: берём Stripe.\n"
+
+	if err := PrepareInput(workdir, fixtureRole(t), passport, Input{Task: "Задача\n", Context: extra}); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	context := read(t, workdir, FileContext)
+	for _, want := range []string{"OFF-1", "берём Stripe", "2. Проверить"} {
+		if !strings.Contains(context, want) {
+			t.Errorf("в контексте нет %q:\n%s", want, context)
+		}
+	}
+
+	var got Run
+	if err := json.Unmarshal([]byte(read(t, workdir, FileRun)), &got); err != nil {
+		t.Fatalf("паспорт запуска не разобран: %v", err)
+	}
+	if got.TaskKey != "OFF-1" {
+		t.Errorf("ключ задачи не попал в паспорт: %+v", got)
+	}
 }

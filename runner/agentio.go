@@ -52,6 +52,8 @@ type Run struct {
 	Role      string    `json:"role"`
 	ConfigSHA string    `json:"config_sha"`
 	StartedAt time.Time `json:"started_at"`
+	// TaskKey — ключ задачи в трекере. Пуст при ручном запуске: трекера там нет.
+	TaskKey string `json:"task_key,omitempty"`
 }
 
 // Question — вопрос человеку. Варианты ответа необязательны: вопрос может быть открытым.

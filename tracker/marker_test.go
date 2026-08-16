@@ -178,3 +178,31 @@ func TestHumanReply(t *testing.T) {
 		})
 	}
 }
+
+// Границу хвоста двигают только отчёты о прогонах. Системная запись, сделанная
+// после ответа человека, не должна отрезать сам ответ — иначе агент не увидит
+// того, ради чего его и разбудили. Поймано сквозным тестом конвейера, не этим.
+func TestTailKeepsSystemNoticesAndTheAnswerBeforeThem(t *testing.T) {
+	notice := func(event string, minute int) Comment {
+		m := Marker{RunID: runID, Role: "implementer", Event: event, ConfigSHA: "5bc6a3b0"}
+		return comment("office", m.String()+"\nСистемная запись.", minute)
+	}
+	comments := []Comment{
+		report("implementer", "needs_human", 1),
+		comment("человек", "Берём Stripe.", 2),
+		notice(EventHumanReply, 3),
+	}
+
+	tail := TailAfterRole(comments, "implementer")
+	if len(tail) != 2 {
+		t.Fatalf("в хвосте %d комментариев, ожидалось 2: %+v", len(tail), tail)
+	}
+	if tail[0].Body != "Берём Stripe." {
+		t.Errorf("ответ человека отрезан: %+v", tail)
+	}
+
+	// Отчёт о следующем прогоне границу двигает, и хвост снова пуст.
+	if got := TailAfterRole(append(comments, report("implementer", "failed", 4)), "implementer"); len(got) != 0 {
+		t.Errorf("после нового отчёта в хвосте осталось %d комментариев", len(got))
+	}
+}

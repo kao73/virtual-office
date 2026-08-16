@@ -12,13 +12,26 @@ import (
 	"strings"
 )
 
-// StateFile — состояние задачи в корне workdir, если предыдущий запуск его оставил.
-const StateFile = "STATE.md"
+// Файлы, которые агент оставляет в корне рабочей папки между прогонами.
+// Их пишет он сам, раннер только приносит их обратно в контекст.
+const (
+	StateFile = "STATE.md"
+	PlanFile  = "PLAN.md"
+)
+
+// Input — то, что раннер знает о задаче, а агент узнать не может: постановка
+// и собранный контекст. Пустой Task означает, что постановка уже лежит
+// в каталоге обмена и переписывать её не нужно.
+type Input struct {
+	Task string
+	// Context — разделы, которые допишутся к собранному раннером контексту:
+	// переписка тикета, номер попытки, всё, что зависит от трекера.
+	Context string
+}
 
 // PrepareInput готовит каталог обмена перед запуском агента: постановку задачи,
-// контекст и паспорт запуска. Пустой taskFile означает, что постановка уже лежит
-// в каталоге обмена и переписывать её не нужно.
-func PrepareInput(workdir string, role Role, run Run, taskFile string) error {
+// контекст и паспорт запуска.
+func PrepareInput(workdir string, role Role, run Run, in Input) error {
 	agentDir := filepath.Join(workdir, Dir)
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		return fmt.Errorf("каталог обмена не создан: %w", err)
@@ -26,12 +39,8 @@ func PrepareInput(workdir string, role Role, run Run, taskFile string) error {
 
 	taskPath := filepath.Join(agentDir, FileTask)
 	switch {
-	case taskFile != "":
-		task, err := os.ReadFile(taskFile)
-		if err != nil {
-			return fmt.Errorf("постановка задачи не прочитана: %w", err)
-		}
-		if err := os.WriteFile(taskPath, task, 0o644); err != nil {
+	case in.Task != "":
+		if err := os.WriteFile(taskPath, []byte(in.Task), 0o644); err != nil {
 			return fmt.Errorf("%s не записан: %w", filepath.Join(Dir, FileTask), err)
 		}
 	default:
@@ -40,7 +49,7 @@ func PrepareInput(workdir string, role Role, run Run, taskFile string) error {
 		}
 	}
 
-	contextMD, err := composeContext(workdir, role, run)
+	contextMD, err := composeContext(workdir, role, run, in.Context)
 	if err != nil {
 		return err
 	}
@@ -61,12 +70,15 @@ func PrepareInput(workdir string, role Role, run Run, taskFile string) error {
 
 // composeContext собирает context.md. На этом этапе это имя роли, паспорт запуска,
 // действующие ограничения и STATE.md, если он есть.
-func composeContext(workdir string, role Role, run Run) (string, error) {
+func composeContext(workdir string, role Role, run Run, extra string) (string, error) {
 	var b strings.Builder
 
 	b.WriteString("# Контекст запуска\n\n")
 	fmt.Fprintf(&b, "- Роль: %s\n", role.Name)
 	fmt.Fprintf(&b, "- run_id: %s\n", run.RunID)
+	if run.TaskKey != "" {
+		fmt.Fprintf(&b, "- Задача: %s\n", run.TaskKey)
+	}
 	fmt.Fprintf(&b, "- Файл результата: %s\n", role.ResultFile)
 	fmt.Fprintf(&b, "- Предел шагов: %d\n", role.Limits.MaxTurns)
 	fmt.Fprintf(&b, "- Предел времени: %d с\n", role.Limits.TimeoutSec)
@@ -75,14 +87,22 @@ func composeContext(workdir string, role Role, run Run) (string, error) {
 		fmt.Fprintf(&b, "- Запрещённые инструменты: %s\n", strings.Join(role.Tools.Deny, ", "))
 	}
 
-	state, err := os.ReadFile(filepath.Join(workdir, StateFile))
-	switch {
-	case err == nil:
-		fmt.Fprintf(&b, "\n## %s\n\n%s\n", StateFile, bytes.TrimSpace(state))
-	case errors.Is(err, fs.ErrNotExist):
-		// Первый запуск по задаче — состояния ещё нет, это нормально.
-	default:
-		return "", fmt.Errorf("%s не прочитан: %w", StateFile, err)
+	if extra != "" {
+		fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(extra))
+	}
+
+	// STATE.md и PLAN.md пишет сам агент, чтобы следующий прогон продолжил
+	// с того же места. Раннер их не трактует, а просто приносит обратно.
+	for _, name := range []string{StateFile, PlanFile} {
+		content, err := os.ReadFile(filepath.Join(workdir, name))
+		switch {
+		case err == nil:
+			fmt.Fprintf(&b, "\n## %s\n\n%s\n", name, bytes.TrimSpace(content))
+		case errors.Is(err, fs.ErrNotExist):
+			// Первый запуск по задаче — файлов ещё нет, это нормально.
+		default:
+			return "", fmt.Errorf("%s не прочитан: %w", name, err)
+		}
 	}
 
 	return b.String(), nil

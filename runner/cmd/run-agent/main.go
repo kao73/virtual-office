@@ -1,8 +1,9 @@
 // Command run-agent запускает агента в заданной роли над указанной рабочей папкой
 // и печатает машиночитаемый исход.
 //
-// run-agent не клонирует репозитории и не знает, откуда взялся workdir:
-// это любой git-репозиторий, в проде — worktree, который создаст раннер на этапе 2.
+// run-agent не клонирует репозиториев и не знает, откуда взялся workdir: это любой
+// git-репозиторий. В проде рабочую папку готовит раннер (`runner tick`), а эта
+// команда остаётся для ручной отладки роли.
 package main
 
 import (
@@ -11,14 +12,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/kao73/virtual-office/adapters/claude"
-	"github.com/kao73/virtual-office/backends/local"
-	"github.com/kao73/virtual-office/backends/sbx"
+	"github.com/kao73/virtual-office/runagent"
 	"github.com/kao73/virtual-office/runner"
 )
 
@@ -29,7 +27,7 @@ import (
 //	2 — инфраструктурная беда: роль, бэкенд, кред, тулчейн. Запускать было нечем.
 //
 // Смешивать 1 и 2 нельзя: на двойку надо будить человека, а единица — обычный
-// исход прогона, который раннер этапа 2 считает попыткой.
+// исход прогона, который раннер считает попыткой.
 const (
 	exitFailed = 1
 	exitInfra  = 2
@@ -63,10 +61,8 @@ func main() {
 func execute() (int, error) {
 	roleName := flag.String("role", "", "имя роли из roles/")
 	workdirFlag := flag.String("workdir", "", "рабочая папка агента: git-репозиторий")
-	// По умолчанию — песочница: изоляция должна быть тем, что получаешь, ничего
-	// не указав. Бэкенд local отлаживает контур и выбирается осознанно.
-	backend := flag.String("backend", "sbx", "бэкенд запуска: sbx (песочница) или local (без изоляции)")
-	taskFlag := flag.String("task", "", "файл с постановкой задачи; без него берётся уже лежащий .agent/task.md")
+	backend := flag.String("backend", runagent.DefaultBackend, "бэкенд запуска: sbx (песочница) или local (без изоляции)")
+	taskFlag := flag.String("task", "", "файл с постановкой; без него берётся уже лежащий .agent/task.md")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
 	flag.Parse()
 
@@ -83,18 +79,18 @@ func execute() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("workdir не разрешён: %w", err)
 	}
-	taskFile := ""
+
+	task := ""
 	if *taskFlag != "" {
-		if taskFile, err = filepath.Abs(resolve(*taskFlag)); err != nil {
+		path, err := filepath.Abs(resolve(*taskFlag))
+		if err != nil {
 			return 0, fmt.Errorf("файл задачи не разрешён: %w", err)
 		}
-	}
-
-	// Бэкенд выбирается до сборки запуска: он задаёт платформу, под которую
-	// собирается ограждение. Хостовый бинарник в песочнице не запустится.
-	runBackend, target, err := backendByName(*backend)
-	if err != nil {
-		return 0, err
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return 0, fmt.Errorf("постановка задачи не прочитана: %w", err)
+		}
+		task = string(raw)
 	}
 
 	role, err := runner.LoadRole(configRoot, *roleName)
@@ -106,7 +102,7 @@ func execute() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	configSHA, err := headSHA(configRoot)
+	configSHA, err := runner.ConfigSHA(configRoot)
 	if err != nil {
 		return 0, err
 	}
@@ -117,75 +113,43 @@ func execute() (int, error) {
 		StartedAt: time.Now(),
 	}
 
-	if err := runner.PrepareInput(workdir, role, passport, taskFile); err != nil {
+	if err := runner.PrepareInput(workdir, role, passport, runner.Input{Task: task}); err != nil {
 		return 0, err
 	}
 
-	// Ограждение проверяет результат тем же кодом, что и раннер, поэтому бинарник
-	// собирается из этого же репозитория под платформу выбранного бэкенда.
-	validator, err := runner.EnsureValidator(configRoot, target)
-	if err != nil {
-		return 0, err
+	opts := runagent.Options{
+		ConfigRoot: configRoot,
+		Role:       role,
+		Workdir:    workdir,
+		Backend:    *backend,
+		Passport:   passport,
 	}
-
-	launch, err := claude.Build(role, workdir, passport, validator)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = launch.Cleanup() }()
 
 	if *dryRun {
-		printDryRun(launch, passport, target, validator)
+		launch, err := runagent.Prepare(opts)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = launch.Cleanup() }()
+		printDryRun(launch, passport)
 		return 0, nil
 	}
 
-	logPath := filepath.Join(workdir, runner.Dir, runner.FileLog)
-	exitCode, runErr := runBackend(context.Background(), launch, logPath)
-
-	result, err := runner.ReadResult(workdir)
+	out, err := runagent.Execute(context.Background(), opts)
 	if err != nil {
-		// Раннер не додумывает исход за агента: молчание — это failed.
-		reason := err.Error()
-		switch {
-		case runErr != nil:
-			reason = runErr.Error() + "; " + reason
-		case exitCode != 0:
-			reason = fmt.Sprintf("агент завершился с кодом %d; %s", exitCode, reason)
+		// Прогон мог состояться, а сорваться архивация — тогда исход печатаем,
+		// но о беде говорим отдельно.
+		if out.Result.Outcome == "" {
+			return 0, err
 		}
-		result = runner.FailedResult(reason)
+		fmt.Fprintln(os.Stderr, "run-agent:", err)
 	}
 
-	// Каталог обмена эфемерен: на этапе 2 рабочей папкой станет worktree, и он
-	// исчезнет вместе с ним. Неудача архивации не подменяет исход прогона —
-	// материал прогона в этот момент ещё цел, — но и молчать о ней нельзя.
-	archived, archiveErr := runner.Archive(workdir, passport.RunID)
-	if archiveErr != nil {
-		fmt.Fprintln(os.Stderr, "run-agent: прогон не заархивирован:", archiveErr)
-	}
-
-	printResult(result, passport, logPath, archived)
-	if result.Outcome == runner.OutcomeFailed {
+	printResult(out, passport)
+	if out.Result.Outcome == runner.OutcomeFailed {
 		return exitFailed, nil
 	}
 	return 0, nil
-}
-
-// backendRun — исполнение подготовленного запуска. Подпись одна у всех бэкендов:
-// адаптер знает устройство агента, бэкенд — устройство изоляции.
-type backendRun func(context.Context, *runner.Launch, string) (int, error)
-
-// backendByName выдаёт исполнителя и платформу, под которой он запускает агента.
-func backendByName(name string) (backendRun, runner.Platform, error) {
-	switch name {
-	case "local":
-		return local.Run, local.Platform(), nil
-	case "sbx":
-		return sbx.Run, sbx.Platform(), nil
-	case "docker":
-		return nil, runner.Platform{}, errors.New("бэкенд docker отложен: изоляцию закрывает sbx, докер понадобится на машине без KVM")
-	default:
-		return nil, runner.Platform{}, fmt.Errorf("неизвестный бэкенд %q: доступны local и sbx", name)
-	}
 }
 
 // officeRoot — корень конфиг-репозитория. Его сообщает обёртка bin/run-agent;
@@ -213,34 +177,9 @@ func resolve(path string) string {
 	return path
 }
 
-// headSHA — отпечаток конфигурации, ушедшей агенту.
-//
-// Незакоммиченная правка в роли, промпте или ограждении меняет то, что получит агент,
-// а SHA не меняет. Без пометки паспорт прогона утверждал бы, что агенту достался
-// коммит, которого агент не видел, — и разбор «после какого коммита роль стала
-// косячить» опёрся бы на враньё. Пометка не восстанавливает правку, а лишь запрещает
-// доверять SHA; сам материал прогона хранит архив (см. долги этапа 1).
-func headSHA(repo string) (string, error) {
-	out, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
-	if err != nil {
-		return "", fmt.Errorf("не прочитан commit конфигурации в %s: %w", repo, err)
-	}
-	sha := strings.TrimSpace(string(out))
-
-	// Неотслеживаемые файлы считаются наравне с правками: они тоже не описаны SHA.
-	status, err := exec.Command("git", "-C", repo, "status", "--porcelain").Output()
-	if err != nil {
-		return "", fmt.Errorf("не прочитано состояние конфигурации в %s: %w", repo, err)
-	}
-	if strings.TrimSpace(string(status)) != "" {
-		sha += "-dirty"
-	}
-	return sha, nil
-}
-
-func printDryRun(l *runner.Launch, passport runner.Run, target runner.Platform, validator string) {
+func printDryRun(l runagent.Launch, passport runner.Run) {
 	fmt.Printf("run_id:     %s\nроль:       %s\nconfig_sha: %s\nworkdir:    %s\nконфиг:     %s\nтаймаут:    %s\nплатформа:  %s\nограждение: %s\n",
-		passport.RunID, passport.Role, passport.ConfigSHA, l.Workdir, l.ConfigDir, l.Timeout, target, validator)
+		passport.RunID, passport.Role, passport.ConfigSHA, l.Workdir, l.ConfigDir, l.Timeout, l.Platform, l.Validator)
 
 	fmt.Println("\n== команда ==")
 	for _, arg := range l.Argv {
@@ -295,7 +234,8 @@ func mask(kv string, secrets []string) string {
 	return kv
 }
 
-func printResult(r runner.Result, passport runner.Run, logPath, archived string) {
+func printResult(out runagent.Outcome, passport runner.Run) {
+	r := out.Result
 	fmt.Printf("исход:  %s\n", r.Outcome)
 	fmt.Printf("итог:   %s\n", r.Summary)
 	fmt.Printf("дальше: %s\n", r.NextOwner)
@@ -311,8 +251,8 @@ func printResult(r runner.Result, passport runner.Run, logPath, archived string)
 	if len(r.Artifacts) > 0 {
 		fmt.Printf("артефакты: %s\n", strings.Join(r.Artifacts, ", "))
 	}
-	fmt.Printf("run_id: %s\nлог:    %s\n", passport.RunID, logPath)
-	if archived != "" {
-		fmt.Printf("архив:  %s\n", archived)
+	fmt.Printf("run_id: %s\nлог:    %s\n", passport.RunID, out.LogPath)
+	if out.Archive != "" {
+		fmt.Printf("архив:  %s\n", out.Archive)
 	}
 }

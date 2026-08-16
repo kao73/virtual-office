@@ -1,9 +1,12 @@
 #!/bin/sh
-# Точка входа. Сборки не требует: Go собирает и запускает на месте, кэш делает это быстрым.
+# Точка входа ручного запуска агента.
 #
 # Обёртка нужна ровно для двух вещей: сообщить раннеру корень конфиг-репозитория
 # и запомнить каталог, из которого её позвали, — чтобы относительные --workdir
 # и --task не поехали после перехода в корень.
+#
+# Как и bin/runner: сборка плюс exec вместо `go run`, который держит бинарник
+# потомком и не передаёт ему сигналов.
 
 set -eu
 
@@ -11,5 +14,9 @@ OFFICE_CONFIG_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OFFICE_INVOCATION_DIR=$PWD
 export OFFICE_CONFIG_ROOT OFFICE_INVOCATION_DIR
 
+bin="${OFFICE_HOME:-$HOME/.office}/bin"
+mkdir -p "$bin"
+
 cd "$OFFICE_CONFIG_ROOT"
-exec go run ./runner/cmd/run-agent "$@"
+go build -o "$bin/run-agent" ./runner/cmd/run-agent
+exec "$bin/run-agent" "$@"

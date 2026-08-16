@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Пример задания launchd. Пути и учётку правь под машину.
+  Кред агента берётся из окружения launchd: `launchctl setenv CLAUDE_CODE_OAUTH_TOKEN …`
+  Секретов в этом файле нет и быть не должно.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.office.runner</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/ВЛАДЕЛЕЦ/IdeaProjects/virtual-office/bin/runner</string>
+    <string>loop</string>
+    <string>--role</string>
+    <string>implementer</string>
+    <string>--every</string>
+    <string>2m</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/ВЛАДЕЛЕЦ/IdeaProjects/virtual-office</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OFFICE_HOME</key>
+    <string>/Users/ВЛАДЕЛЕЦ/.office</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Упал — поднять снова: цикл рассчитан на то, что его перезапускают. -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/ВЛАДЕЛЕЦ/.office/runner.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ВЛАДЕЛЕЦ/.office/runner.log</string>
+</dict>
+</plist>
