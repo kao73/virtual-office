@@ -149,6 +149,25 @@ func CheckOwner(t Task, a Actor, now time.Time) error {
 	return nil
 }
 
+// ClaimRequest — заявка на захват задачи.
+//
+// Рабочий статус входит в заявку потому, что захват — одна операция, а не две:
+// в JIRA это `PUT fields` + `POST transitions` + сверка, и разрывать её нельзя,
+// иначе между записью аренды и переводом остаётся состояние, которого граф
+// не описывает.
+type ClaimRequest struct {
+	Key        string
+	RunID      string
+	Owner      string // человекочитаемый владелец: имя роли
+	LeaseUntil time.Time
+
+	// ExpectStatus — статус, в котором задача должна быть сейчас. Захват задачи,
+	// успевшей уехать в другую колонку, не наш: ErrClaimLost.
+	ExpectStatus string
+	// WorkingStatus — куда перевести задачу, захватив.
+	WorkingStatus string
+}
+
 // Tracker — всё, что раннеру нужно от трекера задач.
 //
 // Методы, меняющие задачу, принимают Actor и обязаны проверять право через
@@ -171,15 +190,16 @@ type Tracker interface {
 
 	// Claim — захват: записать владельца, run_id и срок аренды, перевести
 	// в рабочий статус и перечитать. Если после перечитывания владелец не мы —
-	// ErrClaimLost, ничего не откатывая. expectStatus — статус, в котором задача
-	// должна была быть: захват задачи, уже уехавшей в другую колонку, не наш.
-	Claim(key, runID, owner string, leaseUntil time.Time, expectStatus string) error
+	// ErrClaimLost, ничего не откатывая.
+	Claim(req ClaimRequest) error
 
-	// Renew — продление своей аренды.
+	// Renew — продление своей аренды. Продлевает только прогон и только живую:
+	// продлевать истёкшую поздно, её уже мог забрать другой.
 	Renew(key, runID string, leaseUntil time.Time) error
 
-	// Release — снять аренду, не трогая статус.
-	Release(key, runID string) error
+	// Release — снять аренду, не трогая статус. Актор нужен потому, что снимает
+	// её не только сам прогон: reaper снимает чужую истёкшую как системная операция.
+	Release(key string, by Actor) error
 
 	// Transition — сменить колонку.
 	Transition(key string, by Actor, toStatus string) error

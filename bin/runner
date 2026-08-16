@@ -1,0 +1,15 @@
+#!/bin/sh
+# Точка входа раннера. Сборки не требует: Go собирает и запускает на месте.
+#
+# Обёртка сообщает раннеру корень конфиг-репозитория — оттуда он берёт роли,
+# workflow.yaml и projects.yaml — и запоминает каталог вызова, чтобы
+# относительные пути в аргументах не поехали после перехода в корень.
+
+set -eu
+
+OFFICE_CONFIG_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OFFICE_INVOCATION_DIR=$PWD
+export OFFICE_CONFIG_ROOT OFFICE_INVOCATION_DIR
+
+cd "$OFFICE_CONFIG_ROOT"
+exec go run ./runner/cmd/runner "$@"
