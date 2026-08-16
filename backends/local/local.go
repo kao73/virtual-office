@@ -56,3 +56,8 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 	}
 	return 0, nil
 }
+
+// Platform — хост как он есть: изоляции нет, агент бежит в системе оператора.
+func Platform() runner.Platform {
+	return runner.HostPlatform()
+}

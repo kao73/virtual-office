@@ -55,6 +55,17 @@ func fixtureOffice(t *testing.T, yaml string, skills ...string) string {
 	return root
 }
 
+// stubValidator — заглушка бинарника ограждения для тестов, которым важно только
+// его размещение. Настоящий собирается в hook_test.go.
+func stubValidator(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), runner.ValidatorName)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("заглушка валидатора не записана: %v", err)
+	}
+	return path
+}
+
 func fixtureLaunch(t *testing.T, yaml string, skills ...string) (*runner.Launch, runner.Role, string) {
 	t.Helper()
 	t.Setenv("ANTHROPIC_API_KEY", "тестовый-ключ")
@@ -67,7 +78,7 @@ func fixtureLaunch(t *testing.T, yaml string, skills ...string) (*runner.Launch,
 	}
 
 	workdir := t.TempDir()
-	launch, err := Build(role, workdir, runner.Run{RunID: "550e8400-e29b-41d4-a716-446655440000", Role: "tester"})
+	launch, err := Build(role, workdir, runner.Run{RunID: "550e8400-e29b-41d4-a716-446655440000", Role: "tester"}, stubValidator(t))
 	if err != nil {
 		t.Fatalf("запуск не собран: %v", err)
 	}
@@ -352,7 +363,7 @@ func TestBuildPassesOnlyChosenCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("роль не загружена: %v", err)
 	}
-	launch, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"})
+	launch, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"}, stubValidator(t))
 	if err != nil {
 		t.Fatalf("запуск не собран: %v", err)
 	}
@@ -381,7 +392,7 @@ func TestBuildWithoutCredential(t *testing.T) {
 	}
 
 	// Падать надо до запуска: иначе об отсутствии авторизации узнаём из середины прогона.
-	if _, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"}); err == nil {
+	if _, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"}, stubValidator(t)); err == nil {
 		t.Fatal("кредов нет, но запуск собран")
 	} else if !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") || !strings.Contains(err.Error(), "CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Errorf("ошибка не называет оба пути авторизации: %v", err)
@@ -479,7 +490,7 @@ func TestCleanupRemovesTemporaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("роль не загружена: %v", err)
 	}
-	launch, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"})
+	launch, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"}, stubValidator(t))
 	if err != nil {
 		t.Fatalf("запуск не собран: %v", err)
 	}

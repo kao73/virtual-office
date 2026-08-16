@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -181,4 +182,14 @@ func sandboxName(id string) string {
 		short = "run"
 	}
 	return "office-" + short
+}
+
+// Platform — где исполняется всё, что запущено в песочнице: сам агент и
+// ограждения роли. Внутри Linux, а раннер может стоять на чём угодно, поэтому
+// бинарник ограждения собирается именно под эту платформу, а не под хостовую.
+//
+// Архитектура берётся хостовая: песочница — microVM на том же железе.
+// Значение проверено `uname` внутри, см. docs/notes/sbx.md.
+func Platform() runner.Platform {
+	return runner.Platform{OS: "linux", Arch: runtime.GOARCH}
 }

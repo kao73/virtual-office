@@ -79,11 +79,19 @@ var nextOwnerPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 // Любая беда — отсутствие файла, мусор в JSON, нарушение контракта — возвращается ошибкой;
 // решение, что с ней делать, принимает вызывающий (см. FailedResult).
 func ReadResult(workdir string) (Result, error) {
-	rel := filepath.Join(Dir, FileResult)
+	return ReadResultFile(filepath.Join(workdir, Dir, FileResult))
+}
 
-	raw, err := os.ReadFile(filepath.Join(workdir, rel))
+// ReadResultFile — то же по явному пути к файлу. Этой формой пользуется ограждение:
+// команду ему собирает адаптер, и рабочей папки в ней нет — только путь к результату.
+//
+// Разбор у ограждения и у раннера обязан быть один и тот же. Пока ограждение
+// проверяло лишь наличие поля outcome, агент успевал завершиться с результатом,
+// который раннер потом отвергал, и сделанная работа уходила в failed.
+func ReadResultFile(path string) (Result, error) {
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return Result{}, fmt.Errorf("%s не прочитан: %w", rel, err)
+		return Result{}, fmt.Errorf("%s не прочитан: %w", path, err)
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -91,13 +99,13 @@ func ReadResult(workdir string) (Result, error) {
 
 	var r Result
 	if err := dec.Decode(&r); err != nil {
-		return Result{}, fmt.Errorf("%s не разобран: %w", rel, err)
+		return Result{}, fmt.Errorf("%s не разобран: %w", path, err)
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return Result{}, fmt.Errorf("%s: после объекта есть лишнее содержимое", rel)
+		return Result{}, fmt.Errorf("%s: после объекта есть лишнее содержимое", path)
 	}
 	if err := r.Validate(); err != nil {
-		return Result{}, fmt.Errorf("%s нарушает контракт: %w", rel, err)
+		return Result{}, fmt.Errorf("%s нарушает контракт: %w", path, err)
 	}
 	return r, nil
 }
@@ -168,6 +176,13 @@ func ResultSpec(resultFile string) string {
   и запуск засчитывается как провалившийся.
 `
 }
+
+// ResultAdvice — что делать агенту, упёршемуся в ограждение. Живёт рядом
+// со спецификацией и проверкой: упереться и не знать выхода — прямой путь
+// к циклу до предела шагов.
+const ResultAdvice = "Перезапиши файл по схеме из системного промпта. Завершиться без валидного результата нельзя, " +
+	"но выход есть всегда: если задача не вышла — outcome=failed с описанием того, что уже проверено; " +
+	"если мешает внешнее обстоятельство — outcome=blocked с полем blocker."
 
 // NewRunID выдаёт идентификатор запуска — UUID версии 4. Именно UUID потому,
 // что этим же значением помечается сессия агента.

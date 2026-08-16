@@ -238,3 +238,25 @@ func TestResultOmitsEmptyOptionalFields(t *testing.T) {
 		}
 	}
 }
+
+// Ограждение получает путь к файлу результата, а не рабочую папку: команду
+// собирает адаптер, и рабочей папки в ней нет. Разбор при этом обязан быть
+// тем же самым — иначе хук и раннер разъедутся, как уже разъезжались.
+func TestReadResultFileTakesExplicitPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "исход.json")
+	if err := os.WriteFile(path, []byte(`{"outcome":"done","summary":"с.","next_owner":"none"}`), 0o644); err != nil {
+		t.Fatalf("файл результата не записан: %v", err)
+	}
+
+	result, err := ReadResultFile(path)
+	if err != nil {
+		t.Fatalf("результат не прочитан: %v", err)
+	}
+	if result.Outcome != OutcomeDone {
+		t.Errorf("исход %q, ожидался done", result.Outcome)
+	}
+
+	if _, err := ReadResultFile(filepath.Join(t.TempDir(), "нет.json")); err == nil {
+		t.Error("отсутствующий файл прочитан без ошибки")
+	}
+}

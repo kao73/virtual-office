@@ -53,9 +53,13 @@ var credentialVars = []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}
 // Build собирает запуск агента по роли, рабочей папке и паспорту прогона.
 //
 // Всё, что нужно агенту, материализуется в каталоге запуска: промпт, настройки,
-// скрипты ограждений, скиллы. Конфиг-репозиторий агенту не отдаётся — ни целиком,
-// ни частями.
-func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, error) {
+// скрипты ограждений, бинарник проверки результата, скиллы. Конфиг-репозиторий
+// агенту не отдаётся — ни целиком, ни частями.
+//
+// validator — путь к собранному бинарнику проверки результата (`runner.EnsureValidator`).
+// Собирает его раннер, а не адаптер: платформу знает бэкенд, а Go-тулчейн адаптеру
+// не нужен ни для чего другого.
+func Build(role runner.Role, workdir string, run runner.Run, validator string) (*runner.Launch, error) {
 	credVar, credValue, err := credential()
 	if err != nil {
 		return nil, err
@@ -91,7 +95,7 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 		return abort(fmt.Errorf("системный промпт не записан: %w", err))
 	}
 
-	hooks, err := copyHooks(roleDir, role)
+	hooks, err := copyHooks(roleDir, role, validator)
 	if err != nil {
 		return abort(err)
 	}
@@ -216,12 +220,19 @@ func credential() (string, string, error) {
 		strings.Join(credentialVars, ", ни "))
 }
 
-// copyHooks переносит скрипты ограждений в каталог запуска. Иначе изолированному
-// бэкенду пришлось бы отдавать агенту конфиг-репозиторий целиком ради пары скриптов.
-func copyHooks(roleDir string, role runner.Role) ([]string, error) {
+// copyHooks переносит скрипты ограждений и бинарник проверки результата в каталог
+// запуска. Иначе изолированному бэкенду пришлось бы отдавать агенту конфиг-репозиторий
+// целиком ради пары файлов.
+//
+// Валидатор кладётся рядом со скриптами под фиксированным именем: скрипт ищет его
+// у себя под боком, потому что своего пути внутри изоляции он не знает.
+func copyHooks(roleDir string, role runner.Role, validator string) ([]string, error) {
 	sources := role.HookFiles()
 	if len(sources) == 0 {
 		return nil, nil
+	}
+	if validator == "" {
+		return nil, errors.New("роль ставит ограждение, но бинарник проверки результата не собран: ограждению нечем проверять")
 	}
 
 	dir := filepath.Join(roleDir, "hooks")
@@ -231,22 +242,31 @@ func copyHooks(roleDir string, role runner.Role) ([]string, error) {
 
 	copied := make([]string, 0, len(sources))
 	for _, src := range sources {
-		raw, err := os.ReadFile(src)
-		if err != nil {
-			return nil, fmt.Errorf("ограждение не прочитано: %w", err)
-		}
 		dst := filepath.Join(dir, filepath.Base(src))
-		// Бит исполняемости обязателен: без него код выхода 126, а он считается
-		// неблокирующей ошибкой, и ограждение молча перестаёт ограждать.
-		if err := os.WriteFile(dst, raw, 0o755); err != nil {
+		if err := copyExecutable(src, dst); err != nil {
 			return nil, fmt.Errorf("ограждение не скопировано: %w", err)
-		}
-		if err := os.Chmod(dst, 0o755); err != nil {
-			return nil, fmt.Errorf("ограждение не сделано исполняемым: %w", err)
 		}
 		copied = append(copied, dst)
 	}
+	if err := copyExecutable(validator, filepath.Join(dir, runner.ValidatorName)); err != nil {
+		return nil, fmt.Errorf("проверка результата не скопирована: %w", err)
+	}
 	return copied, nil
+}
+
+// copyExecutable копирует файл, сохраняя бит исполняемости. Бит обязателен:
+// без него запуск даёт код 126, а он считается неблокирующей ошибкой — ограждение
+// молча перестаёт ограждать.
+func copyExecutable(src, dst string) error {
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, raw, 0o755); err != nil {
+		return err
+	}
+	// WriteFile не меняет права уже существующего файла — выставляем явно.
+	return os.Chmod(dst, 0o755)
 }
 
 type settingsFile struct {

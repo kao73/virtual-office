@@ -22,11 +22,40 @@ import (
 	"github.com/kao73/virtual-office/runner"
 )
 
+// Коды возврата — внешний контракт команды.
+//
+//	0 — агент оставил валидный результат с исходом done, needs_human или blocked;
+//	1 — исход failed, агентский или синтетический: агент не справился;
+//	2 — инфраструктурная беда: роль, бэкенд, кред, тулчейн. Запускать было нечем.
+//
+// Смешивать 1 и 2 нельзя: на двойку надо будить человека, а единица — обычный
+// исход прогона, который раннер этапа 2 считает попыткой.
+const (
+	exitFailed = 1
+	exitInfra  = 2
+)
+
+// validateCmd — подкоманда для человека: почему раннер отверг результат.
+// Тот же разбор, что у ограждения и у самого раннера, третьего парсера нет.
+const validateCmd = "validate-result"
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == validateCmd {
+		if len(os.Args) != 3 {
+			fmt.Fprintf(os.Stderr, "run-agent %s <путь к result.json>\n", validateCmd)
+			os.Exit(exitInfra)
+		}
+		if _, err := runner.ReadResultFile(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(exitInfra)
+		}
+		return
+	}
+
 	code, err := execute()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "run-agent:", err)
-		os.Exit(1)
+		os.Exit(exitInfra)
 	}
 	os.Exit(code)
 }
@@ -61,6 +90,13 @@ func execute() (int, error) {
 		}
 	}
 
+	// Бэкенд выбирается до сборки запуска: он задаёт платформу, под которую
+	// собирается ограждение. Хостовый бинарник в песочнице не запустится.
+	runBackend, target, err := backendByName(*backend)
+	if err != nil {
+		return 0, err
+	}
+
 	role, err := runner.LoadRole(configRoot, *roleName)
 	if err != nil {
 		return 0, err
@@ -85,31 +121,26 @@ func execute() (int, error) {
 		return 0, err
 	}
 
-	launch, err := claude.Build(role, workdir, passport)
+	// Ограждение проверяет результат тем же кодом, что и раннер, поэтому бинарник
+	// собирается из этого же репозитория под платформу выбранного бэкенда.
+	validator, err := runner.EnsureValidator(configRoot, target)
+	if err != nil {
+		return 0, err
+	}
+
+	launch, err := claude.Build(role, workdir, passport, validator)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = launch.Cleanup() }()
 
 	if *dryRun {
-		printDryRun(launch, passport)
+		printDryRun(launch, passport, target, validator)
 		return 0, nil
 	}
 
 	logPath := filepath.Join(workdir, runner.Dir, runner.FileLog)
-
-	var exitCode int
-	var runErr error
-	switch *backend {
-	case "local":
-		exitCode, runErr = local.Run(context.Background(), launch, logPath)
-	case "sbx":
-		exitCode, runErr = sbx.Run(context.Background(), launch, logPath)
-	case "docker":
-		return 0, errors.New("бэкенд docker отложен: изоляцию закрывает sbx, докер понадобится на машине без KVM")
-	default:
-		return 0, fmt.Errorf("неизвестный бэкенд %q: доступны local и sbx", *backend)
-	}
+	exitCode, runErr := runBackend(context.Background(), launch, logPath)
 
 	result, err := runner.ReadResult(workdir)
 	if err != nil {
@@ -124,11 +155,37 @@ func execute() (int, error) {
 		result = runner.FailedResult(reason)
 	}
 
-	printResult(result, passport, logPath)
-	if result.Outcome == runner.OutcomeDone {
-		return 0, nil
+	// Каталог обмена эфемерен: на этапе 2 рабочей папкой станет worktree, и он
+	// исчезнет вместе с ним. Неудача архивации не подменяет исход прогона —
+	// материал прогона в этот момент ещё цел, — но и молчать о ней нельзя.
+	archived, archiveErr := runner.Archive(workdir, passport.RunID)
+	if archiveErr != nil {
+		fmt.Fprintln(os.Stderr, "run-agent: прогон не заархивирован:", archiveErr)
 	}
-	return 1, nil
+
+	printResult(result, passport, logPath, archived)
+	if result.Outcome == runner.OutcomeFailed {
+		return exitFailed, nil
+	}
+	return 0, nil
+}
+
+// backendRun — исполнение подготовленного запуска. Подпись одна у всех бэкендов:
+// адаптер знает устройство агента, бэкенд — устройство изоляции.
+type backendRun func(context.Context, *runner.Launch, string) (int, error)
+
+// backendByName выдаёт исполнителя и платформу, под которой он запускает агента.
+func backendByName(name string) (backendRun, runner.Platform, error) {
+	switch name {
+	case "local":
+		return local.Run, local.Platform(), nil
+	case "sbx":
+		return sbx.Run, sbx.Platform(), nil
+	case "docker":
+		return nil, runner.Platform{}, errors.New("бэкенд docker отложен: изоляцию закрывает sbx, докер понадобится на машине без KVM")
+	default:
+		return nil, runner.Platform{}, fmt.Errorf("неизвестный бэкенд %q: доступны local и sbx", name)
+	}
 }
 
 // officeRoot — корень конфиг-репозитория. Его сообщает обёртка bin/run-agent;
@@ -181,9 +238,9 @@ func headSHA(repo string) (string, error) {
 	return sha, nil
 }
 
-func printDryRun(l *runner.Launch, passport runner.Run) {
-	fmt.Printf("run_id:     %s\nроль:       %s\nconfig_sha: %s\nworkdir:    %s\nконфиг:     %s\nтаймаут:    %s\n",
-		passport.RunID, passport.Role, passport.ConfigSHA, l.Workdir, l.ConfigDir, l.Timeout)
+func printDryRun(l *runner.Launch, passport runner.Run, target runner.Platform, validator string) {
+	fmt.Printf("run_id:     %s\nроль:       %s\nconfig_sha: %s\nworkdir:    %s\nконфиг:     %s\nтаймаут:    %s\nплатформа:  %s\nограждение: %s\n",
+		passport.RunID, passport.Role, passport.ConfigSHA, l.Workdir, l.ConfigDir, l.Timeout, target, validator)
 
 	fmt.Println("\n== команда ==")
 	for _, arg := range l.Argv {
@@ -238,7 +295,7 @@ func mask(kv string, secrets []string) string {
 	return kv
 }
 
-func printResult(r runner.Result, passport runner.Run, logPath string) {
+func printResult(r runner.Result, passport runner.Run, logPath, archived string) {
 	fmt.Printf("исход:  %s\n", r.Outcome)
 	fmt.Printf("итог:   %s\n", r.Summary)
 	fmt.Printf("дальше: %s\n", r.NextOwner)
@@ -255,4 +312,7 @@ func printResult(r runner.Result, passport runner.Run, logPath string) {
 		fmt.Printf("артефакты: %s\n", strings.Join(r.Artifacts, ", "))
 	}
 	fmt.Printf("run_id: %s\nлог:    %s\n", passport.RunID, logPath)
+	if archived != "" {
+		fmt.Printf("архив:  %s\n", archived)
+	}
 }
