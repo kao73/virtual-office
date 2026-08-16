@@ -1,0 +1,15 @@
+#!/bin/sh
+# Точка входа. Сборки не требует: Go собирает и запускает на месте, кэш делает это быстрым.
+#
+# Обёртка нужна ровно для двух вещей: сообщить раннеру корень конфиг-репозитория
+# и запомнить каталог, из которого её позвали, — чтобы относительные --workdir
+# и --task не поехали после перехода в корень.
+
+set -eu
+
+OFFICE_CONFIG_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OFFICE_INVOCATION_DIR=$PWD
+export OFFICE_CONFIG_ROOT OFFICE_INVOCATION_DIR
+
+cd "$OFFICE_CONFIG_ROOT"
+exec go run ./runner/cmd/run-agent "$@"

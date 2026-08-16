@@ -1,0 +1,198 @@
+package runner
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func git(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
+}
+
+// gitRepo — рабочая папка агента: обычный git-репозиторий с одним коммитом.
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git(t, dir, "init", "-q")
+	git(t, dir, "-c", "user.email=t@example.test", "-c", "user.name=test", "commit", "-q", "--allow-empty", "-m", "init")
+	return dir
+}
+
+func fixtureRole(t *testing.T) Role {
+	t.Helper()
+	role, err := LoadRole(fixtureOffice(t, fixtureRoleYAML), "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+	return role
+}
+
+func fixturePassport() Run {
+	return Run{
+		RunID:     "550e8400-e29b-41d4-a716-446655440000",
+		Role:      "tester",
+		ConfigSHA: "5bc6a3b0000000000000000000000000000000ab",
+		StartedAt: time.Date(2026, 8, 16, 16, 40, 0, 0, time.UTC),
+	}
+}
+
+func TestPrepareInputWritesExchange(t *testing.T) {
+	workdir := gitRepo(t)
+	role, passport := fixtureRole(t), fixturePassport()
+
+	taskFile := filepath.Join(t.TempDir(), "task.md")
+	if err := os.WriteFile(taskFile, []byte("Сделай хорошо.\n"), 0o644); err != nil {
+		t.Fatalf("постановка не записана: %v", err)
+	}
+
+	if err := PrepareInput(workdir, role, passport, taskFile); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	task := read(t, workdir, FileTask)
+	if task != "Сделай хорошо.\n" {
+		t.Errorf("постановка задачи искажена: %q", task)
+	}
+
+	context := read(t, workdir, FileContext)
+	for _, want := range []string{role.Name, passport.RunID, role.ResultFile, "Bash(git *)"} {
+		if !strings.Contains(context, want) {
+			t.Errorf("в контексте нет %q:\n%s", want, context)
+		}
+	}
+
+	var got Run
+	if err := json.Unmarshal([]byte(read(t, workdir, FileRun)), &got); err != nil {
+		t.Fatalf("паспорт запуска не разобран: %v", err)
+	}
+	if got.RunID != passport.RunID || got.Role != passport.Role || got.ConfigSHA != passport.ConfigSHA {
+		t.Errorf("паспорт запуска искажён: %+v", got)
+	}
+	if !got.StartedAt.Equal(passport.StartedAt) {
+		t.Errorf("время старта искажено: %v", got.StartedAt)
+	}
+
+	// Каталог обмена не должен попадать в поле зрения git.
+	if status := git(t, workdir, "status", "--porcelain"); status != "" {
+		t.Errorf("git видит конверт обмена:\n%s", status)
+	}
+}
+
+func TestPrepareInputRequiresTask(t *testing.T) {
+	err := PrepareInput(gitRepo(t), fixtureRole(t), fixturePassport(), "")
+	if err == nil {
+		t.Fatal("постановки задачи нет, но вход подготовлен")
+	}
+	if !strings.Contains(err.Error(), "постановки задачи нет") {
+		t.Errorf("ошибка не объясняет причину: %v", err)
+	}
+}
+
+func TestPrepareInputKeepsTaskAlreadyInPlace(t *testing.T) {
+	workdir := gitRepo(t)
+	agentDir := filepath.Join(workdir, Dir)
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("каталог обмена не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, FileTask), []byte("уже лежит\n"), 0o644); err != nil {
+		t.Fatalf("постановка не записана: %v", err)
+	}
+
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), ""); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+	if task := read(t, workdir, FileTask); task != "уже лежит\n" {
+		t.Errorf("лежавшая постановка перезаписана: %q", task)
+	}
+}
+
+func TestStateFileGoesIntoContext(t *testing.T) {
+	workdir := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(workdir, StateFile), []byte("Дошёл до третьего шага.\n"), 0o644); err != nil {
+		t.Fatalf("состояние не записано: %v", err)
+	}
+	taskFile := filepath.Join(t.TempDir(), "task.md")
+	if err := os.WriteFile(taskFile, []byte("Задача\n"), 0o644); err != nil {
+		t.Fatalf("постановка не записана: %v", err)
+	}
+
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), taskFile); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+	if context := read(t, workdir, FileContext); !strings.Contains(context, "Дошёл до третьего шага") {
+		t.Errorf("состояние задачи не попало в контекст:\n%s", context)
+	}
+}
+
+func TestExcludeAgentDirIsIdempotent(t *testing.T) {
+	workdir := gitRepo(t)
+
+	for i := range 3 {
+		if err := ExcludeAgentDir(workdir); err != nil {
+			t.Fatalf("исключение не записано на попытке %d: %v", i+1, err)
+		}
+	}
+
+	raw, err := os.ReadFile(filepath.Join(workdir, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatalf("файл исключений не прочитан: %v", err)
+	}
+	exclude := string(raw)
+	if got := strings.Count(exclude, Dir+"/"); got != 1 {
+		t.Errorf("правило записано %d раз, ожидался один:\n%s", got, exclude)
+	}
+	if !strings.Contains(exclude, excludeComment) {
+		t.Error("правило не помечено происхождением: чужой файл, надо объяснить, откуда строка")
+	}
+}
+
+// Решение варианта C держится на том, что worktree читает info/exclude
+// основного репозитория. Если это перестанет быть правдой, конверт обмена
+// начнёт попадать в коммиты клиента — тест обязан поймать это первым.
+func TestExcludeAgentDirWorksInWorktree(t *testing.T) {
+	main := gitRepo(t)
+	worktree := filepath.Join(t.TempDir(), "wt")
+	git(t, main, "worktree", "add", "-q", worktree, "-b", "feature")
+
+	if err := os.MkdirAll(filepath.Join(worktree, Dir), 0o755); err != nil {
+		t.Fatalf("каталог обмена не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, Dir, FileTask), []byte("з\n"), 0o644); err != nil {
+		t.Fatalf("постановка не записана: %v", err)
+	}
+
+	if status := git(t, worktree, "status", "--porcelain"); !strings.Contains(status, Dir) {
+		t.Fatalf("подготовка теста неверна: git и так не видит конверт:\n%s", status)
+	}
+	if err := ExcludeAgentDir(worktree); err != nil {
+		t.Fatalf("исключение не записано: %v", err)
+	}
+	if status := git(t, worktree, "status", "--porcelain"); status != "" {
+		t.Errorf("git в worktree всё ещё видит конверт обмена:\n%s", status)
+	}
+
+	// Правило обязано лечь в общий каталог, а не в каталог worktree.
+	if _, err := os.Stat(filepath.Join(main, ".git", "info", "exclude")); err != nil {
+		t.Errorf("правило не попало в общий каталог git: %v", err)
+	}
+}
+
+// read возвращает содержимое файла из каталога обмена внутри workdir.
+func read(t *testing.T, workdir, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(workdir, Dir, name))
+	if err != nil {
+		t.Fatalf("%s не прочитан: %v", name, err)
+	}
+	return string(raw)
+}

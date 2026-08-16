@@ -1,0 +1,265 @@
+package claude
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/kao73/virtual-office/runner"
+)
+
+const roleYAML = `name: tester
+prompt: role.md
+includes:
+  - ../_base/base.md
+skills: []
+tools:
+  allow: ["Read", "Write", "Bash(git *)"]
+  deny: ["Bash(rm *)"]
+hooks:
+  stop:
+    - hooks/require-result.sh
+limits:
+  max_turns: 5
+  timeout_sec: 60
+result_file: .agent/result.json
+`
+
+func fixtureOffice(t *testing.T, yaml string, skills ...string) string {
+	t.Helper()
+	root := t.TempDir()
+
+	write := func(rel, content string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("каталог %s не создан: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("%s не записан: %v", rel, err)
+		}
+	}
+
+	write(filepath.Join("roles", "_base", "base.md"), "# Базовые правила\n\nБудь честен.\n")
+	write(filepath.Join("roles", "tester", "role.md"), "# Роль: tester\n\nДелай, что сказано.\n")
+	write(filepath.Join("roles", "tester", "role.yaml"), yaml)
+	write(filepath.Join("hooks", "require-result.sh"), "#!/bin/sh\nexit 0\n")
+	for _, skill := range skills {
+		write(filepath.Join("skills", skill, "SKILL.md"), "# "+skill+"\n")
+	}
+
+	return root
+}
+
+func fixtureLaunch(t *testing.T, yaml string, skills ...string) (*runner.Launch, runner.Role, string) {
+	t.Helper()
+	t.Setenv("ANTHROPIC_API_KEY", "тестовый-ключ")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	root := fixtureOffice(t, yaml, skills...)
+	role, err := runner.LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+
+	workdir := t.TempDir()
+	launch, err := Build(role, workdir, runner.Run{RunID: "550e8400-e29b-41d4-a716-446655440000", Role: "tester"})
+	if err != nil {
+		t.Fatalf("запуск не собран: %v", err)
+	}
+	t.Cleanup(func() { _ = launch.Cleanup() })
+
+	return launch, role, workdir
+}
+
+// argValue возвращает значение флага в командной строке.
+func argValue(t *testing.T, argv []string, flag string) string {
+	t.Helper()
+	i := slices.Index(argv, flag)
+	if i < 0 {
+		t.Fatalf("в командной строке нет %s: %q", flag, argv)
+	}
+	if i+1 >= len(argv) {
+		t.Fatalf("у %s нет значения: %q", flag, argv)
+	}
+	return argv[i+1]
+}
+
+func TestBuildCommandLine(t *testing.T) {
+	launch, role, _ := fixtureLaunch(t, roleYAML)
+
+	if launch.Argv[0] != Executable {
+		t.Errorf("запускается %q вместо %q", launch.Argv[0], Executable)
+	}
+	if !slices.Contains(launch.Argv, "--print") {
+		t.Error("нет --print: без него агент уйдёт в интерактивный режим и повиснет")
+	}
+	if got := argValue(t, launch.Argv, "--session-id"); got != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Errorf("сессия не помечена run_id: %q", got)
+	}
+	if got := argValue(t, launch.Argv, "--max-turns"); got != "5" {
+		t.Errorf("предел шагов %q, в роли 5", got)
+	}
+	if got := argValue(t, launch.Argv, "--permission-mode"); got != "dontAsk" {
+		t.Errorf("режим разрешений %q: в headless диалог показать некому", got)
+	}
+	if got := argValue(t, launch.Argv, "--setting-sources"); got != "" {
+		t.Errorf("источники настроек %q: ожидался пустой список, иначе подтянутся чужие слои", got)
+	}
+	if got := launch.Argv[len(launch.Argv)-1]; got != UserPrompt {
+		t.Errorf("последним аргументом должно идти стартовое сообщение, а идёт %q", got)
+	}
+	if launch.Timeout.Seconds() != float64(role.Limits.TimeoutSec) {
+		t.Errorf("таймаут %s, в роли %d с", launch.Timeout, role.Limits.TimeoutSec)
+	}
+
+	promptFile := argValue(t, launch.Argv, "--append-system-prompt-file")
+	written, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("файл системного промпта не прочитан: %v", err)
+	}
+	if string(written) != launch.SystemPrompt {
+		t.Error("на диске лежит не тот промпт, который показывает --dry-run")
+	}
+	if !strings.Contains(launch.SystemPrompt, "Делай, что сказано") {
+		t.Error("в системном промпте нет промпта роли")
+	}
+}
+
+func TestBuildIsolatesHostConfig(t *testing.T) {
+	t.Setenv("OFFICE_HOST_ONLY", "не должно доехать")
+	launch, _, _ := fixtureLaunch(t, roleYAML)
+
+	env := strings.Join(launch.Env, "\n")
+	if strings.Contains(env, "OFFICE_HOST_ONLY") {
+		t.Error("посторонняя переменная хоста доехала до агента")
+	}
+	if !strings.Contains(env, "CLAUDE_CONFIG_DIR="+launch.ConfigDir) {
+		t.Errorf("конфиг-каталог не подменён:\n%s", env)
+	}
+	if fi, err := os.Stat(launch.ConfigDir); err != nil || !fi.IsDir() {
+		t.Errorf("изолированный конфиг-каталог не создан: %v", err)
+	}
+	entries, err := os.ReadDir(launch.ConfigDir)
+	if err != nil || len(entries) != 0 {
+		t.Errorf("конфиг-каталог не пуст: %v, %d записей", err, len(entries))
+	}
+}
+
+func TestBuildPassesOnlyChosenCredential(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "ключ")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "токен")
+
+	root := fixtureOffice(t, roleYAML)
+	role, err := runner.LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+	launch, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"})
+	if err != nil {
+		t.Fatalf("запуск не собран: %v", err)
+	}
+	defer launch.Cleanup()
+
+	env := strings.Join(launch.Env, "\n")
+	if !strings.Contains(env, "ANTHROPIC_API_KEY=ключ") {
+		t.Error("API-ключ не передан, хотя задан: приоритет должен совпадать с поведением CLI")
+	}
+	if strings.Contains(env, "токен") {
+		t.Error("невыбранный кред доехал до агента: в процессе должен быть только один")
+	}
+	if !slices.Contains(launch.SecretVars, "ANTHROPIC_API_KEY") {
+		t.Errorf("секрет не помечен для маскирования: %q", launch.SecretVars)
+	}
+}
+
+func TestBuildWithoutCredential(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	root := fixtureOffice(t, roleYAML)
+	role, err := runner.LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+
+	// Падать надо до запуска: иначе об отсутствии авторизации узнаём из середины прогона.
+	if _, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"}); err == nil {
+		t.Fatal("кредов нет, но запуск собран")
+	} else if !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") || !strings.Contains(err.Error(), "CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Errorf("ошибка не называет оба пути авторизации: %v", err)
+	}
+}
+
+func TestBuildSettings(t *testing.T) {
+	launch, _, workdir := fixtureLaunch(t, roleYAML)
+
+	for _, want := range []string{`"Read"`, `"Bash(git *)"`, `"Bash(rm *)"`, `"Stop"`} {
+		if !strings.Contains(launch.Settings, want) {
+			t.Errorf("в settings.json нет %s:\n%s", want, launch.Settings)
+		}
+	}
+	// Хуку передаётся абсолютный путь: иначе ограждение ищет результат не там.
+	if want := filepath.Join(workdir, ".agent", "result.json"); !strings.Contains(launch.Settings, want) {
+		t.Errorf("в команде хука нет абсолютного пути к результату %s:\n%s", want, launch.Settings)
+	}
+
+	settingsFile := argValue(t, launch.Argv, "--settings")
+	written, err := os.ReadFile(settingsFile)
+	if err != nil {
+		t.Fatalf("settings.json не прочитан: %v", err)
+	}
+	if string(written) != launch.Settings {
+		t.Error("на диске лежат не те настройки, которые показывает --dry-run")
+	}
+}
+
+func TestBuildCopiesOnlyRoleSkills(t *testing.T) {
+	withSkill := strings.Replace(roleYAML, "skills: []", "skills: [нужный]", 1)
+	launch, _, _ := fixtureLaunch(t, withSkill, "нужный", "лишний")
+
+	pluginDir := argValue(t, launch.Argv, "--plugin-dir")
+	if _, err := os.Stat(filepath.Join(pluginDir, ".claude-plugin", "plugin.json")); err != nil {
+		t.Errorf("манифест плагина не собран: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(pluginDir, "skills", "нужный", "SKILL.md")); err != nil {
+		t.Errorf("скилл роли не скопирован: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(pluginDir, "skills", "лишний")); err == nil {
+		t.Error("скопирован скилл, которого нет в роли: агент видит лишнее")
+	}
+	if !slices.Equal(launch.Skills, []string{"нужный"}) {
+		t.Errorf("список видимых скиллов %q", launch.Skills)
+	}
+}
+
+func TestBuildWithoutSkillsSkipsPlugin(t *testing.T) {
+	launch, _, _ := fixtureLaunch(t, roleYAML)
+
+	if slices.Contains(launch.Argv, "--plugin-dir") {
+		t.Errorf("роль не подключает скиллов, но плагин передан: %q", launch.Argv)
+	}
+}
+
+func TestCleanupRemovesTemporaries(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "ключ")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	root := fixtureOffice(t, roleYAML)
+	role, err := runner.LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+	launch, err := Build(role, t.TempDir(), runner.Run{RunID: "id", Role: "tester"})
+	if err != nil {
+		t.Fatalf("запуск не собран: %v", err)
+	}
+
+	if err := launch.Cleanup(); err != nil {
+		t.Fatalf("временное хозяйство не убрано: %v", err)
+	}
+	if _, err := os.Stat(launch.ConfigDir); err == nil {
+		t.Error("конфиг-каталог пережил уборку: секреты и настройки роли остаются на диске")
+	}
+}

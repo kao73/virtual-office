@@ -4,6 +4,7 @@ package runner
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -141,6 +142,43 @@ func (r Result) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// ResultSpec — спецификация файла результата для системного промпта агента.
+// Живёт рядом с типом Result, чтобы текст и проверка не разъезжались.
+func ResultSpec(resultFile string) string {
+	return `## Файл результата
+
+Завершая работу, запиши ` + "`" + resultFile + "`" + ` — один JSON-объект и ничего кроме него:
+
+    {
+      "outcome": "done | needs_human | blocked | failed",
+      "summary": "суть в 1-3 предложениях",
+      "details_md": "необязательно: подробности в markdown",
+      "artifacts": ["необязательно: пути, commit SHA, имя ветки"],
+      "questions": [{"text": "вопрос", "options": ["вариант"]}],
+      "blocker": "кто или что блокирует",
+      "next_owner": "human | имя роли | none"
+    }
+
+- ` + "`outcome`, `summary`, `next_owner`" + ` обязательны всегда.
+- ` + "`questions`" + ` — только при ` + "`outcome=needs_human`" + `, непустым списком; ` + "`options`" + ` необязателен.
+- ` + "`blocker`" + ` — только при ` + "`outcome=blocked`" + `.
+- Полей сверх перечисленных быть не должно: файл с лишним полем считается невалидным,
+  и запуск засчитывается как провалившийся.
+`
+}
+
+// NewRunID выдаёт идентификатор запуска — UUID версии 4. Именно UUID потому,
+// что этим же значением помечается сессия агента.
+func NewRunID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("не сгенерирован run_id: %w", err)
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // версия 4
+	b[8] = (b[8] & 0x3f) | 0x80 // вариант RFC 4122
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 // FailedResult — синтетический исход на случай, когда агент не оставил валидного результата.
