@@ -1,0 +1,29 @@
+# Граф состояний конвейера: колонки доски, роли и то, куда роль двигает задачу
+# по каждому исходу прогона.
+#
+# Читает его раннер, агент не видит: решения о переходах принимает код, а не промпт
+# (DESIGN.md §2.1). Всё, для чего здесь нет правила, раннер делать не вправе.
+#
+# Имена колонок — те же строки, что в трекере. Для JIRA сопоставление статусов
+# и переходов задаётся отдельно, в tracker.yaml: там у переходов свои ID.
+
+columns: [Ready, InProgress, Review, Blocked, Done]
+
+roles:
+  implementer:
+    reads_from: Ready       # откуда берёт задачи
+    working: InProgress     # куда переводит, захватив
+    outcomes:
+      done:        { to: Review }
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Ready, attempts: +1 }
+      failed:      { to: Ready, attempts: +1 }
+
+limits:
+  max_attempts: 3           # исчерпав попытки, задача уходит в Blocked к человеку
+  lease_margin_sec: 300     # аренда = таймаут роли + этот запас
+
+# Что делает раннер, увидев ответ человека на задачу в Blocked.
+human_reply:
+  to: Ready
+  reset_attempts: true      # человек снял причину; старые попытки к новой постановке не относятся
