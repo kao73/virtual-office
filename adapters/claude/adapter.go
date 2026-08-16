@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,10 @@ import (
 
 // Executable — CLI агента.
 const Executable = "claude"
+
+// SkillTool — инструмент, которым агент вызывает подключённые скиллы.
+// Его добавляет раннер, а не роль: скиллы подключает он же.
+const SkillTool = "Skill"
 
 // UserPrompt — стартовое сообщение. Всё остальное агент читает из каталога обмена.
 const UserPrompt = "Начни с чтения `.agent/task.md` и `.agent/context.md`, затем выполни задачу и запиши файл результата."
@@ -86,6 +91,22 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 		return abort(fmt.Errorf("settings.json не записан: %w", err))
 	}
 
+	// Набор инструментов складывается из двух источников: что разрешила роль
+	// и что задействовал сам раннер. Второе в tools.allow не пишут — роль
+	// перечисляет там работу с файлами и командами, а не механизм подгрузки
+	// скиллов, — но без него подключённые скиллы агенту нечем вызвать.
+	tools := toolNames(role.Tools.Allow)
+
+	pluginDir := ""
+	if len(role.Skills) > 0 {
+		if pluginDir, err = buildPlugin(roleDir, role); err != nil {
+			return abort(err)
+		}
+		if !slices.Contains(tools, SkillTool) {
+			tools = append(tools, SkillTool)
+		}
+	}
+
 	argv := []string{
 		Executable,
 		"--print",
@@ -103,17 +124,13 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 		// Сужает сам набор инструментов. Без этого агенту доступны все встроенные,
 		// включая сетевые и порождающие процессы: permissions.allow управляет
 		// автоодобрением, а не составом.
-		"--tools", strings.Join(toolNames(role.Tools.Allow), ","),
+		"--tools", strings.Join(tools, ","),
 		// Запрещает всё, чего нет в permissions.allow: диалогов в headless всё равно никто не увидит.
 		"--permission-mode", "dontAsk",
 		"--max-turns", strconv.Itoa(role.Limits.MaxTurns),
 	}
 
-	if len(role.Skills) > 0 {
-		pluginDir, err := buildPlugin(roleDir, role)
-		if err != nil {
-			return abort(err)
-		}
+	if pluginDir != "" {
 		argv = append(argv, "--plugin-dir", pluginDir)
 	}
 

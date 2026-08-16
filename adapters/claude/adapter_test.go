@@ -346,6 +346,38 @@ func TestBuildWithoutSkillsSkipsPlugin(t *testing.T) {
 	if slices.Contains(launch.Argv, "--plugin-dir") {
 		t.Errorf("роль не подключает скиллов, но плагин передан: %q", launch.Argv)
 	}
+	if tools := argValue(t, launch.Argv, "--tools"); strings.Contains(tools, SkillTool) {
+		t.Errorf("роль не подключает скиллов, но %s в наборе инструментов: %q", SkillTool, tools)
+	}
+}
+
+// Плагин со скиллами подключает раннер — значит и инструмент для их вызова
+// добавляет он. Иначе скиллы загружены, но вызвать их нечем, и механизм
+// молча не работает.
+func TestBuildAddsSkillToolWhenRoleUsesSkills(t *testing.T) {
+	withSkill := strings.Replace(roleYAML, "skills: []", "skills: [нужный]", 1)
+	launch, _, _ := fixtureLaunch(t, withSkill, "нужный")
+
+	tools := strings.Split(argValue(t, launch.Argv, "--tools"), ",")
+	if !slices.Contains(tools, SkillTool) {
+		t.Errorf("роль подключает скиллы, но вызвать их нечем: %q", tools)
+	}
+	if !slices.Contains(launch.Argv, "--plugin-dir") {
+		t.Errorf("скиллы объявлены, но плагин не передан: %q", launch.Argv)
+	}
+}
+
+// Роль вправе перечислить Skill и сама — дублировать его не нужно.
+func TestBuildDoesNotDuplicateSkillTool(t *testing.T) {
+	withSkill := strings.Replace(roleYAML, "skills: []", "skills: [нужный]", 1)
+	withSkill = strings.Replace(withSkill, `allow: ["Read", "Write", "Bash(git *)"]`,
+		`allow: ["Read", "Write", "Bash(git *)", "Skill"]`, 1)
+	launch, _, _ := fixtureLaunch(t, withSkill, "нужный")
+
+	tools := strings.Split(argValue(t, launch.Argv, "--tools"), ",")
+	if n := strings.Count(strings.Join(tools, ","), SkillTool); n != 1 {
+		t.Errorf("%s встречается %d раз: %q", SkillTool, n, tools)
+	}
 }
 
 func TestCleanupRemovesTemporaries(t *testing.T) {
