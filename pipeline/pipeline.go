@@ -548,11 +548,14 @@ func contextBody(task tracker.Task, roleName string, accounts []string, maxAttem
 }
 
 // short — первые восемь символов идентификатора: столько же, сколько в маркере.
+// По символам, а не по байтам: обрезка посреди многобайтового символа испортила
+// бы строку.
 func short(id string) string {
-	if len(id) <= 8 {
+	runes := []rune(id)
+	if len(runes) <= 8 {
 		return id
 	}
-	return id[:8]
+	return string(runes[:8])
 }
 
 // maps — ключи карты последовательностью; slices.Sorted делает из них порядок.

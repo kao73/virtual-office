@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"github.com/kao73/virtual-office/runagent"
 	"github.com/kao73/virtual-office/runner"
 	"github.com/kao73/virtual-office/tracker"
+	"github.com/kao73/virtual-office/tracker/jira"
 	"github.com/kao73/virtual-office/tracker/mock"
 	"github.com/kao73/virtual-office/workspace"
 )
@@ -37,13 +37,22 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 	}
 
 	var tasks tracker.Tracker
+	var accounts []string
 	switch *trackerName {
 	case "mock":
 		if tasks, err = mock.Default(); err != nil {
 			return nil, err
 		}
 	case "jira":
-		return nil, errors.New("трекер jira ещё не сделан: это шаг 5")
+		cfg, err := jira.LoadConfig(filepath.Join(configRoot, jira.TrackerFile))
+		if err != nil {
+			return nil, err
+		}
+		jiraTracker, err := jira.Open(cfg)
+		if err != nil {
+			return nil, err
+		}
+		tasks, accounts = jiraTracker, cfg.AgentAccounts
 	default:
 		return nil, fmt.Errorf("неизвестный трекер %q: доступен mock", *trackerName)
 	}
@@ -73,6 +82,7 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 		Agent:      pipeline.SandboxAgent{ConfigRoot: configRoot, Backend: *backend, Log: out},
 		ConfigRoot: configRoot,
 		ConfigSHA:  configSHA,
+		Accounts:   accounts,
 		Log:        out,
 	}, nil
 }

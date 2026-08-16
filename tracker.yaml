@@ -1,0 +1,38 @@
+# Подключение к JIRA и раскладка полей.
+#
+# Секретов здесь нет и не будет: кред живёт в окружении, в файле — только имена
+# переменных. Настройка полигона, из которой берутся идентификаторы полей, —
+# scripts/jira-setup.sh и docs/notes/jira-setup.md.
+
+base_url: http://localhost:2990/jira
+
+auth:
+  mode: basic          # basic для Server 8.13; pat — для инстансов с токенами
+  user_env: JIRA_USER
+  secret_env: JIRA_PASSWORD
+
+# Учётки офиса. Комментарий от любой другой считается словами человека,
+# поэтому вторая учётка на полигоне обязательна.
+agent_accounts:
+  - admin
+
+# Колонка графа (workflow.yaml) → статус в JIRA. Раннер знает только колонки;
+# «In Progress» с пробелом остаётся здесь.
+statuses:
+  Ready: Ready
+  InProgress: In Progress
+  Review: Review
+  Blocked: Blocked
+  Done: Done
+
+# Кастомные поля аренды. Идентификаторы печатает scripts/jira-setup.sh —
+# на другом инстансе они будут другими.
+fields:
+  agent_owner: customfield_10001
+  run_id: customfield_10002
+  lease_until: customfield_10003
+  attempts: customfield_10004
+
+# Атрибут «ждёт человека» — метка: её видно в списке задач, и она не требует
+# настройки экранов.
+human_flag_label: office-waits-human

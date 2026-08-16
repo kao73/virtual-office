@@ -1,8 +1,10 @@
 package tracker
 
 import (
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 const runID = "488e8d8f-f441-4374-bdd9-25f4a0952596"
@@ -204,5 +206,18 @@ func TestTailKeepsSystemNoticesAndTheAnswerBeforeThem(t *testing.T) {
 	// Отчёт о следующем прогоне границу двигает, и хвост снова пуст.
 	if got := TailAfterRole(append(comments, report("implementer", "failed", 4)), "implementer"); len(got) != 0 {
 		t.Errorf("после нового отчёта в хвосте осталось %d комментариев", len(got))
+	}
+}
+
+// Обрезка идентификатора идёт по символам: разрубленный посреди многобайтового
+// символа run_id испортил бы маркер. Поймано на живом прогоне с подделанным id.
+func TestMarkerShortensByRunes(t *testing.T) {
+	m := Marker{RunID: "мертвец-1234", Role: "implementer", Event: EventLeaseExpired, ConfigSHA: "5bc6a3b0"}
+	line := m.String()
+	if !strings.Contains(line, "run:мертвец-") {
+		t.Errorf("идентификатор обрезан не по символам: %s", line)
+	}
+	if !utf8.ValidString(line) {
+		t.Errorf("маркер перестал быть корректным UTF-8: %q", line)
 	}
 }

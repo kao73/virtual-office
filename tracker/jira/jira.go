@@ -1,0 +1,567 @@
+// Package jira — трекер поверх JIRA Server REST API v2.
+//
+// Версия API выбрана намеренно: v2 понимают и Server, и Cloud, а v3 с его ADF —
+// только Cloud. Целевая версия у нас Server 8.13, и всё здесь проверено на ней.
+//
+// Клиентских библиотек нет и не будет: их API уходит вперёд Server-версий,
+// а нам нужен контроль над каждым запросом — в JIRA слишком много мест, где
+// ответ сервера важнее документации.
+package jira
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/kao73/virtual-office/tracker"
+)
+
+// dateLayout — формат даты и времени, который принимает и отдаёт JIRA:
+// миллисекунды обязательны, смещение без двоеточия.
+const dateLayout = "2006-01-02T15:04:05.000-0700"
+
+// apiPath — префикс REST API.
+const apiPath = "/rest/api/2"
+
+// maxComments — сколько комментариев тянуть за раз. Раннер режет их сам,
+// поэтому нужны все.
+const maxComments = 100
+
+// Config — подключение и раскладка полей. Живёт в tracker.yaml.
+type Config struct {
+	BaseURL string `yaml:"base_url"`
+	Auth    Auth   `yaml:"auth"`
+
+	// AgentAccounts — учётки, чьи комментарии не считаются голосом человека,
+	// сверх той, что вернёт Whoami.
+	AgentAccounts []string `yaml:"agent_accounts"`
+
+	// Statuses — колонка графа → имя статуса в JIRA. Раннер знает только колонки
+	// из workflow.yaml; «In Progress» с пробелом остаётся здесь.
+	Statuses map[string]string `yaml:"statuses"`
+
+	Fields Fields `yaml:"fields"`
+
+	// HumanFlagLabel — метка «ждёт человека». Метка, а не поле: её видно
+	// в списке задач и она не требует настройки экранов.
+	HumanFlagLabel string `yaml:"human_flag_label"`
+}
+
+// Auth — способ авторизации.
+type Auth struct {
+	Mode      string `yaml:"mode"`       // basic или pat
+	UserEnv   string `yaml:"user_env"`   // переменная с именем пользователя
+	SecretEnv string `yaml:"secret_env"` // переменная с паролем или токеном
+}
+
+// Fields — идентификаторы кастомных полей аренды (customfield_NNNNN).
+type Fields struct {
+	Owner      string `yaml:"agent_owner"`
+	RunID      string `yaml:"run_id"`
+	LeaseUntil string `yaml:"lease_until"`
+	Attempts   string `yaml:"attempts"`
+}
+
+// Tracker — трекер поверх JIRA.
+type Tracker struct {
+	cfg     Config
+	client  *http.Client
+	user    string
+	secret  string
+	columns map[string]string // статус JIRA → колонка графа
+
+	// Now — часы раннера. Аренду сверяем ими, а не серверными: сервер считает
+	// now() в своей зоне, и полагаться на совпадение не стоит.
+	Now func() time.Time
+}
+
+var _ tracker.Tracker = (*Tracker)(nil)
+
+// Open готовит трекер: проверяет конфигурацию и достаёт кред из окружения.
+func Open(cfg Config) (*Tracker, error) {
+	if cfg.BaseURL == "" {
+		return nil, errors.New("base_url не задан")
+	}
+	switch cfg.Auth.Mode {
+	case "basic", "pat":
+	default:
+		return nil, fmt.Errorf("auth.mode=%q: допустимы basic и pat", cfg.Auth.Mode)
+	}
+
+	secret := os.Getenv(cfg.Auth.SecretEnv)
+	if secret == "" {
+		return nil, fmt.Errorf("в %s нет креда JIRA: секреты живут только в окружении", cfg.Auth.SecretEnv)
+	}
+
+	// Обратная карта статусов: её строим один раз и падаем на неоднозначности
+	// сразу, а не на середине первого цикла.
+	columns := make(map[string]string, len(cfg.Statuses))
+	for column, status := range cfg.Statuses {
+		if before, found := columns[status]; found {
+			return nil, fmt.Errorf("статус %q сопоставлен и с %q, и с %q", status, before, column)
+		}
+		columns[status] = column
+	}
+
+	return &Tracker{
+		cfg:     cfg,
+		client:  &http.Client{Timeout: 30 * time.Second},
+		user:    os.Getenv(cfg.Auth.UserEnv),
+		secret:  secret,
+		columns: columns,
+		Now:     time.Now,
+	}, nil
+}
+
+// Accounts — учётки агентов из конфигурации.
+func (t *Tracker) Accounts() []string { return t.cfg.AgentAccounts }
+
+// Whoami — учётка, под которой ходит раннер.
+func (t *Tracker) Whoami() (string, error) {
+	var me struct {
+		Name string `json:"name"`
+	}
+	if err := t.call(http.MethodGet, "/myself", nil, &me); err != nil {
+		return "", err
+	}
+	return me.Name, nil
+}
+
+// ListReady — кандидаты в колонке проекта: без живой аренды, отсортированы.
+//
+// JQL отбирает грубо, а решает раннер: сервер сравнивает время своими часами,
+// и полагаться на совпадение с нашими нельзя.
+func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
+	jql := fmt.Sprintf(`project = %q AND status = %q AND (%s IS EMPTY OR %s <= now()) ORDER BY priority DESC, created ASC`,
+		project, t.status(status), t.jqlField(t.cfg.Fields.LeaseUntil), t.jqlField(t.cfg.Fields.LeaseUntil))
+
+	return t.search(jql, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
+}
+
+// ListExpired — задачи с истёкшей арендой: сырьё для reaper.
+func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef, error) {
+	jql := fmt.Sprintf(`project = %q AND %s IS NOT EMPTY AND %s <= now() ORDER BY created ASC`,
+		project, t.jqlField(t.cfg.Fields.RunID), t.jqlField(t.cfg.Fields.LeaseUntil))
+
+	return t.search(jql, func(task tracker.Task) bool {
+		return task.RunID != "" && !task.LeaseAlive(now)
+	})
+}
+
+// Get — задача целиком, включая все комментарии.
+func (t *Tracker) Get(key string) (tracker.Task, error) {
+	var raw issue
+	if err := t.call(http.MethodGet, "/issue/"+key, nil, &raw); err != nil {
+		return tracker.Task{}, err
+	}
+	task := t.toTask(raw)
+
+	comments, err := t.comments(key)
+	if err != nil {
+		return tracker.Task{}, err
+	}
+	task.Comments = comments
+	return task, nil
+}
+
+// Claim — захват задачи.
+//
+// Атомарности в JIRA нет: записать поля и перевести статус — два запроса, между
+// которыми может вклиниться конкурент. Поэтому после записи задача перечитывается,
+// и владельцем считается тот, чей run_id остался в поле.
+func (t *Tracker) Claim(req tracker.ClaimRequest) error {
+	task, err := t.Get(req.Key)
+	if err != nil {
+		return err
+	}
+	switch {
+	case task.Status != req.ExpectStatus:
+		return fmt.Errorf("%w: %s в статусе %q, а захват шёл из %q",
+			tracker.ErrClaimLost, req.Key, task.Status, req.ExpectStatus)
+	case task.LeaseAlive(t.Now()):
+		return fmt.Errorf("%w: %s арендована прогоном %s до %s",
+			tracker.ErrClaimLost, req.Key, task.RunID, task.LeaseUntil.Format(time.RFC3339))
+	}
+
+	if err := t.update(req.Key, map[string]any{
+		t.cfg.Fields.Owner:      req.Owner,
+		t.cfg.Fields.RunID:      req.RunID,
+		t.cfg.Fields.LeaseUntil: req.LeaseUntil.Format(dateLayout),
+	}); err != nil {
+		return err
+	}
+	if err := t.transition(req.Key, req.WorkingStatus); err != nil {
+		return err
+	}
+
+	fresh, err := t.Get(req.Key)
+	if err != nil {
+		return err
+	}
+	if fresh.RunID != req.RunID {
+		return fmt.Errorf("%w: после захвата %s владеет %s", tracker.ErrClaimLost, req.Key, fresh.RunID)
+	}
+	return nil
+}
+
+// Renew продлевает свою живую аренду.
+func (t *Tracker) Renew(key, runID string, leaseUntil time.Time) error {
+	if _, err := t.owned(key, tracker.ByRun(runID)); err != nil {
+		return err
+	}
+	return t.update(key, map[string]any{t.cfg.Fields.LeaseUntil: leaseUntil.Format(dateLayout)})
+}
+
+// Release снимает аренду, не трогая статус.
+func (t *Tracker) Release(key string, by tracker.Actor) error {
+	if _, err := t.owned(key, by); err != nil {
+		return err
+	}
+	// Поля чистятся значением null. Пустая строка под `IS EMPTY` в JQL тоже
+	// подходит — проверено на 8.13, — но в интерфейсе оставляет поле «заполненным
+	// пустотой», и разбирать такое глазами неприятно.
+	return t.update(key, map[string]any{
+		t.cfg.Fields.Owner:      nil,
+		t.cfg.Fields.RunID:      nil,
+		t.cfg.Fields.LeaseUntil: nil,
+	})
+}
+
+// Transition двигает задачу по графу.
+func (t *Tracker) Transition(key string, by tracker.Actor, toStatus string) error {
+	if _, err := t.owned(key, by); err != nil {
+		return err
+	}
+	return t.transition(key, toStatus)
+}
+
+// Comment пишет комментарий обычным текстом: v2 не знает ADF, и это к лучшему —
+// маркер в первой строке остаётся маркером.
+func (t *Tracker) Comment(key string, by tracker.Actor, body string) error {
+	if _, err := t.owned(key, by); err != nil {
+		return err
+	}
+	return t.call(http.MethodPost, "/issue/"+key+"/comment", map[string]any{"body": body}, nil)
+}
+
+// SetHumanFlag выставляет или снимает метку ожидания человека.
+func (t *Tracker) SetHumanFlag(key string, by tracker.Actor, on bool) error {
+	task, err := t.owned(key, by)
+	if err != nil {
+		return err
+	}
+
+	labels := make([]string, 0, len(task.Labels)+1)
+	for _, label := range task.Labels {
+		if label != t.cfg.HumanFlagLabel {
+			labels = append(labels, label)
+		}
+	}
+	if on {
+		labels = append(labels, t.cfg.HumanFlagLabel)
+	}
+	return t.update(key, map[string]any{"labels": labels})
+}
+
+// SetAttempts записывает счётчик попыток.
+func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
+	if _, err := t.owned(key, by); err != nil {
+		return err
+	}
+	return t.update(key, map[string]any{t.cfg.Fields.Attempts: n})
+}
+
+// owned читает задачу и проверяет право актора её менять. Правило общее для всех
+// трекеров и живёт в пакете tracker: разъехавшись, реализации дали бы гонку.
+func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, error) {
+	task, err := t.Get(key)
+	if err != nil {
+		return tracker.Task{}, err
+	}
+	if err := tracker.CheckOwner(task, by, t.Now()); err != nil {
+		return tracker.Task{}, err
+	}
+	return task, nil
+}
+
+// transition находит переход по имени целевого статуса и исполняет его.
+//
+// Идентификаторы переходов не хранятся в конфигурации намеренно: они зависят
+// от workflow и от текущего статуса задачи, а спрашивать их у сервера — один
+// лишний запрос, зато конфигурация не врёт после правки workflow.
+func (t *Tracker) transition(key, toStatus string) error {
+	want := t.status(toStatus)
+
+	var list struct {
+		Transitions []struct {
+			ID string `json:"id"`
+			To struct {
+				Name string `json:"name"`
+			} `json:"to"`
+		} `json:"transitions"`
+	}
+	if err := t.call(http.MethodGet, "/issue/"+key+"/transitions", nil, &list); err != nil {
+		return err
+	}
+
+	available := make([]string, 0, len(list.Transitions))
+	for _, candidate := range list.Transitions {
+		if candidate.To.Name == want {
+			return t.call(http.MethodPost, "/issue/"+key+"/transitions",
+				map[string]any{"transition": map[string]any{"id": candidate.ID}}, nil)
+		}
+		available = append(available, candidate.To.Name)
+	}
+	return fmt.Errorf("из текущего статуса %s нет перехода в %q: доступны %s — проверь workflow (docs/notes/jira-setup.md)",
+		key, want, strings.Join(available, ", "))
+}
+
+// search выполняет JQL и отбирает то, что прошло проверку раннера.
+func (t *Tracker) search(jql string, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+	var result struct {
+		Issues []issue `json:"issues"`
+	}
+	body := map[string]any{"jql": jql, "maxResults": 50, "fields": t.searchFields()}
+	if err := t.call(http.MethodPost, "/search", body, &result); err != nil {
+		return nil, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
+	}
+
+	var refs []tracker.TaskRef
+	for _, raw := range result.Issues {
+		task := t.toTask(raw)
+		if !keep(task) {
+			continue
+		}
+		refs = append(refs, tracker.TaskRef{
+			Key: task.Key, Project: task.Project, Status: task.Status, Attempts: task.Attempts,
+		})
+	}
+	return refs, nil
+}
+
+func (t *Tracker) searchFields() []string {
+	return []string{
+		"summary", "description", "status", "project", "labels",
+		t.cfg.Fields.Owner, t.cfg.Fields.RunID, t.cfg.Fields.LeaseUntil, t.cfg.Fields.Attempts,
+	}
+}
+
+// comments тянет всю переписку: раннер режет её сам по маркеру.
+func (t *Tracker) comments(key string) ([]tracker.Comment, error) {
+	var page struct {
+		Comments []struct {
+			ID     string `json:"id"`
+			Body   string `json:"body"`
+			Author struct {
+				Name string `json:"name"`
+			} `json:"author"`
+			Created string `json:"created"`
+		} `json:"comments"`
+		Total int `json:"total"`
+	}
+
+	path := fmt.Sprintf("/issue/%s/comment?maxResults=%d&orderBy=created", key, maxComments)
+	if err := t.call(http.MethodGet, path, nil, &page); err != nil {
+		return nil, err
+	}
+
+	comments := make([]tracker.Comment, 0, len(page.Comments))
+	for _, raw := range page.Comments {
+		created, _ := time.Parse(dateLayout, raw.Created)
+		comments = append(comments, tracker.Comment{
+			ID: raw.ID, Author: raw.Author.Name, Created: created, Body: raw.Body,
+		})
+	}
+	return comments, nil
+}
+
+// issue — ответ JIRA о задаче. Кастомные поля лежат в общей карте: их имена
+// приходят из конфигурации, и структурой их не описать.
+type issue struct {
+	Key    string         `json:"key"`
+	Fields map[string]any `json:"fields"`
+}
+
+func (t *Tracker) toTask(raw issue) tracker.Task {
+	fields := raw.Fields
+	task := tracker.Task{
+		Key:         raw.Key,
+		Summary:     text(fields["summary"]),
+		Description: text(fields["description"]),
+		Owner:       text(fields[t.cfg.Fields.Owner]),
+		RunID:       text(fields[t.cfg.Fields.RunID]),
+	}
+
+	if status, ok := fields["status"].(map[string]any); ok {
+		task.Status = t.column(text(status["name"]))
+	}
+	if project, ok := fields["project"].(map[string]any); ok {
+		task.Project = text(project["key"])
+	}
+	if lease, err := time.Parse(dateLayout, text(fields[t.cfg.Fields.LeaseUntil])); err == nil {
+		task.LeaseUntil = lease
+	}
+	if attempts, ok := fields[t.cfg.Fields.Attempts].(float64); ok {
+		task.Attempts = int(attempts)
+	}
+	if labels, ok := fields["labels"].([]any); ok {
+		for _, label := range labels {
+			name := text(label)
+			if name == t.cfg.HumanFlagLabel {
+				task.HumanFlag = true
+				continue
+			}
+			task.Labels = append(task.Labels, name)
+		}
+	}
+	return task
+}
+
+// status — имя статуса в JIRA по колонке графа.
+func (t *Tracker) status(column string) string {
+	if name, found := t.cfg.Statuses[column]; found {
+		return name
+	}
+	return column
+}
+
+// column — колонка графа по имени статуса в JIRA.
+func (t *Tracker) column(status string) string {
+	if name, found := t.columns[status]; found {
+		return name
+	}
+	return status
+}
+
+// jqlField переводит customfield_10003 в форму cf[10003]: по имени поля JQL тоже
+// умеет, но имена бывают неоднозначными, а идентификатор — нет.
+func (t *Tracker) jqlField(field string) string {
+	return "cf[" + strings.TrimPrefix(field, "customfield_") + "]"
+}
+
+func (t *Tracker) update(key string, fields map[string]any) error {
+	return t.call(http.MethodPut, "/issue/"+key, map[string]any{"fields": fields}, nil)
+}
+
+// call выполняет запрос к API. Тело ответа при ошибке возвращается целиком:
+// JIRA объясняет отказ в нём, и терять это объяснение — значит гадать.
+func (t *Tracker) call(method, path string, in, out any) error {
+	var body io.Reader
+	if in != nil {
+		raw, err := json.Marshal(in)
+		if err != nil {
+			return fmt.Errorf("запрос не сериализован: %w", err)
+		}
+		body = bytes.NewReader(raw)
+	}
+
+	req, err := http.NewRequest(method, t.cfg.BaseURL+apiPath+path, body)
+	if err != nil {
+		return fmt.Errorf("запрос не собран: %w", err)
+	}
+	req.SetBasicAuth(t.user, t.secret)
+	req.Header.Set("Accept", "application/json")
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	// Заголовок отключает форму входа: без него JIRA на неверный кред отвечает
+	// 200 со страницей логина, и разбор превращается в гадание.
+	req.Header.Set("X-Atlassian-Token", "no-check")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return statusError(method, path, resp.StatusCode, raw)
+	}
+	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("%s %s: ответ не разобран: %w\n%s", method, path, err, snippet(raw))
+	}
+	return nil
+}
+
+// statusError различает беды, которые лечатся по-разному: 404 — задачи нет,
+// 401 и 403 — кред или права, 409 — конкурент успел первым.
+func statusError(method, path string, code int, body []byte) error {
+	switch code {
+	case http.StatusNotFound:
+		return fmt.Errorf("%w: %s", tracker.ErrNotFound, path)
+	case http.StatusConflict:
+		return fmt.Errorf("%w: %s %s: %s", tracker.ErrClaimLost, method, path, snippet(body))
+	case http.StatusUnauthorized:
+		return fmt.Errorf("%s %s: кред не принят (401), проверь auth в tracker.yaml: %s", method, path, snippet(body))
+	case http.StatusForbidden:
+		return fmt.Errorf("%s %s: доступ запрещён (403), учётке не хватает прав: %s", method, path, snippet(body))
+	default:
+		return fmt.Errorf("%s %s: %d: %s", method, path, code, snippet(body))
+	}
+}
+
+// snippet обрезает тело ответа: JIRA бывает многословна, а в лог нужен смысл.
+func snippet(body []byte) string {
+	const limit = 400
+	text := strings.TrimSpace(string(body))
+	if len(text) > limit {
+		return text[:limit] + "…"
+	}
+	return text
+}
+
+func text(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// TrackerFile — имя файла конфигурации в корне конфиг-репозитория.
+const TrackerFile = "tracker.yaml"
+
+// LoadConfig читает tracker.yaml. Разбор строгий, как у роли и графа:
+// неизвестное поле — ошибка, а не молча забытая настройка.
+func LoadConfig(path string) (Config, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("%s не прочитан: %w", TrackerFile, err)
+	}
+
+	var cfg Config
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
+		return Config{}, fmt.Errorf("%s не разобран: %w", path, err)
+	}
+
+	var errs []error
+	if len(cfg.Statuses) == 0 {
+		errs = append(errs, errors.New("statuses пуст: раннер не поймёт, какой колонке какой статус соответствует"))
+	}
+	for name, field := range map[string]string{
+		"agent_owner": cfg.Fields.Owner, "run_id": cfg.Fields.RunID,
+		"lease_until": cfg.Fields.LeaseUntil, "attempts": cfg.Fields.Attempts,
+	} {
+		if !strings.HasPrefix(field, "customfield_") {
+			errs = append(errs, fmt.Errorf("fields.%s=%q: ожидается идентификатор вида customfield_10001", name, field))
+		}
+	}
+	if cfg.HumanFlagLabel == "" {
+		errs = append(errs, errors.New("human_flag_label не задан: атрибутом ожидания человека служит метка"))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return Config{}, fmt.Errorf("%s нарушает контракт: %w", path, err)
+	}
+	return cfg, nil
+}

@@ -160,11 +160,15 @@ func lastOfRole(comments []Comment, role string, match func(Marker) bool) int {
 	return -1
 }
 
+// shorten режет идентификатор по символам, а не по байтам: обрезка посреди
+// многобайтового символа испортила бы строку. Настоящие run_id — UUID, но
+// подделанные в отладке бывают любыми.
 func shorten(s string) string {
-	if len(s) <= short {
+	runes := []rune(s)
+	if len(runes) <= short {
 		return s
 	}
-	return s[:short]
+	return string(runes[:short])
 }
 
 // shortenSHA режет SHA до восьми символов, сохраняя пометку -dirty: без неё
