@@ -198,6 +198,96 @@ func TestBuildIsolatesHostConfig(t *testing.T) {
 	}
 }
 
+// Без явной личности агент коммитит от имени владельца машины: на local она берётся
+// из ~/.gitconfig, в песочнице sbx наследует её с хоста. Для конвейера ролей это
+// неверно — в истории проекта должно быть видно, какая роль что сделала.
+func TestBuildSetsCommitIdentity(t *testing.T) {
+	launch, role, _ := fixtureLaunch(t, roleYAML)
+
+	want := []string{
+		"GIT_AUTHOR_NAME=agent-" + role.Name,
+		"GIT_AUTHOR_EMAIL=" + role.Name + "@" + EmailDomain,
+		// Коммиттер задаётся наравне с автором: иначе автором будет роль,
+		// а коммиттером — владелец машины, и `git log --format=%cn` покажет человека.
+		"GIT_COMMITTER_NAME=agent-" + role.Name,
+		"GIT_COMMITTER_EMAIL=" + role.Name + "@" + EmailDomain,
+	}
+	for _, kv := range want {
+		// Личность нужна в любом окружении, изолированном или нет, значит её место
+		// в Env, а не в HostEnv.
+		if !slices.Contains(launch.Env, kv) {
+			t.Errorf("нет %s: %q", kv, launch.Env)
+		}
+	}
+}
+
+// На бэкенде без изоляции агент бежит в настоящей файловой системе владельца машины.
+// Хостовый HOME отдавал ему всё, что ищут по «~»: креды gh, docker, aws, npm.
+// Запуску выдаётся собственный пустой HOME — эти пути просто перестают существовать.
+//
+// Границей это не является: ssh домашний каталог берёт из getpwuid, а не из HOME,
+// и абсолютный путь к чужому файлу никуда не делся. Настоящая граница — песочница.
+func TestBuildGivesRunItsOwnHome(t *testing.T) {
+	hostHome, hasHostHome := os.LookupEnv("HOME")
+	launch, _, _ := fixtureLaunch(t, roleYAML)
+
+	home := ""
+	for _, kv := range launch.HostEnv {
+		if name, value, _ := strings.Cut(kv, "="); name == "HOME" {
+			home = value
+		}
+	}
+	if home == "" {
+		t.Fatalf("HOME запуску не задан вовсе: %q", launch.HostEnv)
+	}
+	if hasHostHome && home == hostHome {
+		t.Errorf("агенту достался хостовый HOME %s: креды владельца машины у него под рукой", home)
+	}
+
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatalf("домашний каталог запуска не создан: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("домашний каталог запуска не пуст: %d записей", len(entries))
+	}
+
+	// Домашний каталог живёт во временном хозяйстве запуска и уезжает вместе с ним:
+	// иначе от каждого прогона остаётся мусор.
+	if !strings.HasPrefix(home, filepath.Dir(launch.ConfigDir)) {
+		t.Errorf("домашний каталог %s вне временного хозяйства запуска", home)
+	}
+}
+
+// Подменённый HOME ssh не останавливает: домашний каталог он берёт из getpwuid
+// и находит ключи владельца машины. Проверено вживую — аутентификация на GitHub
+// проходила при синтетическом HOME. Забираем у git сами личности.
+func TestBuildDeniesGitSSHIdentities(t *testing.T) {
+	launch, _, _ := fixtureLaunch(t, roleYAML)
+
+	var command string
+	for _, kv := range launch.HostEnv {
+		if name, value, _ := strings.Cut(kv, "="); name == "GIT_SSH_COMMAND" {
+			command = value
+		}
+	}
+	if command == "" {
+		t.Fatalf("GIT_SSH_COMMAND не задан: ssh найдёт ключи владельца машины: %q", launch.HostEnv)
+	}
+	for _, opt := range []string{"IdentitiesOnly=yes", "IdentityAgent=none", "IdentityFile=/dev/null"} {
+		if !strings.Contains(command, opt) {
+			t.Errorf("в GIT_SSH_COMMAND нет %s: %q", opt, command)
+		}
+	}
+	// В песочнице кредов нет вовсе, а хостовые пути внутри указывают в пустоту:
+	// обе переменные осмыслены только там, где изоляции нет.
+	if slices.ContainsFunc(launch.Env, func(kv string) bool {
+		return strings.HasPrefix(kv, "GIT_SSH_COMMAND=") || strings.HasPrefix(kv, "HOME=")
+	}) {
+		t.Errorf("ограничение неизолированного запуска уехало в Env: %q", launch.Env)
+	}
+}
+
 // Изолированному бэкенду надо знать, что отдать агенту и на каких правах.
 func TestBuildWorkspaces(t *testing.T) {
 	launch, _, workdir := fixtureLaunch(t, roleYAML)

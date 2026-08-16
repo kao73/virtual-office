@@ -27,10 +27,23 @@ const SkillTool = "Skill"
 // UserPrompt — стартовое сообщение. Всё остальное агент читает из каталога обмена.
 const UserPrompt = "Начни с чтения `.agent/task.md` и `.agent/context.md`, затем выполни задачу и запиши файл результата."
 
+// EmailDomain — домен почты агентов. Не резолвится: письма туда никто не шлёт,
+// адрес нужен git'у как обязательное поле.
+const EmailDomain = "office.local"
+
 // hostVars — переменные хоста, без которых не работают git и сам агент при запуске
 // без изоляции. Остальное окружение до агента не доходит: запуск должен зависеть
 // от роли, а не от того, что случилось в шелле оператора.
-var hostVars = []string{"PATH", "HOME", "USER", "SHELL", "TMPDIR", "LANG", "LC_ALL", "TERM"}
+//
+// HOME в списке нет намеренно: он не воспроизводится с хоста, а подменяется, см. ownHome.
+var hostVars = []string{"PATH", "USER", "SHELL", "TMPDIR", "LANG", "LC_ALL", "TERM"}
+
+// sshWithoutIdentities — как git зовёт ssh при запуске без изоляции.
+//
+// Подменённого HOME здесь мало: домашний каталог ssh берёт из getpwuid, а не из HOME,
+// и находит ключи владельца машины даже с чужим HOME — проверено вживую, аутентификация
+// на GitHub проходила. Поэтому личности отбираются явно: ни файл ключа, ни агент.
+const sshWithoutIdentities = "ssh -o IdentitiesOnly=yes -o IdentityAgent=none -o IdentityFile=/dev/null"
 
 // credentialVars — переменные авторизации в порядке приоритета. Порядок совпадает
 // с поведением самого CLI: заданный API-ключ побеждает подписку. Передаётся только
@@ -62,7 +75,8 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 	// в него агент пишет собственную конфигурацию.
 	roleDir := filepath.Join(tmp, "role")
 	configDir := filepath.Join(tmp, "config")
-	for _, dir := range []string{roleDir, configDir} {
+	homeDir := filepath.Join(tmp, "home")
+	for _, dir := range []string{roleDir, configDir, homeDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return abort(fmt.Errorf("каталог запуска не создан: %w", err))
 		}
@@ -134,12 +148,13 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 		argv = append(argv, "--plugin-dir", pluginDir)
 	}
 
-	hostEnv := make([]string, 0, len(hostVars))
+	hostEnv := make([]string, 0, len(hostVars)+2)
 	for _, name := range hostVars {
 		if value, ok := os.LookupEnv(name); ok {
 			hostEnv = append(hostEnv, name+"="+value)
 		}
 	}
+	hostEnv = append(hostEnv, "HOME="+homeDir, "GIT_SSH_COMMAND="+sshWithoutIdentities)
 
 	return &runner.Launch{
 		ID:   run.RunID,
@@ -151,7 +166,10 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 		Workdir: workdir,
 		Timeout: time.Duration(role.Limits.TimeoutSec) * time.Second,
 
-		Env:     []string{"CLAUDE_CONFIG_DIR=" + configDir, credVar + "=" + credValue},
+		Env: append([]string{
+			"CLAUDE_CONFIG_DIR=" + configDir,
+			credVar + "=" + credValue,
+		}, identityVars(role)...),
 		HostEnv: hostEnv,
 
 		Workspaces: []runner.Workspace{
@@ -168,6 +186,22 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 		SecretVars:   []string{credVar},
 		Cleanup:      cleanup,
 	}, nil
+}
+
+// identityVars задают личность коммитов. Переменные окружения выбраны потому, что
+// перебивают любой git-конфиг и не требуют от агента права звать `git config`.
+//
+// Коммиттер задаётся наравне с автором: git берёт их из разных переменных, и без
+// второй пары автором будет роль, а коммиттером — владелец машины.
+func identityVars(role runner.Role) []string {
+	name := "agent-" + role.Name
+	email := role.Name + "@" + EmailDomain
+	return []string{
+		"GIT_AUTHOR_NAME=" + name,
+		"GIT_AUTHOR_EMAIL=" + email,
+		"GIT_COMMITTER_NAME=" + name,
+		"GIT_COMMITTER_EMAIL=" + email,
+	}
 }
 
 // credential выбирает способ авторизации по правилам docs/notes/auth.md.

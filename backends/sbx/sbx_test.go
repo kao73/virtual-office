@@ -10,11 +10,12 @@ import (
 
 func fixtureLaunch() *runner.Launch {
 	return &runner.Launch{
-		ID:      "550e8400-e29b-41d4-a716-446655440000",
-		Argv:    []string{"claude", "--print", "--max-turns", "50"},
-		Workdir: "/tmp/client",
-		Env:     []string{"CLAUDE_CONFIG_DIR=/tmp/office-run-1/config", "CLAUDE_CODE_OAUTH_TOKEN=секрет"},
-		HostEnv: []string{"PATH=/opt/homebrew/bin", "HOME=/Users/kao"},
+		ID:         "550e8400-e29b-41d4-a716-446655440000",
+		Argv:       []string{"claude", "--print", "--max-turns", "50"},
+		Workdir:    "/tmp/client",
+		Env:        []string{"CLAUDE_CONFIG_DIR=/tmp/office-run-1/config", "CLAUDE_CODE_OAUTH_TOKEN=секрет"},
+		HostEnv:    []string{"PATH=/opt/homebrew/bin", "HOME=/tmp/office-run-1/home"},
+		SecretVars: []string{"CLAUDE_CODE_OAUTH_TOKEN"},
 		Workspaces: []runner.Workspace{
 			{Path: "/tmp/client"},
 			{Path: "/tmp/office-run-1/role", ReadOnly: true},
@@ -59,8 +60,14 @@ func TestExecArgs(t *testing.T) {
 	}
 
 	for _, kv := range l.Env {
-		if !slices.Contains(got[:i], kv) {
-			t.Errorf("переменная запуска %q не передана в песочницу", kv)
+		name, _, _ := strings.Cut(kv, "=")
+		// Секрет передаётся одним именем: значение sbx наследует из своего окружения.
+		want := kv
+		if slices.Contains(l.SecretVars, name) {
+			want = name
+		}
+		if !slices.Contains(got[:i], want) {
+			t.Errorf("переменная запуска %q не передана в песочницу как %q", kv, want)
 		}
 	}
 	// Хостовое окружение внутри песочницы вредно: тамошний PATH указывает
@@ -69,6 +76,43 @@ func TestExecArgs(t *testing.T) {
 		if slices.Contains(got, kv) {
 			t.Errorf("хостовая переменная %q просочилась в песочницу", kv)
 		}
+	}
+}
+
+// Командная строка процесса sbx видна в `ps` любому пользователю хоста, поэтому
+// значение креда в неё попадать не должно. Форма `-e VAR` без значения велит sbx
+// взять переменную из собственного окружения — см. docs/notes/sbx.md.
+func TestExecArgsKeepsSecretOutOfCommandLine(t *testing.T) {
+	l := fixtureLaunch()
+	got := execArgs("office-550e8400", l)
+
+	if line := strings.Join(got, " "); strings.Contains(line, "секрет") {
+		t.Errorf("значение креда попало в командную строку, его видно в ps: %s", line)
+	}
+	if !slices.Contains(got, "CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Errorf("имя переменной с кредом не передано, агенту нечем авторизоваться: %q", got)
+	}
+	// Несекретное по-прежнему идёт значением: прятать его незачем.
+	if !slices.Contains(got, "CLAUDE_CONFIG_DIR=/tmp/office-run-1/config") {
+		t.Errorf("обычная переменная запуска потеряна: %q", got)
+	}
+}
+
+// Раз значение ушло из командной строки, его обязан нести процесс sbx —
+// иначе наследовать станет нечего и агент останется без авторизации.
+func TestRunEnvCarriesSecretValue(t *testing.T) {
+	got := runEnv(fixtureLaunch())
+
+	if !slices.Contains(got, "CLAUDE_CODE_OAUTH_TOKEN=секрет") {
+		t.Errorf("окружение sbx не несёт значения креда: наследовать нечего")
+	}
+	// Хостовое окружение процессу sbx нужно, чтобы он сам работал: он бежит на хосте.
+	if !slices.ContainsFunc(got, func(kv string) bool { return strings.HasPrefix(kv, "PATH=") }) {
+		t.Error("в окружении sbx нет PATH: он сам может не запуститься")
+	}
+	// А вот подменённый HOME и прочее хостовое окружение запуска внутрь не едут.
+	if slices.Contains(got, "HOME=/tmp/office-run-1/home") {
+		t.Error("окружение неизолированного запуска уехало в песочницу")
 	}
 }
 

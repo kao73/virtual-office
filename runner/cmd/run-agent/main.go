@@ -34,7 +34,9 @@ func main() {
 func execute() (int, error) {
 	roleName := flag.String("role", "", "имя роли из roles/")
 	workdirFlag := flag.String("workdir", "", "рабочая папка агента: git-репозиторий")
-	backend := flag.String("backend", "local", "бэкенд запуска: local (без изоляции) или sbx (песочница)")
+	// По умолчанию — песочница: изоляция должна быть тем, что получаешь, ничего
+	// не указав. Бэкенд local отлаживает контур и выбирается осознанно.
+	backend := flag.String("backend", "sbx", "бэкенд запуска: sbx (песочница) или local (без изоляции)")
 	taskFlag := flag.String("task", "", "файл с постановкой задачи; без него берётся уже лежащий .agent/task.md")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
 	flag.Parse()
@@ -154,12 +156,29 @@ func resolve(path string) string {
 	return path
 }
 
+// headSHA — отпечаток конфигурации, ушедшей агенту.
+//
+// Незакоммиченная правка в роли, промпте или ограждении меняет то, что получит агент,
+// а SHA не меняет. Без пометки паспорт прогона утверждал бы, что агенту достался
+// коммит, которого агент не видел, — и разбор «после какого коммита роль стала
+// косячить» опёрся бы на враньё. Пометка не восстанавливает правку, а лишь запрещает
+// доверять SHA; сам материал прогона хранит архив (см. долги этапа 1).
 func headSHA(repo string) (string, error) {
 	out, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
 	if err != nil {
 		return "", fmt.Errorf("не прочитан commit конфигурации в %s: %w", repo, err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	sha := strings.TrimSpace(string(out))
+
+	// Неотслеживаемые файлы считаются наравне с правками: они тоже не описаны SHA.
+	status, err := exec.Command("git", "-C", repo, "status", "--porcelain").Output()
+	if err != nil {
+		return "", fmt.Errorf("не прочитано состояние конфигурации в %s: %w", repo, err)
+	}
+	if strings.TrimSpace(string(status)) != "" {
+		sha += "-dirty"
+	}
+	return sha, nil
 }
 
 func printDryRun(l *runner.Launch, passport runner.Run) {
@@ -173,6 +192,13 @@ func printDryRun(l *runner.Launch, passport runner.Run) {
 
 	fmt.Println("\n== окружение запуска ==")
 	for _, kv := range l.Env {
+		fmt.Printf("  %s\n", mask(kv, l.SecretVars))
+	}
+
+	// Здесь лежат ограничения неизолированного запуска — подменённый HOME и запрет
+	// ssh-личностей. Без показа оператор не увидит, что именно защищает бэкенд local.
+	fmt.Println("\n== окружение без изоляции (только бэкенд local) ==")
+	for _, kv := range l.HostEnv {
 		fmt.Printf("  %s\n", mask(kv, l.SecretVars))
 	}
 

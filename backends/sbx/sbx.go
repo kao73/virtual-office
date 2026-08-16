@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,6 +59,7 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(execCtx, Executable, execArgs(name, l)...)
+	cmd.Env = runEnv(l)
 	cmd.Stdin = strings.NewReader(l.Stdin)
 	cmd.Stdout = log
 	cmd.Stderr = log
@@ -127,14 +129,38 @@ func createArgs(name string, l *runner.Launch) []string {
 // execArgs собирает команду запуска агента внутри песочницы.
 // В окружение попадает только то, что задал сам запуск: хостовые PATH и HOME
 // внутри указывают в пустоту, и передавать их нельзя.
+//
+// Секреты передаются одним именем, без значения: командная строка процесса sbx
+// видна в `ps` любому пользователю хоста. По форме `--env VAR` sbx берёт значение
+// из собственного окружения, которое готовит runEnv.
 func execArgs(name string, l *runner.Launch) []string {
 	args := make([]string, 0, 6+2*len(l.Env)+len(l.Argv))
 	args = append(args, "exec", "--interactive", "--workdir", l.Workdir)
 	for _, kv := range l.Env {
+		if varName, _, _ := strings.Cut(kv, "="); slices.Contains(l.SecretVars, varName) {
+			args = append(args, "--env", varName)
+			continue
+		}
 		args = append(args, "--env", kv)
 	}
 	args = append(args, name)
 	return append(args, l.Argv...)
+}
+
+// runEnv — окружение самого процесса sbx. Он бежит на хосте, поэтому наследует
+// хостовое окружение, а поверх кладёт значения секретов: из командной строки они
+// убраны, и взять их песочнице больше неоткуда.
+//
+// Окружение неизолированного запуска (l.HostEnv) сюда не входит: оно описывает
+// агента на хосте, а не sbx.
+func runEnv(l *runner.Launch) []string {
+	env := os.Environ()
+	for _, kv := range l.Env {
+		if varName, _, _ := strings.Cut(kv, "="); slices.Contains(l.SecretVars, varName) {
+			env = append(env, kv)
+		}
+	}
+	return env
 }
 
 // sandboxName делает из идентификатора запуска имя, пригодное для sbx.
