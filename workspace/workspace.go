@@ -1,0 +1,278 @@
+// Package workspace готовит агенту рабочую папку и публикует его работу.
+//
+// На проект заводится bare-клон в хозяйстве раннера, на задачу — worktree
+// с веткой `<branch_prefix><KEY>`. Так задачи не мешают друг другу, а история
+// каждой лежит отдельной веткой ещё до всякого ревью.
+//
+// Пуш — единственное место с сетевым git-доступом, и он **вне агента**: роль
+// не имеет права на `git push`, и обходной путь через `git -c` из неё закрыт
+// перечислением разрешённых подкоманд (см. stage-1-retro.md).
+//
+// Архив прогонов живёт не здесь, а в runner.Archive: копию каталога обмена делает
+// и ручной run-agent, у которого никакого worktree нет.
+package workspace
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/kao73/virtual-office/runner"
+	"github.com/kao73/virtual-office/tracker"
+)
+
+// Каталоги хозяйства раннера.
+const (
+	// ReposDir — bare-клоны проектов.
+	ReposDir = "repos"
+	// WorktreesDir — рабочие папки задач, если проект не задал свой корень.
+	WorktreesDir = "worktrees"
+)
+
+// TokenEnv — переменная с токеном для пуша по https. Секреты живут только
+// в окружении: ни в конфиге, ни в командной строке (её видно в `ps`).
+const TokenEnv = "GITHUB_TOKEN"
+
+// Manager — хозяйство рабочих папок.
+type Manager struct {
+	home string
+}
+
+// New открывает хозяйство в указанном каталоге.
+func New(home string) *Manager { return &Manager{home: home} }
+
+// Default — хозяйство раннера: ${OFFICE_HOME}.
+func Default() (*Manager, error) {
+	home, err := runner.Home()
+	if err != nil {
+		return nil, err
+	}
+	return New(home), nil
+}
+
+// Workspace — рабочая папка задачи и всё, что о ней нужно знать раннеру.
+type Workspace struct {
+	Dir    string // worktree: рабочая папка агента
+	Repo   string // bare-клон проекта, где живут ветки и объекты
+	Branch string
+}
+
+// Mounts — что отдать песочнице.
+//
+// Каталогов два, и второй не роскошь: `.git` внутри worktree — это файл со ссылкой
+// на каталог bare-репозитория. Без него git в песочнице отвечает «not a git
+// repository», а объекты коммитов писать всё равно некуда. Проверено вживую,
+// см. docs/notes/sbx.md.
+func (w Workspace) Mounts() []runner.Workspace {
+	return []runner.Workspace{{Path: w.Dir}, {Path: w.Repo}}
+}
+
+// Ensure готовит рабочую папку задачи: клонирует проект, если его ещё нет,
+// освежает его и заводит или переиспользует worktree ветки задачи.
+//
+// Переиспользование — не оптимизация, а требование: после `reap` или ответа
+// человека задача возвращается к той же незаконченной работе.
+func (m *Manager) Ensure(task tracker.TaskRef, project tracker.Project) (Workspace, error) {
+	repo, err := m.repo(task.Project, project)
+	if err != nil {
+		return Workspace{}, err
+	}
+
+	root, err := canonical(m.worktreeRoot(task.Project, project))
+	if err != nil {
+		return Workspace{}, err
+	}
+	ws := Workspace{Dir: filepath.Join(root, task.Key), Repo: repo, Branch: project.Branch(task.Key)}
+
+	// Запись о worktree могла пережить свой каталог: его сносят руками, а иногда
+	// и вместе с диском. Тогда чистим запись и заводим заново — на той же ветке,
+	// чтобы не потерять сделанное.
+	registered, err := m.hasWorktree(repo, ws.Dir)
+	if err != nil {
+		return Workspace{}, err
+	}
+	if registered {
+		if _, err := os.Stat(ws.Dir); err == nil {
+			return ws, nil
+		}
+		if _, err := git(repo, "worktree", "prune"); err != nil {
+			return Workspace{}, err
+		}
+	}
+
+	if err := m.addWorktree(ws, project); err != nil {
+		return Workspace{}, err
+	}
+	return ws, nil
+}
+
+// Push публикует ветку задачи, если на ней есть неопубликованные коммиты.
+// Возвращает, состоялся ли пуш.
+//
+// Раннер пушит всегда, когда есть что пушить, независимо от исхода: работа
+// не должна оставаться только в worktree, который однажды удалят.
+func (m *Manager) Push(ws Workspace) (bool, error) {
+	// Коммиты ветки, не достижимые ни из одной ссылки origin. Одна команда
+	// закрывает оба случая: ветки в origin ещё нет и ветка уже там есть.
+	out, err := git(ws.Repo, "rev-list", "--count", ws.Branch, "--not", "--remotes=origin")
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(out) == "0" {
+		return false, nil
+	}
+
+	args := append(credentialArgs(), "push", "origin", ws.Branch+":"+ws.Branch)
+	if _, err := git(ws.Repo, args...); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Remove удаляет рабочую папку задачи. Ветка остаётся в bare-клоне: worktree
+// эфемерен, работа — нет.
+func (m *Manager) Remove(ws Workspace) error {
+	_, err := git(ws.Repo, "worktree", "remove", "--force", ws.Dir)
+	return err
+}
+
+// repo возвращает bare-клон проекта, заводя его при первом обращении,
+// и освежает: свежая задача обязана начинаться от свежего origin.
+func (m *Manager) repo(name string, project tracker.Project) (string, error) {
+	root, err := canonical(filepath.Join(m.home, ReposDir))
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(root, name+".git")
+
+	if _, err := os.Stat(filepath.Join(path, "HEAD")); errors.Is(err, os.ErrNotExist) {
+		// init + remote add, а не clone --bare: так у нас появляются ссылки
+		// refs/remotes/origin/*, от которых ветвятся задачи, а ветки агентов
+		// живут отдельно, в refs/heads/*.
+		if _, err := git("", "init", "--quiet", "--bare", "-b", project.DefaultBranch, path); err != nil {
+			return "", err
+		}
+		if _, err := git(path, "remote", "add", "origin", project.RepoURL); err != nil {
+			return "", err
+		}
+	} else if err != nil {
+		return "", fmt.Errorf("клон проекта %s не проверен: %w", name, err)
+	}
+
+	if _, err := git(path, append(credentialArgs(), "fetch", "--quiet", "--prune", "origin")...); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// worktreeRoot — где живут рабочие папки проекта. Конфигурация важнее умолчания:
+// проекты могут лежать на разных дисках.
+func (m *Manager) worktreeRoot(name string, project tracker.Project) string {
+	if project.WorktreeRoot != "" {
+		return project.WorktreeRoot
+	}
+	return filepath.Join(m.home, WorktreesDir, name)
+}
+
+func (m *Manager) hasWorktree(repo, dir string) (bool, error) {
+	out, err := git(repo, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if path, found := strings.CutPrefix(strings.TrimSpace(line), "worktree "); found && path == dir {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// addWorktree заводит рабочую папку: на существующей ветке задачи, если она уже
+// есть в клоне, иначе новой веткой от origin/<default>.
+func (m *Manager) addWorktree(ws Workspace, project tracker.Project) error {
+	exists, err := branchExists(ws.Repo, ws.Branch)
+	if err != nil {
+		return err
+	}
+	if exists {
+		_, err = git(ws.Repo, "worktree", "add", "--quiet", ws.Dir, ws.Branch)
+		return err
+	}
+
+	base := "origin/" + project.DefaultBranch
+	_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, base)
+	return err
+}
+
+func branchExists(repo, branch string) (bool, error) {
+	cmd := exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Env = gitEnv()
+	switch err := cmd.Run(); {
+	case err == nil:
+		return true, nil
+	case isExitCode(err, 1):
+		return false, nil
+	default:
+		return false, fmt.Errorf("ветка %s не проверена: %w", branch, err)
+	}
+}
+
+// credentialArgs подкладывает git токен из окружения, не оставляя его ни в конфиге
+// репозитория, ни в командной строке: помощник читает переменную сам, уже внутри.
+// Первый пустой credential.helper сбрасывает системные — связка ключей macOS
+// иначе перехватила бы запрос и полезла спрашивать пароль.
+func credentialArgs() []string {
+	if os.Getenv(TokenEnv) == "" {
+		return nil
+	}
+	helper := fmt.Sprintf(`!f() { test "$1" = get && echo username=x-access-token && echo password=$%s; }; f`, TokenEnv)
+	return []string{"-c", "credential.helper=", "-c", "credential.helper=" + helper}
+}
+
+// gitEnv — окружение git-команд раннера. Личность коммитов задаёт адаптер
+// в момент запуска агента, и раннер её не переопределяет: коммиты — работа агента,
+// а не его обвязки.
+func gitEnv() []string {
+	return append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+}
+
+// git выполняет команду и возвращает её вывод. Ошибка несёт вывод целиком:
+// git объясняет причину в stderr, и терять её — значит разбираться вслепую.
+func git(dir string, args ...string) (string, error) {
+	if dir != "" {
+		args = append([]string{"-C", dir}, args...)
+	}
+	cmd := exec.Command("git", args...)
+	cmd.Env = gitEnv()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func isExitCode(err error, code int) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == code
+}
+
+// canonical создаёт каталог и возвращает путь без симлинков.
+//
+// Каноничность обязательна: git записывает в файл `.git` рабочей папки
+// разрешённый путь к каталогу репозитория. Отдай раннер песочнице путь через
+// симлинк — и внутри git ответит «not a git repository», хотя смонтировано всё.
+// На macOS так ведёт себя обычный /tmp.
+func canonical(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("каталог %s не создан: %w", dir, err)
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("путь %s не разрешён: %w", dir, err)
+	}
+	return resolved, nil
+}
