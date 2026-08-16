@@ -8,6 +8,7 @@ import "time"
 type Launch struct {
 	Argv    []string      // командная строка целиком, Argv[0] — исполняемый файл
 	Env     []string      // окружение целиком, в форме KEY=VALUE
+	Stdin   string        // что подать процессу на вход
 	Workdir string        // рабочая директория процесса
 	Timeout time.Duration // предел времени; по исчерпании бэкенд убивает процесс
 

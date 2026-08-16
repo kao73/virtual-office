@@ -55,6 +55,24 @@ func TestRunCapturesBothStreams(t *testing.T) {
 	}
 }
 
+// Стартовое сообщение агент получает через stdin — бэкенд обязан его доставить.
+func TestRunDeliversStdin(t *testing.T) {
+	l, logPath := launch(t, "cat", time.Minute)
+	l.Stdin = "начни с чтения задачи"
+
+	if _, err := Run(context.Background(), l, logPath); err != nil {
+		t.Fatalf("запуск не состоялся: %v", err)
+	}
+
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("лог не прочитан: %v", err)
+	}
+	if !strings.Contains(string(raw), l.Stdin) {
+		t.Errorf("на stdin ничего не пришло:\n%s", raw)
+	}
+}
+
 func TestRunUsesWorkdir(t *testing.T) {
 	l, logPath := launch(t, "pwd", time.Minute)
 

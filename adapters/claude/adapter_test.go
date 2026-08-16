@@ -107,8 +107,19 @@ func TestBuildCommandLine(t *testing.T) {
 	if got := argValue(t, launch.Argv, "--setting-sources"); got != "" {
 		t.Errorf("источники настроек %q: ожидался пустой список, иначе подтянутся чужие слои", got)
 	}
-	if got := launch.Argv[len(launch.Argv)-1]; got != UserPrompt {
-		t.Errorf("последним аргументом должно идти стартовое сообщение, а идёт %q", got)
+	// Роль разрешает три инструмента; без --tools агенту достались бы все встроенные,
+	// включая сетевые и порождающие процессы.
+	if got := argValue(t, launch.Argv, "--tools"); got != "Read,Write,Bash" {
+		t.Errorf("набор инструментов %q, роль разрешает Read, Write, Bash(git *)", got)
+	}
+	// Стартовое сообщение обязано идти через stdin: вариадические флаги
+	// (--tools, --allowedTools, --add-dir) съедают позиционный аргумент,
+	// и агент запускается без промпта.
+	if launch.Stdin != UserPrompt {
+		t.Errorf("на stdin подаётся %q вместо стартового сообщения", launch.Stdin)
+	}
+	if slices.Contains(launch.Argv, UserPrompt) {
+		t.Errorf("стартовое сообщение осталось в командной строке: %q", launch.Argv)
 	}
 	if launch.Timeout.Seconds() != float64(role.Limits.TimeoutSec) {
 		t.Errorf("таймаут %s, в роли %d с", launch.Timeout, role.Limits.TimeoutSec)
@@ -124,6 +135,34 @@ func TestBuildCommandLine(t *testing.T) {
 	}
 	if !strings.Contains(launch.SystemPrompt, "Делай, что сказано") {
 		t.Error("в системном промпте нет промпта роли")
+	}
+}
+
+func TestToolNames(t *testing.T) {
+	cases := map[string]struct {
+		rules []string
+		want  string
+	}{
+		"правила одного инструмента схлопываются": {
+			rules: []string{"Read", "Bash(git *)", "Bash(uv *)", "Bash(pytest *)"},
+			want:  "Read,Bash",
+		},
+		"порядок сохраняется": {
+			rules: []string{"Write", "Read", "Edit"},
+			want:  "Write,Read,Edit",
+		},
+		"пробелы вокруг имени не мешают": {
+			rules: []string{" Read ", "Bash (git *)"},
+			want:  "Read,Bash",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := strings.Join(toolNames(tc.rules), ","); got != tc.want {
+				t.Errorf("получено %q, ожидалось %q", got, tc.want)
+			}
+		})
 	}
 }
 

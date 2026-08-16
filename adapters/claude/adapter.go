@@ -83,6 +83,10 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 		"--settings", settingsPath,
 		// Пусто — значит не читать ни пользовательский слой, ни слои проекта-клиента.
 		"--setting-sources", "",
+		// Сужает сам набор инструментов. Без этого агенту доступны все встроенные,
+		// включая сетевые и порождающие процессы: permissions.allow управляет
+		// автоодобрением, а не составом.
+		"--tools", strings.Join(toolNames(role.Tools.Allow), ","),
 		// Запрещает всё, чего нет в permissions.allow: диалогов в headless всё равно никто не увидит.
 		"--permission-mode", "dontAsk",
 		"--max-turns", strconv.Itoa(role.Limits.MaxTurns),
@@ -96,9 +100,6 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 		argv = append(argv, "--plugin-dir", pluginDir)
 	}
 
-	// Позиционный аргумент идёт последним.
-	argv = append(argv, UserPrompt)
-
 	env := make([]string, 0, len(passThroughVars)+2)
 	for _, name := range passThroughVars {
 		if value, ok := os.LookupEnv(name); ok {
@@ -108,8 +109,12 @@ func Build(role runner.Role, workdir string, run runner.Run) (*runner.Launch, er
 	env = append(env, "CLAUDE_CONFIG_DIR="+configDir, credVar+"="+credValue)
 
 	return &runner.Launch{
-		Argv:         argv,
-		Env:          env,
+		Argv: argv,
+		Env:  env,
+		// Стартовое сообщение идёт через stdin, а не позиционным аргументом:
+		// вариадические флаги вроде --tools забирают все следующие за ними слова
+		// и проглотили бы промпт.
+		Stdin:        UserPrompt,
 		Workdir:      workdir,
 		Timeout:      time.Duration(role.Limits.TimeoutSec) * time.Second,
 		SystemPrompt: systemPrompt,
@@ -210,6 +215,23 @@ func buildPlugin(tmp string, role runner.Role) (string, error) {
 		}
 	}
 	return dir, nil
+}
+
+// toolNames выделяет имена инструментов из правил разрешений: Bash(git *) → Bash.
+// Порядок сохраняется, повторы убираются.
+func toolNames(rules []string) []string {
+	seen := make(map[string]bool, len(rules))
+	names := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		name, _, _ := strings.Cut(rule, "(")
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
 }
 
 // shellQuote заворачивает путь в одинарные кавычки: команда хука выполняется шеллом.

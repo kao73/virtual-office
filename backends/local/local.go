@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/kao73/virtual-office/runner"
@@ -34,6 +35,7 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 	cmd := exec.CommandContext(ctx, l.Argv[0], l.Argv[1:]...)
 	cmd.Dir = l.Workdir
 	cmd.Env = l.Env
+	cmd.Stdin = strings.NewReader(l.Stdin)
 	cmd.Stdout = log
 	cmd.Stderr = log
 	cmd.WaitDelay = killGrace
