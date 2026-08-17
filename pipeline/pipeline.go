@@ -289,8 +289,10 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		StartedAt: o.now(), TaskKey: task.Key,
 	}
 	input := runner.Input{
-		Task:    taskBody(task),
-		Context: contextBody(task, roleName, o.accounts(), o.Workflow.Limits.MaxAttempts),
+		Task:       taskBody(task),
+		Branch:     ws.Branch,
+		BaseBranch: "origin/" + c.project.DefaultBranch,
+		Context:    contextBody(task, roleName, o.accounts(), o.Workflow.Limits.MaxAttempts),
 	}
 	if err := runner.PrepareInput(ws.Dir, role, passport, input); err != nil {
 		return err

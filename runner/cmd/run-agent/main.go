@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,6 +64,7 @@ func execute() (int, error) {
 	workdirFlag := flag.String("workdir", "", "рабочая папка агента: git-репозиторий")
 	backend := flag.String("backend", runagent.DefaultBackend, "бэкенд запуска: sbx (песочница) или local (без изоляции)")
 	taskFlag := flag.String("task", "", "файл с постановкой; без него берётся уже лежащий .agent/task.md")
+	baseFlag := flag.String("base", "", "базовая ветка: от неё считается разница по задаче (нужна reviewer'у)")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
 	flag.Parse()
 
@@ -113,7 +115,10 @@ func execute() (int, error) {
 		StartedAt: time.Now(),
 	}
 
-	if err := runner.PrepareInput(workdir, role, passport, runner.Input{Task: task}); err != nil {
+	// Свою ветку рабочая папка знает сама, базовую — нет: она задаётся флагом.
+	// В проде обе называет раннер, здесь их подставляет человек.
+	input := runner.Input{Task: task, Branch: headBranch(workdir), BaseBranch: *baseFlag}
+	if err := runner.PrepareInput(workdir, role, passport, input); err != nil {
 		return 0, err
 	}
 
@@ -175,6 +180,19 @@ func resolve(path string) string {
 		return filepath.Join(dir, path)
 	}
 	return path
+}
+
+// headBranch — ветка рабочей папки. Молчит, а не жалуется: агенту можно дать
+// и репозиторий с отделённым HEAD, и тогда имени ветки просто нет.
+func headBranch(workdir string) string {
+	out, err := exec.Command("git", "-C", workdir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	if name := strings.TrimSpace(string(out)); name != "HEAD" {
+		return name
+	}
+	return ""
 }
 
 func printDryRun(l runagent.Launch, passport runner.Run) {

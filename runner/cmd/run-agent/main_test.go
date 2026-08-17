@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kao73/virtual-office/runner"
 )
 
 // buildRunAgent собирает CLI и возвращает путь к бинарнику: коды возврата —
@@ -104,6 +106,49 @@ func TestExitCodeZeroOnDryRun(t *testing.T) {
 	if code != 0 {
 		t.Errorf("код %d, ожидался 0; вывод: %s", code, out)
 	}
+}
+
+// Ручной запуск обязан уметь назвать ветки: без базовой ветки reviewer'а нечем
+// отлаживать — разницу по задаче он видит только относительно неё. Имя своей ветки
+// раннер спрашивает у самой рабочей папки, база задаётся флагом.
+func TestDryRunNamesBranches(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+
+	code, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "reviewer", "--workdir", workdir, "--task", taskFile(t), "--base", "origin/master", "--dry-run")
+	if code != 0 {
+		t.Fatalf("код %d, ожидался 0; вывод: %s", code, out)
+	}
+
+	context, err := os.ReadFile(filepath.Join(workdir, runner.Dir, runner.FileContext))
+	if err != nil {
+		t.Fatalf("контекст не прочитан: %v", err)
+	}
+	for _, want := range []string{"origin/master", currentBranch(t, workdir)} {
+		if !strings.Contains(string(context), want) {
+			t.Errorf("в контексте нет %q:\n%s", want, context)
+		}
+	}
+}
+
+func taskFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "task.md")
+	if err := os.WriteFile(path, []byte("Разбери работу.\n"), 0o644); err != nil {
+		t.Fatalf("постановка не записана: %v", err)
+	}
+	return path
+}
+
+func currentBranch(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("ветка не определена: %v", err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // gitRepo — рабочая папка агента: любой git-репозиторий.

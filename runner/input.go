@@ -24,6 +24,10 @@ const (
 // в каталоге обмена и переписывать её не нужно.
 type Input struct {
 	Task string
+	// Branch — ветка задачи, на которой стоит рабочая папка; BaseBranch — то,
+	// от чего она отведена. Обе пусты при ручном запуске: проекта там нет.
+	Branch     string
+	BaseBranch string
 	// Context — разделы, которые допишутся к собранному раннером контексту:
 	// переписка тикета, номер попытки, всё, что зависит от трекера.
 	Context string
@@ -49,7 +53,7 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 		}
 	}
 
-	contextMD, err := composeContext(workdir, role, run, in.Context)
+	contextMD, err := composeContext(workdir, role, run, in)
 	if err != nil {
 		return err
 	}
@@ -70,7 +74,7 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 
 // composeContext собирает context.md. На этом этапе это имя роли, паспорт запуска,
 // действующие ограничения и STATE.md, если он есть.
-func composeContext(workdir string, role Role, run Run, extra string) (string, error) {
+func composeContext(workdir string, role Role, run Run, in Input) (string, error) {
 	var b strings.Builder
 
 	b.WriteString("# Контекст запуска\n\n")
@@ -78,6 +82,15 @@ func composeContext(workdir string, role Role, run Run, extra string) (string, e
 	fmt.Fprintf(&b, "- run_id: %s\n", run.RunID)
 	if run.TaskKey != "" {
 		fmt.Fprintf(&b, "- Задача: %s\n", run.TaskKey)
+	}
+	// Ветки — единственный способ отделить работу по задаче от всего остального:
+	// `git diff <база>...HEAD` показывает её целиком, и без имени базы этот вопрос
+	// в рабочей папке не задать.
+	if in.Branch != "" {
+		fmt.Fprintf(&b, "- Ветка задачи: %s\n", in.Branch)
+	}
+	if in.BaseBranch != "" {
+		fmt.Fprintf(&b, "- Базовая ветка: %s\n", in.BaseBranch)
 	}
 	fmt.Fprintf(&b, "- Файл результата: %s\n", role.ResultFile)
 	fmt.Fprintf(&b, "- Предел шагов: %d\n", role.Limits.MaxTurns)
@@ -87,8 +100,8 @@ func composeContext(workdir string, role Role, run Run, extra string) (string, e
 		fmt.Fprintf(&b, "- Запрещённые инструменты: %s\n", strings.Join(role.Tools.Deny, ", "))
 	}
 
-	if extra != "" {
-		fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(extra))
+	if in.Context != "" {
+		fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(in.Context))
 	}
 
 	// STATE.md и PLAN.md пишет сам агент, чтобы следующий прогон продолжил

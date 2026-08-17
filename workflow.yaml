@@ -16,6 +16,13 @@ columns: [Backlog, Ready, InProgress, Review, Approved, Done, Blocked]
 # человек, рабочая папка больше не нужна.
 terminal: [Approved]
 
+# Порядок обхода ролей в цикле без --role. Задаётся явно: порядок ключей YAML-карты
+# не сохраняется, и «по алфавиту» было бы совпадением, а не правилом.
+#
+# Ревьюер идёт первым намеренно: он разгружает Review, откуда работа уходит с доски,
+# а implementer её туда только добавляет. Обратный порядок копил бы очередь на разбор.
+tick_order: [reviewer, implementer]
+
 roles:
   implementer:
     reads_from: Ready       # откуда берёт задачи
@@ -29,8 +36,27 @@ roles:
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
 
+  reviewer:
+    reads_from: Review
+    # Рабочей колонки нет: отдельная «на разборе» ничего не сообщает человеку,
+    # а доске стоила бы колонки. Занятость видна по живой аренде.
+    outcomes:
+      done:
+        to: Approved        # маршрут по умолчанию: разбор кончился, работа принята
+        # Куда именно ведёт `done`, решает граф по next_owner из отчёта. Агент
+        # называет следующего владельца, но карту пишет человек: значения, которого
+        # в карте нет, хватает ровно на маршрут по умолчанию.
+        by_next_owner:
+          implementer: Ready
+          human: Approved
+      needs_human: { to: Blocked, human: true }
+      # Возврат в свою же колонку: разбор не состоялся, задача ждёт следующего.
+      blocked:     { to: Review, attempts: +1 }
+      failed:      { to: Review, attempts: +1 }
+
 limits:
   max_attempts: 3           # исчерпав попытки, задача уходит в Blocked к человеку
+  max_review_rounds: 3      # отчётов reviewer'а с next:implementer подряд
   lease_margin_sec: 300     # аренда = таймаут роли + этот запас
 
   # Сколько раз подряд прогон может не дожить до отчёта. Считается отдельно

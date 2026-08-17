@@ -27,6 +27,24 @@ limits:
 result_file: .agent/result.json
 `
 
+// Роль, которой не дали инструментов записи: так устроен reviewer.
+const readOnlyRoleYAML = `name: tester
+prompt: role.md
+includes:
+  - ../_base/base.md
+skills: []
+tools:
+  allow: ["Read", "Bash(git diff*)"]
+  deny: ["Edit"]
+hooks:
+  stop:
+    - hooks/require-result.sh
+limits:
+  max_turns: 5
+  timeout_sec: 60
+result_file: .agent/result.json
+`
+
 func fixtureOffice(t *testing.T, yaml string, skills ...string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -98,6 +116,28 @@ func argValue(t *testing.T, argv []string, flag string) string {
 		t.Fatalf("у %s нет значения: %q", flag, argv)
 	}
 	return argv[i+1]
+}
+
+// Файл результата — часть контракта прогона, а не работа роли: завершиться без него
+// нельзя. Значит право записать его даёт обвязка, как и подгрузку скиллов, — иначе
+// роль без инструментов записи не может закончиться ничем, кроме синтетического failed.
+func TestBuildLetsAnyRoleWriteItsResult(t *testing.T) {
+	launch, role, workdir := fixtureLaunch(t, readOnlyRoleYAML)
+
+	if tools := strings.Split(argValue(t, launch.Argv, "--tools"), ","); !slices.Contains(tools, WriteTool) {
+		t.Errorf("роли нечем записать результат: %q", tools)
+	}
+	// Имя в правиле — Edit, а не Write: путь задаётся именем семейства файловых
+	// инструментов. Путь абсолютный и в форме `//`. Обе особенности измерены
+	// прогонами, см. docs/notes/claude-cli.md.
+	rule := FileRule + "(/" + filepath.Join(workdir, role.ResultFile) + ")"
+	if !strings.Contains(launch.Settings, rule) {
+		t.Errorf("в разрешениях нет %s:\n%s", rule, launch.Settings)
+	}
+	// Разрешение точечное: право записать отчёт не должно оказаться правом править код.
+	if strings.Contains(launch.Settings, `"`+WriteTool+`"`) {
+		t.Errorf("роль без Write получила запись куда угодно:\n%s", launch.Settings)
+	}
 }
 
 func TestBuildCommandLine(t *testing.T) {

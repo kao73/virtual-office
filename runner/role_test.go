@@ -3,6 +3,7 @@ package runner
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -166,13 +167,77 @@ func TestLoadRoleRejectsNonExecutableHook(t *testing.T) {
 	}
 }
 
-// Роль, которая лежит в репозитории, обязана проходить собственную проверку.
-func TestShippedImplementerRoleIsValid(t *testing.T) {
-	role, err := LoadRole("..", "implementer")
+// Запрет Write целиком отнимает у роли право записать собственный результат:
+// запреты сильнее разрешений, и точечное разрешение обвязки погибнет вместе с ним.
+// Прогон такой роли не может закончиться ничем, кроме синтетического failed.
+func TestLoadRoleRejectsBlanketWriteDenial(t *testing.T) {
+	root := fixtureOffice(t, strings.Replace(fixtureRoleYAML, `deny: []`, `deny: ["Write"]`, 1))
+
+	_, err := LoadRole(root, "tester")
+	if err == nil {
+		t.Fatal("роль запрещает Write целиком, но принята")
+	}
+	if !strings.Contains(err.Error(), "результат") {
+		t.Errorf("ошибка не объясняет причину: %v", err)
+	}
+}
+
+// Каждая роль, которая лежит в репозитории, обязана проходить собственную
+// проверку. Перечислять их в тесте поимённо нельзя: забытая новая роль сломается
+// не здесь, а на живом прогоне.
+func TestShippedRolesAreValid(t *testing.T) {
+	for _, name := range shippedRoles(t) {
+		role, err := LoadRole("..", name)
+		if err != nil {
+			t.Errorf("roles/%s не проходит проверку: %v", name, err)
+			continue
+		}
+		if _, err := role.SystemPrompt(); err != nil {
+			t.Errorf("промпт roles/%s не собирается: %v", name, err)
+		}
+	}
+}
+
+// Право на запись — единственное, что отличает reviewer'а от implementer'а.
+// Потерять это различие правкой role.yaml легко, и заметить её было бы нечем:
+// роль с Write просто начала бы чинить чужую работу вместо разбора.
+func TestReviewerRoleCannotWrite(t *testing.T) {
+	role, err := LoadRole("..", "reviewer")
 	if err != nil {
-		t.Fatalf("roles/implementer не проходит проверку: %v", err)
+		t.Fatalf("roles/reviewer не прочитана: %v", err)
 	}
-	if _, err := role.SystemPrompt(); err != nil {
-		t.Errorf("промпт roles/implementer не собирается: %v", err)
+
+	for _, rule := range role.Tools.Allow {
+		for _, writing := range []string{"Edit", "Write", "NotebookEdit", "Bash(git add", "Bash(git commit"} {
+			if strings.HasPrefix(rule, writing) {
+				t.Errorf("reviewer разрешает править: %q", rule)
+			}
+		}
 	}
+	for _, want := range []string{"Read", "Bash(git diff*)"} {
+		if !slices.Contains(role.Tools.Allow, want) {
+			t.Errorf("reviewer лишён %q — ему нечем читать работу", want)
+		}
+	}
+}
+
+// shippedRoles — имена ролей репозитория. Каталоги с подчёркиванием ролью
+// не являются: в _base лежат общие куски промпта.
+func shippedRoles(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join("..", RolesDir))
+	if err != nil {
+		t.Fatalf("каталог ролей не прочитан: %v", err)
+	}
+
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), "_") {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("в репозитории не нашлось ни одной роли")
+	}
+	return names
 }

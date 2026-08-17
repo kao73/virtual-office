@@ -368,6 +368,82 @@ func TestHumanReplyReturnsTaskToQueue(t *testing.T) {
 	}
 }
 
+// Роль, названная в графе, обязана лежать в репозитории: раннер грузит её
+// по имени из workflow.yaml, и расхождение обнаружилось бы не здесь, а посреди
+// цикла, уже захватив задачу.
+func TestEveryGraphRoleIsShipped(t *testing.T) {
+	o := newOffice(t)
+	for _, name := range o.Workflow.Order() {
+		if _, err := runner.LoadRole(o.ConfigRoot, name); err != nil {
+			t.Errorf("роль %s есть в графе, но не загружается: %v", name, err)
+		}
+	}
+}
+
+// Ревьюер читает из Review и возвращает работу автору. Рабочей колонки у него нет:
+// задача остаётся в Review с живой арендой, а по исходу уходит туда, куда велит
+// граф по next_owner.
+func TestReviewerReturnsWorkToImplementer(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Review")
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "Тесты не покрывают отказ.", NextOwner: "implementer",
+	}
+
+	worked, err := o.Tick(context.Background(), "reviewer")
+	if err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+	if !worked {
+		t.Fatal("ревьюер не взял задачу из Review")
+	}
+
+	task := o.get(t, "OFF-2")
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался Ready: работа возвращена автору", task.Status)
+	}
+	if task.HumanFlag {
+		t.Error("возврат автору не должен звать человека")
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: круг ревью — не провал агента", task.Attempts)
+	}
+}
+
+// Одобрение уводит задачу в терминальную колонку: дальше её ведёт человек.
+func TestReviewerApprovalMovesTaskToApproved(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Review")
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "Сделано по постановке, тесты зелёные.", NextOwner: "human",
+	}
+
+	if _, err := o.Tick(context.Background(), "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	if task := o.get(t, "OFF-2"); task.Status != "Approved" {
+		t.Errorf("статус %q, ожидался Approved", task.Status)
+	}
+}
+
+// Имена веток знает раннер, и он обязан их назвать: агент в рабочей папке видит
+// только HEAD, а от чего тот отведён — уже нет.
+func TestContextNamesTaskAndBaseBranch(t *testing.T) {
+	o := newOffice(t)
+	o.tick(t)
+
+	context, err := os.ReadFile(filepath.Join(o.agent.seen.Workdir, runner.Dir, runner.FileContext))
+	if err != nil {
+		t.Fatalf("контекст не прочитан: %v", err)
+	}
+	for _, want := range []string{"agent/OFF-1", "origin/master"} {
+		if !strings.Contains(string(context), want) {
+			t.Errorf("в контексте нет %q:\n%s", want, context)
+		}
+	}
+}
+
 // Разобранный ответ не разбирается повторно: иначе задача возвращалась бы
 // в очередь на каждом цикле.
 func TestHumanReplyIsProcessedOnce(t *testing.T) {

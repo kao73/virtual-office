@@ -177,6 +177,38 @@ func TestExcludeAgentDirWorksInWorktree(t *testing.T) {
 	}
 }
 
+// Ветки агент сам узнать не может: в рабочей папке видно только HEAD, а от чего
+// он отведён — уже нет. Без базы `git diff` показывает не то, и reviewer'у неоткуда
+// взять свою работу.
+func TestContextNamesBranches(t *testing.T) {
+	workdir := gitRepo(t)
+	in := Input{Task: "Задача\n", Branch: "agent/OFF-1", BaseBranch: "origin/master"}
+
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), in); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	context := read(t, workdir, FileContext)
+	for _, want := range []string{"agent/OFF-1", "origin/master"} {
+		if !strings.Contains(context, want) {
+			t.Errorf("в контексте нет %q:\n%s", want, context)
+		}
+	}
+}
+
+// Ручной запуск ветками не распоряжается: там нет ни проекта, ни рабочей папки
+// задачи. Строки, которую нечем заполнить, в контексте быть не должно.
+func TestContextOmitsBranchesWhenUnknown(t *testing.T) {
+	workdir := gitRepo(t)
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), Input{Task: "Задача\n"}); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	if context := read(t, workdir, FileContext); strings.Contains(context, "етка") {
+		t.Errorf("контекст говорит о ветках, которых не знает:\n%s", context)
+	}
+}
+
 // read возвращает содержимое файла из каталога обмена внутри workdir.
 func read(t *testing.T, workdir, name string) string {
 	t.Helper()

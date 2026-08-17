@@ -24,6 +24,17 @@ const Executable = "claude"
 // Его добавляет раннер, а не роль: скиллы подключает он же.
 const SkillTool = "Skill"
 
+// WriteTool — инструмент записи файлов. Роли он достаётся всегда, но ровно на один
+// путь — файл результата: закончить прогон без него нельзя, а роль без права писать
+// (reviewer) не смогла бы закончить его вовсе. Проверено прогоном: агент честно
+// перебрал Bash и Write, получил отказ на обоих и завершился без результата.
+const WriteTool = runner.WriteTool
+
+// FileRule — имя, которым в правиле разрешения задаётся путь для записи. Оно одно
+// на всё семейство файловых инструментов и покрывает Write; правило `Write(<путь>)`
+// не совпадает ни с чем. Измерено, см. docs/notes/claude-cli.md.
+const FileRule = "Edit"
+
 // UserPrompt — стартовое сообщение. Всё остальное агент читает из каталога обмена.
 const UserPrompt = "Начни с чтения `.agent/task.md` и `.agent/context.md`, затем выполни задачу и запиши файл результата."
 
@@ -114,6 +125,9 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 	// перечисляет там работу с файлами и командами, а не механизм подгрузки
 	// скиллов, — но без него подключённые скиллы агенту нечем вызвать.
 	tools := toolNames(role.Tools.Allow)
+	if !slices.Contains(tools, WriteTool) {
+		tools = append(tools, WriteTool)
+	}
 
 	pluginDir := ""
 	if len(role.Skills) > 0 {
@@ -293,12 +307,21 @@ type hookCommand struct {
 // Путь к файлу результата подставляется в команду хука абсолютным: так ограждению
 // не приходится гадать, откуда его запустили.
 func buildSettings(role runner.Role, workdir string, hooks []string) (string, error) {
+	resultPath := filepath.Join(workdir, role.ResultFile)
+
+	// Право записать файл результата добавляется к разрешениям роли всегда и одним
+	// путём: писать отчёт обязаны все, править код — не все. Роль, которой запись
+	// разрешена целиком, от этого правила ничего не теряет.
+	//
+	// Путь абсолютный, в форме `//<путь>`: относительный отсчитывается от каталога
+	// самого settings.json, а он лежит в хозяйстве запуска. Форма с одной косой
+	// не совпадает ни с чем — измерено, см. docs/notes/claude-cli.md.
+	allow := append(slices.Clone(role.Tools.Allow), FileRule+"(/"+resultPath+")")
 	s := settingsFile{
-		Permissions: permissionsBlock{Allow: role.Tools.Allow, Deny: role.Tools.Deny},
+		Permissions: permissionsBlock{Allow: allow, Deny: role.Tools.Deny},
 	}
 
 	if len(hooks) > 0 {
-		resultPath := filepath.Join(workdir, role.ResultFile)
 		commands := make([]hookCommand, 0, len(hooks))
 		for _, script := range hooks {
 			commands = append(commands, hookCommand{

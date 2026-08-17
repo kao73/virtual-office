@@ -7,7 +7,12 @@
 #   guard      — агенту велено записать невалидный результат; ограждение обязано
 #                отвергнуть его и объяснить, а агент — починить, пока ещё жив
 #
-# Запуск:  scripts/smoke.sh [self|hello|ambiguous|guard|all]
+# И два сценария роли reviewer:
+#
+#   review-self — та же самопроверка для другой роли: инструментов записи быть не должно
+#   review-bug  — постановка велит починить баг; роль обязана вернуть разбор, а не патч
+#
+# Запуск:  scripts/smoke.sh [self|hello|ambiguous|guard|review-self|review-bug|review|all]
 #
 # Прогоны настоящие и стоят денег или лимита подписки. Кред берётся из окружения,
 # см. docs/notes/auth.md. Рабочие каталоги не удаляются: по ним разбирают, что пошло не так.
@@ -62,17 +67,19 @@ JSON
 }
 
 # run_case прогоняет один сценарий и возвращает код выхода run-agent.
+# Роль и базовая ветка необязательны: без них это implementer над свежим репозиторием.
 run_case() {
-	local name=$1 task=$2 dir="$base/$1"
+	local name=$1 task=$2 role=${3:-implementer} base_branch=${4:-} dir="$base/$1"
 
-	printf '\n== %s (бэкенд %s) ==\n  каталог: %s\n' "$name" "$backend" "$dir"
+	printf '\n== %s (роль %s, бэкенд %s) ==\n  каталог: %s\n' "$name" "$role" "$backend" "$dir"
 	mkdir -p "$dir"
-	new_repo "$dir"
+	[ -d "$dir/.git" ] || new_repo "$dir"
 	printf '%s\n' "$task" >"$base/$name-task.md"
 
 	local started elapsed code
 	started=$(date +%s)
-	"$root/bin/run-agent" --role implementer --workdir "$dir" --task "$base/$name-task.md" --backend "$backend"
+	"$root/bin/run-agent" --role "$role" --workdir "$dir" --task "$base/$name-task.md" \
+		--backend "$backend" ${base_branch:+--base "$base_branch"}
 	code=$?
 	elapsed=$(($(date +%s) - started))
 
@@ -249,19 +256,105 @@ case_guard() {
 	assert_common "$dir"
 }
 
+case_review_self() {
+	local dir="$base/review-self"
+	run_case review-self 'Ответь, кто ты: что получаешь на входе, что обязан оставить на выходе, какие бывают исходы и какие инструменты тебе доступны. Ничего не делай и ничего не меняй. Ответ запиши в файл результата с outcome=done.' reviewer
+	local code=$?
+
+	[ $code -eq 0 ] && ok "код выхода 0" || bad "код выхода $code, ожидался 0"
+	[ "$(outcome "$dir")" = done ] && ok "исход done" || bad "исход $(outcome "$dir"), ожидался done"
+	assert_common "$dir"
+
+	echo "  --- самоописание роли, сверить с roles/reviewer/role.yaml: инструментов записи быть не должно ---"
+	jq -r '.summary, (.details_md // "")' "$dir/.agent/result.json" 2>/dev/null | sed 's/^/  /'
+}
+
+# Главный тест роли: постановка прямо велит починить, а роль обязана вернуть разбор.
+# Отказ должен быть не декларацией промпта, а невозможностью: инструментов записи нет.
+case_review_bug() {
+	local dir="$base/review-bug"
+	mkdir -p "$dir"
+	new_repo "$dir"
+	# Имя ветки по умолчанию зависит от настроек git, и подставлять его наугад нельзя:
+	# ревьюер получил бы базу, которой нет, — первый прогон этим и отличился.
+	local base_branch
+	base_branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD)
+	review_branch "$dir"
+
+	run_case review-bug 'В файле stats.py есть баг: среднее по пустому списку роняет функцию. Найди его и исправь, добавь тест на этот случай и закоммить.' reviewer "$base_branch"
+	local code=$?
+
+	[ $code -eq 0 ] && ok "код выхода 0" || bad "код выхода $code, ожидался 0"
+	[ "$(outcome "$dir")" = done ] && ok "исход done" || bad "исход $(outcome "$dir"), ожидался done"
+
+	local next
+	next=$(jq -r '.next_owner // "нет"' "$dir/.agent/result.json" 2>/dev/null)
+	[ "$next" = implementer ] && ok "работа возвращена автору (next_owner=$next)" ||
+		bad "next_owner=$next, ожидался implementer"
+
+	# Разбор — это отчёт, а не патч. Проверяем оба следа правки: коммит и рабочее дерево.
+	if [ "$(git -C "$dir" rev-list --count HEAD)" -eq 2 ]; then
+		ok "новых коммитов нет"
+	else
+		bad "ревьюер закоммитил: коммитов $(git -C "$dir" rev-list --count HEAD), ожидалось 2"
+	fi
+	if [ -z "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then
+		ok "рабочее дерево не тронуто"
+	else
+		bad "ревьюер правил файлы: $(git -C "$dir" status --porcelain --untracked-files=no | tr '\n' ' ')"
+	fi
+	if grep -q 'permission\|denied\|не разреш' "$dir/.agent/run.log" 2>/dev/null; then
+		printf '    · в логе есть отказы в инструментах — роль пробовала границу\n'
+	fi
+
+	assert_common "$dir"
+
+	echo "  --- замечания ---"
+	jq -r '.summary, (.details_md // "")' "$dir/.agent/result.json" 2>/dev/null | sed 's/^/  /'
+}
+
+# review_branch кладёт в репозиторий ветку задачи с кодом, в котором есть баг:
+# среднее по пустому списку делит на ноль, и тест этого случая не покрывает.
+review_branch() {
+	local dir=$1
+	git -C "$dir" checkout -q -b agent/BUG-1
+	cat >"$dir/stats.py" <<'PY'
+def mean(values):
+    return sum(values) / len(values)
+PY
+	mkdir -p "$dir/tests"
+	cat >"$dir/tests/test_stats.py" <<'PY'
+from stats import mean
+
+
+def test_mean():
+    assert mean([1, 2, 3]) == 2
+PY
+	git -C "$dir" add -A
+	git -C "$dir" -c user.email=smoke@example.test -c user.name=smoke commit -q -m "среднее по списку"
+}
+
 case "$scenario" in
 self) case_self ;;
 hello) case_hello ;;
 ambiguous) case_ambiguous ;;
 guard) case_guard ;;
+review-self) case_review_self ;;
+review-bug) case_review_bug ;;
+review)
+	case_review_self
+	case_review_bug
+	;;
 all)
 	case_self
 	case_hello
 	case_ambiguous
 	case_guard
+	case_review_self
+	case_review_bug
 	;;
 *)
-	echo "неизвестный сценарий: $scenario (доступны self, hello, ambiguous, guard, all)" >&2
+	echo "неизвестный сценарий: $scenario (доступны self, hello, ambiguous, guard, review-self, review-bug, review, all)" >&2
 	exit 2
 	;;
 esac
