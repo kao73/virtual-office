@@ -14,8 +14,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,9 +46,13 @@ type Config struct {
 	BaseURL string `yaml:"base_url"`
 	Auth    Auth   `yaml:"auth"`
 
-	// AgentAccounts — учётки, чьи комментарии не считаются голосом человека,
-	// сверх той, что вернёт Whoami.
-	AgentAccounts []string `yaml:"agent_accounts"`
+	// Accounts — под кем офис ходит в трекер: общая учётка и, если заведены,
+	// учётки ролей.
+	Accounts Accounts `yaml:"accounts"`
+
+	// AlsoAgents — чужая автоматизация: боты, чья проза тоже не человеческая.
+	// Единственный список, который пишется руками, — вывести его неоткуда.
+	AlsoAgents []string `yaml:"also_agents"`
 
 	// Statuses — колонка графа → имя статуса в JIRA. Раннер знает только колонки
 	// из workflow.yaml; «In Progress» с пробелом остаётся здесь.
@@ -59,11 +65,61 @@ type Config struct {
 	HumanFlagLabel string `yaml:"human_flag_label"`
 }
 
-// Auth — способ авторизации.
+// Auth — способ авторизации. Он один на все учётки: как ходить — свойство
+// инстанса, а под кем — свойство роли.
 type Auth struct {
-	Mode      string `yaml:"mode"`       // только basic
-	UserEnv   string `yaml:"user_env"`   // переменная с именем пользователя
-	SecretEnv string `yaml:"secret_env"` // переменная с паролем
+	Mode string `yaml:"mode"` // только basic
+}
+
+// Accounts — учётки офиса. Общая обязательна, учётки ролей — опция: раннер
+// различает роли по маркеру в первой строке комментария, а не по автору,
+// и одна учётка на всех агентов ничего не ломает.
+type Accounts struct {
+	Default Account            `yaml:"default"`
+	Roles   map[string]Account `yaml:"roles"`
+}
+
+// Account — одна учётка. В файле лежат только имена переменных: секреты живут
+// в окружении, и имя пользователя — тоже, чтобы обе половины креда были рядом.
+type Account struct {
+	UserEnv   string `yaml:"user_env"`
+	SecretEnv string `yaml:"secret_env"`
+}
+
+// For — учётка роли, если она заведена, иначе общая.
+func (a Accounts) For(role string) Account {
+	if account, found := a.Roles[role]; found {
+		return account
+	}
+	return a.Default
+}
+
+// AgentAccounts — имена всех учёток офиса плюс чужая автоматизация. Список
+// выводится, а не перечисляется: забудь однажды дописать сюда роль — и её
+// собственный отчёт станет для раннера голосом человека, а задача вернётся
+// в очередь по кругу.
+//
+// Пустое имя — ошибка, а не пустяк: именно так учётка и выпала бы из списка.
+func (c Config) AgentAccounts() ([]string, error) {
+	accounts := map[string]Account{"default": c.Accounts.Default}
+	for role, account := range c.Accounts.Roles {
+		accounts[role] = account
+	}
+
+	names := slices.Clone(c.AlsoAgents)
+	var errs []error
+	for _, role := range slices.Sorted(maps.Keys(accounts)) {
+		name := os.Getenv(accounts[role].UserEnv)
+		if name == "" {
+			errs = append(errs, fmt.Errorf("accounts.%s: в %s нет имени учётки — её комментарии сойдут за слова человека",
+				role, accounts[role].UserEnv))
+			continue
+		}
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names, errors.Join(errs...)
 }
 
 // Fields — идентификаторы кастомных полей аренды (customfield_NNNNN).
@@ -89,8 +145,12 @@ type Tracker struct {
 
 var _ tracker.Tracker = (*Tracker)(nil)
 
-// Open готовит трекер: проверяет конфигурацию и достаёт кред из окружения.
-func Open(cfg Config) (*Tracker, error) {
+// Open готовит трекер под общей учёткой офиса: под ней идут reap и разбор ответов
+// человека — работа, у которой роли нет.
+func Open(cfg Config) (*Tracker, error) { return OpenAs(cfg, "") }
+
+// OpenAs готовит трекер под учёткой роли, а если своей у неё нет — под общей.
+func OpenAs(cfg Config, role string) (*Tracker, error) {
 	if cfg.BaseURL == "" {
 		return nil, errors.New("base_url не задан")
 	}
@@ -102,9 +162,10 @@ func Open(cfg Config) (*Tracker, error) {
 		return nil, fmt.Errorf("auth.mode=%q: реализован только basic", cfg.Auth.Mode)
 	}
 
-	secret := os.Getenv(cfg.Auth.SecretEnv)
+	account := cfg.Accounts.For(role)
+	secret := os.Getenv(account.SecretEnv)
 	if secret == "" {
-		return nil, fmt.Errorf("в %s нет креда JIRA: секреты живут только в окружении", cfg.Auth.SecretEnv)
+		return nil, fmt.Errorf("в %s нет креда JIRA: секреты живут только в окружении", account.SecretEnv)
 	}
 
 	// Обратная карта статусов: её строим один раз и падаем на неоднозначности
@@ -120,15 +181,31 @@ func Open(cfg Config) (*Tracker, error) {
 	return &Tracker{
 		cfg:     cfg,
 		client:  &http.Client{Timeout: 30 * time.Second},
-		user:    os.Getenv(cfg.Auth.UserEnv),
+		user:    os.Getenv(account.UserEnv),
 		secret:  secret,
 		columns: columns,
 		Now:     time.Now,
 	}, nil
 }
 
-// Accounts — учётки агентов из конфигурации.
-func (t *Tracker) Accounts() []string { return t.cfg.AgentAccounts }
+// CheckAccount сверяет имя учётки из конфигурации с тем, кем нас видит сервер.
+//
+// Имя берётся из окружения, а кред — оттуда же, но проверяет их разное: имя идёт
+// в список агентских учёток, а кредом подписывается запрос. Разойдись они —
+// офис перестанет узнавать собственные комментарии, примет их за слова человека
+// и начнёт возвращать в очередь задачи, которые сам же и заблокировал. Ошибка
+// молчаливая и заметная не сразу, поэтому сверка делается на сборке, один раз.
+func (t *Tracker) CheckAccount() error {
+	server, err := t.Whoami()
+	if err != nil {
+		return fmt.Errorf("учётка не сверена: %w", err)
+	}
+	if server != t.user {
+		return fmt.Errorf("учётка %q не совпадает с той, кем нас видит JIRA (%q): "+
+			"комментарии офиса сойдут за слова человека", t.user, server)
+	}
+	return nil
+}
 
 // Whoami — учётка, под которой ходит раннер.
 func (t *Tracker) Whoami() (string, error) {
@@ -687,6 +764,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	var errs []error
+	if cfg.Accounts.Default.UserEnv == "" || cfg.Accounts.Default.SecretEnv == "" {
+		errs = append(errs, errors.New("accounts.default не задана: под ней офис ходит в трекер по умолчанию, учётки ролей — опция поверх неё"))
+	}
 	if len(cfg.Statuses) == 0 {
 		errs = append(errs, errors.New("statuses пуст: раннер не поймёт, какой колонке какой статус соответствует"))
 	}

@@ -381,6 +381,33 @@ func TestReleaseKeepsStatus(t *testing.T) {
 	}
 }
 
+// Конфигурации у файлового трекера нет, поэтому учётка роли — соглашение об имени.
+// Роль подписывается своей, системные записи — общей: так история читается человеком
+// так же, как в JIRA с раздельными учётками.
+func TestRoleSignsCommentsWithItsOwnAccount(t *testing.T) {
+	tr := fixture(t)
+	reviewer := tr.As(RoleAccount("reviewer"))
+	if err := claim(reviewer, "прогон-1"); err != nil {
+		t.Fatalf("захват не удался: %v", err)
+	}
+
+	if err := reviewer.Comment("OFF-1", tracker.ByRun("прогон-1"), "разобрал"); err != nil {
+		t.Fatalf("комментарий не записан: %v", err)
+	}
+
+	if whoami, _ := reviewer.Whoami(); whoami != "office-reviewer" {
+		t.Errorf("роль ходит под %q, ожидалась office-reviewer", whoami)
+	}
+	task := get(t, tr)
+	if author := task.Comments[0].Author; author != "office-reviewer" {
+		t.Errorf("комментарий подписан %q, ожидалась учётка роли", author)
+	}
+	// Хранилище одно на всех: подмена учётки не должна заводить второй трекер.
+	if tr.Root() != reviewer.Root() {
+		t.Errorf("учётка роли смотрит в другое хранилище: %q против %q", reviewer.Root(), tr.Root())
+	}
+}
+
 func TestCommentsAreOrderedAndAttributed(t *testing.T) {
 	tr := fixture(t)
 	if err := claim(tr, "прогон-1"); err != nil {

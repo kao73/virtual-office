@@ -36,31 +36,62 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 		return nil, err
 	}
 
+	workflow, err := tracker.LoadWorkflow(filepath.Join(configRoot, tracker.WorkflowFile))
+	if err != nil {
+		return nil, err
+	}
+
+	// Трекеров столько, сколько учёток: общий и по одному на роль, у которой
+	// своя. Открываются они здесь и разом — узнать о неверном креде роли
+	// в середине цикла, уже захватив задачу, было бы поздно.
 	var tasks tracker.Tracker
+	var byRole map[string]tracker.Tracker
 	var accounts []string
 	switch *trackerName {
 	case "mock":
-		if tasks, err = mock.Default(); err != nil {
+		office, err := mock.Default()
+		if err != nil {
 			return nil, err
+		}
+		tasks, byRole, accounts = office, map[string]tracker.Tracker{}, []string{mock.Account}
+		for _, role := range workflow.Order() {
+			byRole[role] = office.As(mock.RoleAccount(role))
+			accounts = append(accounts, mock.RoleAccount(role))
 		}
 	case "jira":
 		cfg, err := jira.LoadConfig(filepath.Join(configRoot, jira.TrackerFile))
 		if err != nil {
 			return nil, err
 		}
-		jiraTracker, err := jira.Open(cfg)
+		office, err := jira.Open(cfg)
 		if err != nil {
 			return nil, err
 		}
-		tasks, accounts = jiraTracker, cfg.AgentAccounts
+		// Сверка имени с сервером — здесь, а не в Open: она стоит запроса,
+		// и делать её на каждом открытии трекера незачем.
+		if err := office.CheckAccount(); err != nil {
+			return nil, fmt.Errorf("общая учётка офиса: %w", err)
+		}
+		tasks = office
+
+		byRole = map[string]tracker.Tracker{}
+		for _, role := range workflow.Order() {
+			roleTracker, err := jira.OpenAs(cfg, role)
+			if err != nil {
+				return nil, fmt.Errorf("трекер роли %s не открыт: %w", role, err)
+			}
+			if err := roleTracker.CheckAccount(); err != nil {
+				return nil, fmt.Errorf("учётка роли %s: %w", role, err)
+			}
+			byRole[role] = roleTracker
+		}
+		if accounts, err = cfg.AgentAccounts(); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("неизвестный трекер %q: доступен mock", *trackerName)
 	}
 
-	workflow, err := tracker.LoadWorkflow(filepath.Join(configRoot, tracker.WorkflowFile))
-	if err != nil {
-		return nil, err
-	}
 	projects, err := tracker.LoadProjects(filepath.Join(configRoot, tracker.ProjectsFile))
 	if err != nil {
 		return nil, err
@@ -82,6 +113,7 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 
 	return &pipeline.Office{
 		Tracker:    tasks,
+		Trackers:   byRole,
 		Workspaces: workspaces,
 		Workflow:   workflow,
 		Projects:   projects,

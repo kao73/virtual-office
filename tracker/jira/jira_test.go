@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,6 +51,8 @@ type fakeJira struct {
 	commentPages int      // сколько раз спрашивали страницу комментариев
 	fakeTotal    int      // ненулевой — сервер врёт про размер переписки
 
+	lastUser string // учётка последнего запроса: под кем ходил трекер
+
 	// badSearch заставляет поиск падать, а knownProject — единственный проект,
 	// который сервер признаёт своим. Вместе они изображают заглушку
 	// в projects.yaml: JQL по несуществующему проекту JIRA отвергает.
@@ -79,6 +84,7 @@ func (f *fakeJira) issue() map[string]any {
 }
 
 func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.lastUser, _, _ = r.BasicAuth()
 	body := map[string]any{}
 	if r.Body != nil {
 		raw, _ := io.ReadAll(r.Body)
@@ -230,7 +236,8 @@ func fixture(t *testing.T) (*Tracker, *fakeJira) {
 
 	tr, err := Open(Config{
 		BaseURL:  server.URL,
-		Auth:     Auth{Mode: "basic", UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+		Auth:     Auth{Mode: "basic"},
+		Accounts: Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
 		Statuses: map[string]string{"Ready": "Ready", "InProgress": "In Progress", "Review": "Review", "Blocked": "Blocked"},
 		Fields: Fields{
 			Owner: "customfield_10001", RunID: "customfield_10002",
@@ -523,13 +530,188 @@ func TestListReadyDropsLiveLease(t *testing.T) {
 	}
 }
 
+// accountsConfig — конфигурация с учёткой роли сверх общей.
+func accountsConfig(baseURL string) Config {
+	return Config{
+		BaseURL: baseURL,
+		Auth:    Auth{Mode: "basic"},
+		Accounts: Accounts{
+			Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+			Roles: map[string]Account{
+				"reviewer": {UserEnv: "JIRA_REVIEWER_USER", SecretEnv: "JIRA_REVIEWER_PASSWORD"},
+			},
+		},
+		AlsoAgents:     []string{"renovate-bot"},
+		Statuses:       map[string]string{"Ready": "Ready", "Review": "Review"},
+		Fields:         Fields{Owner: "customfield_10001", RunID: "customfield_10002", LeaseUntil: "customfield_10003", Attempts: "customfield_10004"},
+		HumanFlagLabel: "office-waits-human",
+	}
+}
+
+func setAccountsEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	t.Setenv("JIRA_REVIEWER_USER", "office-reviewer")
+	t.Setenv("JIRA_REVIEWER_PASSWORD", "секрет-ревьюера")
+}
+
+// Роль ходит под своей учёткой: история тикета читается людьми, а права в JIRA
+// разводятся. Проверяем не поле в структуре, а то, чем подписан запрос.
+func TestOpenAsUsesRoleAccount(t *testing.T) {
+	setAccountsEnv(t)
+	fake := &fakeJira{t: t, status: "Ready"}
+	server := httptest.NewServer(fake)
+	t.Cleanup(server.Close)
+
+	tr, err := OpenAs(accountsConfig(server.URL), "reviewer")
+	if err != nil {
+		t.Fatalf("трекер роли не открыт: %v", err)
+	}
+	if _, err := tr.Whoami(); err != nil {
+		t.Fatalf("запрос не прошёл: %v", err)
+	}
+	if fake.lastUser != "office-reviewer" {
+		t.Errorf("запрос ушёл под %q, ожидалась учётка роли", fake.lastUser)
+	}
+}
+
+// Своей учётки у роли может не быть, и это штатный режим: одна учётка на всех
+// агентов ничего не ломает — роли различаются маркером, а не автором.
+func TestOpenAsFallsBackToDefault(t *testing.T) {
+	setAccountsEnv(t)
+	fake := &fakeJira{t: t, status: "Ready"}
+	server := httptest.NewServer(fake)
+	t.Cleanup(server.Close)
+
+	tr, err := OpenAs(accountsConfig(server.URL), "implementer")
+	if err != nil {
+		t.Fatalf("трекер роли не открыт: %v", err)
+	}
+	if _, err := tr.Whoami(); err != nil {
+		t.Fatalf("запрос не прошёл: %v", err)
+	}
+	if fake.lastUser != "office" {
+		t.Errorf("запрос ушёл под %q, ожидалась общая учётка", fake.lastUser)
+	}
+}
+
+// Список агентских учёток выводится из конфигурации, а не пишется руками:
+// забытая в списке роль стала бы «голосом человека», и её собственный отчёт
+// вернул бы задачу в очередь.
+func TestAgentAccountsAreDerived(t *testing.T) {
+	setAccountsEnv(t)
+
+	names, err := accountsConfig("http://localhost").AgentAccounts()
+	if err != nil {
+		t.Fatalf("учётки не выведены: %v", err)
+	}
+	for _, want := range []string{"office", "office-reviewer", "renovate-bot"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("в списке агентов нет %q: %q", want, names)
+		}
+	}
+}
+
+// Имя учётки живёт в окружении, и пустая переменная — не пустяк: комментарии этой
+// роли перестали бы отличаться от слов человека, и офис начал бы отвечать сам себе.
+func TestAgentAccountsRejectEmptyName(t *testing.T) {
+	setAccountsEnv(t)
+	t.Setenv("JIRA_REVIEWER_USER", "")
+
+	if _, err := accountsConfig("http://localhost").AgentAccounts(); err == nil {
+		t.Fatal("учётка без имени принята")
+	}
+}
+
+// Имя учётки берётся из окружения, а сервер видит того, кому принадлежит кред.
+// Разойдись они — офис перестал бы узнавать собственные комментарии и принялся
+// бы отвечать сам себе: свой отчёт разблокировал бы задачу, которую сам и закрыл.
+func TestCheckAccountCatchesNameMismatch(t *testing.T) {
+	setAccountsEnv(t)
+	t.Setenv("JIRA_USER", "не-тот-кто-в-креде")
+	fake := &fakeJira{t: t, status: "Ready"} // сервер отвечает: ты office
+	server := httptest.NewServer(fake)
+	t.Cleanup(server.Close)
+
+	tr, err := Open(accountsConfig(server.URL))
+	if err != nil {
+		t.Fatalf("трекер не открыт: %v", err)
+	}
+
+	err = tr.CheckAccount()
+	if err == nil {
+		t.Fatal("расхождение имени учётки не замечено")
+	}
+	if !strings.Contains(err.Error(), "office") {
+		t.Errorf("ошибка не называет того, кем нас видит сервер: %v", err)
+	}
+}
+
+// Совпадение — тишина: сверка не должна мешать нормальному запуску.
+func TestCheckAccountPassesWhenNamesMatch(t *testing.T) {
+	tr, _ := fixture(t)
+	if err := tr.CheckAccount(); err != nil {
+		t.Errorf("сверка не прошла при совпадении имён: %v", err)
+	}
+}
+
+// tracker.yaml едет в прод как есть, и битый обнаружился бы первым же циклом
+// против JIRA — то есть на живой доске.
+func TestShippedTrackerConfigIsValid(t *testing.T) {
+	root := filepath.Join("..", "..")
+
+	cfg, err := LoadConfig(filepath.Join(root, TrackerFile))
+	if err != nil {
+		t.Fatalf("%s не загружен: %v", TrackerFile, err)
+	}
+
+	// Учётка роли, которой нет в графе, — опечатка: ходить под ней некому,
+	// а в список агентов её имя попадёт и молча ничего не изменит.
+	wf, err := tracker.LoadWorkflow(filepath.Join(root, tracker.WorkflowFile))
+	if err != nil {
+		t.Fatalf("граф не загружен: %v", err)
+	}
+	for role := range cfg.Accounts.Roles {
+		if _, err := wf.Role(role); err != nil {
+			t.Errorf("accounts.roles.%s: такой роли в графе нет", role)
+		}
+	}
+}
+
+// Учётки ролей — опция, общая — нет: без неё офису нечем ходить в трекер вовсе.
+func TestLoadConfigRequiresDefaultAccount(t *testing.T) {
+	body := `base_url: http://localhost
+auth: { mode: basic }
+accounts:
+  roles:
+    reviewer: { user_env: JIRA_REVIEWER_USER, secret_env: JIRA_REVIEWER_PASSWORD }
+statuses: { Ready: Ready }
+fields:
+  agent_owner: customfield_10001
+  run_id: customfield_10002
+  lease_until: customfield_10003
+  attempts: customfield_10004
+human_flag_label: office-waits-human
+`
+	path := filepath.Join(t.TempDir(), TrackerFile)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("конфигурация не записана: %v", err)
+	}
+
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("конфигурация без общей учётки принята")
+	}
+}
+
 func TestConfigRequiresCredential(t *testing.T) {
 	t.Setenv("JIRA_USER", "office")
 	t.Setenv("JIRA_PASSWORD", "")
 
 	_, err := Open(Config{
-		BaseURL: "http://localhost",
-		Auth:    Auth{Mode: "basic", UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+		BaseURL:  "http://localhost",
+		Auth:     Auth{Mode: "basic"},
+		Accounts: Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
 	})
 	if err == nil {
 		t.Error("трекер открылся без креда")
@@ -601,8 +783,9 @@ func TestOpenRejectsUnimplementedAuthMode(t *testing.T) {
 	t.Setenv("JIRA_PASSWORD", "секрет")
 
 	_, err := Open(Config{
-		BaseURL: "http://localhost",
-		Auth:    Auth{Mode: "pat", UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+		BaseURL:  "http://localhost",
+		Auth:     Auth{Mode: "pat"},
+		Accounts: Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
 	})
 	if err == nil {
 		t.Fatal("трекер открылся в режиме, которого нет: запросы пошли бы как basic")

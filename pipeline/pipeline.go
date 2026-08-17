@@ -48,7 +48,15 @@ type Sandboxes interface {
 
 // Office — конвейер над одним трекером.
 type Office struct {
-	Tracker    tracker.Tracker
+	// Tracker — трекер под общей учёткой офиса. Под ней идёт всё, у чего роли нет:
+	// reap, разбор ответов человека, системные записи.
+	Tracker tracker.Tracker
+
+	// Trackers — трекер на роль, если у роли своя учётка. Роли без записи
+	// работают через Tracker: одна учётка на всех агентов — штатный режим,
+	// роли раннер различает по маркеру, а не по автору.
+	Trackers map[string]tracker.Tracker
+
 	Workspaces *workspace.Manager
 	Workflow   tracker.Workflow
 	Projects   tracker.Projects
@@ -58,8 +66,9 @@ type Office struct {
 	ConfigRoot string // корень конфиг-репозитория: оттуда роли
 	ConfigSHA  string // отпечаток конфигурации для маркеров
 
-	// Accounts — учётки агентов сверх той, что вернёт Whoami. Всё, написанное
-	// не ими, считается словами человека.
+	// Accounts — все учётки офиса: общая, учётки ролей и чужая автоматизация.
+	// Всё, написанное не ими, считается словами человека. Список собирается
+	// один раз при сборке офиса, а не спрашивается у трекера на каждом тике.
 	Accounts []string
 
 	Now func() time.Time
@@ -76,7 +85,19 @@ func (o *Office) Tick(ctx context.Context, roleName string) (bool, error) {
 	if _, err := o.HumanReplies(ctx); err != nil {
 		return false, err
 	}
-	return o.tickRole(ctx, roleName)
+	return o.as(roleName).tickRole(ctx, roleName)
+}
+
+// as — тот же офис, ходящий в трекер под учёткой роли. Копия мелкая и живёт
+// один тик: меняется только трекер, всё остальное — общее хозяйство.
+func (o *Office) as(roleName string) *Office {
+	role, found := o.Trackers[roleName]
+	if !found {
+		return o
+	}
+	clone := *o
+	clone.Tracker = role
+	return &clone
 }
 
 // tickRole — цикл одной роли без разбора ответов: его делает вызывающий,
@@ -166,7 +187,7 @@ func (o *Office) TickAll(ctx context.Context) error {
 	// Порядок обхода задаёт граф: он не выводится ни из имён, ни из порядка
 	// YAML-карты. Сначала разгрузить конвейер, потом брать новое.
 	for _, role := range o.Workflow.Order() {
-		if _, err := o.tickRole(ctx, role); err != nil {
+		if _, err := o.as(role).tickRole(ctx, role); err != nil {
 			return err
 		}
 	}
@@ -292,7 +313,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		Task:       taskBody(task),
 		Branch:     ws.Branch,
 		BaseBranch: "origin/" + c.project.DefaultBranch,
-		Context:    contextBody(task, roleName, o.accounts(), o.Workflow.Limits.MaxAttempts),
+		Context:    contextBody(task, roleName, o.Accounts, o.Workflow.Limits.MaxAttempts),
 	}
 	if err := runner.PrepareInput(ws.Dir, role, passport, input); err != nil {
 		return err
@@ -403,7 +424,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 // вдобавок означал бы, что задачу, оставшуюся от выбывшей роли, не разберёт
 // никто и никогда.
 func (o *Office) HumanReplies(ctx context.Context) (int, error) {
-	accounts := o.accounts()
+	accounts := o.Accounts
 
 	count := 0
 	for _, project := range o.projects() {
@@ -697,15 +718,6 @@ func (o *Office) move(task tracker.Task, by tracker.Actor, to string) error {
 // notice пишет системную запись от лица раннера.
 func (o *Office) notice(key string, marker tracker.Marker, text string) error {
 	return o.Tracker.Comment(key, tracker.BySystem(), tracker.NoticeBody(marker, text))
-}
-
-// accounts — учётки, чьи комментарии не считаются голосом человека.
-func (o *Office) accounts() []string {
-	accounts := slices.Clone(o.Accounts)
-	if whoami, err := o.Tracker.Whoami(); err == nil && whoami != "" {
-		accounts = append(accounts, whoami)
-	}
-	return accounts
 }
 
 // skipProject решает, пропустить ли проект, которого трекер не знает.

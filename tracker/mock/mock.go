@@ -78,6 +78,18 @@ func Default() (*Tracker, error) {
 // Root — каталог хранилища.
 func (t *Tracker) Root() string { return t.root }
 
+// RoleAccount — учётка роли. Конфигурации у файлового трекера нет, поэтому имя —
+// соглашение: в JIRA то же самое задаётся в tracker.yaml.
+func RoleAccount(role string) string { return Account + "-" + role }
+
+// As — тот же трекер под другой учёткой. Хранилище общее: учётка меняет только
+// подпись под комментариями, а не то, где лежат задачи.
+func (t *Tracker) As(account string) *Tracker {
+	clone := *t
+	clone.Whose = account
+	return &clone
+}
+
 // Whoami — учётка самого раннера.
 func (t *Tracker) Whoami() (string, error) { return t.Whose, nil }
 

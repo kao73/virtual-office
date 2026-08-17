@@ -89,12 +89,22 @@ func newOffice(t *testing.T) *office {
 	tasks.Now = func() time.Time { return now }
 	agent := &fakeAgent{result: done("сделано")}
 
+	// Учётки — как их собирает сборка офиса: общая для системных записей
+	// и по одной на роль. Собирать их иначе, чем в проде, значит проверять не то.
+	trackers := map[string]tracker.Tracker{}
+	accounts := []string{mock.Account}
+	for _, role := range wf.Order() {
+		trackers[role] = tasks.As(mock.RoleAccount(role))
+		accounts = append(accounts, mock.RoleAccount(role))
+	}
+
 	o := &office{
 		tasks:  tasks,
 		agent:  agent,
 		origin: origin,
 		Office: &Office{
 			Tracker:    tasks,
+			Trackers:   trackers,
 			Workspaces: workspace.New(t.TempDir()),
 			Workflow:   wf,
 			Projects: tracker.Projects{"OFF": {
@@ -103,6 +113,7 @@ func newOffice(t *testing.T) *office {
 			Agent:      agent,
 			ConfigRoot: root,
 			ConfigSHA:  "5bc6a3b0",
+			Accounts:   accounts,
 			Now:        func() time.Time { return now },
 			Log:        io.Discard,
 		},
@@ -117,6 +128,15 @@ func (o *office) add(key, status string) {
 		Summary: "Задача " + key, Description: "Сделать что-нибудь полезное.",
 	}); err != nil {
 		panic(err)
+	}
+}
+
+// useTracker подменяет трекер офиса целиком — и общий, и ролевые. Подменить
+// только общий значило бы не подменить ничего там, где тик ходит под учёткой роли.
+func (o *office) useTracker(tasks tracker.Tracker) {
+	o.Office.Tracker = tasks
+	for role := range o.Office.Trackers {
+		o.Office.Trackers[role] = tasks
 	}
 }
 
@@ -368,6 +388,99 @@ func TestHumanReplyReturnsTaskToQueue(t *testing.T) {
 	}
 }
 
+// Роль подписывается своей учёткой: история тикета читается людьми, а права
+// в трекере разводятся. На поведение раннера это не влияет — роли он различает
+// по маркеру, — но перепутанная подпись врёт человеку.
+func TestRoleWritesUnderItsOwnAccount(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Review")
+	o.agent.result = runner.Result{Outcome: runner.OutcomeDone, Summary: "Разобрал.", NextOwner: "human"}
+
+	if _, err := o.Tick(context.Background(), "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	if author := lastComment(t, o.get(t, "OFF-2")).Author; author != mock.RoleAccount("reviewer") {
+		t.Errorf("отчёт подписан %q, ожидалась учётка reviewer'а", author)
+	}
+}
+
+// Голос человека определяется по автору, и офис не должен принимать за него себя:
+// иначе отчёт одной роли разблокировал бы задачу, которую другая отправила ждать.
+func TestOfficeDoesNotMistakeItselfForHuman(t *testing.T) {
+	o := newOffice(t)
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeNeedsHuman, Summary: "Нужен выбор.", NextOwner: "human",
+		Questions: []runner.Question{{Text: "Какую платёжную систему?"}},
+	}
+	o.tick(t)
+
+	// Записи обеих ролей поверх вопроса — ни одна не ответ человека.
+	for _, role := range []string{"implementer", "reviewer"} {
+		if err := o.tasks.AddComment("OFF-1", mock.RoleAccount(role), "заметка "+role); err != nil {
+			t.Fatalf("запись роли не добавлена: %v", err)
+		}
+	}
+	unblocked, err := o.HumanReplies(context.Background())
+	if err != nil {
+		t.Fatalf("разбор ответов не прошёл: %v", err)
+	}
+	if unblocked != 0 {
+		t.Fatalf("офис принял свои записи за ответ человека: разблокировано %d", unblocked)
+	}
+
+	if err := o.tasks.AddComment("OFF-1", "human", "Берём Stripe."); err != nil {
+		t.Fatalf("ответ человека не записан: %v", err)
+	}
+	if unblocked, err = o.HumanReplies(context.Background()); err != nil {
+		t.Fatalf("разбор ответов не прошёл: %v", err)
+	}
+	if unblocked != 1 {
+		t.Errorf("ответ человека не разобран: разблокировано %d", unblocked)
+	}
+}
+
+// Нарезка истории по своей роли: каждому агенту в контекст едет то, что сказали
+// после его последнего отчёта, и ничего сверх. Проверяется на настоящем круге
+// implementer → reviewer → implementer.
+func TestHistorySliceGivesEachRoleWhatItNeeds(t *testing.T) {
+	o := newOffice(t)
+
+	o.agent.result = runner.Result{Outcome: runner.OutcomeDone, Summary: "Написал mean().", NextOwner: "reviewer"}
+	o.tick(t)
+
+	o.agent.result = runner.Result{Outcome: runner.OutcomeDone, Summary: "Нет теста на пустой список.", NextOwner: "implementer"}
+	if _, err := o.Tick(context.Background(), "reviewer"); err != nil {
+		t.Fatalf("цикл ревьюера не прошёл: %v", err)
+	}
+	reviewerSaw := agentContext(t, o)
+	if !strings.Contains(reviewerSaw, "Написал mean()") {
+		t.Errorf("ревьюер не увидел отчёта автора:\n%s", reviewerSaw)
+	}
+
+	o.agent.result = done("добавил тест")
+	if !o.tick(t) {
+		t.Fatal("задача не вернулась в очередь автора")
+	}
+	implementerSaw := agentContext(t, o)
+	if !strings.Contains(implementerSaw, "Нет теста на пустой список") {
+		t.Errorf("автор не увидел замечаний ревьюера:\n%s", implementerSaw)
+	}
+	if strings.Contains(implementerSaw, "Написал mean()") {
+		t.Errorf("автору переслали его же прошлый отчёт:\n%s", implementerSaw)
+	}
+}
+
+// agentContext — контекст, собранный раннером для последнего прогона.
+func agentContext(t *testing.T, o *office) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(o.agent.seen.Workdir, runner.Dir, runner.FileContext))
+	if err != nil {
+		t.Fatalf("контекст не прочитан: %v", err)
+	}
+	return string(raw)
+}
+
 // Роль, названная в графе, обязана лежать в репозитории: раннер грузит её
 // по имени из workflow.yaml, и расхождение обнаружилось бы не здесь, а посреди
 // цикла, уже захватив задачу.
@@ -570,7 +683,7 @@ func (f *flakyClaim) Claim(req tracker.ClaimRequest) error {
 func TestTickTakesNextTaskAfterLostClaim(t *testing.T) {
 	o := newOffice(t)
 	o.add("OFF-2", "Ready")
-	o.Office.Tracker = &flakyClaim{Tracker: o.tasks, lost: map[string]bool{"OFF-1": true}}
+	o.useTracker(&flakyClaim{Tracker: o.tasks, lost: map[string]bool{"OFF-1": true}})
 
 	if !o.tick(t) {
 		t.Fatal("цикл не взял ни одной задачи")
@@ -1130,7 +1243,7 @@ func TestFinishSkipsTransitionToSameStatus(t *testing.T) {
 	o := newOffice(t)
 	o.withWorkflow(t, noWorkingWorkflow)
 	spy := &spyTransitions{Tracker: o.tasks}
-	o.Office.Tracker = spy
+	o.useTracker(spy)
 	o.agent.result = runner.Result{Outcome: runner.OutcomeFailed, Summary: "не вышло", NextOwner: "human"}
 
 	o.tick(t)
@@ -1188,7 +1301,7 @@ func TestCheckWorkflowSaysWhenItCouldNotRun(t *testing.T) {
 	var log strings.Builder
 	o := newOffice(t)
 	o.Office.Log = &log
-	o.Office.Tracker = knownWorkflow{Tracker: o.tasks}
+	o.useTracker(knownWorkflow{Tracker: o.tasks})
 
 	o.Office.CheckWorkflow()
 
@@ -1265,7 +1378,7 @@ func TestTickSkipsProjectUnknownToTracker(t *testing.T) {
 	o.Office.Projects["AAA"] = tracker.Project{
 		RepoURL: o.origin, DefaultBranch: "master", BranchPrefix: "agent/",
 	}
-	o.Office.Tracker = unknownProject{Tracker: o.tasks, missing: "AAA"}
+	o.useTracker(unknownProject{Tracker: o.tasks, missing: "AAA"})
 
 	if !o.tick(t) {
 		t.Fatal("цикл бросил работу из-за проекта, которого трекер не знает")
@@ -1296,7 +1409,7 @@ func TestReapSkipsProjectUnknownToTracker(t *testing.T) {
 	later := now.Add(2 * time.Hour)
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
-	o.Office.Tracker = unknownProject{Tracker: o.tasks, missing: "AAA"}
+	o.useTracker(unknownProject{Tracker: o.tasks, missing: "AAA"})
 
 	if err := o.Reap(context.Background()); err != nil {
 		t.Fatalf("reap бросил работу из-за незнакомого проекта: %v", err)
