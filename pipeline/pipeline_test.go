@@ -807,6 +807,41 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	}
 }
 
+// Барьер рабочей папки — второй после трекера, и он не зависит от workflow:
+// в папке OFF-1 уже работает другой прогон. tick обязан отступить, не тронув
+// аренду: сняв её, он вернул бы задачу в очередь, где следующий заход упёрся бы
+// в тот же замок.
+func TestTickStepsAsideWhenWorktreeIsBusy(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+
+	busy, err := o.Office.Workspaces.Ensure(
+		tracker.TaskRef{Key: "OFF-1", Project: "OFF"}, o.Office.Projects["OFF"])
+	if err != nil {
+		t.Fatalf("папка не занята: %v", err)
+	}
+	defer busy.Unlock()
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу")
+	}
+	if o.agent.runs != 0 {
+		t.Errorf("агент запущен в чужой рабочей папке: прогонов %d", o.agent.runs)
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "InProgress" {
+		t.Errorf("статус %q: задача не оставлена как есть", task.Status)
+	}
+	if !task.LeaseAlive(now) {
+		t.Errorf("аренда снята — задача вернётся в очередь и упрётся в тот же замок: %+v", task)
+	}
+	if !strings.Contains(log.String(), "занята") {
+		t.Errorf("отступление не объяснено в логе:\n%s", log.String())
+	}
+}
+
 // knownWorkflow — трекер, умеющий рассказать о своём workflow. Так отвечает jira;
 // файловый трекер этого интерфейса не реализует вовсе.
 type knownWorkflow struct {

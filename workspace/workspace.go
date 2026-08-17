@@ -58,6 +58,10 @@ type Workspace struct {
 	Dir    string // worktree: рабочая папка агента
 	Repo   string // bare-клон проекта, где живут ветки и объекты
 	Branch string
+
+	// lock — взятый Ensure барьер папки; снимается Unlock. Пустой у папки,
+	// полученной не из Ensure: List перечисляет их, ничего не занимая.
+	lock *os.File
 }
 
 // Mounts — что отдать песочнице.
@@ -71,10 +75,13 @@ func (w Workspace) Mounts() []runner.Workspace {
 }
 
 // Ensure готовит рабочую папку задачи: клонирует проект, если его ещё нет,
-// освежает его и заводит или переиспользует worktree ветки задачи.
+// освежает его, заводит или переиспользует worktree ветки задачи и берёт
+// на неё барьер до конца прогона — см. hold и Unlock.
 //
 // Переиспользование — не оптимизация, а требование: после `reap` или ответа
 // человека задача возвращается к той же незаконченной работе.
+//
+// Занятую папку Ensure не ждёт и не отнимает: ErrWorktreeBusy, и решает вызывающий.
 func (m *Manager) Ensure(task tracker.TaskRef, project tracker.Project) (Workspace, error) {
 	repo, err := m.repo(task.Project, project)
 	if err != nil {
@@ -96,7 +103,7 @@ func (m *Manager) Ensure(task tracker.TaskRef, project tracker.Project) (Workspa
 	}
 	if registered {
 		if _, err := os.Stat(ws.Dir); err == nil {
-			return ws, nil
+			return m.hold(ws)
 		}
 		if _, err := git(repo, "worktree", "prune"); err != nil {
 			return Workspace{}, err
@@ -106,7 +113,7 @@ func (m *Manager) Ensure(task tracker.TaskRef, project tracker.Project) (Workspa
 	if err := m.addWorktree(ws, project); err != nil {
 		return Workspace{}, err
 	}
-	return ws, nil
+	return m.hold(ws)
 }
 
 // Push публикует ветку задачи, если на ней есть неопубликованные коммиты.

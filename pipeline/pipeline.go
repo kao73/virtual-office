@@ -209,9 +209,23 @@ func (o *Office) work(ctx context.Context, ref tracker.TaskRef, runID, roleName 
 	}
 
 	ws, err := o.Workspaces.Ensure(ref, project)
+	if errors.Is(err, workspace.ErrWorktreeBusy) {
+		// В папке работает другой прогон — барьер сделал ровно то, ради чего
+		// заведён. Аренду не трогаем: она либо чужая, и мы не вправе, либо наша,
+		// и её вернёт reap. Сняв её сами, мы вернули бы задачу в очередь, где
+		// следующий tick упёрся бы в тот же замок.
+		o.logf("%s: %v, оставляю задачу как есть", ref.Key, err)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
+	// Барьер держится до конца прогона: пуш и отчёт — тоже работа над задачей.
+	defer func() {
+		if err := ws.Unlock(); err != nil {
+			o.logf("%s: замок рабочей папки не снят: %v", ref.Key, err)
+		}
+	}()
 
 	passport := runner.Run{
 		RunID: runID, Role: roleName, ConfigSHA: o.ConfigSHA,

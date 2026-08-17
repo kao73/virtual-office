@@ -1,11 +1,15 @@
 package workspace
 
 import (
+	"bufio"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kao73/virtual-office/runner"
 	"github.com/kao73/virtual-office/tracker"
@@ -150,6 +154,10 @@ func TestEnsureReusesWorktreeWithItsWork(t *testing.T) {
 	}
 	gitT(t, first.Dir, "add", "-A")
 	gitT(t, first.Dir, "commit", "-q", "-m", "половина работы")
+	// Прогон кончился и отпустил папку: следующий приходит на всё готовое.
+	if err := first.Unlock(); err != nil {
+		t.Fatalf("замок не снят: %v", err)
+	}
 
 	second, err := m.Ensure(task, project)
 	if err != nil {
@@ -176,6 +184,9 @@ func TestEnsureRecreatesLostWorktreeKeepingBranch(t *testing.T) {
 		t.Fatalf("рабочая папка не создана: %v", err)
 	}
 	gitT(t, first.Dir, "commit", "-q", "--allow-empty", "-m", "работа")
+	if err := first.Unlock(); err != nil {
+		t.Fatalf("замок не снят: %v", err)
+	}
 	if err := os.RemoveAll(first.Dir); err != nil {
 		t.Fatalf("каталог не удалён: %v", err)
 	}
@@ -432,6 +443,122 @@ func TestListMarksLostDirectory(t *testing.T) {
 	}
 	if len(entries) != 1 || !entries[0].Missing {
 		t.Fatalf("потерянный каталог не отмечен: %+v", entries)
+	}
+}
+
+// Барьер помимо трекера: захват в JIRA не CAS, и двое могут уйти работать над
+// одной задачей — но не в одной папке. Второй останавливается сразу, а не портит
+// чужую работу, выдавая гонку за испорченный worktree.
+func TestEnsureRefusesBusyWorktree(t *testing.T) {
+	m, project, task := setup(t)
+
+	first, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+
+	if _, err := m.Ensure(task, project); !errors.Is(err, ErrWorktreeBusy) {
+		t.Fatalf("вторая заявка на занятую папку дала %v, ожидалось ErrWorktreeBusy", err)
+	}
+
+	// Замок снимается вместе с прогоном, а не остаётся на папке навсегда.
+	if err := first.Unlock(); err != nil {
+		t.Fatalf("замок не снят: %v", err)
+	}
+	second, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("освободившаяся папка не досталась следующему прогону: %v", err)
+	}
+	if second.Dir != first.Dir {
+		t.Errorf("вторая папка %s, ожидалась та же %s", second.Dir, first.Dir)
+	}
+}
+
+// Переменные, по которым процесс-помощник понимает, что он помощник, и где
+// ему брать папку.
+const (
+	helperHome   = "OFFICE_TEST_HOME"
+	helperOrigin = "OFFICE_TEST_ORIGIN"
+	helperReady  = "папка занята: "
+)
+
+// TestHelperHoldsWorktree — не тест, а второй раннер: берёт ту же рабочую папку,
+// оставляет в ней наполовину сделанную работу и висит, пока его не убьют.
+// Запускает его TestWorktreeSurvivesKilledRunner тем же двоичным файлом теста.
+func TestHelperHoldsWorktree(t *testing.T) {
+	home := os.Getenv(helperHome)
+	if home == "" {
+		t.Skip("процесс не помощник")
+	}
+
+	ws, err := New(home).Ensure(
+		tracker.TaskRef{Key: "OFF-1", Project: "OFF"},
+		tracker.Project{RepoURL: os.Getenv(helperOrigin), DefaultBranch: "master", BranchPrefix: "agent/"},
+	)
+	if err != nil {
+		t.Fatalf("помощник не взял папку: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ws.Dir, "работа.txt"), []byte("наполовину\n"), 0o644); err != nil {
+		t.Fatalf("помощник не записал работу: %v", err)
+	}
+
+	fmt.Println(helperReady + ws.Dir)
+
+	// Ждём kill -9: сам помощник замка не снимает. Сон, а не select{}, — иначе
+	// сборщик тупиков решит, что процессу нечего делать, и уронит его сам,
+	// отпустив замок за него: тест прошёл бы, ничего не проверив.
+	time.Sleep(time.Minute)
+	t.Fatal("помощника не убили, он дождался конца сна")
+}
+
+// Замок держит ОС, а не код, поэтому убитый раннер не запирает папку навсегда:
+// после kill -9 её переиспользуют вместе с недоделанной работой — ровно так же,
+// как это было до всякого барьера. Аренду в трекере так не сделать — оттуда reaper.
+func TestWorktreeSurvivesKilledRunner(t *testing.T) {
+	m, project, task := setup(t)
+
+	helper := exec.Command(os.Args[0], "-test.run=TestHelperHoldsWorktree")
+	helper.Env = append(os.Environ(), helperHome+"="+m.home, helperOrigin+"="+project.RepoURL)
+	pipe, err := helper.StdoutPipe()
+	if err != nil {
+		t.Fatalf("вывод помощника не перехвачен: %v", err)
+	}
+	if err := helper.Start(); err != nil {
+		t.Fatalf("помощник не запущен: %v", err)
+	}
+	defer func() {
+		_ = helper.Process.Kill()
+		_ = helper.Wait()
+	}()
+
+	// Ждём, пока помощник займёт папку: до этого проверять нечего.
+	var said strings.Builder
+	reader := bufio.NewReader(pipe)
+	for !strings.Contains(said.String(), helperReady) {
+		line, err := reader.ReadString('\n')
+		said.WriteString(line)
+		if err != nil {
+			t.Fatalf("помощник не занял папку: %v\n%s", err, said.String())
+		}
+	}
+
+	if _, err := m.Ensure(task, project); !errors.Is(err, ErrWorktreeBusy) {
+		t.Fatalf("папка живого раннера отдана второму: %v", err)
+	}
+
+	if err := helper.Process.Kill(); err != nil {
+		t.Fatalf("помощник не убит: %v", err)
+	}
+	if _, err := helper.Process.Wait(); err != nil {
+		t.Fatalf("смерть помощника не дождалась: %v", err)
+	}
+
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("папка убитого раннера не переиспользована: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws.Dir, "работа.txt")); err != nil {
+		t.Errorf("недоделанная работа убитого прогона потеряна: %v", err)
 	}
 }
 
