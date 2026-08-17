@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kao73/virtual-office/budget"
+	"github.com/kao73/virtual-office/ledger"
 	"github.com/kao73/virtual-office/pipeline"
 	"github.com/kao73/virtual-office/runagent"
 	"github.com/kao73/virtual-office/runner"
@@ -100,6 +102,16 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 	if err != nil {
 		return nil, err
 	}
+	// Реестр прогонов ведётся всегда, бюджеты — необязательны. Нет файла бюджетов —
+	// нет лимитов, и это нормальное состояние офиса: учёт от него не зависит.
+	runs, err := ledger.Default()
+	if err != nil {
+		return nil, err
+	}
+	budgets, err := budget.Load(filepath.Join(configRoot, budget.File))
+	if err != nil {
+		return nil, err
+	}
 	configSHA, err := runner.ConfigSHA(configRoot)
 	if err != nil {
 		return nil, err
@@ -119,6 +131,8 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 		Projects:   projects,
 		Agent:      pipeline.SandboxAgent{ConfigRoot: configRoot, Backend: *backend, Log: out},
 		Sandboxes:  sandboxes,
+		Ledger:     runs,
+		Budgets:    budgets,
 		ConfigRoot: configRoot,
 		ConfigSHA:  configSHA,
 		Accounts:   accounts,

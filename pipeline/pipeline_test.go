@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kao73/virtual-office/budget"
+	"github.com/kao73/virtual-office/ledger"
 	"github.com/kao73/virtual-office/runner"
 	"github.com/kao73/virtual-office/tracker"
 	"github.com/kao73/virtual-office/tracker/mock"
@@ -31,6 +33,9 @@ type fakeAgent struct {
 	byRole map[string]runner.Result
 	err    error
 	commit string // сообщение коммита; пусто — агент ничего не сделал
+	// usage — во что обошёлся прогон. Пустое значение законно и означает
+	// «неизвестно»: так выглядит прогон, не оставивший итогового события.
+	usage runner.Usage
 
 	seen Request // что конвейер отдал агенту
 	runs int
@@ -39,7 +44,7 @@ type fakeAgent struct {
 	context map[string]string
 }
 
-func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, error) {
+func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, runner.Usage, error) {
 	f.seen, f.runs = req, f.runs+1
 	if raw, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.FileContext)); err == nil {
 		if f.context == nil {
@@ -51,9 +56,9 @@ func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, error) {
 		gitIn(req.Workdir, "commit", "-q", "--allow-empty", "-m", f.commit)
 	}
 	if result, found := f.byRole[req.Role.Name]; found {
-		return result, f.err
+		return result, f.usage, f.err
 	}
-	return f.result, f.err
+	return f.result, f.usage, f.err
 }
 
 // fakeSandboxes — поддельный уборщик песочниц: запоминает, за чьими прогонами
@@ -88,6 +93,8 @@ type office struct {
 	tasks  *mock.Tracker
 	agent  *fakeAgent
 	origin string
+	// home — хозяйство раннера этого офиса: там же лежит и реестр прогонов.
+	home string
 }
 
 func newOffice(t *testing.T) *office {
@@ -113,14 +120,17 @@ func newOffice(t *testing.T) *office {
 		accounts = append(accounts, mock.RoleAccount(role))
 	}
 
+	home := t.TempDir()
 	o := &office{
 		tasks:  tasks,
 		agent:  agent,
 		origin: origin,
+		home:   home,
 		Office: &Office{
 			Tracker:    tasks,
 			Trackers:   trackers,
-			Workspaces: workspace.New(t.TempDir()),
+			Workspaces: workspace.New(home),
+			Ledger:     ledger.New(filepath.Join(home, ledger.FileName)),
 			Workflow:   wf,
 			Projects: tracker.Projects{"OFF": {
 				RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/",
@@ -259,6 +269,301 @@ func TestTickDoneMovesTaskToReview(t *testing.T) {
 	}
 	if !strings.Contains(comment.Body, "agent/OFF-1") {
 		t.Errorf("в отчёте нет ссылки на ветку:\n%s", comment.Body)
+	}
+}
+
+// spend — сколько уже потрачено по реестру офиса.
+func (o *office) spend(t *testing.T, f ledger.Filter) ledger.Total {
+	t.Helper()
+	total, err := o.Office.Ledger.Sum(f)
+	if err != nil {
+		t.Fatalf("реестр не прочитан: %v", err)
+	}
+	return total
+}
+
+// events — события офиса в переписке задачи.
+func events(task tracker.Task) []string {
+	var found []string
+	for _, c := range task.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Event != "" {
+			found = append(found, m.Event)
+		}
+	}
+	return found
+}
+
+// Учёт ведётся всегда и ничего не решает: строка на прогон в реестре появляется
+// независимо от того, настроены ли лимиты.
+func TestTickRecordsRunInLedger(t *testing.T) {
+	o := newOffice(t)
+	o.agent.usage = runner.Usage{CostUSD: 0.25, DurationMS: 18258, Turns: 3}
+
+	o.tick(t)
+
+	total := o.spend(t, ledger.Filter{Task: "OFF-1"})
+	if total.Runs != 1 || total.CostUSD != 0.25 || total.Unknown != 0 {
+		t.Errorf("реестр после прогона: %+v", total)
+	}
+	if total.ByOutcome["done"] != 1 {
+		t.Errorf("исход прогона в реестре: %v", total.ByOutcome)
+	}
+	if total.Broken != 0 {
+		t.Errorf("реестр записан нечитаемо: %+v", total)
+	}
+	// Цена задачи видна и человеку — в тикете, а не только в реестре: реестр
+	// локален для машины, а тикет общий.
+	if body := lastComment(t, o.get(t, "OFF-1")).Body; !strings.Contains(body, "$0.2500") {
+		t.Errorf("цены прогона нет в отчёте:\n%s", body)
+	}
+}
+
+// Прогон, не назвавший цены, в реестре всё равно есть: пропустить его значило бы
+// потерять сам факт работы, а выдумать нулевую цену — соврать.
+func TestTickRecordsRunWithUnknownCost(t *testing.T) {
+	o := newOffice(t)
+
+	o.tick(t)
+
+	total := o.spend(t, ledger.Filter{Task: "OFF-1"})
+	if total.Runs != 1 || total.Unknown != 1 {
+		t.Errorf("реестр после прогона без цены: %+v", total)
+	}
+	if body := lastComment(t, o.get(t, "OFF-1")).Body; strings.Contains(body, "$") {
+		t.Errorf("в отчёте названа цена, которой никто не знает:\n%s", body)
+	}
+}
+
+// Режим warn ничего не останавливает: задача берётся в работу, а человек узнаёт
+// о перерасходе записью в тикете.
+func TestPerTaskBudgetWarnsAndKeepsWorking(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Budgets.PerTask = budget.Limit{USD: 1, OnExceed: budget.Warn}
+	o.spent(t, "OFF-1", "implementer", 1.5)
+
+	if !o.tick(t) {
+		t.Fatal("предупреждение остановило работу")
+	}
+	if o.agent.runs != 1 {
+		t.Errorf("прогонов %d, ожидался один", o.agent.runs)
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Review" {
+		t.Errorf("статус %q, ожидался Review", task.Status)
+	}
+	if !slices.Contains(events(task), tracker.EventBudgetExceeded) {
+		t.Errorf("о перерасходе не сказано в тикете: %v", events(task))
+	}
+}
+
+// Одна задача — одна запись о перерасходе. Иначе тикет с дорогой задачей
+// зарастёт одинаковыми предупреждениями, и настоящий разговор в нём потеряется.
+func TestPerTaskBudgetWarnsOncePerTask(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Budgets.PerTask = budget.Limit{USD: 1, OnExceed: budget.Warn}
+	o.spent(t, "OFF-1", "implementer", 1.5)
+
+	o.tick(t)
+	// Задача вернулась в очередь роли и берётся снова — предупреждение уже было.
+	if err := o.tasks.Transition("OFF-1", tracker.BySystem(), "Ready"); err != nil {
+		t.Fatalf("задача не возвращена в очередь: %v", err)
+	}
+	if !o.tick(t) {
+		t.Fatal("задача не взята второй раз")
+	}
+
+	warnings := 0
+	for _, event := range events(o.get(t, "OFF-1")) {
+		if event == tracker.EventBudgetExceeded {
+			warnings++
+		}
+	}
+	if warnings != 1 {
+		t.Errorf("записей о перерасходе %d, ожидалась одна", warnings)
+	}
+}
+
+// Режим stop не даёт начать работу вовсе: ни прогона, ни рабочей папки.
+// Проверка стоит до Ensure намеренно — иначе на пропускаемую задачу всё равно
+// заводился бы клон и worktree.
+func TestPerTaskBudgetStopsBeforeWorktree(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Budgets.PerTask = budget.Limit{USD: 1, OnExceed: budget.Stop}
+	o.spent(t, "OFF-1", "implementer", 1.5)
+
+	if o.tick(t) {
+		t.Error("цикл взял задачу с исчерпанным бюджетом")
+	}
+	if o.agent.runs != 0 {
+		t.Errorf("агент запущен, прогонов %d", o.agent.runs)
+	}
+	if _, err := os.Stat(filepath.Join(o.home, workspace.ReposDir)); !os.IsNotExist(err) {
+		t.Errorf("клон проекта всё-таки заведён: %v", err)
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Errorf("задача не ушла к человеку: статус %q, ожидание %v", task.Status, task.HumanFlag)
+	}
+	if task.RunID != "" {
+		t.Errorf("задача осталась арендованной: %+v", task)
+	}
+	if !slices.Contains(events(task), tracker.EventBudgetExhausted) {
+		t.Errorf("о исчерпании бюджета не сказано в тикете: %v", events(task))
+	}
+}
+
+// stolenTask — трекер, у которого задачу успели захватить между выборкой
+// и записью. Правило владения отвечает на системную запись отказом.
+type stolenTask struct {
+	*mock.Tracker
+	moved bool
+}
+
+func (s *stolenTask) Comment(key string, by tracker.Actor, body string) error {
+	return fmt.Errorf("%w: задачу держит другой прогон", tracker.ErrNotOwner)
+}
+
+func (s *stolenTask) Transition(key string, by tracker.Actor, to string) error {
+	s.moved = true
+	return s.Tracker.Transition(key, by, to)
+}
+
+// Предел проверяется до захвата, и задачу в этот момент может взять сосед.
+// Тогда она чужая: сказать о пределе не вышло — и двигать её мы не вправе.
+func TestPerTaskBudgetLeavesStolenTaskAlone(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Budgets.PerTask = budget.Limit{USD: 1, OnExceed: budget.Stop}
+	o.spent(t, "OFF-1", "implementer", 1.5)
+
+	stolen := &stolenTask{Tracker: o.tasks}
+	o.useTracker(stolen)
+
+	if o.tick(t) {
+		t.Error("цикл взял задачу с исчерпанным бюджетом")
+	}
+	if stolen.moved {
+		t.Error("чужую задачу всё-таки подвинули")
+	}
+}
+
+// Дневной предел роли в режиме stop останавливает роль, а не офис: остальные
+// роли работают, и задача остаётся в своей очереди нетронутой.
+func TestPerRoleDailyBudgetStopsRoleOnly(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Budgets.PerRoleDaily = budget.Limit{USD: 10, OnExceed: budget.Stop}
+	o.spent(t, "OFF-9", "implementer", 12)
+
+	if o.tick(t) {
+		t.Error("роль взяла задачу, потратив дневной бюджет")
+	}
+	if o.agent.runs != 0 {
+		t.Errorf("агент запущен, прогонов %d", o.agent.runs)
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Ready" {
+		t.Errorf("статус %q: задачу тронули", task.Status)
+	}
+	if len(task.Comments) != 0 {
+		t.Errorf("в тикет написали о хозяйстве раннера: %v", events(task))
+	}
+
+	// Вчерашний расход сегодняшнюю работу не ограничивает: предел дневной.
+	o.Office.Ledger = ledger.New(filepath.Join(t.TempDir(), ledger.FileName))
+	o.spentAt(t, "OFF-9", "implementer", 12, now.Add(-24*time.Hour))
+	if !o.tick(t) {
+		t.Error("вчерашний расход остановил сегодняшнюю работу")
+	}
+}
+
+// Дневной предел в режиме warn работу не трогает — он только говорит.
+func TestPerRoleDailyBudgetWarnKeepsWorking(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	o.Office.Budgets.PerRoleDaily = budget.Limit{USD: 10, OnExceed: budget.Warn}
+	o.spent(t, "OFF-9", "implementer", 12)
+
+	if !o.tick(t) {
+		t.Fatal("предупреждение остановило роль")
+	}
+	if !strings.Contains(log.String(), "дневной") {
+		t.Errorf("о перерасходе роли не сказано в логе:\n%s", log.String())
+	}
+	// Хозяйство раннера — не дело задачи: в тикет о дневном пределе не пишут.
+	if len(o.get(t, "OFF-1").Comments) != 1 {
+		t.Errorf("в тикете лишние записи: %v", events(o.get(t, "OFF-1")))
+	}
+}
+
+// Дорогой прогон прерывать нечем — цена известна, когда работа уже сделана.
+// Поэтому per_run только предупреждает, и делает это после отчёта: замечания
+// агента человек читает первыми.
+func TestPerRunBudgetWarnsAfterReport(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Budgets.PerRun = budget.Limit{USD: 0.5, OnExceed: budget.Warn}
+	o.agent.usage = runner.Usage{CostUSD: 0.75, DurationMS: 60000, Turns: 30}
+
+	o.tick(t)
+
+	task := o.get(t, "OFF-1")
+	if !slices.Contains(events(task), tracker.EventRunBudgetExceeded) {
+		t.Errorf("о дорогом прогоне не сказано в тикете: %v", events(task))
+	}
+	// Порядок: сперва отчёт агента, потом бухгалтерия раннера.
+	last := lastComment(t, task)
+	if m, _ := tracker.MarkerOf(last.Body); m.Event != tracker.EventRunBudgetExceeded {
+		t.Errorf("последняя запись — %+v, ожидалось предупреждение о цене", m)
+	}
+	if !strings.Contains(last.Body, "$0.7500") {
+		t.Errorf("предупреждение не называет цены:\n%s", last.Body)
+	}
+}
+
+// Дешёвый прогон о себе не рассказывает: предупреждение о цене — событие,
+// а не строка отчётности.
+func TestPerRunBudgetSilentWhenCheap(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Budgets.PerRun = budget.Limit{USD: 0.5, OnExceed: budget.Warn}
+	o.agent.usage = runner.Usage{CostUSD: 0.10, DurationMS: 6000, Turns: 3}
+
+	o.tick(t)
+
+	if got := events(o.get(t, "OFF-1")); len(got) != 0 {
+		t.Errorf("дешёвый прогон породил события: %v", got)
+	}
+}
+
+// Нет бюджетов — только учёт: работа идёт как обычно, в тикете ни слова
+// о деньгах сверх строки в отчёте.
+func TestWithoutBudgetsOnlyAccounting(t *testing.T) {
+	o := newOffice(t)
+	o.spent(t, "OFF-1", "implementer", 1000)
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу, хотя лимитов нет")
+	}
+	if got := events(o.get(t, "OFF-1")); len(got) != 0 {
+		t.Errorf("без лимитов появились события бюджета: %v", got)
+	}
+}
+
+// spent записывает в реестр уже случившийся расход: так выглядит машина,
+// на которой задача уже стоила денег.
+func (o *office) spent(t *testing.T, task, role string, cost float64) {
+	t.Helper()
+	o.spentAt(t, task, role, cost, now)
+}
+
+func (o *office) spentAt(t *testing.T, task, role string, cost float64, at time.Time) {
+	t.Helper()
+	if err := o.Office.Ledger.Append(ledger.Entry{
+		RunID: "прошлый-прогон", Task: task, Role: role, Project: "OFF", Started: at,
+		Usage: runner.Usage{CostUSD: cost, DurationMS: 1000, Turns: 5}, Outcome: "done",
+	}); err != nil {
+		t.Fatalf("расход не записан: %v", err)
 	}
 }
 
@@ -703,6 +1008,7 @@ func rejectPush(t *testing.T, origin string) {
 func TestPushFailureReturnsTaskToItsQueue(t *testing.T) {
 	o := newOffice(t)
 	o.agent.commit = "работа автора"
+	o.agent.usage = runner.Usage{CostUSD: 0.25, DurationMS: 18258, Turns: 3}
 	rejectPush(t, o.origin)
 
 	if !o.tick(t) {
@@ -731,9 +1037,14 @@ func TestPushFailureReturnsTaskToItsQueue(t *testing.T) {
 			t.Errorf("написан отчёт о передаче, которой не было:\n%s", c.Body)
 		}
 	}
-	// Итог прогона при этом не потерян: его пересказывает сама запись.
+	// Итог прогона при этом не потерян: его пересказывает сама запись — вместе
+	// с ценой. Отчёта здесь нет, и это единственное место, где человек её увидит,
+	// не заглядывая в реестр.
 	if !strings.Contains(last.Body, "сделано") {
 		t.Errorf("в записи нет итога прогона:\n%s", last.Body)
+	}
+	if !strings.Contains(last.Body, "$0.2500") {
+		t.Errorf("в записи нет цены прогона:\n%s", last.Body)
 	}
 	// Папка остаётся: следующий прогон продолжит с той же работы.
 	if _, err := os.Stat(o.agent.seen.Workdir); err != nil {
@@ -982,17 +1293,20 @@ func TestTickWithLostLeaseOnlyWarns(t *testing.T) {
 	o.agent.commit = "работа агента"
 	// Пока агент работает, аренда истекает и reaper возвращает задачу.
 	o.agent.result = done("успел доделать")
-	o.Office.Agent = &fakeAgent{result: done("успел доделать"), commit: "работа агента"}
+	o.Office.Agent = &fakeAgent{
+		result: done("успел доделать"), commit: "работа агента",
+		usage: runner.Usage{CostUSD: 0.25, DurationMS: 18258, Turns: 3},
+	}
 	stealAgent := o.Office.Agent.(*fakeAgent)
-	o.Office.Agent = agentFunc(func(ctx context.Context, req Request) (runner.Result, error) {
-		result, err := stealAgent.Run(ctx, req)
+	o.Office.Agent = agentFunc(func(ctx context.Context, req Request) (runner.Result, runner.Usage, error) {
+		result, usage, err := stealAgent.Run(ctx, req)
 		later := now.Add(2 * time.Hour) // аренда истекла, пока агент работал
 		o.tasks.Now = func() time.Time { return later }
 		o.Office.Now = func() time.Time { return later }
 		if err := o.Reap(context.Background()); err != nil {
 			t.Fatalf("reap не прошёл: %v", err)
 		}
-		return result, err
+		return result, usage, err
 	})
 
 	o.tick(t)
@@ -1010,17 +1324,27 @@ func TestTickWithLostLeaseOnlyWarns(t *testing.T) {
 	if got := gitIn(o.origin, "log", "--oneline", "-1", "agent/OFF-1"); !strings.Contains(got, "работа агента") {
 		t.Errorf("работа потерянного прогона не опубликована: %s", got)
 	}
+	// Прогон состоялся и был оплачен — цену человек видит здесь: отчёта не будет.
+	if !strings.Contains(body, "$0.2500") {
+		t.Errorf("в предупреждении нет цены прогона:\n%s", body)
+	}
+	// И в реестре она есть: учёт не зависит от того, чем кончилась аренда.
+	if total := o.spend(t, ledger.Filter{Task: "OFF-1"}); total.Runs != 1 || total.CostUSD != 0.25 {
+		t.Errorf("прогон без аренды не учтён: %+v", total)
+	}
 }
 
-type agentFunc func(context.Context, Request) (runner.Result, error)
+type agentFunc func(context.Context, Request) (runner.Result, runner.Usage, error)
 
-func (f agentFunc) Run(ctx context.Context, req Request) (runner.Result, error) { return f(ctx, req) }
+func (f agentFunc) Run(ctx context.Context, req Request) (runner.Result, runner.Usage, error) {
+	return f(ctx, req)
+}
 
 // Reaper возвращает зависшую задачу в очередь, объясняя это в тикете.
 func TestReapReturnsExpiredTask(t *testing.T) {
 	o := newOffice(t)
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
 	})
 
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
@@ -1070,8 +1394,8 @@ func TestReapRemovesSandboxOfDeadRun(t *testing.T) {
 	o := newOffice(t)
 	sandboxes := &fakeSandboxes{}
 	o.Office.Sandboxes = sandboxes
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
 	})
 
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
@@ -1105,8 +1429,8 @@ func TestReapKeepsSandboxOfReclaimedTask(t *testing.T) {
 	o := newOffice(t)
 	sandboxes := &fakeSandboxes{}
 	o.Office.Sandboxes = sandboxes
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
 	})
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("смерть раннера не замечена")
@@ -1156,8 +1480,8 @@ func (a afterList) ListExpired(project string, now time.Time) ([]tracker.TaskRef
 func TestReapReturnsTaskWhenSandboxSurvives(t *testing.T) {
 	o := newOffice(t)
 	o.Office.Sandboxes = &fakeSandboxes{err: errors.New("sbx не отвечает")}
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
 	})
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("смерть раннера не замечена")
@@ -1178,8 +1502,8 @@ func TestReapReturnsTaskWhenSandboxSurvives(t *testing.T) {
 // Живую аренду reaper не трогает.
 func TestReapKeepsLiveLease(t *testing.T) {
 	o := newOffice(t)
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-		return runner.Result{}, errors.New("прогон идёт")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+		return runner.Result{}, runner.Usage{}, errors.New("прогон идёт")
 	})
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("ошибка прогона не замечена")
@@ -1214,8 +1538,8 @@ func TestTickWithoutTasks(t *testing.T) {
 // смотреть, почему прогон не доживает.
 func TestReapCallsHumanAfterStreakOfDeaths(t *testing.T) {
 	o := newOffice(t)
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
 	})
 
 	limit := o.Workflow.Limits.MaxLeaseExpiries
@@ -1268,8 +1592,8 @@ func TestReapStreakResetsAfterSuccessfulRun(t *testing.T) {
 
 	die := func(at time.Time) time.Time {
 		t.Helper()
-		o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-			return runner.Result{}, errors.New("раннера убили")
+		o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+			return runner.Result{}, runner.Usage{}, errors.New("раннера убили")
 		})
 		o.tasks.Now = func() time.Time { return at }
 		o.Office.Now = func() time.Time { return at }
@@ -1317,8 +1641,8 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	o := newOffice(t)
 	o.Office.Log = &log
 	o.Office.Sandboxes = &fakeSandboxes{absent: true}
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
 	})
 
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
@@ -1668,8 +1992,8 @@ func TestTickSkipsProjectUnknownToTracker(t *testing.T) {
 func TestReapSkipsProjectUnknownToTracker(t *testing.T) {
 	o := newOffice(t)
 	o.Office.Log = io.Discard
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
-		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
+		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
 	})
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("смерть раннера не замечена")

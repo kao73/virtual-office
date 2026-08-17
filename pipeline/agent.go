@@ -22,7 +22,7 @@ type SandboxAgent struct {
 // Ошибку возвращает только то, из-за чего прогона не случилось: конвейер
 // понимает её как «задача осталась арендованной, вернёт reaper». Всё, что
 // произошло с самим агентом, приходит исходом — включая синтетический failed.
-func (a SandboxAgent) Run(ctx context.Context, req Request) (runner.Result, error) {
+func (a SandboxAgent) Run(ctx context.Context, req Request) (runner.Result, runner.Usage, error) {
 	out, err := runagent.Execute(ctx, runagent.Options{
 		ConfigRoot: a.ConfigRoot,
 		Role:       req.Role,
@@ -37,12 +37,12 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (runner.Result, erro
 		// нельзя: беда уходит в лог раннера.
 		if out.Result.Outcome != "" {
 			a.logf("%s: %v", req.Passport.TaskKey, err)
-			return out.Result, nil
+			return out.Result, out.Usage, nil
 		}
-		return runner.Result{}, err
+		return runner.Result{}, runner.Usage{}, err
 	}
 	a.logf("%s: лог прогона %s, архив %s", req.Passport.TaskKey, out.LogPath, out.Archive)
-	return out.Result, nil
+	return out.Result, out.Usage, nil
 }
 
 func (a SandboxAgent) logf(format string, args ...any) {

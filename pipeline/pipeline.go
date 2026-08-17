@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kao73/virtual-office/budget"
+	"github.com/kao73/virtual-office/ledger"
 	"github.com/kao73/virtual-office/runner"
 	"github.com/kao73/virtual-office/tracker"
 	"github.com/kao73/virtual-office/workspace"
@@ -24,8 +26,12 @@ import (
 // Agent — один прогон агента. Интерфейс нужен ровно затем, чтобы конвейер
 // проверялся целиком без трат на модель: в тестах его закрывает подделка,
 // возвращающая заданный результат.
+//
+// Расход прогона идёт отдельно от результата, а не полем в нём: result.json
+// пишет агент, а во что обошёлся прогон — наблюдение раннера. Смешать их значило
+// бы дать агенту называть свою цену.
 type Agent interface {
-	Run(ctx context.Context, req Request) (runner.Result, error)
+	Run(ctx context.Context, req Request) (runner.Result, runner.Usage, error)
 }
 
 // Request — что конвейер отдаёт агенту. Каталог обмена к этому моменту
@@ -63,6 +69,13 @@ type Office struct {
 	Agent      Agent
 	Sandboxes  Sandboxes
 
+	// Ledger — учёт прогонов. Ведётся всегда и ничего не решает; пустой означает,
+	// что учёта нет вовсе — так конвейер проверяется там, где расход не при чём.
+	Ledger *ledger.Ledger
+	// Budgets — необязательная политика поверх учёта. Пустая означает «только учёт»:
+	// это естественное состояние офиса, а не недонастроенное.
+	Budgets budget.Budgets
+
 	ConfigRoot string // корень конфиг-репозитория: оттуда роли
 	ConfigSHA  string // отпечаток конфигурации для маркеров
 
@@ -73,6 +86,13 @@ type Office struct {
 
 	Now func() time.Time
 	Log io.Writer
+
+	// said — о чём в этом процессе уже сказано в лог. Нужно одному сообщению:
+	// «роль исчерпала дневной бюджет» повторялось бы каждый цикл, а цикл идёт
+	// раз в две минуты. Память живёт ровно столько, сколько процесс: отдельный
+	// запуск скажет своё, и заводить ради этого файл-отметку в хозяйстве
+	// раннера было бы состоянием без хозяина.
+	said map[string]bool
 }
 
 // Tick — один цикл роли: разобрать ответы человека, взять не больше одной задачи,
@@ -91,6 +111,13 @@ func (o *Office) Tick(ctx context.Context, roleName string) (bool, error) {
 // as — тот же офис, ходящий в трекер под учёткой роли. Копия мелкая и живёт
 // один тик: меняется только трекер, всё остальное — общее хозяйство.
 func (o *Office) as(roleName string) *Office {
+	// Память лога заводится здесь, на корневом офисе, и достаётся копиям вместе
+	// с остальным хозяйством. Заводить её внутри тика было бы бессмысленно:
+	// копия живёт один заход, и сказанное ею забывалось бы сразу.
+	if o.said == nil {
+		o.said = map[string]bool{}
+	}
+
 	role, found := o.Trackers[roleName]
 	if !found {
 		return o
@@ -98,6 +125,20 @@ func (o *Office) as(roleName string) *Office {
 	clone := *o
 	clone.Tracker = role
 	return &clone
+}
+
+// sayOnce — говорить ли об этом в лог. Второй раз за жизнь процесса — уже нет.
+func (o *Office) sayOnce(what string) bool {
+	if o.said == nil {
+		// Офис собран без памяти: повтор не подавляется. Соврать в другую
+		// сторону — промолчать о том, о чём ещё не говорили, — было бы хуже.
+		return true
+	}
+	if o.said[what] {
+		return false
+	}
+	o.said[what] = true
+	return true
 }
 
 // tickRole — цикл одной роли без разбора ответов: его делает вызывающий,
@@ -110,6 +151,15 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	role, err := runner.LoadRole(o.ConfigRoot, roleName)
 	if err != nil {
 		return false, err
+	}
+
+	// Дневной предел роли — до всего остального: он не про задачу, а про роль,
+	// и спрашивать очередь, чтобы потом всё равно ничего не взять, незачем.
+	switch stop, err := o.roleOverspent(roleName); {
+	case err != nil:
+		return false, err
+	case stop:
+		return false, nil
 	}
 
 	task, err := o.claim(roleName, flow, role)
@@ -265,6 +315,15 @@ func (o *Office) take(ref tracker.TaskRef, roleName string, flow tracker.RoleFlo
 		return claimed{}, false, nil
 	}
 
+	// Бюджет задачи — до Ensure, а не просто «до захвата»: иначе на задачу,
+	// которую всё равно пропустим, уже заведён клон проекта и worktree.
+	switch skip, err := o.taskOverspent(ref, roleName, flow); {
+	case err != nil:
+		return claimed{}, false, err
+	case skip:
+		return claimed{}, false, nil
+	}
+
 	ws, err := o.Workspaces.Ensure(ref, project)
 	if errors.Is(err, workspace.ErrWorktreeBusy) {
 		o.logf("%s: %v, беру следующую", ref.Key, err)
@@ -337,7 +396,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	// Аренда продлевается, пока агент работает: иначе долгая задача досталась бы
 	// reaper'у прямо посреди прогона.
 	stop := o.keepLease(ctx, task.Key, runID, role)
-	result, runErr := o.Agent.Run(ctx, Request{
+	result, usage, runErr := o.Agent.Run(ctx, Request{
 		Role: role, Workdir: ws.Dir, Passport: passport, Mounts: ws.Mounts(),
 	})
 	stop()
@@ -347,6 +406,14 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		return false, fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
 	}
 	o.logf("%s: исход %s — %s", task.Key, result.Outcome, result.Summary)
+
+	// Учёт — сразу после прогона и до всего остального: прогон состоялся и уже
+	// оплачен, что бы дальше ни случилось с публикацией и арендой.
+	o.account(ledger.Entry{
+		RunID: runID, Task: task.Key, Role: roleName, Project: c.ref.Project,
+		Started: passport.StartedAt, Usage: usage,
+		Outcome: string(result.Outcome), ConfigSHA: o.ConfigSHA,
+	})
 
 	// Пуш идёт раньше всего остального и при любом исходе: работа не должна жить
 	// только в worktree, который однажды удалят. Публикация ничего в задаче
@@ -367,7 +434,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 
 	// Продление раньше любой записи в задачу. Прогон, доживший до конца после reap,
 	// не вправе её трогать: задачу уже могли отдать другому.
-	switch lost, err := o.renew(task, runID, roleName, result, published); {
+	switch lost, err := o.renew(task, runID, roleName, result, usage, published); {
 	case err != nil:
 		return false, err
 	case lost:
@@ -377,10 +444,10 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	if pushErr != nil {
 		// Неопубликованная работа — не провал агента и не повод двигать задачу
 		// вперёд: следующая роль искала бы в origin ветку, которой там нет.
-		return false, o.pushFailed(task, runID, roleName, flow, result, pushErr)
+		return false, o.pushFailed(task, runID, roleName, flow, result, usage, pushErr)
 	}
 
-	to, err := o.finish(task, runID, roleName, flow, result, branch)
+	to, err := o.finish(task, runID, roleName, flow, result, branch, usage)
 	if err != nil {
 		return false, err
 	}
@@ -399,7 +466,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 // Задача возвращается в очередь той же роли, счётчик попыток не трогается:
 // сломанный remote — беда обвязки, а не агента. Рабочая папка остаётся: следующий
 // прогон продолжит с того же места и попробует опубликовать ту же работу.
-func (o *Office) pushFailed(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, pushErr error) error {
+func (o *Office) pushFailed(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, usage runner.Usage, pushErr error) error {
 	by := tracker.ByRun(runID)
 	failures := tracker.PushFailures(task.Comments, roleName) + 1
 
@@ -407,8 +474,8 @@ func (o *Office) pushFailed(task tracker.Task, runID, roleName string, flow trac
 		RunID: runID, Role: roleName, Event: tracker.EventPushFailed, ConfigSHA: o.ConfigSHA,
 	}, fmt.Sprintf("Ветка не опубликована: %v\n\nРабота никуда не делась — она в рабочей папке и в локальной "+
 		"ветке, — но пока её не видит никто, кроме этой машины. Итог прогона run:%s — %s: %s\n\n"+
-		"Задача возвращается в %s. Счётчик попыток не тронут: публикует ветку раннер, а не агент.",
-		pushErr, short(runID), result.Outcome, result.Summary, flow.ReadsFrom)); err != nil {
+		"Задача возвращается в %s. Счётчик попыток не тронут: публикует ветку раннер, а не агент.%s",
+		pushErr, short(runID), result.Outcome, result.Summary, flow.ReadsFrom, spent(usage))); err != nil {
 		return err
 	}
 
@@ -441,7 +508,7 @@ func (o *Office) pushFailed(task tracker.Task, runID, roleName string, flow trac
 // Потерянная аренда — не ошибка: прогон просто опоздал, задачу уже могли отдать
 // другому. Всё, что он вправе сделать, — предупредить, и это делается системной
 // записью: аренды у него больше нет, а значит нет и права писать от её имени.
-func (o *Office) renew(task tracker.Task, runID, roleName string, result runner.Result, published string) (bool, error) {
+func (o *Office) renew(task tracker.Task, runID, roleName string, result runner.Result, usage runner.Usage, published string) (bool, error) {
 	lease := o.now().Add(o.Workflow.LeaseMargin())
 	err := o.Tracker.Renew(task.Key, runID, lease)
 	switch {
@@ -455,15 +522,26 @@ func (o *Office) renew(task tracker.Task, runID, roleName string, result runner.
 	return true, o.notice(task.Key, tracker.Marker{
 		RunID: runID, Role: roleName, Event: tracker.EventLeaseLost, ConfigSHA: o.ConfigSHA,
 	}, fmt.Sprintf("Прогон run:%s завершился после потери аренды с исходом %s. %s Задачу он не двигает: "+
-		"её мог взять другой прогон. Итог прогона: %s",
-		short(runID), result.Outcome, published, result.Summary))
+		"её мог взять другой прогон. Итог прогона: %s%s",
+		short(runID), result.Outcome, published, result.Summary, spent(usage)))
+}
+
+// spent — цена прогона отдельным абзацем, для записей, где отчёта агента нет
+// вовсе: неудачной публикации и потерянной аренды. В обоих случаях прогон
+// состоялся и был оплачен, и это единственное место, где человек увидит цену,
+// не заглядывая в реестр.
+func spent(usage runner.Usage) string {
+	if line := tracker.SpendLine(usage); line != "" {
+		return "\n\n" + line
+	}
+	return ""
 }
 
 // finish пишет отчёт и двигает задачу по графу.
 //
 // Порядок именно такой: комментарий раньше перехода. Упади раннер между ними —
 // задача останется в прежней колонке с объяснением, а не уедет в новую молча.
-func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, branch string) (string, error) {
+func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, branch string, usage runner.Usage) (string, error) {
 	transition, found := flow.Outcomes[string(result.Outcome)]
 	if !found {
 		return "", fmt.Errorf("%s: для исхода %s нет перехода в графе", roleName, result.Outcome)
@@ -497,7 +575,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 		}
 	}
 
-	if err := o.Tracker.Comment(task.Key, by, tracker.ReportBody(marker, result, branch)); err != nil {
+	if err := o.Tracker.Comment(task.Key, by, tracker.ReportBody(marker, result, branch, usage)); err != nil {
 		return "", err
 	}
 	// Объяснение — отдельной записью после отчёта: замечания роли остаются
@@ -510,6 +588,10 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 			"Замечания последнего разбора — в отчёте run:%s выше.", roleName, rounds, short(runID))); err != nil {
 			return "", err
 		}
+	}
+	// Бухгалтерия — последней: то, что решает человек, должно стоять выше неё.
+	if err := o.warnRunCost(task, runID, roleName, usage); err != nil {
+		return "", err
 	}
 	if attempts != task.Attempts {
 		if err := o.Tracker.SetAttempts(task.Key, by, attempts); err != nil {

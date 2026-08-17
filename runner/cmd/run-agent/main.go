@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kao73/virtual-office/ledger"
 	"github.com/kao73/virtual-office/runagent"
 	"github.com/kao73/virtual-office/runner"
 )
@@ -150,11 +151,34 @@ func execute() (int, error) {
 		fmt.Fprintln(os.Stderr, "run-agent:", err)
 	}
 
+	// Ручной прогон тоже стоит денег и тоже попадает в реестр — без задачи
+	// и проекта: трекера здесь нет. Иначе отладка роли была бы бесплатной
+	// только на бумаге, а дневной расход роли считался бы неверно.
+	account(passport, out)
+
 	printResult(out, passport)
 	if out.Result.Outcome == runner.OutcomeFailed {
 		return exitFailed, nil
 	}
 	return 0, nil
+}
+
+// account записывает прогон в реестр хозяйства раннера.
+//
+// Неудача записи прогона не отменяет: работа сделана, результат напечатан.
+// Молча ронять её нельзя — расход учитывается не полностью, — поэтому беда
+// уходит в stderr, а код возврата остаётся исходом прогона.
+func account(passport runner.Run, out runagent.Outcome) {
+	runs, err := ledger.Default()
+	if err == nil {
+		err = runs.Append(ledger.Entry{
+			RunID: passport.RunID, Role: passport.Role, Started: passport.StartedAt,
+			Usage: out.Usage, Outcome: string(out.Result.Outcome), ConfigSHA: passport.ConfigSHA,
+		})
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "run-agent: прогон не записан в реестр:", err)
+	}
 }
 
 // officeRoot — корень конфиг-репозитория. Его сообщает обёртка bin/run-agent;
@@ -268,6 +292,9 @@ func printResult(out runagent.Outcome, passport runner.Run) {
 	}
 	if len(r.Artifacts) > 0 {
 		fmt.Printf("артефакты: %s\n", strings.Join(r.Artifacts, ", "))
+	}
+	if u := out.Usage; u.Known() {
+		fmt.Printf("расход: $%.4f, %s, %d шагов\n", u.CostUSD, u.Duration().Round(time.Second), u.Turns)
 	}
 	fmt.Printf("run_id: %s\nлог:    %s\n", passport.RunID, out.LogPath)
 	if out.Archive != "" {

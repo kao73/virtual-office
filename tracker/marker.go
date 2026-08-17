@@ -34,6 +34,17 @@ const (
 	// EventReviewRoundsExhausted — роли не сошлись за отведённое число кругов;
 	// спор решает человек.
 	EventReviewRoundsExhausted = "review-rounds-exhausted"
+
+	// EventBudgetExceeded — задача перевалила за свой предел расхода, но работа
+	// продолжается: предел в режиме warn. Пишется до захвата, когда аренды ещё нет,
+	// и потому системная.
+	EventBudgetExceeded = "budget-exceeded"
+	// EventBudgetExhausted — предел задачи в режиме stop: работа не начинается,
+	// задача уходит к человеку.
+	EventBudgetExhausted = "budget-exhausted"
+	// EventRunBudgetExceeded — один прогон обошёлся дороже предела. Прерывать
+	// его нечем: цена известна, когда работа уже сделана и оплачена.
+	EventRunBudgetExceeded = "run-budget-exceeded"
 )
 
 // short — сколько символов идентификатора попадает в маркер. Полный UUID
@@ -220,6 +231,21 @@ func ReviewRounds(comments []Comment, role string, agents []string) int {
 			return stop
 		}
 	})
+}
+
+// HasEvent — была ли у задачи такая запись раннера. Историю смотрит целиком,
+// а не с конца: это не серия, а факт.
+//
+// Нужно тем сообщениям, которые говорятся о задаче один раз за её жизнь, — вроде
+// предупреждения о перерасходе. Повторять их каждый прогон значило бы заращивать
+// тикет одинаковыми строчками, среди которых теряется разговор.
+func HasEvent(comments []Comment, event string) bool {
+	for _, c := range comments {
+		if m, ok := MarkerOf(c.Body); ok && m.Event == event {
+			return true
+		}
+	}
+	return false
 }
 
 // IsHandover — передаёт ли отчёт задачу дальше по конвейеру, то есть закрывает

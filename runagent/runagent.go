@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/kao73/virtual-office/adapters/claude"
@@ -48,7 +49,11 @@ type Launch struct {
 
 // Outcome — чем кончился прогон.
 type Outcome struct {
-	Result   runner.Result
+	Result runner.Result
+	// Usage — во что прогон обошёлся. Наблюдение раннера, а не заявление агента:
+	// в result.json этих полей нет, читаются они из лога прогона. Пустое значение
+	// законно — прогон, убитый на середине, о расходе не отчитывается.
+	Usage    runner.Usage
 	ExitCode int    // код выхода агента; результат всё равно считается истиной
 	LogPath  string // куда писался вывод агента
 	Archive  string // копия каталога обмена; пусто, если заархивировать не вышло
@@ -111,7 +116,7 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 		result = runner.FailedResult(reason)
 	}
 
-	out := Outcome{Result: result, ExitCode: exitCode, LogPath: logPath}
+	out := Outcome{Result: result, Usage: usageOf(logPath), ExitCode: exitCode, LogPath: logPath}
 
 	// Каталог обмена эфемерен: рабочей папкой служит worktree, а его удаляют.
 	// Неудача архивации не подменяет исход прогона — материал в этот момент
@@ -120,6 +125,20 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 		return out, fmt.Errorf("прогон не заархивирован: %w", err)
 	}
 	return out, nil
+}
+
+// usageOf читает расход прогона из его лога.
+//
+// Неудача чтения — не беда прогона: он уже состоялся, работа сделана, а учёт
+// просто не узнает цены. Ошибку здесь возвращать некому и незачем — пустой
+// расход и означает «неизвестно».
+func usageOf(logPath string) runner.Usage {
+	log, err := os.Open(logPath)
+	if err != nil {
+		return runner.Usage{}
+	}
+	defer func() { _ = log.Close() }()
+	return claude.ParseUsage(log)
 }
 
 // backendRun — исполнение подготовленного запуска. Подпись одна у всех бэкендов:

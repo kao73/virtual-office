@@ -22,6 +22,7 @@ const usage = `runner — обвязка вокруг агента
   runner loop [--every 2m]      то же по расписанию, пока не остановят
   runner reap                   вернуть задачи с истёкшей арендой
   runner ls [--project P]       доска: где какая задача, кто её взял и сколько висит
+  runner ledger [--since 24h]   расход: сколько прогонов и на сколько денег
   runner worktree <ls|rm> …     рабочие папки задач: что лежит и как убрать
   runner mock <add|ls|show|comment> …   файловый трекер для ручных сценариев
 
@@ -53,6 +54,8 @@ func execute(args []string) error {
 		return reapCommand(args[1:], os.Stdout)
 	case "ls":
 		return boardCommand(args[1:], os.Stdout)
+	case "ledger":
+		return ledgerCommand(args[1:], os.Stdout)
 	case "worktree":
 		return worktreeCommand(args[1:], os.Stdout)
 	case "mock":

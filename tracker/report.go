@@ -3,6 +3,7 @@ package tracker
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kao73/virtual-office/runner"
 )
@@ -15,7 +16,7 @@ import (
 //
 // Пустые разделы не печатаются: комментарий с заголовком «Вопросы» и пустотой
 // под ним читается как потерянный текст.
-func ReportBody(m Marker, res runner.Result, branch string) string {
+func ReportBody(m Marker, res runner.Result, branch string, usage runner.Usage) string {
 	var b strings.Builder
 
 	b.WriteString(m.String())
@@ -51,7 +52,52 @@ func ReportBody(m Marker, res runner.Result, branch string) string {
 		}
 	}
 
+	// Цена — последней строкой и в теле, а не в маркере: маркер читает раннер,
+	// а расход нужен человеку. Так на доске видно, во что обошлась задача,
+	// и так же его когда-нибудь сможет собрать из переписки другая машина —
+	// реестр прогонов у каждой свой.
+	if spend := SpendLine(usage); spend != "" {
+		fmt.Fprintf(&b, "\n%s\n", spend)
+	}
+
 	return b.String()
+}
+
+// SpendLine — во что обошёлся прогон, одной строкой для человека.
+// Неизвестный расход не превращается в «$0.0000»: ноль — это цена, а её
+// в таком прогоне никто не называл.
+//
+// Экспортирована ради двух путей, где отчёта агента не пишется вовсе:
+// неудачной публикации и потерянной аренды. Там о прогоне рассказывает запись
+// раннера, и цена должна быть названа теми же словами.
+func SpendLine(u runner.Usage) string {
+	if !u.Known() {
+		return ""
+	}
+	return fmt.Sprintf("Прогон: $%.4f, %s, %s.", u.CostUSD, spendTime(u.Duration()), spendTurns(u.Turns))
+}
+
+// spendTime огрубляет длительность: секунды до минуты, минуты и секунды дальше.
+// Часов нет намеренно — прогон, идущий час, упирается в таймаут роли раньше.
+func spendTime(d time.Duration) string {
+	if seconds := int(d.Seconds()); seconds < 60 {
+		return fmt.Sprintf("%d с", seconds)
+	}
+	return fmt.Sprintf("%d м %d с", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// spendTurns склоняет шаги: «3 шага» и «5 шагов» — разные слова, и строку
+// читает человек.
+func spendTurns(n int) string {
+	word := "шагов"
+	switch last := n % 10; {
+	case n%100 >= 11 && n%100 <= 14:
+	case last == 1:
+		word = "шаг"
+	case last >= 2 && last <= 4:
+		word = "шага"
+	}
+	return fmt.Sprintf("%d %s", n, word)
 }
 
 // NoticeBody собирает системную запись: маркер и одна мысль прозой.

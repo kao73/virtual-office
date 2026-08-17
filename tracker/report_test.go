@@ -18,7 +18,7 @@ func TestReportBodyStartsWithOwnMarker(t *testing.T) {
 		Outcome:   runner.OutcomeDone,
 		Summary:   "Добавил hello.py и тест, всё закоммичено.",
 		NextOwner: "none",
-	}, "")
+	}, "", runner.Usage{})
 
 	m, ok := MarkerOf(body)
 	if !ok {
@@ -94,7 +94,7 @@ func TestReportBodySectionsByOutcome(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			body := ReportBody(marker(string(tc.result.Outcome)), tc.result, tc.branch)
+			body := ReportBody(marker(string(tc.result.Outcome)), tc.result, tc.branch, runner.Usage{})
 			for _, want := range tc.want {
 				if !strings.Contains(body, want) {
 					t.Errorf("в теле нет %q:\n%s", want, body)
@@ -106,6 +106,55 @@ func TestReportBodySectionsByOutcome(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Цена задачи видна там же, где её история, — в тикете. В маркере ей не место:
+// маркер читает раннер, а числа расхода нужны человеку, и меняются они у каждого
+// прогона.
+func TestReportBodyShowsSpending(t *testing.T) {
+	body := ReportBody(marker("done"), runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "Сделано.", NextOwner: "none",
+	}, "", runner.Usage{CostUSD: 0.2227, DurationMS: 48797, Turns: 6})
+
+	if !strings.Contains(body, "$0.2227") {
+		t.Errorf("стоимости нет в теле:\n%s", body)
+	}
+	first, _, _ := strings.Cut(body, "\n")
+	if strings.Contains(first, "0.2227") {
+		t.Errorf("стоимость попала в маркер: %s", first)
+	}
+}
+
+// Расход прогона, убитого на середине, неизвестен. Написать про него «$0.0000»
+// значило бы соврать: ноль — это цена, а её никто не называл.
+func TestReportBodySilentAboutUnknownSpending(t *testing.T) {
+	body := ReportBody(marker("failed"), runner.Result{
+		Outcome: runner.OutcomeFailed, Summary: "Не вышло.", NextOwner: "human",
+	}, "", runner.Usage{})
+
+	if strings.Contains(body, "$") {
+		t.Errorf("о неизвестном расходе всё-таки сказано:\n%s", body)
+	}
+}
+
+// Строку читает человек, поэтому время огрублено, а шаги склоняются.
+func TestSpendLineReadsLikeRussian(t *testing.T) {
+	cases := []struct {
+		usage runner.Usage
+		want  string
+	}{
+		{runner.Usage{CostUSD: 0.0922, DurationMS: 18258, Turns: 3}, "Прогон: $0.0922, 18 с, 3 шага."},
+		{runner.Usage{CostUSD: 0.3572, DurationMS: 96673, Turns: 21}, "Прогон: $0.3572, 1 м 36 с, 21 шаг."},
+		{runner.Usage{CostUSD: 1.5, DurationMS: 3661000, Turns: 5}, "Прогон: $1.5000, 61 м 1 с, 5 шагов."},
+	}
+	for _, tc := range cases {
+		if got := SpendLine(tc.usage); got != tc.want {
+			t.Errorf("строка расхода %q, ожидалось %q", got, tc.want)
+		}
+	}
+	if got := SpendLine(runner.Usage{}); got != "" {
+		t.Errorf("о неизвестном расходе сказано %q", got)
 	}
 }
 
