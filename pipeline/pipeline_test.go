@@ -807,6 +807,70 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	}
 }
 
+// knownWorkflow — трекер, умеющий рассказать о своём workflow. Так отвечает jira;
+// файловый трекер этого интерфейса не реализует вовсе.
+type knownWorkflow struct {
+	tracker.Tracker
+	check tracker.WorkflowCheck
+	err   error
+}
+
+func (k knownWorkflow) CheckWorkflow(string, string) (tracker.WorkflowCheck, error) {
+	return k.check, k.err
+}
+
+// Рабочий статус, доступный переходом из него самого, позволяет двум прогонам
+// захватить одну задачу. С одним раннером на проект это безопасно — потому
+// раннер и предупреждает, а не отказывается работать.
+func TestCheckWorkflowWarnsAboutTwoOwners(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	o.Office.Tracker = knownWorkflow{
+		Tracker: o.tasks,
+		check:   tracker.WorkflowCheck{Sample: "OFF-1", SelfEntry: true},
+	}
+
+	o.Office.CheckWorkflow()
+
+	if !strings.Contains(log.String(), "двух владельцев") {
+		t.Errorf("раннер не сказал, чем грозит такой workflow:\n%s", log.String())
+	}
+	if !strings.Contains(log.String(), "tracker-protocol.md") {
+		t.Errorf("предупреждение не говорит, где читать:\n%s", log.String())
+	}
+}
+
+// Проверить workflow не на чем, пока в рабочем статусе нет ни одной задачи:
+// переходы JIRA показывает только у конкретной задачи. Молчание в этом месте
+// читалось бы как «проверил, всё в порядке».
+func TestCheckWorkflowSaysWhenItCouldNotRun(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	o.Office.Tracker = knownWorkflow{Tracker: o.tasks}
+
+	o.Office.CheckWorkflow()
+
+	if !strings.Contains(log.String(), "проверка workflow не выполнена") {
+		t.Errorf("невыполненная проверка выдана за успешную:\n%s", log.String())
+	}
+}
+
+// У файлового трекера workflow нет вовсе, и жаловаться не на что: проверка
+// молча пропускается, а не превращается в шум на каждом запуске.
+func TestCheckWorkflowSilentForTrackerWithoutWorkflow(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+
+	o.Office.CheckWorkflow()
+
+	if log.String() != "" {
+		t.Errorf("трекер без workflow вызвал жалобу:\n%s", log.String())
+	}
+}
+
 // unknownProject — трекер, не знающий одного из проектов конфигурации.
 // Так выглядит протухшая строка в projects.yaml: проект описан, а в трекере
 // его нет и никогда не было.

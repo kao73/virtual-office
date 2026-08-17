@@ -36,8 +36,14 @@ type fakeJira struct {
 	verifyRunID string
 	claimed     bool
 
+	// transitionsTo — статусы, в которые задаче доступен переход. По умолчанию
+	// все четыре: так настроен полигон, где вход в каждый статус глобальный.
+	transitionsTo []string
+	noIssues      bool // поиск ничего не находит
+
 	lastUpdate   map[string]any // fields последнего PUT
 	lastJQL      string
+	lastLimit    int      // maxResults последнего поиска
 	transitons   []string // имена статусов, в которые переводили
 	commentPages int      // сколько раз спрашивали страницу комментариев
 	fakeTotal    int      // ненулевой — сервер врёт про размер переписки
@@ -91,9 +97,16 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case r.URL.Path == "/rest/api/2/search":
 		f.lastJQL, _ = body["jql"].(string)
+		if limit, ok := body["maxResults"].(float64); ok {
+			f.lastLimit = int(limit)
+		}
 		if f.badSearch {
 			w.WriteHeader(http.StatusBadRequest)
 			write(map[string]any{"errorMessages": []string{"поиск не удался"}})
+			return
+		}
+		if f.noIssues {
+			write(map[string]any{"issues": []any{}})
 			return
 		}
 		write(map[string]any{"issues": []any{f.issue()}})
@@ -121,27 +134,23 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 
 	case r.URL.Path == "/rest/api/2/issue/VO-1/transitions" && r.Method == http.MethodGet:
-		write(map[string]any{"transitions": []any{
-			map[string]any{"id": "11", "to": map[string]any{"name": "In Progress"}},
-			map[string]any{"id": "21", "to": map[string]any{"name": "Review"}},
-			map[string]any{"id": "31", "to": map[string]any{"name": "Blocked"}},
-			map[string]any{"id": "41", "to": map[string]any{"name": "Ready"}},
-		}})
+		list := make([]any, 0, len(f.transitionsTo))
+		for i, name := range f.transitionsTo {
+			list = append(list, map[string]any{
+				"id": strconv.Itoa(11 + i*10), "to": map[string]any{"name": name},
+			})
+		}
+		write(map[string]any{"transitions": list})
 
 	case r.URL.Path == "/rest/api/2/issue/VO-1/transitions" && r.Method == http.MethodPost:
 		id, _ := body["transition"].(map[string]any)["id"].(string)
-		switch id {
-		case "11":
-			f.status = "In Progress"
-		case "21":
-			f.status = "Review"
-		case "31":
-			f.status = "Blocked"
-		case "41":
-			f.status = "Ready"
-		default:
+		index := (number(id, -11) - 11) / 10
+		if index < 0 || index >= len(f.transitionsTo) {
 			f.t.Errorf("неизвестный переход %q", id)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
+		f.status = f.transitionsTo[index]
 		f.transitons = append(f.transitons, f.status)
 		f.claimed = true
 		w.WriteHeader(http.StatusNoContent)
@@ -209,7 +218,10 @@ func (f *fakeJira) apply(fields map[string]any) {
 
 func fixture(t *testing.T) (*Tracker, *fakeJira) {
 	t.Helper()
-	fake := &fakeJira{t: t, status: "Ready"}
+	fake := &fakeJira{
+		t: t, status: "Ready",
+		transitionsTo: []string{"In Progress", "Review", "Blocked", "Ready"},
+	}
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
 
@@ -578,6 +590,68 @@ func TestListReadyTellsUnknownProjectApart(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "OFFICE") {
 		t.Errorf("в ошибке нет имени проекта, чинить придётся вслепую: %v", err)
+	}
+}
+
+// Глобальный вход в рабочий статус — та самая лазейка, из-за которой захват
+// не становится CAS: задача, уже находящаяся в работе, видит переход в работу,
+// то есть второй прогон исполнит его без всякой помехи. Раннер обязан заметить
+// это сам, а не тогда, когда двое возьмут одну задачу.
+func TestCheckWorkflowFindsSelfEntry(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.status = "In Progress"
+
+	check, err := tr.CheckWorkflow("VO", "InProgress")
+	if err != nil {
+		t.Fatalf("проверка не выполнена: %v", err)
+	}
+	if check.Sample != "VO-1" {
+		t.Errorf("образец %q, ожидалась VO-1", check.Sample)
+	}
+	if !check.SelfEntry {
+		t.Error("глобальный вход в рабочий статус не замечен")
+	}
+	if !strings.Contains(fake.lastJQL, `status = "In Progress"`) {
+		t.Errorf("искали не в рабочем статусе: %s", fake.lastJQL)
+	}
+	// Нужна одна задача, а не очередь: это проверка настройки, а не поиск работы.
+	if fake.lastLimit != 1 {
+		t.Errorf("поиск просил %d задач, хватает одной", fake.lastLimit)
+	}
+}
+
+// Workflow, настроенный под несколько раннеров: у задачи в работе перехода
+// в работу нет, и захват переходом станет настоящим CAS.
+func TestCheckWorkflowPassesWithoutSelfEntry(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.status = "In Progress"
+	fake.transitionsTo = []string{"Review", "Blocked", "Ready"}
+
+	check, err := tr.CheckWorkflow("VO", "InProgress")
+	if err != nil {
+		t.Fatalf("проверка не выполнена: %v", err)
+	}
+	if check.Sample == "" {
+		t.Fatal("образец не найден, хотя задача в работе есть")
+	}
+	if check.SelfEntry {
+		t.Error("вход в рабочий статус из него самого померещился")
+	}
+}
+
+// Переходы JIRA показывает только у конкретной задачи, поэтому без задачи
+// в рабочем статусе проверять не на чем. Пустой ответ обязан отличаться
+// от «всё хорошо»: иначе раннер молчал бы так, будто проверил.
+func TestCheckWorkflowWithoutSampleTask(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.noIssues = true
+
+	check, err := tr.CheckWorkflow("VO", "InProgress")
+	if err != nil {
+		t.Fatalf("проверка не выполнена: %v", err)
+	}
+	if check.Sample != "" || check.SelfEntry {
+		t.Errorf("проверка отчиталась, не найдя задачи: %+v", check)
 	}
 }
 

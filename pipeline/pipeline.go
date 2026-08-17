@@ -91,6 +91,59 @@ func (o *Office) Tick(ctx context.Context, roleName string) (bool, error) {
 	return true, o.work(ctx, ref, runID, roleName, flow, role)
 }
 
+// CheckWorkflow предупреждает о workflow, в котором захват задачи не может стать
+// CAS: рабочий статус, доступный переходом из него самого, позволяет двум прогонам
+// захватить одну задачу и уйти работать в один worktree.
+//
+// Проверка ничего не блокирует — с одним раннером на проект такой workflow
+// безопасен, и это ровно тот случай, в котором офис работает сейчас. Сколько
+// раннеров запущено на самом деле, отсюда не видно: сказать об этом человеку
+// раннер может, решить за него — нет.
+//
+// Трекер, не умеющий отвечать про свой workflow, пропускается молча: у файлового
+// workflow нет вовсе, и жаловаться было бы не на что.
+func (o *Office) CheckWorkflow() {
+	checker, able := o.Tracker.(tracker.WorkflowChecker)
+	if !able {
+		return
+	}
+
+	for _, project := range o.projects() {
+		for _, status := range o.workingStatuses() {
+			check, err := checker.CheckWorkflow(project, status)
+			if o.skipProject(project, err) {
+				break
+			}
+			switch {
+			case err != nil:
+				o.logf("%s: проверка workflow не выполнена: %v", project, err)
+			case check.Sample == "":
+				// Переходы трекер показывает только у конкретной задачи. Нет
+				// задачи в работе — нет и ответа; молчание здесь читалось бы
+				// как «проверил, всё в порядке».
+				o.logf("%s: проверка workflow не выполнена: нет задачи в рабочем статусе %s", project, status)
+			case check.SelfEntry:
+				o.logf("workflow %s допускает двух владельцев (в %s можно войти из него самого); "+
+					"безопасно только с одним раннером на проект, см. docs/contracts/tracker-protocol.md",
+					project, status)
+			}
+		}
+	}
+}
+
+// workingStatuses — рабочие колонки всех ролей графа, без повторов и в устойчивом
+// порядке: две роли вправе работать в одной колонке, спрашивать о ней дважды незачем.
+func (o *Office) workingStatuses() []string {
+	var statuses []string
+	for _, role := range o.Workflow.Roles {
+		if !slices.Contains(statuses, role.Working) {
+			statuses = append(statuses, role.Working)
+		}
+	}
+	slices.Sort(statuses)
+	return statuses
+}
+
 // TickAll прогоняет по циклу на каждую роль графа, в порядке имён.
 func (o *Office) TickAll(ctx context.Context) error {
 	roles := slices.Sorted(maps(o.Workflow.Roles))

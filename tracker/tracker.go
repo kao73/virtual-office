@@ -221,3 +221,26 @@ type Tracker interface {
 	// SetAttempts — записать счётчик попыток.
 	SetAttempts(key string, by Actor, n int) error
 }
+
+// WorkflowCheck — что раннер узнал о workflow проекта, заглянув в трекер.
+type WorkflowCheck struct {
+	// Sample — задача, на которой проверяли. Пусто означает, что проверять было
+	// не на чем: переходы трекер показывает только у конкретной задачи, и без
+	// задачи в рабочем статусе спросить нечего.
+	Sample string
+	// SelfEntry — в рабочий статус есть переход из него самого. Тогда захват
+	// не становится CAS даже в workflow, и двое могут уйти работать над одной
+	// задачей: см. «Сколько раннеров на проект» в контракте.
+	SelfEntry bool
+}
+
+// WorkflowChecker — трекер, способный рассказать о собственном workflow.
+//
+// Интерфейс необязательный и в Tracker не входит: реализует его только jira,
+// а у файлового трекера workflow нет вовсе. Раннер спрашивает того, кто умеет
+// ответить, и молчит об остальных.
+type WorkflowChecker interface {
+	// CheckWorkflow отвечает, допускает ли workflow проекта вход в рабочий
+	// статус из него самого.
+	CheckWorkflow(project, workingStatus string) (WorkflowCheck, error)
+}

@@ -35,6 +35,10 @@ const apiPath = "/rest/api/2"
 // нужны все: страницы крутятся до конца переписки.
 const pageSize = 100
 
+// searchPage — сколько задач просить у поиска. Из кандидатов берут первого
+// годного, поэтому предел один на все очереди.
+const searchPage = 50
+
 // Config — подключение и раскладка полей. Живёт в tracker.yaml.
 type Config struct {
 	BaseURL string `yaml:"base_url"`
@@ -145,7 +149,7 @@ func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 	jql := fmt.Sprintf(`project = %q AND status = %q AND (%s IS EMPTY OR %s <= now()) ORDER BY priority DESC, created ASC`,
 		project, t.status(status), t.jqlField(t.cfg.Fields.LeaseUntil), t.jqlField(t.cfg.Fields.LeaseUntil))
 
-	return t.searchProject(project, jql, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
+	return t.searchProject(project, jql, searchPage, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
 }
 
 // ListExpired — задачи с истёкшей арендой: сырьё для reaper.
@@ -153,9 +157,42 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 	jql := fmt.Sprintf(`project = %q AND %s IS NOT EMPTY AND %s <= now() ORDER BY created ASC`,
 		project, t.jqlField(t.cfg.Fields.RunID), t.jqlField(t.cfg.Fields.LeaseUntil))
 
-	return t.searchProject(project, jql, func(task tracker.Task) bool {
+	return t.searchProject(project, jql, searchPage, func(task tracker.Task) bool {
 		return task.RunID != "" && !task.LeaseAlive(now)
 	})
+}
+
+// CheckWorkflow выясняет, допускает ли workflow проекта вход в рабочий статус
+// из него самого. Такой вход — глобальный переход «в этот статус из любого» —
+// и есть лазейка, из-за которой захват не становится CAS даже с перечитыванием:
+// см. Claim и «Сколько раннеров на проект» в контракте трекера.
+//
+// Переходы JIRA показывает только у конкретной задачи и только из её текущего
+// статуса — спросить workflow целиком нельзя. Поэтому нужен образец: любая
+// задача, уже находящаяся в рабочем статусе. Её отсутствие — не «всё хорошо»,
+// а «проверить было не на чем», и отличать одно от другого обязан вызывающий.
+func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.WorkflowCheck, error) {
+	working := t.status(workingStatus)
+	jql := fmt.Sprintf(`project = %q AND status = %q`, project, working)
+
+	// Одна задача, а не очередь: это проверка настройки, а не поиск работы.
+	refs, err := t.searchProject(project, jql, 1, func(tracker.Task) bool { return true })
+	if err != nil || len(refs) == 0 {
+		return tracker.WorkflowCheck{}, err
+	}
+
+	check := tracker.WorkflowCheck{Sample: refs[0].Key}
+	options, err := t.transitions(check.Sample)
+	if err != nil {
+		return tracker.WorkflowCheck{}, err
+	}
+	for _, option := range options {
+		if option.to == working {
+			check.SelfEntry = true
+			break
+		}
+	}
+	return check, nil
 }
 
 // searchProject — поиск по проекту, отличающий незнакомый проект от прочих бед.
@@ -168,8 +205,8 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 // Разбираем не по тексту ошибки: он зависит от версии сервера и однажды сменится
 // молча. Вместо этого спрашиваем сам проект — и только когда поиск уже упал,
 // так что в счастливом пути лишнего запроса не появляется.
-func (t *Tracker) searchProject(project, jql string, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
-	refs, err := t.search(jql, keep)
+func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+	refs, err := t.search(jql, limit, keep)
 	if err == nil {
 		return refs, nil
 	}
@@ -348,13 +385,38 @@ func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, error) {
 }
 
 // transition находит переход по имени целевого статуса и исполняет его.
+func (t *Tracker) transition(key, toStatus string) error {
+	want := t.status(toStatus)
+
+	options, err := t.transitions(key)
+	if err != nil {
+		return err
+	}
+
+	available := make([]string, 0, len(options))
+	for _, option := range options {
+		if option.to == want {
+			return t.call(http.MethodPost, "/issue/"+key+"/transitions",
+				map[string]any{"transition": map[string]any{"id": option.id}}, nil)
+		}
+		available = append(available, option.to)
+	}
+	return fmt.Errorf("из текущего статуса %s нет перехода в %q: доступны %s — проверь workflow (docs/notes/jira-setup.md)",
+		key, want, strings.Join(available, ", "))
+}
+
+// transitionOption — доступный задаче переход: идентификатор и куда он ведёт.
+type transitionOption struct {
+	id string
+	to string
+}
+
+// transitions — переходы, доступные задаче из её текущего статуса.
 //
 // Идентификаторы переходов не хранятся в конфигурации намеренно: они зависят
 // от workflow и от текущего статуса задачи, а спрашивать их у сервера — один
 // лишний запрос, зато конфигурация не врёт после правки workflow.
-func (t *Tracker) transition(key, toStatus string) error {
-	want := t.status(toStatus)
-
+func (t *Tracker) transitions(key string) ([]transitionOption, error) {
 	var list struct {
 		Transitions []struct {
 			ID string `json:"id"`
@@ -364,19 +426,14 @@ func (t *Tracker) transition(key, toStatus string) error {
 		} `json:"transitions"`
 	}
 	if err := t.call(http.MethodGet, "/issue/"+key+"/transitions", nil, &list); err != nil {
-		return err
+		return nil, err
 	}
 
-	available := make([]string, 0, len(list.Transitions))
-	for _, candidate := range list.Transitions {
-		if candidate.To.Name == want {
-			return t.call(http.MethodPost, "/issue/"+key+"/transitions",
-				map[string]any{"transition": map[string]any{"id": candidate.ID}}, nil)
-		}
-		available = append(available, candidate.To.Name)
+	options := make([]transitionOption, 0, len(list.Transitions))
+	for _, raw := range list.Transitions {
+		options = append(options, transitionOption{id: raw.ID, to: raw.To.Name})
 	}
-	return fmt.Errorf("из текущего статуса %s нет перехода в %q: доступны %s — проверь workflow (docs/notes/jira-setup.md)",
-		key, want, strings.Join(available, ", "))
+	return options, nil
 }
 
 // search выполняет JQL и отбирает то, что прошло проверку раннера.
@@ -385,11 +442,11 @@ func (t *Tracker) transition(key, toStatus string) error {
 // страдает: из кандидатов берут первого годного, а не весь список. Reap разберёт
 // остаток следующим заходом. Когда очередь одной колонки перестанет влезать
 // в пятьдесят, страницы крутятся по startAt — как в comments.
-func (t *Tracker) search(jql string, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+func (t *Tracker) search(jql string, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
 	var result struct {
 		Issues []issue `json:"issues"`
 	}
-	body := map[string]any{"jql": jql, "maxResults": 50, "fields": t.searchFields()}
+	body := map[string]any{"jql": jql, "maxResults": limit, "fields": t.searchFields()}
 	if err := t.call(http.MethodPost, "/search", body, &result); err != nil {
 		return nil, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
 	}
