@@ -147,14 +147,41 @@ func TestBuildCarriesNetworkToBackend(t *testing.T) {
 	yaml := roleYAML + "network:\n  allow: [pypi.org, \"*.pythonhosted.org\"]\n"
 	launch, _, _ := fixtureLaunch(t, yaml)
 
-	want := []string{"pypi.org", "*.pythonhosted.org"}
-	if !slices.Equal(launch.NetworkAllow, want) {
-		t.Errorf("домены роли не доехали до запуска: %v", launch.NetworkAllow)
+	for _, want := range []string{"pypi.org", "*.pythonhosted.org"} {
+		if !slices.Contains(launch.NetworkAllow, want) {
+			t.Errorf("домен роли %q не доехал до запуска: %v", want, launch.NetworkAllow)
+		}
 	}
 	// В командную строку агента им попадать не за чем: сеть закрывает песочница,
 	// а не сам агент, и уговорить её изнутри он не должен.
 	if line := strings.Join(launch.Argv, " "); strings.Contains(line, "pypi.org") {
 		t.Errorf("домены роли попали в командную строку агента: %s", line)
+	}
+}
+
+// Куда ходит сам агент — знание адаптера, а не роли: роль про Claude Code
+// не знает ничего. Измерено вживую: при закрытой сети без этого домена агент
+// не проходит авторизацию и падает, ещё не начав работу.
+func TestBuildOpensAgentOwnAPI(t *testing.T) {
+	launch, _, _ := fixtureLaunch(t, roleYAML)
+
+	if !slices.Contains(launch.NetworkAllow, AgentAPIHost) {
+		t.Errorf("агенту закрыт его собственный API: %v", launch.NetworkAllow)
+	}
+}
+
+// Роль, назвавшая тот же домен, не должна порождать его дважды: список едет
+// в правило политики как есть, и повтор в нём — мусор.
+func TestBuildDoesNotRepeatHosts(t *testing.T) {
+	yaml := roleYAML + "network:\n  allow: [" + AgentAPIHost + ", pypi.org]\n"
+	launch, _, _ := fixtureLaunch(t, yaml)
+
+	seen := map[string]int{}
+	for _, host := range launch.NetworkAllow {
+		seen[host]++
+	}
+	if seen[AgentAPIHost] != 1 {
+		t.Errorf("домен %s назван %d раза: %v", AgentAPIHost, seen[AgentAPIHost], launch.NetworkAllow)
 	}
 }
 

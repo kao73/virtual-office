@@ -42,6 +42,17 @@ const UserPrompt = "Начни с чтения `.agent/task.md` и `.agent/conte
 // адрес нужен git'у как обязательное поле.
 const EmailDomain = "office.local"
 
+// AgentAPIHost — куда ходит сам Claude Code. Знание это адаптерское: роль про
+// устройство агента не знает ничего и называть его домены не должна.
+//
+// Открывать его приходится нам, и это измерено, а не предположено. Встроенный
+// кит песочницы даёт агенту `claude.com`, `downloads.claude.ai` и
+// `mcp-proxy.anthropic.com` — но не API. При закрытой сети агент из-за этого
+// не проходит авторизацию вовсе: `403 Blocked by network policy: domain
+// api.anthropic.com:443`, работа не начинается. С одним этим доменом — работает.
+// См. docs/notes/sbx.md.
+const AgentAPIHost = "api.anthropic.com"
+
 // hostVars — переменные хоста, без которых не работают git и сам агент при запуске
 // без изоляции. Остальное окружение до агента не доходит: запуск должен зависеть
 // от роли, а не от того, что случилось в шелле оператора.
@@ -199,7 +210,10 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		// Сеть роли идёт мимо агента: в его командную строку и настройки ей
 		// попадать незачем — уговорить изнутри то, что закрыто снаружи, нельзя,
 		// и не должно быть похоже, что можно.
-		NetworkAllow: role.Network.Allow,
+		//
+		// К списку роли добавляется API самого агента: роль про Claude Code
+		// не знает ничего, а без этого домена работа не начинается вовсе.
+		NetworkAllow: networkAllow(role),
 
 		SystemPrompt: systemPrompt,
 		UserPrompt:   UserPrompt,
@@ -209,6 +223,15 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		SecretVars:   []string{credVar},
 		Cleanup:      cleanup,
 	}, nil
+}
+
+// networkAllow — куда открывается сеть прогона: то, что нужно самому агенту,
+// плюс то, что назвала роль. Повторы убираются: список едет в правило политики
+// как есть, и дубликат в нём — мусор.
+func networkAllow(role runner.Role) []string {
+	hosts := append([]string{AgentAPIHost}, role.Network.Allow...)
+	slices.Sort(hosts)
+	return slices.Compact(hosts)
 }
 
 // identityVars задают личность коммитов. Переменные окружения выбраны потому, что
