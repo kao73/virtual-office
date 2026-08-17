@@ -126,6 +126,29 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 // адаптер знает устройство агента, бэкенд — устройство изоляции.
 type backendRun func(context.Context, *runner.Launch, string) (int, error)
 
+// Sandboxes — уборка песочниц прогонов, не переживших своего раннера.
+// Реализует её тот бэкенд, у которого песочницы есть.
+type Sandboxes interface {
+	Remove(runID string) error
+}
+
+// SandboxesOf выдаёт уборщика песочниц бэкенда. Пустой ответ означает, что
+// убирать нечего: у local никаких песочниц нет, агент бежит прямо на хосте.
+//
+// Живёт рядом с backendByName намеренно: знание об устройстве бэкендов —
+// одно место, и вызывающему не нужно перечислять их имена ещё раз.
+func SandboxesOf(name string) (Sandboxes, error) {
+	if _, _, err := backendByName(name); err != nil {
+		return nil, err
+	}
+	switch name {
+	case "sbx", "":
+		return sbx.Sandboxes{}, nil
+	default:
+		return nil, nil
+	}
+}
+
 // backendByName выдаёт исполнителя и платформу, под которой он запускает агента.
 func backendByName(name string) (backendRun, runner.Platform, error) {
 	switch name {

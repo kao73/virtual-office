@@ -37,6 +37,13 @@ type Request struct {
 	Mounts   []runner.Workspace
 }
 
+// Sandboxes — уборка песочниц прогонов, не переживших своего раннера.
+// Реализует бэкенд: имя песочницы знает он, а reap знает run_id мёртвой аренды.
+// Пустое значение означает «убирать нечего» — так устроен бэкенд local.
+type Sandboxes interface {
+	Remove(runID string) error
+}
+
 // Office — конвейер над одним трекером.
 type Office struct {
 	Tracker    tracker.Tracker
@@ -44,6 +51,7 @@ type Office struct {
 	Workflow   tracker.Workflow
 	Projects   tracker.Projects
 	Agent      Agent
+	Sandboxes  Sandboxes
 
 	ConfigRoot string // корень конфиг-репозитория: оттуда роли
 	ConfigSHA  string // отпечаток конфигурации для маркеров
@@ -397,7 +405,35 @@ func (o *Office) returnExpired(task tracker.Task) error {
 		}
 	}
 	o.logf("%s: аренда истекла, возвращаю в %s (попытка %d)", task.Key, to, attempts)
-	return o.Tracker.Release(task.Key, by)
+	if err := o.Tracker.Release(task.Key, by); err != nil {
+		return err
+	}
+	o.sweep(task)
+	return nil
+}
+
+// sweep сносит песочницу мёртвого прогона.
+//
+// Зовётся последним, после возврата задачи, и это порядок по существу.
+// ListExpired — снимок: аренду могли продлить, пока reap до неё шёл. Тогда
+// первая же запись упирается в правило владения, задача пропускается — и до
+// уборки дело не доходит вовсе. Убирай мы раньше, эта же гонка означала бы
+// снесённую песочницу живого прогона.
+//
+// Обратный риск безобиден: между возвратом задачи и уборкой её может взять
+// следующий tick, но у него свой run_id, а значит и своя песочница.
+//
+// Отказ уборки не роняет reap: его дело — вернуть задачи, и терять их
+// из-за песочницы нельзя. Беда уходит в лог, где её увидит человек.
+func (o *Office) sweep(task tracker.Task) {
+	if o.Sandboxes == nil || task.RunID == "" {
+		return
+	}
+	if err := o.Sandboxes.Remove(task.RunID); err != nil {
+		o.logf("%s: песочница прогона %s не убрана, уберите вручную: %v", task.Key, short(task.RunID), err)
+		return
+	}
+	o.logf("%s: песочница прогона %s убрана", task.Key, short(task.RunID))
 }
 
 // Loop гоняет цикл по расписанию, пока не остановят.

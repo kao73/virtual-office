@@ -73,6 +73,12 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 	if err != nil {
 		return nil, err
 	}
+	// Уборщик песочниц нужен reap: убитый раннер оставляет за собой живую
+	// microVM, и снести её больше некому.
+	sandboxes, err := runagent.SandboxesOf(*backend)
+	if err != nil {
+		return nil, err
+	}
 
 	return &pipeline.Office{
 		Tracker:    tasks,
@@ -80,6 +86,7 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 		Workflow:   workflow,
 		Projects:   projects,
 		Agent:      pipeline.SandboxAgent{ConfigRoot: configRoot, Backend: *backend, Log: out},
+		Sandboxes:  sandboxes,
 		ConfigRoot: configRoot,
 		ConfigSHA:  configSHA,
 		Accounts:   accounts,

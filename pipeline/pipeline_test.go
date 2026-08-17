@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,19 @@ func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, error) {
 		gitIn(req.Workdir, "commit", "-q", "--allow-empty", "-m", f.commit)
 	}
 	return f.result, f.err
+}
+
+// fakeSandboxes — поддельный уборщик песочниц: запоминает, за чьими прогонами
+// приходили. Настоящий уборщик подключается тем же интерфейсом, поэтому reap
+// проверяется целиком, без sbx на машине.
+type fakeSandboxes struct {
+	removed []string
+	err     error
+}
+
+func (f *fakeSandboxes) Remove(runID string) error {
+	f.removed = append(f.removed, runID)
+	return f.err
 }
 
 func gitIn(dir string, args ...string) string {
@@ -510,6 +524,118 @@ func TestReapReturnsExpiredTask(t *testing.T) {
 	o.Office.Agent = &fakeAgent{result: done("доделал после reap")}
 	if !o.tick(t) {
 		t.Error("после reap задача не взята заново")
+	}
+}
+
+// Зависшая аренда и зависшая песочница убираются одним механизмом: раннера
+// убили, песочница осталась работающей и держит память и диск, пока reap
+// не придёт за ней с тем же run_id.
+func TestReapRemovesSandboxOfDeadRun(t *testing.T) {
+	o := newOffice(t)
+	sandboxes := &fakeSandboxes{}
+	o.Office.Sandboxes = sandboxes
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
+		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	})
+
+	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
+		t.Fatal("смерть раннера не замечена")
+	}
+	runID := o.get(t, "OFF-1").RunID
+	if runID == "" {
+		t.Fatal("задача осталась без аренды: убирать станет нечего")
+	}
+
+	later := now.Add(2 * time.Hour)
+	o.tasks.Now = func() time.Time { return later }
+	o.Office.Now = func() time.Time { return later }
+	if err := o.Reap(context.Background()); err != nil {
+		t.Fatalf("reap не прошёл: %v", err)
+	}
+
+	if !slices.Equal(sandboxes.removed, []string{runID}) {
+		t.Errorf("убраны песочницы %q, ожидалась одна — прогона %s", sandboxes.removed, runID)
+	}
+}
+
+// Песочница живого прогона — не мусор, а законная собственность своего владельца.
+//
+// Проверяется гонка, ради которой уборка стоит последней: список истёкших аренд —
+// снимок, и задачу мог перезахватить соседний tick, пока reap до неё шёл. Тогда
+// у задачи уже новый прогон с живой арендой, первая же запись reap упирается
+// в правило владения, задача пропускается — и песочница остаётся целой.
+// Убирай reap раньше записи, здесь погибла бы песочница нового, живого прогона.
+func TestReapKeepsSandboxOfReclaimedTask(t *testing.T) {
+	o := newOffice(t)
+	sandboxes := &fakeSandboxes{}
+	o.Office.Sandboxes = sandboxes
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
+		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	})
+	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
+		t.Fatal("смерть раннера не замечена")
+	}
+
+	later := now.Add(2 * time.Hour)
+	o.tasks.Now = func() time.Time { return later }
+	o.Office.Now = func() time.Time { return later }
+
+	const reclaimed = "e7c0ffee-0000-4000-8000-000000000001"
+	o.Office.Tracker = afterList{Tracker: o.tasks, then: func() {
+		if err := o.tasks.Claim(tracker.ClaimRequest{
+			Key: "OFF-1", RunID: reclaimed, Owner: "implementer",
+			LeaseUntil:   later.Add(time.Hour),
+			ExpectStatus: "InProgress", WorkingStatus: "InProgress",
+		}); err != nil {
+			t.Fatalf("задачу не перезахватили: %v", err)
+		}
+	}}
+
+	if err := o.Reap(context.Background()); err != nil {
+		t.Fatalf("reap не прошёл: %v", err)
+	}
+	if len(sandboxes.removed) != 0 {
+		t.Errorf("reaper снёс песочницу живого прогона: %q", sandboxes.removed)
+	}
+	if task := o.get(t, "OFF-1"); task.RunID != reclaimed || !task.LeaseAlive(later) {
+		t.Errorf("reaper отобрал задачу у нового прогона: %+v", task)
+	}
+}
+
+// afterList — трекер, в котором что-то происходит сразу после выборки истёкших
+// аренд: так выглядит соседний прогон, вклинившийся между снимком и действием.
+type afterList struct {
+	tracker.Tracker
+	then func()
+}
+
+func (a afterList) ListExpired(project string, now time.Time) ([]tracker.TaskRef, error) {
+	refs, err := a.Tracker.ListExpired(project, now)
+	a.then()
+	return refs, err
+}
+
+// Дело reap — вернуть задачи. Не убравшаяся песочница об этом громко сообщает,
+// но не отменяет возврата и не мешает следующим задачам списка.
+func TestReapReturnsTaskWhenSandboxSurvives(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Sandboxes = &fakeSandboxes{err: errors.New("sbx не отвечает")}
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
+		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	})
+	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
+		t.Fatal("смерть раннера не замечена")
+	}
+
+	later := now.Add(2 * time.Hour)
+	o.tasks.Now = func() time.Time { return later }
+	o.Office.Now = func() time.Time { return later }
+	if err := o.Reap(context.Background()); err != nil {
+		t.Fatalf("отказ уборки уронил reap: %v", err)
+	}
+
+	if task := o.get(t, "OFF-1"); task.Status != "Ready" || task.LeaseAlive(later) {
+		t.Errorf("задача не вернулась в очередь: %+v", task)
 	}
 }
 

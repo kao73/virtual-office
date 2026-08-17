@@ -1,6 +1,7 @@
 package sbx
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -144,5 +145,74 @@ func TestSandboxNameIsSafe(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "office-") {
 		t.Errorf("имя %q не помечено как наше", got)
+	}
+}
+
+// fakeSbx — подделка CLI: запоминает вызовы и отвечает заготовленным.
+type fakeSbx struct {
+	list  string // что отвечает `sbx ls --quiet`
+	fail  error  // чем отвечает `sbx rm`
+	calls [][]string
+}
+
+func (f *fakeSbx) run(args ...string) (string, error) {
+	f.calls = append(f.calls, args)
+	if len(args) > 0 && args[0] == "rm" {
+		return "", f.fail
+	}
+	return f.list, nil
+}
+
+// Долг этапа 2: убитый раннер оставлял песочницу работающей, и убрать её было
+// некому. Теперь reap сносит её по тому же run_id, каким её и называли.
+func TestSandboxesRemoveDeletesSandboxOfRun(t *testing.T) {
+	sbx := &fakeSbx{list: "office-11111111\noffice-550e8400\noffice-22222222\n"}
+	s := Sandboxes{run: sbx.run}
+
+	if err := s.Remove("550e8400-e29b-41d4-a716-446655440000"); err != nil {
+		t.Fatalf("песочница не убрана: %v", err)
+	}
+
+	if len(sbx.calls) == 0 {
+		t.Fatal("sbx не позван вовсе: песочница осталась жить")
+	}
+	last := sbx.calls[len(sbx.calls)-1]
+	want := []string{"rm", "--force", "office-550e8400"}
+	if !slices.Equal(last, want) {
+		t.Errorf("команда уборки\nполучена:  %q\nожидалась: %q", last, want)
+	}
+	// Соседние песочницы — чужая собственность: их не касаются даже мимоходом.
+	for _, call := range sbx.calls {
+		if slices.Contains(call, "--all") || slices.Contains(call, "office-11111111") {
+			t.Errorf("уборка вышла за пределы своей песочницы: %q", call)
+		}
+	}
+}
+
+// Песочница живёт на той машине, где шёл прогон. Reap на другой машине не найдёт
+// её в списке — и это нормальный ход дел, а не беда: `sbx rm` несуществующей
+// отвечает кодом 1 (проверено, docs/notes/sbx.md).
+func TestSandboxesRemoveSkipsMissingSandbox(t *testing.T) {
+	sbx := &fakeSbx{list: "office-11111111\n"}
+	s := Sandboxes{run: sbx.run}
+
+	if err := s.Remove("550e8400-e29b-41d4-a716-446655440000"); err != nil {
+		t.Fatalf("отсутствие песочницы сочтено бедой: %v", err)
+	}
+	for _, call := range sbx.calls {
+		if len(call) > 0 && call[0] == "rm" {
+			t.Errorf("уборка позвана для песочницы, которой нет: %q", call)
+		}
+	}
+}
+
+// Не убравшаяся песочница обязана быть слышна: reap объяснит её человеку,
+// а молча потерянная — это ровно тот долг, который мы закрываем.
+func TestSandboxesRemoveReportsFailure(t *testing.T) {
+	sbx := &fakeSbx{list: "office-550e8400\n", fail: errors.New("sbx не отвечает")}
+	s := Sandboxes{run: sbx.run}
+
+	if err := s.Remove("550e8400-e29b-41d4-a716-446655440000"); err == nil {
+		t.Error("отказ уборки потерян: песочница осталась, а никто не узнал")
 	}
 }

@@ -112,6 +112,58 @@ func remove(name string) {
 	}
 }
 
+// Sandboxes — уборка песочниц, переживших свой прогон.
+//
+// Обычный прогон сносит песочницу сам, но раннера могли убить — тогда microVM
+// остаётся работать и держать память и диск, а убрать её некому. Зовёт уборщика
+// reaper: он знает run_id мёртвой аренды, а имя песочницы из него собирается
+// тем же правилом, что и при создании.
+type Sandboxes struct {
+	// run — вызов sbx. Поле нужно тестам: настоящий CLI подменяется подделкой.
+	run func(args ...string) (string, error)
+}
+
+// Remove сносит песочницу прогона.
+//
+// Сначала список, потом снос: `sbx rm` несуществующей песочницы отвечает
+// отказом, а её отсутствие — обычное дело. Reap мог быть запущен не на той
+// машине, где шёл прогон, и чинить ему там нечего.
+//
+// Метём точечно, по одному имени. Всё остальное в списке — чужая собственность:
+// песочница соседнего процесса или другой роли, и она может быть жива.
+func (s Sandboxes) Remove(runID string) error {
+	name := sandboxName(runID)
+
+	out, err := s.exec("ls", "--quiet")
+	if err != nil {
+		return fmt.Errorf("список песочниц не получен: %w", err)
+	}
+	if !slices.Contains(strings.Fields(out), name) {
+		return nil
+	}
+
+	if _, err := s.exec("rm", "--force", name); err != nil {
+		return fmt.Errorf("песочница %s не снесена: %w", name, err)
+	}
+	return nil
+}
+
+// exec зовёт sbx: настоящий CLI или подделку из теста.
+func (s Sandboxes) exec(args ...string) (string, error) {
+	if s.run != nil {
+		return s.run(args...)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), removeTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, Executable, args...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("sbx %s: %w\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out), nil
+}
+
 // createArgs собирает команду создания песочницы. Рабочие пространства идут
 // после имени агента; суффикс :ro означает монтирование только на чтение.
 func createArgs(name string, l *runner.Launch) []string {
