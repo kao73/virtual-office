@@ -352,3 +352,85 @@ func TestPushWorksWithTokenInEnvironment(t *testing.T) {
 		t.Error("работа не запушена")
 	}
 }
+
+// Рабочие папки копятся, и первым это замечает не человек, а закончившееся место.
+// Список показывает, что лежит, — по всем проектам сразу.
+func TestListShowsWorktreesOfProjects(t *testing.T) {
+	m, project, task := setup(t)
+	if _, err := m.Ensure(task, project); err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	if _, err := m.Ensure(tracker.TaskRef{Key: "OFF-2", Project: "OFF"}, project); err != nil {
+		t.Fatalf("вторая рабочая папка не создана: %v", err)
+	}
+
+	entries, err := m.List()
+	if err != nil {
+		t.Fatalf("список не получен: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("в списке %d папок, заведено 2: %+v", len(entries), entries)
+	}
+
+	first := entries[0]
+	if first.Key != "OFF-1" || first.Project != "OFF" {
+		t.Errorf("папка описана как %s/%s, ожидалось OFF/OFF-1", first.Project, first.Key)
+	}
+	if first.Branch != "agent/OFF-1" {
+		t.Errorf("ветка %q, ожидалась agent/OFF-1", first.Branch)
+	}
+	if first.Size == 0 {
+		t.Error("размер нулевой: ради него список и заводится")
+	}
+	if first.Dirty != 0 {
+		t.Errorf("свежая папка сочтена грязной: %d", first.Dirty)
+	}
+	// Bare-клон сам себе не рабочая папка и в уборку не входит.
+	for _, e := range entries {
+		if strings.HasSuffix(e.Dir, ".git") {
+			t.Errorf("в списке оказался сам клон: %s", e.Dir)
+		}
+	}
+}
+
+// Удаление уносит незакоммиченное — и это единственное, что оно способно унести:
+// ветка живёт в клоне. Поэтому список обязан показывать грязь до удаления.
+func TestListCountsUncommittedWork(t *testing.T) {
+	m, project, task := setup(t)
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ws.Dir, "недоделка.py"), []byte("# ещё не готово\n"), 0o644); err != nil {
+		t.Fatalf("файл не записан: %v", err)
+	}
+
+	entries, err := m.List()
+	if err != nil {
+		t.Fatalf("список не получен: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Dirty == 0 {
+		t.Fatalf("незакоммиченная работа не замечена: %+v", entries)
+	}
+}
+
+// Запись о worktree переживает свой каталог: его сносят руками, а иногда вместе
+// с диском. Список должен сказать об этом, а не упасть на обходе пустоты.
+func TestListMarksLostDirectory(t *testing.T) {
+	m, project, task := setup(t)
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	if err := os.RemoveAll(ws.Dir); err != nil {
+		t.Fatalf("каталог не снесён: %v", err)
+	}
+
+	entries, err := m.List()
+	if err != nil {
+		t.Fatalf("список не получен: %v", err)
+	}
+	if len(entries) != 1 || !entries[0].Missing {
+		t.Fatalf("потерянный каталог не отмечен: %+v", entries)
+	}
+}

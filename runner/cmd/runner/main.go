@@ -21,6 +21,7 @@ const usage = `runner — обвязка вокруг агента
   runner tick [--role R]        один цикл: взять не больше одной задачи и вернуть в граф
   runner loop [--every 2m]      то же по расписанию, пока не остановят
   runner reap                   вернуть задачи с истёкшей арендой
+  runner worktree <ls|rm> …     рабочие папки задач: что лежит и как убрать
   runner mock <add|ls|show|comment> …   файловый трекер для ручных сценариев
 
 Общие флаги: --tracker (mock), --backend (sbx или local).
@@ -49,6 +50,8 @@ func execute(args []string) error {
 		return loopCommand(args[1:], os.Stdout)
 	case "reap":
 		return reapCommand(args[1:], os.Stdout)
+	case "worktree":
+		return worktreeCommand(args[1:], os.Stdout)
 	case "mock":
 		tasks, err := mock.Default()
 		if err != nil {

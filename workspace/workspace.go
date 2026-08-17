@@ -132,6 +132,120 @@ func (m *Manager) Push(ws Workspace) (bool, error) {
 	return true, nil
 }
 
+// Entry — рабочая папка задачи глазами уборщика: чем она занята и что унесёт
+// её удаление.
+type Entry struct {
+	Workspace
+	Project string
+	Key     string
+	Size    int64 // байт на диске
+	Dirty   int   // незакоммиченных путей; 0 — чисто
+	Missing bool  // запись о worktree есть, каталога нет
+}
+
+// List перечисляет рабочие папки всех проектов.
+//
+// Спрашивает git, а не обходит каталоги: проект вправе задать свой worktree_root
+// и лежать на другом диске, а запись о worktree может пережить сам каталог.
+// Обход нашёл бы первое и не заметил второго.
+func (m *Manager) List() ([]Entry, error) {
+	repos, err := os.ReadDir(filepath.Join(m.home, ReposDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil // хозяйства ещё нет: убирать нечего
+	}
+	if err != nil {
+		return nil, fmt.Errorf("клоны проектов не перечислены: %w", err)
+	}
+
+	var entries []Entry
+	for _, dir := range repos {
+		name, isRepo := strings.CutSuffix(dir.Name(), ".git")
+		if !dir.IsDir() || !isRepo {
+			continue
+		}
+		repo := filepath.Join(m.home, ReposDir, dir.Name())
+
+		found, err := worktreesOf(repo, name)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, found...)
+	}
+	return entries, nil
+}
+
+// worktreesOf разбирает рабочие папки одного клона.
+func worktreesOf(repo, project string) ([]Entry, error) {
+	out, err := git(repo, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []Entry
+	var current Entry
+	var bare bool
+	flush := func() {
+		// Сам клон git тоже перечисляет — он помечает его строкой `bare`.
+		// Рабочей папкой он не является и уборке не подлежит. Различаем по этой
+		// пометке, а не сравнением путей: git печатает путь разрешённым,
+		// и на macOS сравнение с /var разошлось бы с /private/var.
+		if current.Dir == "" || bare {
+			return
+		}
+		entries = append(entries, current)
+	}
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			flush()
+			dir := strings.TrimPrefix(line, "worktree ")
+			bare = false
+			current = Entry{
+				Workspace: Workspace{Dir: dir, Repo: repo},
+				Project:   project,
+				Key:       filepath.Base(dir),
+			}
+			current.Size, current.Dirty, current.Missing = measure(dir)
+		case line == "bare":
+			bare = true
+		case strings.HasPrefix(line, "branch "):
+			current.Branch = strings.TrimPrefix(strings.TrimPrefix(line, "branch "), "refs/heads/")
+		}
+	}
+	flush()
+	return entries, nil
+}
+
+// measure взвешивает рабочую папку: сколько занимает и сколько в ней
+// незакоммиченного. Каталога может не быть вовсе — запись о нём переживает
+// и снос руками, и потерю диска.
+func measure(dir string) (size int64, dirty int, missing bool) {
+	if _, err := os.Stat(dir); err != nil {
+		return 0, 0, true
+	}
+
+	// Ошибку обхода не поднимаем: размер — справка для человека, и ради неё
+	// незачем ронять весь список.
+	_ = filepath.WalkDir(dir, func(_ string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil //nolint:nilerr // недочитанный файл просто не считаем
+		}
+		if info, err := entry.Info(); err == nil {
+			size += info.Size()
+		}
+		return nil
+	})
+
+	if out, err := git(dir, "status", "--porcelain"); err == nil {
+		if out = strings.TrimSpace(out); out != "" {
+			dirty = len(strings.Split(out, "\n"))
+		}
+	}
+	return size, dirty, false
+}
+
 // Remove удаляет рабочую папку задачи. Ветка остаётся в bare-клоне: worktree
 // эфемерен, работа — нет.
 func (m *Manager) Remove(ws Workspace) error {
