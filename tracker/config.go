@@ -64,8 +64,12 @@ type Outcome struct {
 
 // Limits — общие пределы конвейера.
 type Limits struct {
-	MaxAttempts    int `yaml:"max_attempts"`
-	LeaseMarginSec int `yaml:"lease_margin_sec"`
+	MaxAttempts int `yaml:"max_attempts"`
+	// MaxLeaseExpiries — сколько раз подряд прогон может не дожить до отчёта,
+	// прежде чем задачу отдадут человеку. Предел отдельный от попыток намеренно:
+	// смерть раннера — не провал агента, и разговор с человеком о ней другой.
+	MaxLeaseExpiries int `yaml:"max_lease_expiries"`
+	LeaseMarginSec   int `yaml:"lease_margin_sec"`
 }
 
 // HumanReplyRule — что делает раннер, увидев ответ человека на заблокированную задачу.
@@ -143,6 +147,9 @@ func (w Workflow) validate() error {
 
 	if w.Limits.MaxAttempts <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_attempts=%d: ожидается положительное число", w.Limits.MaxAttempts))
+	}
+	if w.Limits.MaxLeaseExpiries <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_lease_expiries=%d: ожидается положительное число", w.Limits.MaxLeaseExpiries))
 	}
 	if w.Limits.LeaseMarginSec < 0 {
 		errs = append(errs, fmt.Errorf("limits.lease_margin_sec=%d: ожидается неотрицательное число", w.Limits.LeaseMarginSec))

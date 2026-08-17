@@ -512,8 +512,11 @@ func TestReapReturnsExpiredTask(t *testing.T) {
 	if task.LeaseAlive(later) || task.RunID != "" {
 		t.Errorf("аренда не снята: %+v", task)
 	}
-	if task.Attempts != 1 {
-		t.Errorf("попыток %d, ожидалась 1", task.Attempts)
+	// Смерть раннера — не провал агента, и счётчик попыток она не трогает:
+	// перезагрузили машину, кончилось место, уронили процесс. Серия смертей
+	// считается отдельно, по маркерам в тикете.
+	if task.Attempts != 0 {
+		t.Errorf("попыток %d: смерть раннера засчитана агенту как провал", task.Attempts)
 	}
 	marker, ok := tracker.MarkerOf(lastComment(t, task).Body)
 	if !ok || marker.Event != tracker.EventLeaseExpired {
@@ -669,5 +672,105 @@ func TestTickWithoutTasks(t *testing.T) {
 	}
 	if o.agent.runs != 0 {
 		t.Errorf("агент запускался %d раз при пустой очереди", o.agent.runs)
+	}
+}
+
+// Задача, на которой раннер умирает раз за разом, крутилась бы вечно, если бы
+// смерти не считались вовсе. Поэтому они считаются — но отдельно от попыток
+// агента, и человека зовут с другой формулировкой: чинить тут нечего, надо
+// смотреть, почему прогон не доживает.
+func TestReapCallsHumanAfterStreakOfDeaths(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
+		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	})
+
+	limit := o.Workflow.Limits.MaxLeaseExpiries
+	if limit < 2 {
+		t.Fatalf("предел смертей %d: проверять нечего", limit)
+	}
+
+	at := now
+	for death := 1; death <= limit; death++ {
+		o.tasks.Now = func() time.Time { return at }
+		o.Office.Now = func() time.Time { return at }
+		if _, err := o.Tick(context.Background(), "implementer"); err == nil {
+			t.Fatalf("смерть %d не замечена", death)
+		}
+
+		at = at.Add(2 * time.Hour) // аренда истекла
+		o.tasks.Now = func() time.Time { return at }
+		o.Office.Now = func() time.Time { return at }
+		if err := o.Reap(context.Background()); err != nil {
+			t.Fatalf("reap %d не прошёл: %v", death, err)
+		}
+
+		task := o.get(t, "OFF-1")
+		if task.Attempts != 0 {
+			t.Errorf("после смерти %d попыток %d, ожидался ноль", death, task.Attempts)
+		}
+		if death < limit && task.Status != "Ready" {
+			t.Fatalf("после смерти %d статус %q, ожидался Ready", death, task.Status)
+		}
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("после %d смертей подряд человека не позвали: %s, флаг %v", limit, task.Status, task.HumanFlag)
+	}
+	body := lastComment(t, task).Body
+	if !strings.Contains(body, "роняет") {
+		t.Errorf("человеку не объяснили, что дело не в агенте:\n%s", body)
+	}
+	if strings.Contains(body, "Попытка") || strings.Contains(body, "попытка") {
+		t.Errorf("человеку рассказали про попытки, которых не было:\n%s", body)
+	}
+}
+
+// Успешный отчёт означает, что прогон дошёл до конца: прежние смерти становятся
+// прошлым, и серия начинается заново.
+func TestReapStreakResetsAfterSuccessfulRun(t *testing.T) {
+	o := newOffice(t)
+	limit := o.Workflow.Limits.MaxLeaseExpiries
+
+	die := func(at time.Time) time.Time {
+		t.Helper()
+		o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
+			return runner.Result{}, errors.New("раннера убили")
+		})
+		o.tasks.Now = func() time.Time { return at }
+		o.Office.Now = func() time.Time { return at }
+		if _, err := o.Tick(context.Background(), "implementer"); err == nil {
+			t.Fatal("смерть не замечена")
+		}
+		at = at.Add(2 * time.Hour)
+		o.tasks.Now = func() time.Time { return at }
+		o.Office.Now = func() time.Time { return at }
+		if err := o.Reap(context.Background()); err != nil {
+			t.Fatalf("reap не прошёл: %v", err)
+		}
+		return at
+	}
+
+	at := now
+	for range limit - 1 {
+		at = die(at)
+	}
+
+	// Прогон дошёл до конца — и вернул задачу в работу через Blocked… нет, через
+	// исход failed: он оставляет задачу в Ready, где её снова можно убить.
+	o.Office.Agent = &fakeAgent{result: runner.Result{
+		Outcome: runner.OutcomeFailed, Summary: "не вышло, но отчитался", NextOwner: "human",
+	}}
+	if !o.tick(t) {
+		t.Fatal("задача не взята после серии смертей")
+	}
+
+	// Ещё одна смерть: она первая в новой серии, человека звать рано.
+	at = die(at.Add(time.Hour))
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Ready" || task.HumanFlag {
+		t.Errorf("серия не обнулилась отчётом: %s, флаг %v", task.Status, task.HumanFlag)
 	}
 }

@@ -221,3 +221,80 @@ func TestMarkerShortensByRunes(t *testing.T) {
 		t.Errorf("маркер перестал быть корректным UTF-8: %q", line)
 	}
 }
+
+// notice — системная запись раннера: не отчёт прогона, а событие вокруг него.
+func notice(role, event string, minute int) Comment {
+	m := Marker{RunID: runID, Role: role, Event: event, ConfigSHA: "5bc6a3b0"}
+	return comment("office", m.String()+"\nСистемная запись.", minute)
+}
+
+// Смерть раннера — не провал агента: машину перезагрузили, кончилось место,
+// процесс уронили. Считать её наравне с провалом значило бы звать человека туда,
+// где он ничего не сделает, да ещё и объяснив ему неправду. Но и не считать нельзя:
+// задача, на которой раннер умирает каждый раз, крутилась бы вечно. Счёт ведётся
+// по маркерам в самом тикете — отдельного поля для этого не завели.
+func TestLeaseExpiriesCountsStreakFromTheEnd(t *testing.T) {
+	comments := []Comment{
+		notice("implementer", EventLeaseExpired, 1),
+		report("implementer", "failed", 2),
+		notice("implementer", EventLeaseExpired, 3),
+		notice("implementer", EventLeaseExpired, 4),
+	}
+
+	if got := LeaseExpiries(comments, "implementer"); got != 2 {
+		t.Errorf("серия %d, ожидалась 2: отчёт роли обязан обрывать счёт", got)
+	}
+}
+
+// Любой отчёт роли означает, что прогон дошёл до конца: серия начинается заново.
+func TestLeaseExpiriesResetsAfterReport(t *testing.T) {
+	comments := []Comment{
+		notice("implementer", EventLeaseExpired, 1),
+		notice("implementer", EventLeaseExpired, 2),
+		report("implementer", "done", 3),
+	}
+
+	if got := LeaseExpiries(comments, "implementer"); got != 0 {
+		t.Errorf("серия %d, ожидался ноль: последним был отчёт", got)
+	}
+}
+
+// Вмешательство человека — тоже смена обстоятельств, а не продолжение серии.
+func TestLeaseExpiriesResetsAfterHumanReply(t *testing.T) {
+	comments := []Comment{
+		notice("implementer", EventLeaseExpired, 1),
+		notice("implementer", EventHumanReply, 2),
+	}
+
+	if got := LeaseExpiries(comments, "implementer"); got != 0 {
+		t.Errorf("серия %d, ожидался ноль: после смерти вмешался человек", got)
+	}
+}
+
+// У каждой роли своя нить: чужие записи в счёт не идут и серию не обрывают.
+func TestLeaseExpiriesIgnoresOtherRoles(t *testing.T) {
+	comments := []Comment{
+		notice("implementer", EventLeaseExpired, 1),
+		report("reviewer", "done", 2),
+		notice("reviewer", EventLeaseExpired, 3),
+		notice("implementer", EventLeaseExpired, 4),
+	}
+
+	if got := LeaseExpiries(comments, "implementer"); got != 2 {
+		t.Errorf("серия %d, ожидалась 2: записи чужой роли не в счёт", got)
+	}
+}
+
+// Проза человека счёта не ведёт и не обрывает: она ничего не говорит о том,
+// перестал ли раннер умирать.
+func TestLeaseExpiriesIgnoresPlainComments(t *testing.T) {
+	comments := []Comment{
+		notice("implementer", EventLeaseExpired, 1),
+		comment("owner", "смотрю, что происходит", 2),
+		notice("implementer", EventLeaseExpired, 3),
+	}
+
+	if got := LeaseExpiries(comments, "implementer"); got != 2 {
+		t.Errorf("серия %d, ожидалась 2: комментарий без маркера ничего не значит", got)
+	}
+}

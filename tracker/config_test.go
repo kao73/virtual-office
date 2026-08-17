@@ -58,6 +58,7 @@ roles:
       failed:      { to: Ready, attempts: +1 }
 limits:
   max_attempts: 3
+  max_lease_expiries: 3
   lease_margin_sec: 300
 human_reply:
   to: Ready
@@ -128,6 +129,11 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			name: "попыток не бывает",
 			yaml: strings.Replace(validWorkflow, "max_attempts: 3", "max_attempts: 0", 1),
 			want: "max_attempts",
+		},
+		{
+			name: "предел смертей прогона не задан",
+			yaml: strings.Replace(validWorkflow, "max_lease_expiries: 3", "max_lease_expiries: 0", 1),
+			want: "max_lease_expiries",
 		},
 		{
 			name: "колонки не заданы",

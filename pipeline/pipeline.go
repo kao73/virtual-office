@@ -374,28 +374,40 @@ func (o *Office) returnExpired(task tracker.Task) error {
 	if err != nil {
 		return err
 	}
-	attempts := task.Attempts + 1
+
+	// Счётчик попыток здесь не трогается вовсе: смерть раннера — не провал агента.
+	// Перезагрузили машину, кончилось место, уронили процесс — агент об этом
+	// не знает и исправить не может. Но и не считать нельзя: задача, на которой
+	// прогон не доживает до отчёта каждый раз, крутилась бы вечно. Поэтому счёт
+	// свой, по маркерам в тикете, и разговор с человеком тоже свой.
+	deaths := tracker.LeaseExpiries(task.Comments, task.Owner) + 1
+	limit := o.Workflow.Limits.MaxLeaseExpiries
+
 	to, human := flow.ReadsFrom, false
-	if attempts >= o.Workflow.Limits.MaxAttempts {
-		// Та же развилка, что у неудачного прогона: иначе задача осталась бы
-		// в очереди навсегда — с исчерпанными попытками её никто не возьмёт.
+	text := fmt.Sprintf("Аренда прогона run:%s истекла %s — он не отчитался и, судя по всему, не пережил запуск. "+
+		"Возвращаю задачу в %s. Счётчик попыток не трогаю: смерть прогона агенту не в упрёк. "+
+		"Рабочая папка сохранена, следующий прогон продолжит с того же места.",
+		short(task.RunID), task.LeaseUntil.Format(time.RFC3339), flow.ReadsFrom)
+
+	if deaths >= limit {
+		// Иначе задача осталась бы в очереди навсегда: раз за разом браться
+		// за неё будет некому и незачем.
 		to, human = flow.Blocked(), true
+		text = fmt.Sprintf("Прогон run:%s не дожил до отчёта, и это %d раз подряд из %d допустимых — "+
+			"задача роняет раннер. Дело не в агенте: он ни разу не успел сказать, что у него не вышло. "+
+			"Смотреть надо туда, где прогон обрывается, — машина, место на диске, таймауты. "+
+			"Отдаю задачу человеку, рабочая папка сохранена.",
+			short(task.RunID), deaths, limit)
 	}
 
 	marker := tracker.Marker{
 		RunID: runID, Role: task.Owner, Event: tracker.EventLeaseExpired, ConfigSHA: o.ConfigSHA,
 	}
-	text := fmt.Sprintf("Аренда прогона run:%s истекла %s — он не отчитался и, судя по всему, не пережил запуск. "+
-		"Возвращаю задачу в %s, попытка %d из %d. Рабочая папка сохранена: следующий прогон продолжит с того же места.",
-		short(task.RunID), task.LeaseUntil.Format(time.RFC3339), to, attempts, o.Workflow.Limits.MaxAttempts)
 	if err := o.notice(task.Key, marker, text); err != nil {
 		return err
 	}
 
 	by := tracker.BySystem()
-	if err := o.Tracker.SetAttempts(task.Key, by, attempts); err != nil {
-		return err
-	}
 	if err := o.Tracker.Transition(task.Key, by, to); err != nil {
 		return err
 	}
@@ -404,7 +416,8 @@ func (o *Office) returnExpired(task tracker.Task) error {
 			return err
 		}
 	}
-	o.logf("%s: аренда истекла, возвращаю в %s (попытка %d)", task.Key, to, attempts)
+	o.logf("%s: аренда истекла, возвращаю в %s (прогон не дожил до отчёта, %d раз подряд из %d)",
+		task.Key, to, deaths, limit)
 	if err := o.Tracker.Release(task.Key, by); err != nil {
 		return err
 	}
