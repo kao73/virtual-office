@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -227,6 +228,25 @@ func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 		project, t.status(status), t.jqlField(t.cfg.Fields.LeaseUntil), t.jqlField(t.cfg.Fields.LeaseUntil))
 
 	return t.searchProject(project, jql, searchPage, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
+}
+
+// List — задачи проекта в названных колонках, как есть.
+//
+// Аренду он не отбрасывает, в отличие от ListReady: этот список показывают
+// человеку, а «кто работает прямо сейчас» — первое, что он в нём ищет.
+func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, error) {
+	if len(statuses) == 0 {
+		return nil, nil // спрашивать «задачи ни в одной колонке» незачем
+	}
+
+	names := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		names = append(names, strconv.Quote(t.status(status)))
+	}
+	jql := fmt.Sprintf(`project = %q AND status IN (%s) ORDER BY created ASC`,
+		project, strings.Join(names, ", "))
+
+	return t.searchProject(project, jql, searchPage, func(tracker.Task) bool { return true })
 }
 
 // ListExpired — задачи с истёкшей арендой: сырьё для reaper.
@@ -541,16 +561,20 @@ func (t *Tracker) search(jql string, limit int, keep func(tracker.Task) bool) ([
 		if !keep(task) {
 			continue
 		}
-		refs = append(refs, tracker.TaskRef{
-			Key: task.Key, Project: task.Project, Status: task.Status, Attempts: task.Attempts,
-		})
+		ref := task.Ref()
+		// Время последней правки нужно только спискам, поэтому оно не в Task:
+		// решению раннера оно не помогает, а человеку показывает возраст задачи.
+		if updated, err := time.Parse(dateLayout, text(raw.Fields["updated"])); err == nil {
+			ref.Updated = updated
+		}
+		refs = append(refs, ref)
 	}
 	return refs, nil
 }
 
 func (t *Tracker) searchFields() []string {
 	return []string{
-		"summary", "description", "status", "project", "labels",
+		"summary", "description", "status", "project", "labels", "updated",
 		t.cfg.Fields.Owner, t.cfg.Fields.RunID, t.cfg.Fields.LeaseUntil, t.cfg.Fields.Attempts,
 	}
 }

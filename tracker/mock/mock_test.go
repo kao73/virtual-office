@@ -381,6 +381,64 @@ func TestReleaseKeepsStatus(t *testing.T) {
 	}
 }
 
+// `runner ls` показывает доску, а не очередь: задача с живой арендой — это ровно
+// та, над которой сейчас работают, и прятать её значило бы не показать главного.
+func TestListShowsBoardIncludingLeasedTasks(t *testing.T) {
+	tr := fixture(t)
+	if err := tr.Add(tracker.Task{Key: "OFF-2", Project: "OFF", Status: "Review", Summary: "Вторая"}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	if err := tr.Add(tracker.Task{Key: "OTH-1", Project: "OTH", Status: "Ready", Summary: "Чужая"}); err != nil {
+		t.Fatalf("чужая задача не создана: %v", err)
+	}
+	if err := claim(tr, "прогон-1"); err != nil {
+		t.Fatalf("захват не удался: %v", err)
+	}
+
+	refs, err := tr.List("OFF", []string{"Ready", "InProgress", "Review"})
+	if err != nil {
+		t.Fatalf("доска не прочитана: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("задач %d, ожидалось 2 (без чужого проекта): %+v", len(refs), refs)
+	}
+
+	byKey := map[string]tracker.TaskRef{}
+	for _, ref := range refs {
+		byKey[ref.Key] = ref
+	}
+	working := byKey["OFF-1"]
+	if working.Owner != "implementer" || working.RunID != "прогон-1" {
+		t.Errorf("владелец захваченной задачи потерян: %+v", working)
+	}
+	if !working.LeaseAlive(now) {
+		t.Errorf("аренда не видна: %+v", working)
+	}
+	if working.Updated.IsZero() {
+		t.Errorf("возраст задачи неизвестен: %+v", working)
+	}
+	if byKey["OFF-2"].RunID != "" {
+		t.Errorf("у свободной задачи взялся владелец: %+v", byKey["OFF-2"])
+	}
+}
+
+// Колонка, которой не спрашивали, в ответ не попадает: `ls` показывает доску
+// по графу, а не всё, что лежит в хранилище.
+func TestListFiltersByStatus(t *testing.T) {
+	tr := fixture(t)
+	if err := tr.Add(tracker.Task{Key: "OFF-2", Project: "OFF", Status: "Done", Summary: "Смержена"}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+
+	refs, err := tr.List("OFF", []string{"Ready"})
+	if err != nil {
+		t.Fatalf("доска не прочитана: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Key != "OFF-1" {
+		t.Errorf("отбор по колонкам не сработал: %+v", refs)
+	}
+}
+
 // Конфигурации у файлового трекера нет, поэтому учётка роли — соглашение об имени.
 // Роль подписывается своей, системные записи — общей: так история читается человеком
 // так же, как в JIRA с раздельными учётками.

@@ -116,7 +116,20 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	if err != nil || task.ref.Key == "" {
 		return false, err
 	}
-	return true, o.work(ctx, task, roleName, flow, role)
+
+	// Порядок строгий: Release и Unlock внутри work, Remove — здесь, после них.
+	// Снести папку раньше значило бы снимать замок с того, чего уже нет.
+	done, err := o.work(ctx, task, roleName, flow, role)
+	if done {
+		if rmErr := o.Workspaces.Remove(task.ws); rmErr != nil {
+			// Неубранная папка — мусор, а не поломка: задача уже в терминальной
+			// колонке, работа опубликована. Молчать про неё всё равно нельзя.
+			o.logf("%s: рабочая папка не убрана: %v", task.ref.Key, rmErr)
+		} else {
+			o.logf("%s: рабочая папка убрана: задача дошла до конца", task.ref.Key)
+		}
+	}
+	return true, err
 }
 
 // CheckWorkflow предупреждает о workflow, в котором захват задачи не может стать
@@ -293,11 +306,13 @@ func (o *Office) unlock(key string, ws workspace.Workspace) {
 	}
 }
 
-// work выполняет взятую задачу и возвращает её в граф.
-func (o *Office) work(ctx context.Context, c claimed, roleName string, flow tracker.RoleFlow, role runner.Role) error {
+// work выполняет взятую задачу и возвращает её в граф. Отвечает, освободилась ли
+// рабочая папка: сносит её вызывающий — здесь на defer висит снятие замка,
+// и удалять папку раньше значило бы снимать замок с того, чего уже нет.
+func (o *Office) work(ctx context.Context, c claimed, roleName string, flow tracker.RoleFlow, role runner.Role) (bool, error) {
 	task, err := o.Tracker.Get(c.ref.Key)
 	if err != nil {
-		return err
+		return false, err
 	}
 	ws, runID := c.ws, c.runID
 
@@ -316,7 +331,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		Context:    contextBody(task, roleName, o.Accounts, o.Workflow.Limits.MaxAttempts),
 	}
 	if err := runner.PrepareInput(ws.Dir, role, passport, input); err != nil {
-		return err
+		return false, err
 	}
 
 	// Аренда продлевается, пока агент работает: иначе долгая задача досталась бы
@@ -329,54 +344,129 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 
 	if runErr != nil {
 		// Прогон не состоялся: аренда остаётся, задачу вернёт reaper.
-		return fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
+		return false, fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
 	}
 	o.logf("%s: исход %s — %s", task.Key, result.Outcome, result.Summary)
 
-	// Работа не должна жить только в worktree, который однажды удалят, поэтому
-	// пуш идёт при любом исходе. Его неудача не мешает вернуть задачу в граф,
-	// но остаётся ошибкой цикла: работа не опубликована, и человек должен узнать.
-	branch := ws.Branch
+	// Пуш идёт раньше всего остального и при любом исходе: работа не должна жить
+	// только в worktree, который однажды удалят. Публикация ничего в задаче
+	// не меняет, поэтому она не ждёт подтверждения аренды — прогон, у которого
+	// аренду уже отобрали, всё равно обязан сохранить сделанное.
+	branch, published := ws.Branch, ""
 	pushed, pushErr := o.Workspaces.Push(ws)
 	switch {
 	case pushErr != nil:
 		o.logf("%s: ветка не опубликована: %v", task.Key, pushErr)
-		branch = ""
+		branch, published = "", fmt.Sprintf("Ветку опубликовать не удалось: %v", pushErr)
 	case pushed:
 		o.logf("%s: ветка %s опубликована", task.Key, branch)
+		published = "Работа опубликована в ветке " + branch + "."
 	default:
-		branch = ""
+		branch, published = "", "Публиковать было нечего: новых коммитов прогон не оставил."
 	}
 
-	if err := o.finish(task, runID, roleName, flow, result, branch); err != nil {
+	// Продление раньше любой записи в задачу. Прогон, доживший до конца после reap,
+	// не вправе её трогать: задачу уже могли отдать другому.
+	switch lost, err := o.renew(task, runID, roleName, result, published); {
+	case err != nil:
+		return false, err
+	case lost:
+		return false, nil
+	}
+
+	if pushErr != nil {
+		// Неопубликованная работа — не провал агента и не повод двигать задачу
+		// вперёд: следующая роль искала бы в origin ветку, которой там нет.
+		return false, o.pushFailed(task, runID, roleName, flow, result, pushErr)
+	}
+
+	to, err := o.finish(task, runID, roleName, flow, result, branch)
+	if err != nil {
+		return false, err
+	}
+	// Терминальная колонка — конец жизни задачи: работа опубликована, дальше её
+	// ведёт человек, и рабочая папка больше не нужна.
+	return o.Workflow.IsTerminal(to), nil
+}
+
+// pushFailed разбирается с работой, которую не удалось опубликовать.
+//
+// Отчёт агента при этом не пишется намеренно: он объявил бы передачу, которой
+// не было, и посчитался бы кругом ревью. Всё, что агент сделал, остаётся
+// в рабочей папке и в локальной ветке, а его итог пересказывает эта запись —
+// человеку видно и что сделано, и почему это не уехало.
+//
+// Задача возвращается в очередь той же роли, счётчик попыток не трогается:
+// сломанный remote — беда обвязки, а не агента. Рабочая папка остаётся: следующий
+// прогон продолжит с того же места и попробует опубликовать ту же работу.
+func (o *Office) pushFailed(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, pushErr error) error {
+	by := tracker.ByRun(runID)
+	failures := tracker.PushFailures(task.Comments, roleName) + 1
+
+	if err := o.record(task.Key, by, tracker.Marker{
+		RunID: runID, Role: roleName, Event: tracker.EventPushFailed, ConfigSHA: o.ConfigSHA,
+	}, fmt.Sprintf("Ветка не опубликована: %v\n\nРабота никуда не делась — она в рабочей папке и в локальной "+
+		"ветке, — но пока её не видит никто, кроме этой машины. Итог прогона run:%s — %s: %s\n\n"+
+		"Задача возвращается в %s. Счётчик попыток не тронут: публикует ветку раннер, а не агент.",
+		pushErr, short(runID), result.Outcome, result.Summary, flow.ReadsFrom)); err != nil {
 		return err
 	}
-	return pushErr
+
+	to, human := flow.ReadsFrom, false
+	if failures >= o.Workflow.Limits.MaxPushFailures {
+		to, human = flow.Blocked(), true
+		o.logf("%s: пуш не удаётся подряд %d раз, задача уходит к человеку", task.Key, failures)
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: roleName, Event: tracker.EventPushFailuresExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Публикация не удаётся %d раз подряд — это предел (limits.max_push_failures). "+
+			"Дело не в задаче: смотреть надо на доступ к репозиторию, токен и сам remote. "+
+			"Работа всех этих прогонов цела и лежит в рабочей папке.", failures)); err != nil {
+			return err
+		}
+	}
+
+	if err := o.move(task, by, to); err != nil {
+		return err
+	}
+	if human {
+		if err := o.Tracker.SetHumanFlag(task.Key, by, true); err != nil {
+			return err
+		}
+	}
+	return o.Tracker.Release(task.Key, by)
+}
+
+// renew продлевает аренду перед финализацией и отвечает, потеряна ли она.
+//
+// Потерянная аренда — не ошибка: прогон просто опоздал, задачу уже могли отдать
+// другому. Всё, что он вправе сделать, — предупредить, и это делается системной
+// записью: аренды у него больше нет, а значит нет и права писать от её имени.
+func (o *Office) renew(task tracker.Task, runID, roleName string, result runner.Result, published string) (bool, error) {
+	lease := o.now().Add(o.Workflow.LeaseMargin())
+	err := o.Tracker.Renew(task.Key, runID, lease)
+	switch {
+	case err == nil:
+		return false, nil
+	case !errors.Is(err, tracker.ErrNotOwner):
+		return false, err
+	}
+
+	o.logf("%s: аренда потеряна, в трекер идёт только предупреждение", task.Key)
+	return true, o.notice(task.Key, tracker.Marker{
+		RunID: runID, Role: roleName, Event: tracker.EventLeaseLost, ConfigSHA: o.ConfigSHA,
+	}, fmt.Sprintf("Прогон run:%s завершился после потери аренды с исходом %s. %s Задачу он не двигает: "+
+		"её мог взять другой прогон. Итог прогона: %s",
+		short(runID), result.Outcome, published, result.Summary))
 }
 
 // finish пишет отчёт и двигает задачу по графу.
 //
 // Порядок именно такой: комментарий раньше перехода. Упади раннер между ними —
 // задача останется в прежней колонке с объяснением, а не уедет в новую молча.
-func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, branch string) error {
-	// Перед финализацией — продление. Прогон, доживший до конца после reap,
-	// не вправе трогать задачу: её уже могли отдать другому.
-	lease := o.now().Add(o.Workflow.LeaseMargin())
-	if err := o.Tracker.Renew(task.Key, runID, lease); err != nil {
-		if !errors.Is(err, tracker.ErrNotOwner) {
-			return err
-		}
-		o.logf("%s: аренда потеряна, в трекер идёт только предупреждение", task.Key)
-		return o.notice(task.Key, tracker.Marker{
-			RunID: runID, Role: roleName, Event: tracker.EventLeaseLost, ConfigSHA: o.ConfigSHA,
-		}, fmt.Sprintf("Прогон run:%s завершился после потери аренды с исходом %s. Работа сохранена в ветке, "+
-			"но задачу он не двигает: её мог взять другой прогон. Итог прогона: %s",
-			short(runID), result.Outcome, result.Summary))
-	}
-
+func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, branch string) (string, error) {
 	transition, found := flow.Outcomes[string(result.Outcome)]
 	if !found {
-		return fmt.Errorf("%s: для исхода %s нет перехода в графе", roleName, result.Outcome)
+		return "", fmt.Errorf("%s: для исхода %s нет перехода в графе", roleName, result.Outcome)
 	}
 
 	attempts := task.Attempts + transition.Attempts
@@ -395,24 +485,47 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 		RunID: runID, Role: roleName, Outcome: string(result.Outcome),
 		Next: result.NextOwner, ConfigSHA: o.ConfigSHA,
 	}
+
+	// Круги считаются по маркерам, а этот ещё не написан: к прошлым добавляется
+	// нынешний. Считаем до записи отчёта, чтобы не считать самих себя дважды.
+	rounds := 0
+	if marker.IsHandover() && transition.Returns(result.NextOwner) {
+		rounds = tracker.ReviewRounds(task.Comments, roleName, o.Accounts) + 1
+		if rounds >= o.Workflow.Limits.MaxReviewRounds {
+			to, human = flow.Blocked(), true
+			o.logf("%s: круги ревью исчерпаны (%d), спор решает человек", task.Key, rounds)
+		}
+	}
+
 	if err := o.Tracker.Comment(task.Key, by, tracker.ReportBody(marker, result, branch)); err != nil {
-		return err
+		return "", err
+	}
+	// Объяснение — отдельной записью после отчёта: замечания роли остаются
+	// в переписке, а человек видит, почему разговор роли с ролью на этом кончился.
+	if rounds > 0 && rounds >= o.Workflow.Limits.MaxReviewRounds {
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: roleName, Event: tracker.EventReviewRoundsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Роль %s вернула задачу автору %d раза подряд и не одобрила её — это предел "+
+			"(limits.max_review_rounds). Дальше крутить круги бессмысленно: спор решает человек. "+
+			"Замечания последнего разбора — в отчёте run:%s выше.", roleName, rounds, short(runID))); err != nil {
+			return "", err
+		}
 	}
 	if attempts != task.Attempts {
 		if err := o.Tracker.SetAttempts(task.Key, by, attempts); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := o.move(task, by, to); err != nil {
-		return err
+		return "", err
 	}
 	if human {
 		if err := o.Tracker.SetHumanFlag(task.Key, by, true); err != nil {
-			return err
+			return "", err
 		}
 	}
 	o.logf("%s: %s → %s", task.Key, result.Outcome, to)
-	return o.Tracker.Release(task.Key, by)
+	return to, o.Tracker.Release(task.Key, by)
 }
 
 // HumanReplies возвращает в работу задачи, которым ответил человек.
@@ -717,7 +830,17 @@ func (o *Office) move(task tracker.Task, by tracker.Actor, to string) error {
 
 // notice пишет системную запись от лица раннера.
 func (o *Office) notice(key string, marker tracker.Marker, text string) error {
-	return o.Tracker.Comment(key, tracker.BySystem(), tracker.NoticeBody(marker, text))
+	return o.record(key, tracker.BySystem(), marker, text)
+}
+
+// record пишет запись раннера от указанного актора.
+//
+// Актор здесь не деталь, а требование протокола: пока аренда жива, системная
+// запись невозможна — CheckOwner требует от системного актора её отсутствия.
+// Поэтому всё, что раннер пишет внутри прогона, подписывается прогоном, а
+// системным остаётся то, что делается, когда аренды уже нет.
+func (o *Office) record(key string, by tracker.Actor, marker tracker.Marker, text string) error {
+	return o.Tracker.Comment(key, by, tracker.NoticeBody(marker, text))
 }
 
 // skipProject решает, пропустить ли проект, которого трекер не знает.
@@ -740,9 +863,7 @@ func (o *Office) skipProject(project string, err error) bool {
 
 // projects — ключи проектов в устойчивом порядке: два прогона должны обходить
 // очередь одинаково.
-func (o *Office) projects() []string {
-	return slices.Sorted(maps(o.Projects))
-}
+func (o *Office) projects() []string { return o.Projects.Keys() }
 
 func (o *Office) now() time.Time {
 	if o.Now != nil {
@@ -808,15 +929,4 @@ func short(id string) string {
 		return id
 	}
 	return string(runes[:8])
-}
-
-// maps — ключи карты последовательностью; slices.Sorted делает из них порядок.
-func maps[K comparable, V any](m map[K]V) func(yield func(K) bool) {
-	return func(yield func(K) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }

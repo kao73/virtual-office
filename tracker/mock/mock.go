@@ -168,6 +168,13 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 	})
 }
 
+// List — задачи проекта в названных колонках, включая захваченные.
+func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, error) {
+	return t.list(func(task tracker.Task) bool {
+		return task.Project == project && slices.Contains(statuses, task.Status)
+	})
+}
+
 func (t *Tracker) list(match func(tracker.Task) bool) ([]tracker.TaskRef, error) {
 	keys, err := t.Keys()
 	if err != nil {
@@ -180,13 +187,25 @@ func (t *Tracker) list(match func(tracker.Task) bool) ([]tracker.TaskRef, error)
 		if err != nil {
 			return nil, err
 		}
-		if match(task) {
-			refs = append(refs, tracker.TaskRef{
-				Key: task.Key, Project: task.Project, Status: task.Status, Attempts: task.Attempts,
-			})
+		if !match(task) {
+			continue
 		}
+		ref := task.Ref()
+		ref.Updated = t.updated(key)
+		refs = append(refs, ref)
 	}
 	return refs, nil
+}
+
+// updated — когда задачу трогали в последний раз. Отдельного поля у файлового
+// трекера нет, и заводить его незачем: время правки файла задачи — то же самое,
+// и врать оно не умеет. Нечитаемое время не ошибка: возраст — справка человеку.
+func (t *Tracker) updated(key string) time.Time {
+	info, err := os.Stat(filepath.Join(t.dir(key), taskFileName))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 // Claim — захват задачи.

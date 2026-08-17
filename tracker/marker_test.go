@@ -314,6 +314,44 @@ func TestLeaseExpiriesCountsStreakFromTheEnd(t *testing.T) {
 	}
 }
 
+// Неудачный пуш считается так же и по той же причине: это беда обвязки, а не
+// провал агента, и человека по ней зовут с другим разговором.
+func TestPushFailuresCountStreakFromTheEnd(t *testing.T) {
+	cases := []struct {
+		name     string
+		comments []Comment
+		want     int
+	}{
+		{"серия с конца", []Comment{
+			notice("implementer", EventPushFailed, 1),
+			report("implementer", "done", 2),
+			notice("implementer", EventPushFailed, 3),
+			notice("implementer", EventPushFailed, 4),
+		}, 2},
+		{"удачный пуш обрывает", []Comment{
+			notice("implementer", EventPushFailed, 1),
+			report("implementer", "done", 2),
+		}, 0},
+		{"чужая роль не в счёт", []Comment{
+			notice("implementer", EventPushFailed, 1),
+			notice("reviewer", EventPushFailed, 2),
+			notice("implementer", EventPushFailed, 3),
+		}, 2},
+		{"вмешался человек", []Comment{
+			notice("implementer", EventPushFailed, 1),
+			notice("implementer", EventHumanReply, 2),
+		}, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PushFailures(tc.comments, "implementer"); got != tc.want {
+				t.Errorf("серия %d, ожидалась %d", got, tc.want)
+			}
+		})
+	}
+}
+
 // Любой отчёт роли означает, что прогон дошёл до конца: серия начинается заново.
 func TestLeaseExpiriesResetsAfterReport(t *testing.T) {
 	comments := []Comment{

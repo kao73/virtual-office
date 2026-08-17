@@ -65,6 +65,14 @@ func (r RoleFlow) Blocked() string {
 	return r.Outcomes[string(runner.OutcomeNeedsHuman)].To
 }
 
+// Returns — уводит ли next_owner в сторону от маршрута по умолчанию.
+//
+// Это и есть круг: работа пошла не вперёд по конвейеру, а назад, к тому, кто её
+// делал. Передача вперёд — обычное движение, и считать её кругом значило бы
+// упереться в предел вдвое раньше, чем задумано: у пары ролей передач вдвое
+// больше, чем возвратов.
+func (o Outcome) Returns(nextOwner string) bool { return o.Route(nextOwner) != o.To }
+
 // Outcome — что делать с задачей при таком исходе.
 type Outcome struct {
 	To    string `yaml:"to"`
@@ -96,7 +104,10 @@ type Limits struct {
 	// прежде чем задачу отдадут человеку. Предел отдельный от попыток намеренно:
 	// смерть раннера — не провал агента, и разговор с человеком о ней другой.
 	MaxLeaseExpiries int `yaml:"max_lease_expiries"`
-	LeaseMarginSec   int `yaml:"lease_margin_sec"`
+	// MaxPushFailures — сколько раз подряд может не удаться публикация ветки.
+	// Тоже отдельный предел и по той же причине: сломанный remote — не вина агента.
+	MaxPushFailures int `yaml:"max_push_failures"`
+	LeaseMarginSec  int `yaml:"lease_margin_sec"`
 }
 
 // HumanReplyRule — что делает раннер, увидев ответ человека на заблокированную задачу.
@@ -257,6 +268,9 @@ func (w Workflow) validate() error {
 	if w.Limits.MaxLeaseExpiries <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_lease_expiries=%d: ожидается положительное число", w.Limits.MaxLeaseExpiries))
 	}
+	if w.Limits.MaxPushFailures <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_push_failures=%d: ожидается положительное число", w.Limits.MaxPushFailures))
+	}
 	if w.Limits.LeaseMarginSec < 0 {
 		errs = append(errs, fmt.Errorf("limits.lease_margin_sec=%d: ожидается неотрицательное число", w.Limits.LeaseMarginSec))
 	}
@@ -308,6 +322,10 @@ type Projects map[string]Project
 
 // Branch — ветка задачи.
 func (p Project) Branch(key string) string { return p.BranchPrefix + key }
+
+// Keys — ключи проектов по порядку. Порядок устойчивый: обход проектов не должен
+// зависеть от того, как в этот раз лёг хеш.
+func (p Projects) Keys() []string { return slices.Sorted(maps.Keys(p)) }
 
 // Get отдаёт проект по ключу. Задачу неизвестного проекта раннер брать не вправе:
 // ему негде взять репозиторий и некуда пушить.

@@ -26,17 +26,32 @@ var now = time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 // интерфейсом, поэтому конвейер проверяется целиком, без трат на модель.
 type fakeAgent struct {
 	result runner.Result
+	// byRole — результат на роль: в цикле без --role за один заход работают обе,
+	// и один результат на всех означал бы, что ревьюер отвечает словами автора.
+	byRole map[string]runner.Result
 	err    error
 	commit string // сообщение коммита; пусто — агент ничего не сделал
 
 	seen Request // что конвейер отдал агенту
 	runs int
+	// context — контекст, собранный раннером, по ролям: он живёт в рабочей папке,
+	// а её у терминальной задачи к концу цикла уже нет.
+	context map[string]string
 }
 
 func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, error) {
 	f.seen, f.runs = req, f.runs+1
+	if raw, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.FileContext)); err == nil {
+		if f.context == nil {
+			f.context = map[string]string{}
+		}
+		f.context[req.Role.Name] = string(raw)
+	}
 	if f.commit != "" {
 		gitIn(req.Workdir, "commit", "-q", "--allow-empty", "-m", f.commit)
+	}
+	if result, found := f.byRole[req.Role.Name]; found {
+		return result, f.err
 	}
 	return f.result, f.err
 }
@@ -147,6 +162,14 @@ func (o *office) get(t *testing.T, key string) tracker.Task {
 		t.Fatalf("задача не прочитана: %v", err)
 	}
 	return task
+}
+
+// tickAll прогоняет цикл по всем ролям, как это делает `runner tick` без --role.
+func (o *office) tickAll(t *testing.T) {
+	t.Helper()
+	if err := o.TickAll(context.Background()); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
 }
 
 // tick прогоняет цикл и падает на инфраструктурной ошибке.
@@ -523,6 +546,129 @@ func TestReviewerReturnsWorkToImplementer(t *testing.T) {
 	}
 }
 
+// Сценарий этапа целиком, без --role: задача проходит Ready → Review → правки →
+// Review → Approved, каждую роль зовёт порядок обхода, а не тест.
+func TestConveyorCarriesTaskFromReadyToApproved(t *testing.T) {
+	o := newOffice(t)
+	o.agent.commit = "работа автора"
+	o.agent.byRole = map[string]runner.Result{
+		"implementer": {Outcome: runner.OutcomeDone, Summary: "Написал mean().", NextOwner: "reviewer"},
+		"reviewer":    {Outcome: runner.OutcomeDone, Summary: "Нет теста на пустой список.", NextOwner: "implementer"},
+	}
+
+	// Заход первый: ревьюеру смотреть нечего, автор берёт задачу и сдаёт работу.
+	o.tickAll(t)
+	if task := o.get(t, "OFF-1"); task.Status != "Review" {
+		t.Fatalf("после первого захода статус %q, ожидался Review", task.Status)
+	}
+
+	// Заход второй: ревьюер возвращает работу с замечаниями, и автор — он идёт
+	// в обходе следом — тут же забирает её обратно в работу.
+	o.tickAll(t)
+	if task := o.get(t, "OFF-1"); task.Status != "Review" {
+		t.Fatalf("после второго захода статус %q, ожидался Review", task.Status)
+	}
+	if seen := o.agent.context["implementer"]; !strings.Contains(seen, "Нет теста на пустой список") {
+		t.Errorf("замечания ревьюера не доехали до автора:\n%s", seen)
+	}
+	if seen := o.agent.context["reviewer"]; !strings.Contains(seen, "Написал mean()") {
+		t.Errorf("отчёт автора не доехал до ревьюера:\n%s", seen)
+	}
+
+	// Заход третий: ревьюер доволен.
+	o.agent.byRole["reviewer"] = runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "Тест на пустой список есть, проверил.", NextOwner: "human",
+	}
+	workdir := o.agent.seen.Workdir
+	o.tickAll(t)
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Approved" {
+		t.Fatalf("статус %q, ожидался Approved", task.Status)
+	}
+	if task.HumanFlag {
+		t.Error("одобренная работа зовёт человека атрибутом ожидания")
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: провалов не было", task.Attempts)
+	}
+	if _, err := os.Stat(workdir); !os.IsNotExist(err) {
+		t.Errorf("рабочая папка законченной задачи осталась: %v", err)
+	}
+	if got := gitIn(o.origin, "log", "--oneline", "agent/OFF-1"); !strings.Contains(got, "работа автора") {
+		t.Errorf("работа не опубликована: %s", got)
+	}
+
+	// В переписке — обе роли и их маршруты, различимые машиной.
+	var handovers []string
+	for _, c := range task.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Outcome != "" {
+			handovers = append(handovers, m.Role+"→"+m.Next)
+		}
+	}
+	want := []string{"implementer→reviewer", "reviewer→implementer", "implementer→reviewer", "reviewer→human"}
+	if !slices.Equal(handovers, want) {
+		t.Errorf("передачи в переписке %v, ожидались %v", handovers, want)
+	}
+}
+
+// round прогоняет один круг «правки → ревью»: автор сдаёт работу, ревьюер
+// возвращает её с замечаниями.
+func (o *office) round(t *testing.T, note string) {
+	t.Helper()
+	o.agent.result = runner.Result{Outcome: runner.OutcomeDone, Summary: "правки", NextOwner: "reviewer"}
+	if !o.tick(t) {
+		t.Fatal("автор не взял задачу")
+	}
+	o.agent.result = runner.Result{Outcome: runner.OutcomeDone, Summary: note, NextOwner: "implementer"}
+	if worked, err := o.Tick(context.Background(), "reviewer"); err != nil || !worked {
+		t.Fatalf("ревьюер не взял задачу: worked=%v, err=%v", worked, err)
+	}
+}
+
+// Круги «правки → ревью» ограничены: не сойдясь за отведённое число, роли зовут
+// человека. Без предела задача ходила бы между ними вечно, тратя деньги молча.
+func TestReviewRoundsExhaustedCallsHuman(t *testing.T) {
+	o := newOffice(t)
+	limit := o.Workflow.Limits.MaxReviewRounds
+
+	for i := 1; i < limit; i++ {
+		o.round(t, fmt.Sprintf("замечание %d", i))
+		if task := o.get(t, "OFF-1"); task.Status != "Ready" {
+			t.Fatalf("после круга %d статус %q, ожидался Ready", i, task.Status)
+		}
+	}
+	o.round(t, "замечание, после которого круги кончились")
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" {
+		t.Errorf("статус %q, ожидался Blocked: круги исчерпаны", task.Status)
+	}
+	if !task.HumanFlag {
+		t.Error("человека не позвали")
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: круг ревью — не провал агента", task.Attempts)
+	}
+
+	// Человеку нужно объяснение, а не только колонка: сколько кругов и почему.
+	last := lastComment(t, task)
+	marker, ok := tracker.MarkerOf(last.Body)
+	if !ok || marker.Event != tracker.EventReviewRoundsExhausted {
+		t.Fatalf("последняя запись не объясняет остановку:\n%s", last.Body)
+	}
+	if !strings.Contains(last.Body, fmt.Sprint(limit)) {
+		t.Errorf("в объяснении нет числа кругов:\n%s", last.Body)
+	}
+	// Сами замечания обязаны остаться в переписке: человек разбирает спор по ним.
+	if len(task.Comments) < 2 {
+		t.Fatal("отчёта ревьюера нет в переписке")
+	}
+	if !strings.Contains(task.Comments[len(task.Comments)-2].Body, "круги кончились") {
+		t.Errorf("последний разбор ревьюера потерян:\n%s", task.Comments[len(task.Comments)-2].Body)
+	}
+}
+
 // Одобрение уводит задачу в терминальную колонку: дальше её ведёт человек.
 func TestReviewerApprovalMovesTaskToApproved(t *testing.T) {
 	o := newOffice(t)
@@ -537,6 +683,130 @@ func TestReviewerApprovalMovesTaskToApproved(t *testing.T) {
 
 	if task := o.get(t, "OFF-2"); task.Status != "Approved" {
 		t.Errorf("статус %q, ожидался Approved", task.Status)
+	}
+}
+
+// rejectPush заставляет origin отвергать публикацию, не мешая чтению: так выглядит
+// кончившийся токен, отобранный доступ или защищённая ветка. Ломать сам репозиторий
+// нельзя — тогда не прошёл бы и fetch на захвате, и проверялось бы не то.
+func rejectPush(t *testing.T, origin string) {
+	t.Helper()
+	hook := filepath.Join(origin, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho 'ветка отвергнута' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("хук origin не записан: %v", err)
+	}
+}
+
+// Неопубликованная работа не двигает задачу вперёд: следующая роль искала бы
+// в origin ветку, которой там нет. Задача возвращается в очередь той же роли,
+// а рабочая папка остаётся — в ней всё сделанное.
+func TestPushFailureReturnsTaskToItsQueue(t *testing.T) {
+	o := newOffice(t)
+	o.agent.commit = "работа автора"
+	rejectPush(t, o.origin)
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу")
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался Ready: публиковать было нечем, вперёд задача не идёт", task.Status)
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: публикует ветку раннер, а не агент", task.Attempts)
+	}
+	if task.LeaseAlive(now) || task.RunID != "" {
+		t.Errorf("аренда не снята: %+v", task)
+	}
+
+	last := lastComment(t, task)
+	marker, ok := tracker.MarkerOf(last.Body)
+	if !ok || marker.Event != tracker.EventPushFailed {
+		t.Fatalf("последняя запись не объясняет неудачу пуша:\n%s", last.Body)
+	}
+	// Отчёта агента быть не должно: он объявил бы передачу, которой не было.
+	for _, c := range task.Comments {
+		if m, _ := tracker.MarkerOf(c.Body); m.Outcome != "" {
+			t.Errorf("написан отчёт о передаче, которой не было:\n%s", c.Body)
+		}
+	}
+	// Итог прогона при этом не потерян: его пересказывает сама запись.
+	if !strings.Contains(last.Body, "сделано") {
+		t.Errorf("в записи нет итога прогона:\n%s", last.Body)
+	}
+	// Папка остаётся: следующий прогон продолжит с той же работы.
+	if _, err := os.Stat(o.agent.seen.Workdir); err != nil {
+		t.Errorf("рабочая папка снесена вместе с неопубликованной работой: %v", err)
+	}
+}
+
+// Серия неудачных пушей означает, что дело не в задаче: смотреть надо на доступ.
+// Крутить её бесконечно — тратить прогоны на то, что раннер починить не может.
+func TestPushFailuresExhaustedCallHuman(t *testing.T) {
+	o := newOffice(t)
+	o.agent.commit = "работа автора"
+	rejectPush(t, o.origin)
+
+	limit := o.Workflow.Limits.MaxPushFailures
+	for i := 1; i <= limit; i++ {
+		if !o.tick(t) {
+			t.Fatalf("цикл %d не взял задачу", i)
+		}
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" {
+		t.Errorf("статус %q, ожидался Blocked после %d неудач", task.Status, limit)
+	}
+	if !task.HumanFlag {
+		t.Error("человека не позвали")
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: неудачный пуш — не попытка агента", task.Attempts)
+	}
+	last := lastComment(t, task)
+	if marker, ok := tracker.MarkerOf(last.Body); !ok || marker.Event != tracker.EventPushFailuresExhausted {
+		t.Fatalf("последняя запись не объясняет остановку:\n%s", last.Body)
+	}
+}
+
+// В терминальной колонке жизнь задачи кончается: работа опубликована, дальше её
+// ведёт человек, и рабочая папка больше не нужна. Не убирать её — копить худший
+// вид мусора: тот, который выглядит рабочим.
+func TestTerminalColumnRemovesWorktree(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Review")
+	o.agent.commit = "работа автора"
+	o.agent.result = runner.Result{Outcome: runner.OutcomeDone, Summary: "Принято.", NextOwner: "human"}
+
+	if _, err := o.Tick(context.Background(), "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	if task := o.get(t, "OFF-2"); task.Status != "Approved" {
+		t.Fatalf("статус %q, ожидался Approved", task.Status)
+	}
+	if _, err := os.Stat(o.agent.seen.Workdir); !os.IsNotExist(err) {
+		t.Errorf("рабочая папка терминальной задачи осталась: %v", err)
+	}
+	// Ветка удаление переживает: worktree эфемерен, работа — нет.
+	if got := gitIn(o.origin, "log", "--oneline", "-1", "agent/OFF-2"); !strings.Contains(got, "работа автора") {
+		t.Errorf("работа пропала вместе с папкой: %s", got)
+	}
+}
+
+// В нетерминальной колонке папка обязана остаться: следующая роль продолжит
+// с той же незаконченной работы.
+func TestNonTerminalColumnKeepsWorktree(t *testing.T) {
+	o := newOffice(t)
+	o.tick(t)
+
+	if task := o.get(t, "OFF-1"); task.Status != "Review" {
+		t.Fatalf("статус %q, ожидался Review", task.Status)
+	}
+	if _, err := os.Stat(o.agent.seen.Workdir); err != nil {
+		t.Errorf("рабочая папка задачи в работе снесена: %v", err)
 	}
 }
 
@@ -1158,6 +1428,7 @@ roles:
 limits:
   max_attempts: 3
   max_lease_expiries: 3
+  max_push_failures: 3
   max_review_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -1228,6 +1499,7 @@ roles:
 limits:
   max_attempts: 3
   max_lease_expiries: 3
+  max_push_failures: 3
   max_review_rounds: 3
   lease_margin_sec: 300
 human_reply:

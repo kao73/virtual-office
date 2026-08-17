@@ -66,13 +66,37 @@ type Task struct {
 	Comments []Comment
 }
 
-// TaskRef — задача в списке кандидатов: столько, сколько нужно раннеру, чтобы
-// выбрать одну и не тянуть остальные целиком.
+// TaskRef — задача в списке: всё, кроме переписки.
+//
+// Переписки здесь нет намеренно, и это не «Task с пустым Comments»: комментарии
+// тянутся отдельным запросом на задачу, и притвориться, что их просто нет,
+// значило бы соврать тихо. Кому нужна история — берёт Get.
 type TaskRef struct {
-	Key      string
-	Project  string
-	Status   string
-	Attempts int
+	Key     string
+	Project string
+	Summary string
+	Status  string
+
+	// Поля аренды: по ним видно, кто работает над задачей прямо сейчас.
+	Owner      string
+	RunID      string
+	LeaseUntil time.Time
+
+	Attempts  int
+	HumanFlag bool
+
+	// Updated — когда задачу трогали в последний раз. Нужен `ls`, чтобы показать
+	// возраст: задача, висящая в колонке неделю, — то, что человек ищет глазами.
+	Updated time.Time
+}
+
+// Ref — та же задача без переписки.
+func (t Task) Ref() TaskRef {
+	return TaskRef{
+		Key: t.Key, Project: t.Project, Summary: t.Summary, Status: t.Status,
+		Owner: t.Owner, RunID: t.RunID, LeaseUntil: t.LeaseUntil,
+		Attempts: t.Attempts, HumanFlag: t.HumanFlag,
+	}
 }
 
 // LeaseAlive — жива ли аренда на момент now.
@@ -80,7 +104,10 @@ type TaskRef struct {
 // Аренда — lease, а не lock: истёкшая считается свободной, иначе смерть раннера
 // заперла бы задачу навсегда. Запись без run_id арендой не является вовсе:
 // сверять право на мутацию было бы не с чем.
-func (t Task) LeaseAlive(now time.Time) bool {
+func (t Task) LeaseAlive(now time.Time) bool { return t.Ref().LeaseAlive(now) }
+
+// LeaseAlive — жива ли аренда на момент now.
+func (t TaskRef) LeaseAlive(now time.Time) bool {
 	return t.RunID != "" && now.Before(t.LeaseUntil)
 }
 
@@ -191,6 +218,12 @@ type Tracker interface {
 
 	// ListExpired — задачи проекта с истёкшей арендой; сырьё для reaper.
 	ListExpired(project string, now time.Time) ([]TaskRef, error)
+
+	// List — задачи проекта в названных колонках, как есть: и свободные,
+	// и захваченные. Это не очередь, а доска — тем и отличается от ListReady,
+	// который живую аренду отбрасывает. Переписку не тянет: она стоит запроса
+	// на задачу, а показывать её `ls` всё равно негде.
+	List(project string, statuses []string) ([]TaskRef, error)
 
 	// Get — задача целиком, включая все комментарии: резать их по маркеру
 	// будет раннер.

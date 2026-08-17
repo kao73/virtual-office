@@ -10,7 +10,12 @@ import (
 // Prefix — с чего начинается любая запись офиса в трекере.
 const Prefix = "[office "
 
-// События системных записей — тех, что делает не прогон, а сам раннер.
+// События записей раннера — тех, что делает не агент, а обвязка вокруг него.
+//
+// Часть из них системные: их пишут, когда живой аренды нет и быть не должно
+// (reaper вернул чужую задачу, разобран ответ человека, прогон дожил до конца
+// без аренды). Остальные раннер делает внутри прогона, при живой аренде,
+// и подписывает прогоном — см. Actor и «Правило владения» в контракте.
 const (
 	// EventLeaseExpired — reaper вернул задачу с истёкшей арендой.
 	EventLeaseExpired = "lease-expired"
@@ -19,6 +24,16 @@ const (
 	// EventLeaseLost — прогон дожил до конца, потеряв аренду; в трекер он
 	// ничего не пишет, кроме этого предупреждения.
 	EventLeaseLost = "lease-lost"
+
+	// EventPushFailed — работа осталась только в рабочей папке: ветку не приняли.
+	// Пишется внутри прогона, поэтому подписывается им.
+	EventPushFailed = "push-failed"
+	// EventPushFailuresExhausted — пуш не удаётся подряд столько раз, что дальше
+	// пробовать бессмысленно: дело не в задаче.
+	EventPushFailuresExhausted = "push-failures-exhausted"
+	// EventReviewRoundsExhausted — роли не сошлись за отведённое число кругов;
+	// спор решает человек.
+	EventReviewRoundsExhausted = "review-rounds-exhausted"
 )
 
 // short — сколько символов идентификатора попадает в маркер. Полный UUID
@@ -145,11 +160,30 @@ func TailAfterRole(comments []Comment, role string) []Comment {
 // Записи чужих ролей и комментарии без маркера не значат ни того, ни другого:
 // они пропускаются, не обрывая серии.
 func LeaseExpiries(comments []Comment, role string) int {
+	return eventStreak(comments, role, EventLeaseExpired)
+}
+
+// PushFailures — сколько раз подряд у роли не удалось опубликовать ветку.
+//
+// Считается тем же правилом и по той же причине, что смерти прогона: неудачный
+// пуш — беда обвязки, а не провал агента. Смешать их со счётчиком попыток значило
+// бы наказывать агента за сломанный remote и звать человека не с тем разговором.
+func PushFailures(comments []Comment, role string) int {
+	return eventStreak(comments, role, EventPushFailed)
+}
+
+// eventStreak — серия одинаковых записей роли с конца истории.
+//
+// «Подряд» получается само собой: любая другая запись этой роли обрывает счёт.
+// Отчёт означает, что прогон дошёл до конца и опубликовался, запись о разборе
+// ответа — что вмешался человек. Записи чужих ролей и проза без маркера
+// не значат ни того, ни другого и серию не трогают.
+func eventStreak(comments []Comment, role, event string) int {
 	return streak(comments, func(_ Comment, m Marker, office bool) verdict {
 		switch {
 		case !office || m.Role != role:
 			return passBy
-		case m.Event == EventLeaseExpired:
+		case m.Event == event:
 			return countIn
 		default:
 			return stop
@@ -180,13 +214,23 @@ func ReviewRounds(comments []Comment, role string, agents []string) int {
 			return stop
 		case !office || m.Role != role:
 			return passBy
-		case m.Outcome == string(runner.OutcomeDone) && m.Next != "" &&
-			m.Next != runner.NextOwnerHuman && m.Next != runner.NextOwnerNone:
+		case m.IsHandover():
 			return countIn
 		default:
 			return stop
 		}
 	})
+}
+
+// IsHandover — передаёт ли отчёт задачу дальше по конвейеру, то есть закрывает
+// круг «правки → ревью».
+//
+// Круг — это `outcome:done` с названным следующим владельцем, и владелец этот
+// не человек и не «никто». Отчёт без `next` (маркеры этапа 2) кругом не считается:
+// кому ушла задача, он не говорит, и считать его значило бы гадать.
+func (m Marker) IsHandover() bool {
+	return m.Outcome == string(runner.OutcomeDone) && m.Next != "" &&
+		m.Next != runner.NextOwnerHuman && m.Next != runner.NextOwnerNone
 }
 
 // verdict — что запись значит для серии.

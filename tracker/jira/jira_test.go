@@ -79,6 +79,7 @@ func (f *fakeJira) issue() map[string]any {
 		"customfield_10002": f.runID,
 		"customfield_10003": f.leaseUntil,
 		"customfield_10004": f.attempts,
+		"updated":           "2026-08-17T12:00:00.000+0000",
 	}
 	return map[string]any{"key": "VO-1", "fields": fields}
 }
@@ -653,6 +654,39 @@ func TestCheckAccountPassesWhenNamesMatch(t *testing.T) {
 	tr, _ := fixture(t)
 	if err := tr.CheckAccount(); err != nil {
 		t.Errorf("сверка не прошла при совпадении имён: %v", err)
+	}
+}
+
+// `ls` показывает доску, а не очередь: задачи в названных колонках как есть,
+// вместе с живой арендой. Один запрос на проект, переписка не тянется.
+func TestListBuildsJQLForStatuses(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.owner, fake.runID = "implementer", "прогон-1"
+	fake.leaseUntil = now.Add(time.Hour).Format(dateLayout)
+
+	refs, err := tr.List("VO", []string{"Ready", "InProgress"})
+	if err != nil {
+		t.Fatalf("доска не прочитана: %v", err)
+	}
+
+	for _, want := range []string{`project = "VO"`, `"Ready"`, `"In Progress"`} {
+		if !strings.Contains(fake.lastJQL, want) {
+			t.Errorf("в JQL нет %s: %s", want, fake.lastJQL)
+		}
+	}
+	// Аренду отбрасывает ListReady, а не этот метод: `ls` — как раз про то,
+	// кто над задачей работает.
+	if len(refs) != 1 {
+		t.Fatalf("задач %d, ожидалась 1: %+v", len(refs), refs)
+	}
+	if refs[0].Owner != "implementer" || !refs[0].LeaseAlive(now) {
+		t.Errorf("аренда не доехала до списка: %+v", refs[0])
+	}
+	if refs[0].Updated.IsZero() {
+		t.Errorf("возраст задачи неизвестен: %+v", refs[0])
+	}
+	if fake.commentPages != 0 {
+		t.Errorf("список задач полез за переписью: страниц %d", fake.commentPages)
 	}
 }
 

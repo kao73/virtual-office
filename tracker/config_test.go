@@ -60,6 +60,7 @@ roles:
 limits:
   max_attempts: 3
   max_lease_expiries: 3
+  max_push_failures: 3
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -94,6 +95,7 @@ roles:
 limits:
   max_attempts: 3
   max_lease_expiries: 3
+  max_push_failures: 3
   max_review_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -352,6 +354,11 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			name: "предел смертей прогона не задан",
 			yaml: strings.Replace(validWorkflow, "max_lease_expiries: 3", "max_lease_expiries: 0", 1),
 			want: "max_lease_expiries",
+		},
+		{
+			name: "предел неудачных пушей не задан",
+			yaml: strings.Replace(validWorkflow, "max_push_failures: 3", "max_push_failures: 0", 1),
+			want: "max_push_failures",
 		},
 		{
 			name: "колонки не заданы",
