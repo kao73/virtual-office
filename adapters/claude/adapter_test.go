@@ -502,3 +502,17 @@ func TestCleanupRemovesTemporaries(t *testing.T) {
 		t.Error("конфиг-каталог пережил уборку: секреты и настройки роли остаются на диске")
 	}
 }
+
+// Пуш делает раннер, а не агент, и держится это не только на запрете `git push`
+// в роли: токена у агента нет вовсе. Белый список переменных хоста общий, но
+// именно эта переменная — граница замысла, и она заслуживает собственной проверки:
+// припиши её к hostVars по недосмотру, и роль получит право пушить молча.
+func TestBuildKeepsPushTokenFromAgent(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp_секрет-для-пуша")
+	launch, _, _ := fixtureLaunch(t, roleYAML)
+
+	all := strings.Join(append(slices.Clone(launch.Env), launch.HostEnv...), "\n")
+	if strings.Contains(all, "GITHUB_TOKEN") || strings.Contains(all, "ghp_секрет-для-пуша") {
+		t.Error("токен пуша доехал до агента: роль получила право публиковать работу")
+	}
+}
