@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kao73/virtual-office/adapters/claude"
 	"github.com/kao73/virtual-office/backends/local"
@@ -25,6 +26,28 @@ import (
 
 // Backend по умолчанию: изоляция должна быть тем, что получаешь, ничего не указав.
 const DefaultBackend = "sbx"
+
+// BackendLocal — запуск прямо на хосте, без изоляции. Выбирается явно и границей
+// не является: агент бежит в файловой системе и в сети владельца машины.
+const BackendLocal = "local"
+
+// NetworkNotice — что сказать о сети перед прогоном. Пусто — сказать нечего.
+//
+// Роль называет домены, а закрывает сеть песочница. Бэкенд local песочницы
+// не заводит вовсе, поэтому список роли на нём не значит ничего — и человек,
+// вписавший его, обязан это услышать. Молчание читалось бы как «применено».
+//
+// Про роль без сети на local не говорится: у этого бэкенда изоляции нет вовсе,
+// и сказано об этом там, где его выбирают (README, DESIGN §2.6). Строка на каждый
+// прогон отладки утопила бы ту, которая важна.
+func NetworkNotice(backend string, allow []string) string {
+	if backend != BackendLocal || len(allow) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("бэкенд %s сетевой политики не применяет: роль просит %s, "+
+		"а агент бежит в сети хоста и дотянется куда угодно",
+		BackendLocal, strings.Join(allow, ", "))
+}
 
 // Options — что нужно для прогона.
 type Options struct {
@@ -171,7 +194,7 @@ func SandboxesOf(name string) (Sandboxes, error) {
 // backendByName выдаёт исполнителя и платформу, под которой он запускает агента.
 func backendByName(name string) (backendRun, runner.Platform, error) {
 	switch name {
-	case "local":
+	case BackendLocal:
 		return local.Run, local.Platform(), nil
 	case "sbx", "":
 		return sbx.Run, sbx.Platform(), nil

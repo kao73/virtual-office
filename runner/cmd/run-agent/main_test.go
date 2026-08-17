@@ -133,6 +133,31 @@ func TestDryRunNamesBranches(t *testing.T) {
 	}
 }
 
+// Список доменов роли на бэкенде без песочницы не значит ничего. Промолчать
+// об этом — значит дать человеку поверить, что сеть закрыта: он читает role.yaml,
+// а не исходники бэкенда.
+func TestRunAgentWarnsThatLocalIgnoresNetworkPolicy(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+
+	_, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t),
+		"--backend", "local", "--dry-run")
+
+	if !strings.Contains(out, "сетевой политики не применяет") {
+		t.Errorf("о неприменённой политике не сказано:\n%s", out)
+	}
+
+	// В песочнице список работает, и говорить нечего.
+	_, sandboxed := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--dry-run")
+	if strings.Contains(sandboxed, "сетевой политики не применяет") {
+		t.Errorf("предупреждение выдано там, где политика применяется:\n%s", sandboxed)
+	}
+}
+
 func taskFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "task.md")

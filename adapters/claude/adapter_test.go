@@ -140,6 +140,24 @@ func TestBuildLetsAnyRoleWriteItsResult(t *testing.T) {
 	}
 }
 
+// Сеть роли — не дело агента: ни флагом, ни промптом её не задать. Адаптер
+// перекладывает список в запуск, а применяет его бэкенд, у которого сеть
+// вообще управляема.
+func TestBuildCarriesNetworkToBackend(t *testing.T) {
+	yaml := roleYAML + "network:\n  allow: [pypi.org, \"*.pythonhosted.org\"]\n"
+	launch, _, _ := fixtureLaunch(t, yaml)
+
+	want := []string{"pypi.org", "*.pythonhosted.org"}
+	if !slices.Equal(launch.NetworkAllow, want) {
+		t.Errorf("домены роли не доехали до запуска: %v", launch.NetworkAllow)
+	}
+	// В командную строку агента им попадать не за чем: сеть закрывает песочница,
+	// а не сам агент, и уговорить её изнутри он не должен.
+	if line := strings.Join(launch.Argv, " "); strings.Contains(line, "pypi.org") {
+		t.Errorf("домены роли попали в командную строку агента: %s", line)
+	}
+}
+
 func TestBuildCommandLine(t *testing.T) {
 	launch, role, _ := fixtureLaunch(t, roleYAML)
 

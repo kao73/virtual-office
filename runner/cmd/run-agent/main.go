@@ -100,6 +100,11 @@ func execute() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// До --dry-run: увидеть, что сеть роли на этом бэкенде не работает, человек
+	// должен там же, где смотрит остальное, — и не потратив токенов.
+	if notice := runagent.NetworkNotice(*backend, role.Network.Allow); notice != "" {
+		fmt.Fprintln(os.Stderr, "run-agent:", notice)
+	}
 
 	runID, err := runner.NewRunID()
 	if err != nil {
@@ -247,6 +252,16 @@ func printDryRun(l runagent.Launch, passport runner.Run) {
 			mode = "только чтение"
 		}
 		fmt.Printf("  %-16s %s\n", mode, ws.Path)
+	}
+
+	// Сеть показывается всегда, в том числе пустая: «роль никуда не ходит» —
+	// такое же утверждение о прогоне, как список смонтированных каталогов.
+	fmt.Println("\n== сеть сверх нужной агенту ==")
+	if len(l.NetworkAllow) == 0 {
+		fmt.Println("  (роль не просит доступа никуда)")
+	}
+	for _, host := range l.NetworkAllow {
+		fmt.Printf("  %s\n", host)
 	}
 
 	fmt.Println("\n== скиллы ==")

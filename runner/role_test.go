@@ -108,6 +108,24 @@ func TestLoadRoleRejects(t *testing.T) {
 			yaml:     strings.Replace(fixtureRoleYAML, "result_file: .agent/result.json", "result_file: ../result.json", 1),
 			wantPart: "не выходить из workdir",
 		},
+		// Домен со схемой или путём не совпадёт ни с чем, и роль молча останется
+		// без сети — узнать об этом можно будет только по провалу прогона.
+		"домен со схемой": {
+			yaml:     fixtureRoleYAML + "network:\n  allow: [\"https://pypi.org\"]\n",
+			wantPart: "network.allow",
+		},
+		"домен с путём": {
+			yaml:     fixtureRoleYAML + "network:\n  allow: [\"pypi.org/simple\"]\n",
+			wantPart: "network.allow",
+		},
+		"пустой домен": {
+			yaml:     fixtureRoleYAML + "network:\n  allow: [\"\"]\n",
+			wantPart: "network.allow",
+		},
+		"домен с пробелом": {
+			yaml:     fixtureRoleYAML + "network:\n  allow: [\"pypi.org files.pythonhosted.org\"]\n",
+			wantPart: "network.allow",
+		},
 	}
 
 	for name, tc := range cases {
@@ -120,6 +138,32 @@ func TestLoadRoleRejects(t *testing.T) {
 				t.Errorf("ошибка не объясняет нарушение\nполучено: %v\nожидалась подстрока: %q", err, tc.wantPart)
 			}
 		})
+	}
+}
+
+// Сеть роли необязательна, и пусто означает не «что угодно», а «ничего сверх
+// того, что нужно самому агенту». Умолчание должно быть закрытым.
+func TestRoleWithoutNetworkAsksForNothing(t *testing.T) {
+	role, err := LoadRole(fixtureOffice(t, fixtureRoleYAML), "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+	if len(role.Network.Allow) != 0 {
+		t.Errorf("роль без раздела network просит домены: %v", role.Network.Allow)
+	}
+}
+
+// Домены роли доезжают как есть: их разбирает не раннер, а песочница —
+// подстановки и wildcard'ы её дело.
+func TestRoleKeepsNetworkAllowAsWritten(t *testing.T) {
+	yaml := fixtureRoleYAML + "network:\n  allow: [pypi.org, \"*.pythonhosted.org\", \"registry.npmjs.org:443\"]\n"
+	role, err := LoadRole(fixtureOffice(t, yaml), "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+	want := []string{"pypi.org", "*.pythonhosted.org", "registry.npmjs.org:443"}
+	if !slices.Equal(role.Network.Allow, want) {
+		t.Errorf("домены роли %v, ожидались %v", role.Network.Allow, want)
 	}
 }
 

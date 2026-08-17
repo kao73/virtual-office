@@ -23,6 +23,12 @@ type SandboxAgent struct {
 // понимает её как «задача осталась арендованной, вернёт reaper». Всё, что
 // произошло с самим агентом, приходит исходом — включая синтетический failed.
 func (a SandboxAgent) Run(ctx context.Context, req Request) (runner.Result, runner.Usage, error) {
+	// Сеть роли закрывает песочница. Бэкенд, который её не закрывает, обязан
+	// сказать об этом вслух: молчание читалось бы как «применено».
+	if notice := runagent.NetworkNotice(a.Backend, req.Role.Network.Allow); notice != "" {
+		a.logf("%s: %s", req.Passport.TaskKey, notice)
+	}
+
 	out, err := runagent.Execute(ctx, runagent.Options{
 		ConfigRoot: a.ConfigRoot,
 		Role:       req.Role,

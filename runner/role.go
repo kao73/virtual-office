@@ -36,6 +36,7 @@ type Role struct {
 	Tools      Tools    `yaml:"tools"`
 	Hooks      Hooks    `yaml:"hooks"`
 	Limits     Limits   `yaml:"limits"`
+	Network    Network  `yaml:"network"`
 	ResultFile string   `yaml:"result_file"`
 
 	dir        string // каталог роли; от него отсчитываются prompt и includes
@@ -54,6 +55,19 @@ type Hooks struct {
 type Limits struct {
 	MaxTurns   int `yaml:"max_turns"`
 	TimeoutSec int `yaml:"timeout_sec"`
+}
+
+// Network — какая сеть нужна роли сверх той, что нужна самому агенту.
+//
+// Раздел необязателен, и пусто означает «ничего»: умолчание закрытое. Роль,
+// которой нужны пакеты для тестов, называет их источники поимённо — так в самой
+// роли видно, куда она ходит, и видно это до прогона, а не по факту.
+//
+// Раннер домены не разбирает и не достраивает: подстановки, порты и подсети —
+// дело песочницы, а не роли. Отвергается только то, что заведомо не совпадёт
+// ни с чем: схема, путь, пробел внутри.
+type Network struct {
+	Allow []string `yaml:"allow"`
 }
 
 // LoadRole читает и проверяет roles/<name>/role.yaml.
@@ -113,6 +127,14 @@ func (r Role) validate(dirName string) error {
 		errs = append(errs, fmt.Errorf("tools.deny запрещает %s целиком: роли нечем будет записать результат", WriteTool))
 	}
 
+	// Домен, записанный как URL, не совпадёт ни с чем, и роль молча останется
+	// без сети: узнать об этом можно будет только по провалу прогона.
+	for i, host := range r.Network.Allow {
+		if err := validHost(host); err != nil {
+			errs = append(errs, fmt.Errorf("network.allow[%d]=%q: %w", i, host, err))
+		}
+	}
+
 	// Всё, на что роль ссылается, должно существовать. Иначе о пропаже узнаём
 	// в середине прогона, уже потратив токены.
 	for _, path := range r.PromptFiles() {
@@ -139,6 +161,26 @@ func (r Role) validate(dirName string) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// validHost проверяет запись в network.allow.
+//
+// Проверка нарочно бедная: домены разбирает песочница, и знать за неё, что такое
+// правильный wildcard или допустимый порт, раннер не должен. Отвергается только
+// то, что не совпадёт ни с чем ни при каком прочтении, — а такая запись опаснее
+// ошибки разбора: роль остаётся без сети молча.
+func validHost(host string) error {
+	switch {
+	case strings.TrimSpace(host) == "":
+		return errors.New("пустое значение")
+	case strings.Contains(host, "://"):
+		return errors.New("это адрес со схемой, а нужно имя хоста (pypi.org)")
+	case strings.Contains(host, "/"):
+		return errors.New("это путь, а нужно имя хоста (pypi.org)")
+	case strings.ContainsAny(host, " \t"):
+		return errors.New("пробел внутри: каждый хост — отдельным элементом списка")
+	}
+	return nil
 }
 
 // PromptFiles — файлы, из которых собирается системный промпт, в порядке склейки:

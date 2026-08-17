@@ -196,6 +196,11 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 			{Path: configDir},
 		},
 
+		// Сеть роли идёт мимо агента: в его командную строку и настройки ей
+		// попадать незачем — уговорить изнутри то, что закрыто снаружи, нельзя,
+		// и не должно быть похоже, что можно.
+		NetworkAllow: role.Network.Allow,
+
 		SystemPrompt: systemPrompt,
 		UserPrompt:   UserPrompt,
 		Settings:     settings,

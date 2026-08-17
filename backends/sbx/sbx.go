@@ -32,6 +32,7 @@ const Agent = "claude"
 
 const (
 	createTimeout = 5 * time.Minute
+	policyTimeout = 1 * time.Minute
 	removeTimeout = 2 * time.Minute
 	killGrace     = 5 * time.Second
 )
@@ -43,7 +44,7 @@ const (
 func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 	name := sandboxName(l.ID)
 
-	if err := create(ctx, name, l); err != nil {
+	if err := prepare(ctx, name, l, sbxRun); err != nil {
 		return -1, err
 	}
 	// Песочницу сносим в любом исходе: брошенная песочница держит ресурсы
@@ -81,22 +82,64 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 	return 0, nil
 }
 
-// create поднимает песочницу с рабочими пространствами из Launch.
+// step — один вызов sbx. Подменяется в тестах: порядок шагов подготовки важен,
+// а настоящего демона для его проверки не нужно.
+type step func(ctx context.Context, args ...string) error
+
+// sbxRun зовёт настоящий CLI.
+func sbxRun(ctx context.Context, args ...string) error {
+	out, err := exec.CommandContext(ctx, Executable, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("sbx %s: %w\n%s", strings.Join(args, " "), err, out)
+	}
+	return nil
+}
+
+// prepare поднимает песочницу и настраивает её сеть.
+//
+// Порядок обязателен: правило сети привязывается к песочнице по имени, и до её
+// создания привязывать не к чему. Позже нельзя тоже — агент к тому времени уже
+// работает и часть запросов сделает вслепую.
+//
 // Каталог материалов роли отдаётся только на чтение — это проверяется ядром,
 // а не соглашением.
-func create(ctx context.Context, name string, l *runner.Launch) error {
+func prepare(ctx context.Context, name string, l *runner.Launch, run step) error {
 	if len(l.Workspaces) == 0 {
 		return errors.New("нечего отдать песочнице: список рабочих пространств пуст")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, createTimeout)
+	createCtx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
+	if err := run(createCtx, createArgs(name, l)...); err != nil {
+		return fmt.Errorf("песочница %s не создана: %w", name, err)
+	}
 
-	out, err := exec.CommandContext(ctx, Executable, createArgs(name, l)...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("песочница %s не создана: %w\n%s", name, err, out)
+	if len(l.NetworkAllow) == 0 {
+		return nil
+	}
+
+	policyCtx, cancelPolicy := context.WithTimeout(ctx, policyTimeout)
+	defer cancelPolicy()
+	if err := run(policyCtx, policyArgs(name, l.NetworkAllow)...); err != nil {
+		// Дальше идти нельзя: роль пойдёт работать без сети, которую просила,
+		// и провалится непонятно почему. Лучше не начинать.
+		return fmt.Errorf("песочнице %s не разрешены хосты роли (%s): %w",
+			name, strings.Join(l.NetworkAllow, ", "), err)
 	}
 	return nil
+}
+
+// policyArgs — правило сети на одну песочницу.
+//
+// Правило именно разрешающее и именно локальное. Запрещающее правило сильнее
+// разрешающего, поэтому «закрыть всё и открыть нужное» на уровне песочницы
+// не собирается вовсе: закрыв всё, закроешь и то, что нужно самому агенту.
+// Базовая политика машины поэтому глобальная и ставится человеком один раз
+// (`sbx policy init deny-all`), а роль добавляет к ней своё — см. docs/notes/sbx.md.
+//
+// Хосты уезжают как их написала роль: подстановки, порты и подсети разбирает sbx.
+func policyArgs(name string, hosts []string) []string {
+	return []string{"policy", "allow", "network", "--sandbox", name, strings.Join(hosts, ",")}
 }
 
 // remove сносит песочницу. Контекст берётся свой: прогон мог закончиться
