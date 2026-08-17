@@ -199,9 +199,9 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 			tracker.ErrClaimLost, req.Key, task.RunID, task.LeaseUntil.Format(time.RFC3339))
 	}
 
-	from, err := leaseFile(dir)
-	if err != nil {
-		return err
+	from := leaseFree
+	if task.RunID != "" {
+		from = leaseName(task.RunID, task.LeaseUntil)
 	}
 	to := leaseName(req.RunID, req.LeaseUntil)
 	if err := os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
