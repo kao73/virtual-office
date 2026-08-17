@@ -210,8 +210,15 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 
 	// Аренда наша — можно записывать поля. Владелец здесь только для человека:
 	// сверяется всё по run_id из имени файла аренды.
+	//
+	// Статус меняется, только если роли есть куда переводить задачу: рабочая
+	// колонка необязательна, и без неё «в работе» означает живую аренду там же,
+	// откуда роль читает. Правило то же, что в JIRA, — разъедься реализации
+	// здесь, расхождение вылезло бы на живой доске.
 	task.Owner = req.Owner
-	task.Status = req.WorkingStatus
+	if req.WorkingStatus != "" {
+		task.Status = req.WorkingStatus
+	}
 	if err := writeTask(dir, task); err != nil {
 		return err
 	}

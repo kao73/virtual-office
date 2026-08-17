@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,7 +35,13 @@ var outcomes = []string{
 // Workflow — граф состояний: колонки, роли и то, куда роль двигает задачу
 // по каждому исходу. Всё, что раннер «решает», решается отсюда, а не эвристикой.
 type Workflow struct {
-	Columns    []string            `yaml:"columns"`
+	Columns []string `yaml:"columns"`
+	// Terminal — колонки, в которых жизнь задачи кончается: работа опубликована,
+	// рабочая папка больше не нужна.
+	Terminal []string `yaml:"terminal"`
+	// TickOrder — порядок обхода ролей. Задаётся явно: порядок YAML-карты
+	// не сохраняется, и «по алфавиту» вышло бы совпадением, а не правилом.
+	TickOrder  []string            `yaml:"tick_order"`
 	Roles      map[string]RoleFlow `yaml:"roles"`
 	Limits     Limits              `yaml:"limits"`
 	HumanReply HumanReplyRule      `yaml:"human_reply"`
@@ -42,9 +49,13 @@ type Workflow struct {
 
 // RoleFlow — место роли в графе.
 type RoleFlow struct {
-	ReadsFrom string             `yaml:"reads_from"`
-	Working   string             `yaml:"working"`
-	Outcomes  map[string]Outcome `yaml:"outcomes"`
+	ReadsFrom string `yaml:"reads_from"`
+	// Working — рабочая колонка, куда роль переводит захваченную задачу.
+	// Необязательна: без неё «в работе» означает живую аренду в той же колонке,
+	// из которой роль читает. Доска делается для людей, и отдельная колонка
+	// под проверку, длящуюся минуты, была бы на ней шумом.
+	Working  string             `yaml:"working"`
+	Outcomes map[string]Outcome `yaml:"outcomes"`
 }
 
 // Blocked — колонка, в которой задача ждёт человека. Отдельной настройки для неё
@@ -60,11 +71,27 @@ type Outcome struct {
 	Human bool   `yaml:"human"`
 	// Attempts — дельта счётчика попыток: `attempts: +1` означает единицу.
 	Attempts int `yaml:"attempts"`
+	// ByNextOwner — маршрут по полю next_owner из результата агента. Карта
+	// явная, а не выведенная из имён ролей: маршрут задаёт граф, а не агент
+	// (DESIGN §2.1), и то, чего в карте нет, уезжает по умолчанию.
+	ByNextOwner map[string]string `yaml:"by_next_owner"`
+}
+
+// Route — колонка, в которую уходит задача при этом исходе и таком next_owner.
+func (o Outcome) Route(nextOwner string) string {
+	if to, found := o.ByNextOwner[nextOwner]; found {
+		return to
+	}
+	return o.To
 }
 
 // Limits — общие пределы конвейера.
 type Limits struct {
 	MaxAttempts int `yaml:"max_attempts"`
+	// MaxReviewRounds — сколько раз подряд роль может вернуть задачу другой,
+	// не одобрив её. Круги возможны там, где у исхода есть маршрут по next_owner;
+	// без предела задача ходила бы между ролями вечно.
+	MaxReviewRounds int `yaml:"max_review_rounds"`
 	// MaxLeaseExpiries — сколько раз подряд прогон может не дожить до отчёта,
 	// прежде чем задачу отдадут человеку. Предел отдельный от попыток намеренно:
 	// смерть раннера — не провал агента, и разговор с человеком о ней другой.
@@ -99,6 +126,21 @@ func LoadWorkflow(path string) (Workflow, error) {
 // LeaseMargin — запас, который раннер добавляет к таймауту роли, назначая аренду.
 func (w Workflow) LeaseMargin() time.Duration {
 	return time.Duration(w.Limits.LeaseMarginSec) * time.Second
+}
+
+// Order — порядок обхода ролей. Роль одна — порядку неоткуда взяться,
+// и требовать его незачем.
+func (w Workflow) Order() []string {
+	if len(w.TickOrder) > 0 {
+		return w.TickOrder
+	}
+	return slices.Sorted(maps.Keys(w.Roles))
+}
+
+// IsTerminal — кончается ли жизнь задачи в этой колонке. Дальше её ведёт
+// человек, а рабочая папка больше не нужна.
+func (w Workflow) IsTerminal(column string) bool {
+	return slices.Contains(w.Terminal, column)
 }
 
 // HumanColumns — колонки, в которых задача ждёт человека: всё, куда ведут исходы
@@ -147,12 +189,21 @@ func (w Workflow) validate() error {
 		}
 	}
 
+	for _, column := range w.Terminal {
+		known("terminal", column)
+	}
+
 	if len(w.Roles) == 0 {
 		errs = append(errs, errors.New("roles пуст: работать некому"))
 	}
+	rounds := false
 	for name, role := range w.Roles {
 		known(name+".reads_from", role.ReadsFrom)
-		known(name+".working", role.Working)
+		// Рабочая колонка необязательна: без неё «в работе» означает живую
+		// аренду в колонке, из которой роль читает.
+		if role.Working != "" {
+			known(name+".working", role.Working)
+		}
 
 		// Исход без перехода — это задача, застрявшая в рабочей колонке
 		// без объяснения. Лучше не запуститься.
@@ -164,11 +215,40 @@ func (w Workflow) validate() error {
 			}
 			known(fmt.Sprintf("%s.outcomes.%s.to", name, outcome), transition.To)
 		}
-		for outcome := range role.Outcomes {
+		for outcome, transition := range role.Outcomes {
 			if !slices.Contains(outcomes, outcome) {
 				errs = append(errs, fmt.Errorf("%s: неизвестный исход %q", name, outcome))
 			}
+			if len(transition.ByNextOwner) == 0 {
+				continue
+			}
+			rounds = true
+			// Разветвлять по next_owner имеет смысл только там, где задача
+			// передаётся дальше: остальные исходы никому её не отдают.
+			if outcome != string(runner.OutcomeDone) {
+				errs = append(errs, fmt.Errorf("%s.outcomes.%s: by_next_owner допустим только у %s",
+					name, outcome, runner.OutcomeDone))
+			}
+			for owner, to := range transition.ByNextOwner {
+				known(fmt.Sprintf("%s.outcomes.%s.by_next_owner.%s", name, outcome, owner), to)
+				// Ключ, названный именем роли, обязан вести в её очередь: иначе
+				// карта и reads_from разъедутся, и задача уедет туда, где эта
+				// роль её не ищет.
+				if target, found := w.Roles[owner]; found && to != target.ReadsFrom {
+					errs = append(errs, fmt.Errorf("%s.outcomes.%s.by_next_owner.%s=%q: роль %s читает из %q",
+						name, outcome, owner, to, owner, target.ReadsFrom))
+				}
+			}
 		}
+	}
+
+	errs = append(errs, w.checkOrder()...)
+
+	// Круги считаются там, где роль вправе вернуть задачу другой. Без предела
+	// задача ходила бы между ролями вечно.
+	if rounds && w.Limits.MaxReviewRounds <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_review_rounds=%d: у графа есть маршрут по next_owner, круги нужно ограничить",
+			w.Limits.MaxReviewRounds))
 	}
 
 	if w.Limits.MaxAttempts <= 0 {
@@ -183,6 +263,35 @@ func (w Workflow) validate() error {
 	known("human_reply.fallback", w.HumanReply.Fallback)
 
 	return errors.Join(errs...)
+}
+
+// checkOrder проверяет порядок обхода ролей: каждая роль ровно один раз.
+//
+// Порядок задаётся явно, потому что вывести его неоткуда: порядок YAML-карты
+// в Go не сохраняется, а обход по алфавиту — совпадение, которое однажды
+// перестанет совпадать с замыслом. С одной ролью порядок не нужен.
+func (w Workflow) checkOrder() []error {
+	if len(w.Roles) < 2 && len(w.TickOrder) == 0 {
+		return nil
+	}
+
+	var errs []error
+	seen := make(map[string]bool, len(w.TickOrder))
+	for _, name := range w.TickOrder {
+		switch {
+		case seen[name]:
+			errs = append(errs, fmt.Errorf("tick_order: роль %q названа дважды", name))
+		case w.Roles[name].ReadsFrom == "":
+			errs = append(errs, fmt.Errorf("tick_order: роль %q в roles не описана", name))
+		}
+		seen[name] = true
+	}
+	for name := range w.Roles {
+		if !seen[name] {
+			errs = append(errs, fmt.Errorf("tick_order: роль %q не названа, порядок обхода неизвестен", name))
+		}
+	}
+	return errs
 }
 
 // Project — проект-клиент: где его репозиторий и как раннер зовёт ветки задач.

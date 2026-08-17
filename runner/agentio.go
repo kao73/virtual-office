@@ -56,6 +56,16 @@ type Run struct {
 	TaskKey string `json:"task_key,omitempty"`
 }
 
+// Зарезервированные значения next_owner: всё остальное трактуется как имя роли.
+// Имена живут здесь, рядом с контрактом «раннер ↔ агент», а не заводятся заново
+// там, где понадобились: два списка одних и тех же значений разъезжаются.
+const (
+	// NextOwnerHuman — дальше задачу ведёт человек.
+	NextOwnerHuman = "human"
+	// NextOwnerNone — передавать некому, работа закончена.
+	NextOwnerNone = "none"
+)
+
 // Question — вопрос человеку. Варианты ответа необязательны: вопрос может быть открытым.
 type Question struct {
 	Text    string   `json:"text"`

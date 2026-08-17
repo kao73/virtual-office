@@ -44,6 +44,29 @@ func claim(tr *Tracker, runID string) error {
 	})
 }
 
+// Рабочая колонка — опция роли: без неё захват записывает аренду и оставляет
+// задачу там, где она лежит. Файловый трекер обязан вести себя как JIRA
+// и здесь — иначе расхождение вылезет на живой доске, а не в тестах.
+func TestClaimWithoutWorkingStatusKeepsColumn(t *testing.T) {
+	tr := fixture(t)
+
+	err := tr.Claim(tracker.ClaimRequest{
+		Key: "OFF-1", RunID: "прогон-1", Owner: "reviewer",
+		LeaseUntil: now.Add(30 * time.Minute), ExpectStatus: "Ready", WorkingStatus: "",
+	})
+	if err != nil {
+		t.Fatalf("захват не удался: %v", err)
+	}
+
+	task := get(t, tr)
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался прежний Ready", task.Status)
+	}
+	if !task.LeaseAlive(now) || task.RunID != "прогон-1" {
+		t.Errorf("аренда не записана: %+v", task)
+	}
+}
+
 func get(t *testing.T, tr *Tracker) tracker.Task {
 	t.Helper()
 	task, err := tr.Get("OFF-1")

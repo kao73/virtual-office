@@ -140,10 +140,13 @@ func (o *Office) CheckWorkflow() {
 
 // workingStatuses — рабочие колонки всех ролей графа, без повторов и в устойчивом
 // порядке: две роли вправе работать в одной колонке, спрашивать о ней дважды незачем.
+//
+// Роли без рабочей колонки пропускаются: их захват статуса не меняет, и лазейка
+// «вход в рабочий статус из него самого» к ним не относится вовсе.
 func (o *Office) workingStatuses() []string {
 	var statuses []string
 	for _, role := range o.Workflow.Roles {
-		if !slices.Contains(statuses, role.Working) {
+		if role.Working != "" && !slices.Contains(statuses, role.Working) {
 			statuses = append(statuses, role.Working)
 		}
 	}
@@ -160,8 +163,9 @@ func (o *Office) TickAll(ctx context.Context) error {
 	if _, err := o.HumanReplies(ctx); err != nil {
 		return err
 	}
-	roles := slices.Sorted(maps(o.Workflow.Roles))
-	for _, role := range roles {
+	// Порядок обхода задаёт граф: он не выводится ни из имён, ни из порядка
+	// YAML-карты. Сначала разгрузить конвейер, потом брать новое.
+	for _, role := range o.Workflow.Order() {
 		if _, err := o.tickRole(ctx, role); err != nil {
 			return err
 		}
@@ -353,7 +357,10 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	}
 
 	attempts := task.Attempts + transition.Attempts
-	to, human := transition.To, transition.Human
+	// Маршрут выбирает граф по тому, кому агент передал задачу. Агент называет
+	// следующего владельца, но карту маршрутов пишет человек: значения, которого
+	// в ней нет, хватает ровно на переход по умолчанию (DESIGN §2.1).
+	to, human := transition.Route(result.NextOwner), transition.Human
 	if transition.Attempts > 0 && attempts >= o.Workflow.Limits.MaxAttempts {
 		// Попытки исчерпаны: дальше крутить бессмысленно, зовём человека.
 		to, human = flow.Blocked(), true
@@ -362,7 +369,8 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 
 	by := tracker.ByRun(runID)
 	marker := tracker.Marker{
-		RunID: runID, Role: roleName, Outcome: string(result.Outcome), ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: roleName, Outcome: string(result.Outcome),
+		Next: result.NextOwner, ConfigSHA: o.ConfigSHA,
 	}
 	if err := o.Tracker.Comment(task.Key, by, tracker.ReportBody(marker, result, branch)); err != nil {
 		return err
@@ -372,7 +380,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 			return err
 		}
 	}
-	if err := o.Tracker.Transition(task.Key, by, to); err != nil {
+	if err := o.move(task, by, to); err != nil {
 		return err
 	}
 	if human {
@@ -472,7 +480,7 @@ func (o *Office) unblock(task tracker.Task, roleName string, reply tracker.Comme
 		return err
 	}
 	o.logf("%s: ответ человека разобран, задача возвращается в %s", task.Key, to)
-	return o.Tracker.Transition(task.Key, by, to)
+	return o.move(task, by, to)
 }
 
 // Reap возвращает в очередь задачи с истёкшей арендой: раннера могли убить
@@ -553,7 +561,7 @@ func (o *Office) returnExpired(task tracker.Task) error {
 	}
 
 	by := tracker.BySystem()
-	if err := o.Tracker.Transition(task.Key, by, to); err != nil {
+	if err := o.move(task, by, to); err != nil {
 		return err
 	}
 	if human {
@@ -668,6 +676,20 @@ func (o *Office) keepLease(ctx context.Context, key, runID string, role runner.R
 		close(stop)
 		<-done
 	}
+}
+
+// move переводит задачу в колонку, если она ещё не там.
+//
+// Перевод «в тот же самый статус» не делается вовсе, и это общее правило,
+// а не частный случай. У роли без рабочей колонки в её же колонку ведут
+// и возвраты по исходам, и reap; в JIRA переход «в себя» существует не всегда,
+// и раннер спотыкался бы на ровном месте — а сказать ему было бы нечего:
+// задача уже там, где надо.
+func (o *Office) move(task tracker.Task, by tracker.Actor, to string) error {
+	if task.Status == to {
+		return nil
+	}
+	return o.Tracker.Transition(task.Key, by, to)
 }
 
 // notice пишет системную запись от лица раннера.

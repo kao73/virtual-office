@@ -66,28 +66,220 @@ human_reply:
   reset_attempts: true
 `
 
+// Граф этапа 3: две роли, у одной рабочей колонки нет, маршрут исхода `done`
+// зависит от того, кому агент передаёт задачу.
+const twoRoleWorkflow = `columns: [Backlog, Ready, InProgress, Review, Approved, Blocked]
+terminal: [Approved]
+tick_order: [reviewer, implementer]
+roles:
+  implementer:
+    reads_from: Ready
+    working: InProgress
+    outcomes:
+      done:        { to: Review }
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Ready, attempts: +1 }
+      failed:      { to: Ready, attempts: +1 }
+  reviewer:
+    reads_from: Review
+    outcomes:
+      done:
+        to: Approved
+        by_next_owner:
+          implementer: Ready
+          human: Approved
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Review, attempts: +1 }
+      failed:      { to: Review, attempts: +1 }
+limits:
+  max_attempts: 3
+  max_lease_expiries: 3
+  max_review_rounds: 3
+  lease_margin_sec: 300
+human_reply:
+  fallback: Ready
+  reset_attempts: true
+`
+
+// Рабочая колонка — опция роли. У implementer'а она есть: «в работе» на доске
+// ждут увидеть. У reviewer'а её нет — проверка длится минуты, и отдельная колонка
+// под неё была бы шумом; «сейчас смотрят» там означает живую аренду.
+func TestLoadWorkflowWithOptionalWorking(t *testing.T) {
+	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, twoRoleWorkflow))
+	if err != nil {
+		t.Fatalf("граф не загружен: %v", err)
+	}
+
+	reviewer, err := wf.Role("reviewer")
+	if err != nil {
+		t.Fatalf("роль reviewer не найдена: %v", err)
+	}
+	if reviewer.Working != "" {
+		t.Errorf("рабочая колонка reviewer'а %q, ожидалась пустая", reviewer.Working)
+	}
+	if implementer, _ := wf.Role("implementer"); implementer.Working != "InProgress" {
+		t.Errorf("рабочая колонка implementer'а %q, ожидалась InProgress", implementer.Working)
+	}
+}
+
+// Порядок обхода ролей задан явно: порядок YAML-карты не сохраняется, и «по
+// алфавиту» — совпадение, а не правило. Сначала разгрузить конвейер, потом
+// брать новое.
+func TestTickOrder(t *testing.T) {
+	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, twoRoleWorkflow))
+	if err != nil {
+		t.Fatalf("граф не загружен: %v", err)
+	}
+	if got := wf.Order(); !slices.Equal(got, []string{"reviewer", "implementer"}) {
+		t.Errorf("порядок ролей %v, ожидался [reviewer implementer]", got)
+	}
+
+	// Роль одна — порядку неоткуда взяться и незачем его требовать.
+	single, err := LoadWorkflow(writeTemp(t, WorkflowFile, validWorkflow))
+	if err != nil {
+		t.Fatalf("граф с одной ролью не загружен: %v", err)
+	}
+	if got := single.Order(); !slices.Equal(got, []string{"implementer"}) {
+		t.Errorf("порядок ролей %v, ожидался [implementer]", got)
+	}
+}
+
+// Маршрут исхода `done` у reviewer'а зависит от того, кому агент передаёт
+// задачу. Карта явная: маршрут задаёт граф, а не агент (DESIGN §2.1) — значение,
+// которого в карте нет, уезжает по умолчанию.
+func TestRouteByNextOwner(t *testing.T) {
+	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, twoRoleWorkflow))
+	if err != nil {
+		t.Fatalf("граф не загружен: %v", err)
+	}
+	reviewer, _ := wf.Role("reviewer")
+	done := reviewer.Outcomes["done"]
+
+	cases := map[string]string{
+		"implementer": "Ready",    // вернул на доработку
+		"human":       "Approved", // одобрил
+		"none":        "Approved", // ничего не сказал — маршрут по умолчанию
+		"planner":     "Approved", // роли нет в карте — тоже по умолчанию
+	}
+	for next, want := range cases {
+		if got := done.Route(next); got != want {
+			t.Errorf("next_owner=%s ведёт в %q, ожидалось %q", next, got, want)
+		}
+	}
+
+	if !wf.IsTerminal("Approved") {
+		t.Error("Approved не терминальная: рабочую папку никто не уберёт")
+	}
+	if wf.IsTerminal("Review") {
+		t.Error("Review сочтена терминальной")
+	}
+}
+
 // Задача с вопросом уходит в колонку ожидания, и туда же её отправляет раннер,
 // заблокировав по своим причинам. Безролевому проходу разбора ответов набор
 // таких колонок нужен целиком: роли у него нет, а искать ожидающие задачи
 // где-то надо. Повторов в наборе быть не должно — две роли вправе ждать человека
 // в одной колонке.
 func TestHumanColumns(t *testing.T) {
-	twoRoles := strings.Replace(validWorkflow, "limits:", `  reviewer:
-    reads_from: Review
-    working: InProgress
-    outcomes:
-      done:        { to: Done }
-      needs_human: { to: Blocked, human: true }
-      blocked:     { to: Review, attempts: +1 }
-      failed:      { to: Review, attempts: +1 }
-limits:`, 1)
-
-	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, twoRoles))
+	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, twoRoleWorkflow))
 	if err != nil {
 		t.Fatalf("граф не загружен: %v", err)
 	}
 	if got := wf.HumanColumns(); !slices.Equal(got, []string{"Blocked"}) {
 		t.Errorf("колонки ожидания %v, ожидалась одна Blocked", got)
+	}
+}
+
+// Колонка, на которую не ссылается ни одна роль, — не ошибка: Backlog и Done
+// человеческие, офис их не читает и в них не пишет, но `runner ls` показывает
+// доску целиком.
+func TestLoadWorkflowAllowsHumanColumns(t *testing.T) {
+	yaml := strings.Replace(twoRoleWorkflow,
+		"columns: [Backlog, Ready, InProgress, Review, Approved, Blocked]",
+		"columns: [Backlog, Ready, InProgress, Review, Approved, Done, Blocked]", 1)
+	if _, err := LoadWorkflow(writeTemp(t, WorkflowFile, yaml)); err != nil {
+		t.Fatalf("граф с человеческой колонкой не загружен: %v", err)
+	}
+}
+
+// Разбор графа двух ролей так же строг, как разбор графа одной: всё, что может
+// разъехаться молча, обязано ломаться на загрузке.
+func TestLoadWorkflowRejectsBrokenTwoRoleGraph(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "порядок обхода не назван при двух ролях",
+			yaml: strings.Replace(twoRoleWorkflow, "tick_order: [reviewer, implementer]\n", "", 1),
+			want: "tick_order",
+		},
+		{
+			name: "в порядке обхода забыта роль",
+			yaml: strings.Replace(twoRoleWorkflow, "tick_order: [reviewer, implementer]", "tick_order: [reviewer]", 1),
+			want: "implementer",
+		},
+		{
+			name: "в порядке обхода роль дважды",
+			yaml: strings.Replace(twoRoleWorkflow, "tick_order: [reviewer, implementer]", "tick_order: [reviewer, reviewer, implementer]", 1),
+			want: "reviewer",
+		},
+		{
+			name: "в порядке обхода незнакомая роль",
+			yaml: strings.Replace(twoRoleWorkflow, "tick_order: [reviewer, implementer]", "tick_order: [reviewer, implementer, planner]", 1),
+			want: "planner",
+		},
+		{
+			name: "терминальная колонка выдумана",
+			yaml: strings.Replace(twoRoleWorkflow, "terminal: [Approved]", "terminal: [Готово]", 1),
+			want: "Готово",
+		},
+		{
+			name: "рабочая колонка выдумана",
+			yaml: strings.Replace(twoRoleWorkflow, "working: InProgress", "working: Работаю", 1),
+			want: "Работаю",
+		},
+		{
+			// Маршрут по next_owner — только у done: остальные исходы задачу
+			// никому не передают, и разветвлять их нечем.
+			name: "маршрут по next_owner не у done",
+			yaml: strings.Replace(twoRoleWorkflow, "      needs_human: { to: Blocked, human: true }\n      blocked:     { to: Review, attempts: +1 }",
+				"      needs_human: { to: Blocked, human: true, by_next_owner: { human: Blocked } }\n      blocked:     { to: Review, attempts: +1 }", 1),
+			want: "by_next_owner",
+		},
+		{
+			name: "маршрут ведёт в несуществующую колонку",
+			yaml: strings.Replace(twoRoleWorkflow, "          implementer: Ready", "          implementer: Todo", 1),
+			want: "Todo",
+		},
+		{
+			// Ключ, совпадающий с именем роли, обязан вести в её очередь. Иначе
+			// карта и reads_from разъедутся, и задача уедет туда, где её роль
+			// не ищет.
+			name: "маршрут роли мимо её очереди",
+			yaml: strings.Replace(twoRoleWorkflow, "          implementer: Ready", "          implementer: Review", 1),
+			want: "implementer",
+		},
+		{
+			// Круги «правки → ревью» возможны там, где есть маршрут по next_owner.
+			// Без предела задача ходила бы между ролями вечно.
+			name: "предел кругов не задан",
+			yaml: strings.Replace(twoRoleWorkflow, "max_review_rounds: 3", "max_review_rounds: 0", 1),
+			want: "max_review_rounds",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadWorkflow(writeTemp(t, WorkflowFile, tc.yaml))
+			if err == nil {
+				t.Fatal("битый граф загружен без ошибки")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("в ошибке не назван %q: %v", tc.want, err)
+			}
+		})
 	}
 }
 

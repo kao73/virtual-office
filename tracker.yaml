@@ -21,12 +21,18 @@ agent_accounts:
 
 # Колонка графа (workflow.yaml) → статус в JIRA. Раннер знает только колонки;
 # «In Progress» с пробелом остаётся здесь.
+#
+# Названы все колонки доски, включая человеческие: имя, совпадающее со статусом,
+# работает и без записи, но тогда — случайно, а опечатка в имени колонки молча
+# превратилась бы в несуществующий статус.
 statuses:
+  Backlog: Backlog
   Ready: Ready
   InProgress: In Progress
   Review: Review
-  Blocked: Blocked
+  Approved: Approved
   Done: Done
+  Blocked: Blocked
 
 # Кастомные поля аренды. Идентификаторы печатает scripts/jira-setup.sh —
 # на другом инстансе они будут другими.

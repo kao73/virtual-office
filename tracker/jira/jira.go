@@ -290,8 +290,15 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	}); err != nil {
 		return err
 	}
-	if err := t.transition(req.Key, req.WorkingStatus); err != nil {
-		return err
+	// Статус меняется, только если роли есть куда переводить задачу. Рабочая
+	// колонка необязательна: без неё «в работе» означает живую аренду в той же
+	// колонке, из которой роль читает. Перевод «в тот же самый статус» вдобавок
+	// не всегда существует — перехода Review → Review в workflow может не быть
+	// вовсе, и захват падал бы на ровном месте.
+	if req.WorkingStatus != "" && req.WorkingStatus != task.Status {
+		if err := t.transition(req.Key, req.WorkingStatus); err != nil {
+			return err
+		}
 	}
 
 	fresh, err := t.Get(req.Key)

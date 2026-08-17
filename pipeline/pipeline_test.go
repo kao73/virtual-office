@@ -936,6 +936,141 @@ func TestTickTakesNextTaskWhenWorktreeIsBusy(t *testing.T) {
 	}
 }
 
+// withWorkflow подменяет граф офиса синтетическим. Маршруты, которых в рабочем
+// workflow.yaml ещё нет, проверяются на нём: роль по-прежнему implementer —
+// каталог роли для прогона нужен настоящий.
+func (o *office) withWorkflow(t *testing.T, yaml string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), tracker.WorkflowFile)
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("граф не записан: %v", err)
+	}
+	wf, err := tracker.LoadWorkflow(path)
+	if err != nil {
+		t.Fatalf("синтетический граф не загружен: %v", err)
+	}
+	o.Office.Workflow = wf
+}
+
+// routingWorkflow — граф, в котором исход `done` разветвляется по next_owner.
+const routingWorkflow = `columns: [Ready, InProgress, Review, Blocked, Done]
+roles:
+  implementer:
+    reads_from: Ready
+    working: InProgress
+    outcomes:
+      done:
+        to: Review
+        by_next_owner:
+          human: Blocked
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Ready, attempts: +1 }
+      failed:      { to: Ready, attempts: +1 }
+limits:
+  max_attempts: 3
+  max_lease_expiries: 3
+  max_review_rounds: 3
+  lease_margin_sec: 300
+human_reply:
+  fallback: Ready
+  reset_attempts: true
+`
+
+// Маршрут исхода зависит от того, кому агент передал задачу. Решение принимает
+// граф, а не агент: он лишь называет следующего владельца, а карту маршрутов
+// пишет человек (DESIGN §2.1).
+func TestFinishRoutesByNextOwner(t *testing.T) {
+	cases := []struct {
+		next string
+		want string
+	}{
+		{next: "human", want: "Blocked"}, // назван в карте
+		{next: "none", want: "Review"},   // в карте нет — маршрут по умолчанию
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.next, func(t *testing.T) {
+			o := newOffice(t)
+			o.withWorkflow(t, routingWorkflow)
+			o.agent.result = runner.Result{Outcome: runner.OutcomeDone, Summary: "готово", NextOwner: tc.next}
+
+			o.tick(t)
+			task := o.get(t, "OFF-1")
+			if task.Status != tc.want {
+				t.Errorf("статус %q, ожидался %q", task.Status, tc.want)
+			}
+
+			// Кому передана задача — часть шапки отчёта: без неё круги
+			// «правки → ревью» в переписке не сосчитать.
+			marker, ok := tracker.MarkerOf(lastComment(t, task).Body)
+			if !ok {
+				t.Fatalf("у отчёта нет маркера: %q", lastComment(t, task).Body)
+			}
+			if marker.Next != tc.next {
+				t.Errorf("в маркере next=%q, ожидался %q", marker.Next, tc.next)
+			}
+		})
+	}
+}
+
+// spyTransitions считает переводы. Нужен там, где важно не то, куда задача
+// уехала, а то, что её никуда не двигали.
+type spyTransitions struct {
+	*mock.Tracker
+	calls []string
+}
+
+func (s *spyTransitions) Transition(key string, by tracker.Actor, to string) error {
+	s.calls = append(s.calls, to)
+	return s.Tracker.Transition(key, by, to)
+}
+
+// noWorkingWorkflow — граф роли без рабочей колонки: она читает и работает
+// в одной и той же.
+const noWorkingWorkflow = `columns: [Ready, InProgress, Review, Blocked, Done]
+roles:
+  implementer:
+    reads_from: Ready
+    outcomes:
+      done:        { to: Review }
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Ready, attempts: +1 }
+      failed:      { to: Ready, attempts: +1 }
+limits:
+  max_attempts: 3
+  max_lease_expiries: 3
+  max_review_rounds: 3
+  lease_margin_sec: 300
+human_reply:
+  fallback: Ready
+  reset_attempts: true
+`
+
+// Перевод в тот статус, в котором задача и так лежит, не делается вовсе.
+// Это общее правило раннера, а не частный случай: у роли без рабочей колонки
+// туда ведут и reap, и возвраты по исходам, а в JIRA перехода «в себя»
+// может не быть в workflow вовсе — и захват падал бы на ровном месте.
+func TestFinishSkipsTransitionToSameStatus(t *testing.T) {
+	o := newOffice(t)
+	o.withWorkflow(t, noWorkingWorkflow)
+	spy := &spyTransitions{Tracker: o.tasks}
+	o.Office.Tracker = spy
+	o.agent.result = runner.Result{Outcome: runner.OutcomeFailed, Summary: "не вышло", NextOwner: "human"}
+
+	o.tick(t)
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался Ready", task.Status)
+	}
+	if task.Attempts != 1 {
+		t.Errorf("попытки %d, ожидалась одна: провал считается и без перехода", task.Attempts)
+	}
+	if len(spy.calls) != 0 {
+		t.Errorf("переводы: %v, ожидалось ни одного — задача и так в Ready", spy.calls)
+	}
+}
+
 // knownWorkflow — трекер, умеющий рассказать о своём workflow. Так отвечает jira;
 // файловый трекер этого интерфейса не реализует вовсе.
 type knownWorkflow struct {
@@ -997,6 +1132,27 @@ func TestCheckWorkflowSilentForTrackerWithoutWorkflow(t *testing.T) {
 
 	if log.String() != "" {
 		t.Errorf("трекер без workflow вызвал жалобу:\n%s", log.String())
+	}
+}
+
+// Роль без рабочей колонки проверять нечего: захват её задачи статуса
+// не меняет, и лазейка «вход в рабочий статус из него самого» к ней
+// не относится вовсе. Спрашивать о ней трекер — значит спрашивать о пустом
+// статусе и шуметь в логе на каждом запуске.
+func TestCheckWorkflowSilentForRoleWithoutWorking(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.withWorkflow(t, noWorkingWorkflow)
+	o.Office.Log = &log
+	o.Office.Tracker = knownWorkflow{
+		Tracker: o.tasks,
+		check:   tracker.WorkflowCheck{Sample: "OFF-1", SelfEntry: true},
+	}
+
+	o.Office.CheckWorkflow()
+
+	if log.String() != "" {
+		t.Errorf("роль без рабочей колонки вызвала жалобу:\n%s", log.String())
 	}
 }
 

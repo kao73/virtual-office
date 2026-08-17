@@ -328,6 +328,42 @@ func TestClaimWritesFieldsAndVerifies(t *testing.T) {
 	}
 }
 
+// Рабочая колонка — опция роли. Без неё захват записывает аренду и не трогает
+// статус: «в работе» означает живую аренду в той же колонке, из которой роль
+// читает. Перевод в пустой статус был бы бедой, а перевод «в тот же самый» —
+// запросом, которого workflow может и не разрешить: переход Review → Review
+// в JIRA существует не всегда.
+func TestClaimWithoutWorkingStatusKeepsColumn(t *testing.T) {
+	cases := map[string]string{
+		"рабочей колонки у роли нет":                         "",
+		"рабочая колонка та же, что и та, из которой читаем": "Review",
+	}
+
+	for name, working := range cases {
+		t.Run(name, func(t *testing.T) {
+			tr, fake := fixture(t)
+			fake.status = "Review"
+
+			err := tr.Claim(tracker.ClaimRequest{
+				Key: "VO-1", RunID: "прогон-1", Owner: "reviewer",
+				LeaseUntil: now.Add(30 * time.Minute), ExpectStatus: "Review", WorkingStatus: working,
+			})
+			if err != nil {
+				t.Fatalf("захват не удался: %v", err)
+			}
+			if fake.lastUpdate["customfield_10002"] != "прогон-1" {
+				t.Errorf("аренда не записана: %+v", fake.lastUpdate)
+			}
+			if len(fake.transitons) != 0 {
+				t.Errorf("переходы: %v, ожидалось ни одного", fake.transitons)
+			}
+			if fake.status != "Review" {
+				t.Errorf("статус стал %q, ожидался прежний Review", fake.status)
+			}
+		})
+	}
+}
+
 func TestClaimLostWhenAnotherRunWins(t *testing.T) {
 	tr, fake := fixture(t)
 	fake.verifyRunID = "чужой" // перечитывание покажет другого владельца

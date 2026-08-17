@@ -19,6 +19,8 @@ user=admin
 password=${JIRA_PASSWORD:-admin}
 human_user=${OFFICE_HUMAN_USER:-owner}
 human_password=${OFFICE_HUMAN_PASSWORD:-owner}
+reviewer_user=${OFFICE_REVIEWER_USER:-office-reviewer}
+reviewer_password=${OFFICE_REVIEWER_PASSWORD:-office-reviewer}
 
 while [ $# -gt 0 ]; do
 	case $1 in
@@ -62,8 +64,10 @@ add_status() {
 }
 
 echo "статусы:"
-add_status Ready 'Очередь задач для агентов' 2
-add_status Review 'Работа агента ждёт ревью человека' 4
+add_status Backlog 'Куча задач до триажа: территория человека, офис сюда не смотрит' 2
+add_status Ready 'Очередь роли implementer' 2
+add_status Review 'Очередь роли reviewer и её же рабочая колонка' 4
+add_status Approved 'Ревью пройдено, дальше человек делает merge' 3
 add_status Blocked 'Задача ждёт человека' 2
 
 # --- кастомные поля аренды --------------------------------------------------
@@ -101,16 +105,35 @@ for screen in $(api "$url/rest/api/2/screens" | python3 -c "import json,sys; pri
 	echo "  экран $screen: поля добавлены"
 done
 
-# --- учётка человека --------------------------------------------------------
-# Отдельная от раннера: ответом человека считается комментарий не от учётки
-# офиса, и с одним аккаунтом различать было бы нечем.
-echo "учётки:"
-if api "$url/rest/api/2/user?username=$human_user" | grep -q '"name"'; then
-	echo "  $human_user уже есть"
-else
-	api -X POST -d "{\"name\":\"$human_user\",\"password\":\"$human_password\",\"emailAddress\":\"$human_user@office.local\",\"displayName\":\"Владелец\"}" \
+# --- учётки -----------------------------------------------------------------
+# Учётка человека — отдельная от раннера: ответом человека считается комментарий
+# не от учётки офиса, и с одним аккаунтом различать было бы нечем.
+#
+# Учётка reviewer'а — опция: по умолчанию все роли ходят под одной, и это штатный
+# режим (роли различаются маркером в комментарии, а не автором). Отдельная нужна
+# затем, чтобы проверить механизм и чтобы история тикета читалась людьми.
+add_user() {
+	local name=$1 secret=$2 display=$3
+	if api "$url/rest/api/2/user?username=$name" | grep -q '"name"'; then
+		echo "  $name уже есть"
+		return
+	fi
+	api -X POST -d "{\"name\":\"$name\",\"password\":\"$secret\",\"emailAddress\":\"$name@office.local\",\"displayName\":\"$display\"}" \
 		"$url/rest/api/2/user" >/dev/null
-	echo "  $human_user заведён"
+	echo "  $name заведён"
+}
+
+echo "учётки:"
+add_user "$human_user" "$human_password" 'Владелец'
+add_user "$reviewer_user" "$reviewer_password" 'Агент-ревьюер'
+
+# Права: учётке роли нужно писать поля аренды и делать переходы, иначе первый же
+# захват под ней даст 403 в рантайме, а не при настройке. Группа jira-software-users
+# входит в роль Developers схемы прав по умолчанию.
+if api -X POST -d "{\"name\":\"$reviewer_user\"}" "$url/rest/api/2/group/user?groupname=jira-software-users" >/dev/null 2>&1; then
+	echo "  $reviewer_user добавлен в jira-software-users"
+else
+	echo "  $reviewer_user уже в jira-software-users (или группа называется иначе — проверь права руками)"
 fi
 
 echo

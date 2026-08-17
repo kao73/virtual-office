@@ -3,6 +3,8 @@ package tracker
 import (
 	"slices"
 	"strings"
+
+	"github.com/kao73/virtual-office/runner"
 )
 
 // Prefix — с чего начинается любая запись офиса в трекере.
@@ -29,10 +31,16 @@ const short = 8
 // Ровно одно из полей Outcome и Event заполнено: комментарий — это либо отчёт
 // прогона, либо системная запись.
 type Marker struct {
-	RunID     string // полный run_id; в строку идут первые восемь символов
-	Role      string
-	Outcome   string // исход прогона: done, needs_human, blocked, failed
-	Event     string // событие системной записи
+	RunID   string // полный run_id; в строку идут первые восемь символов
+	Role    string
+	Outcome string // исход прогона: done, needs_human, blocked, failed
+	Event   string // событие системной записи
+	// Next — кому прогон передал задачу: `next_owner` из его результата.
+	// Заявка агента, а не маршрут: куда задача уехала на самом деле, решает
+	// граф. Без него «вернул на доработку» и «одобрил» в переписке
+	// неразличимы, а круги «правки → ревью» считать нечем. Необязателен:
+	// у системных записей его нет вовсе, у отчётов этапа 2 не было.
+	Next      string
 	ConfigSHA string // SHA конфига, возможно с суффиксом -dirty
 }
 
@@ -42,18 +50,22 @@ func (m Marker) String() string {
 	if m.Outcome == "" {
 		kind, value = "event", m.Event
 	}
-	return Prefix + strings.Join([]string{
-		"run:" + shorten(m.RunID),
-		"role:" + m.Role,
-		kind + ":" + value,
-		"config:" + shortenSHA(m.ConfigSHA),
-	}, " ") + "]"
+
+	fields := []string{"run:" + shorten(m.RunID), "role:" + m.Role, kind + ":" + value}
+	// Пустое значение поля маркером не является вовсе (см. ParseMarker),
+	// поэтому пустой next в строку не идёт.
+	if m.Next != "" && m.Outcome != "" {
+		fields = append(fields, "next:"+m.Next)
+	}
+	return Prefix + strings.Join(append(fields, "config:"+shortenSHA(m.ConfigSHA)), " ") + "]"
 }
 
 // Valid — заполнено ли ровно одно из Outcome и Event, и есть ли роль.
+// Кому передана задача — свойство отчёта о прогоне: у системной записи исхода
+// нет, и передавать ей нечего.
 func (m Marker) Valid() bool {
 	oneKind := (m.Outcome == "") != (m.Event == "")
-	return oneKind && m.Role != "" && m.RunID != ""
+	return oneKind && m.Role != "" && m.RunID != "" && (m.Next == "" || m.Outcome != "")
 }
 
 // ParseMarker разбирает первую строку комментария. Разбор строгий: неизвестный
@@ -81,6 +93,8 @@ func ParseMarker(line string) (Marker, bool) {
 			m.Outcome = value
 		case "event":
 			m.Event = value
+		case "next":
+			m.Next = value
 		case "config":
 			m.ConfigSHA = value
 		default:
@@ -131,18 +145,77 @@ func TailAfterRole(comments []Comment, role string) []Comment {
 // Записи чужих ролей и комментарии без маркера не значат ни того, ни другого:
 // они пропускаются, не обрывая серии.
 func LeaseExpiries(comments []Comment, role string) int {
-	streak := 0
+	return streak(comments, func(_ Comment, m Marker, office bool) verdict {
+		switch {
+		case !office || m.Role != role:
+			return passBy
+		case m.Event == EventLeaseExpired:
+			return countIn
+		default:
+			return stop
+		}
+	})
+}
+
+// ReviewRounds — сколько раз подряд роль вернула задачу другой, не одобрив её.
+//
+// Круг — отчёт `outcome:done`, передающий задачу дальше по конвейеру: `next`
+// назван и означает не человека и не «никого». Отчёт без `next` (маркеры
+// этапа 2) серию обрывает, а не продолжает: кому ушла задача, он не говорит,
+// и считать его кругом значило бы гадать.
+//
+// Обрывают серию, помимо этого, любой другой отчёт этой роли, разбор ответа
+// человека **любой** роли и реплика человека. Последние два — потому, что
+// человек говорит о задаче целиком, а не о нити одной роли: иначе задачу,
+// которую он только что разблокировал, тут же вернули бы ему обратно.
+//
+// Отсюда и отличие от LeaseExpiries, которому учётки не нужны вовсе: серии
+// считают разное, поэтому обрываются по-разному, и общий обход только считает.
+func ReviewRounds(comments []Comment, role string, agents []string) int {
+	return streak(comments, func(c Comment, m Marker, office bool) verdict {
+		switch {
+		case office && m.Event == EventHumanReply:
+			return stop
+		case !office && !slices.Contains(agents, c.Author):
+			return stop
+		case !office || m.Role != role:
+			return passBy
+		case m.Outcome == string(runner.OutcomeDone) && m.Next != "" &&
+			m.Next != runner.NextOwnerHuman && m.Next != runner.NextOwnerNone:
+			return countIn
+		default:
+			return stop
+		}
+	})
+}
+
+// verdict — что запись значит для серии.
+type verdict int
+
+const (
+	passBy  verdict = iota // серии не касается
+	countIn                // серия продолжается
+	stop                   // серия оборвана
+)
+
+// streak считает серию однородных записей с конца истории.
+//
+// Обход общий, а правила у каждой серии свои: смерть прогона говорит об одном
+// (прогон не дожил до отчёта), круг ревью — о другом (роли не сошлись), и то,
+// что обрывает одну, другую не касается. Поэтому судья приходит снаружи,
+// а здесь остаётся только счёт.
+func streak(comments []Comment, judge func(Comment, Marker, bool) verdict) int {
+	count := 0
 	for i := len(comments) - 1; i >= 0; i-- {
-		marker, found := MarkerOf(comments[i].Body)
-		if !found || marker.Role != role {
-			continue
+		marker, office := MarkerOf(comments[i].Body)
+		switch judge(comments[i], marker, office) {
+		case countIn:
+			count++
+		case stop:
+			return count
 		}
-		if marker.Event != EventLeaseExpired {
-			break
-		}
-		streak++
 	}
-	return streak
+	return count
 }
 
 // HumanReply ищет неразобранный ответ человека и роль, которой после него

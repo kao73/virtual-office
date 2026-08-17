@@ -55,6 +55,35 @@ func TestMarkerRendersAndParses(t *testing.T) {
 	}
 }
 
+// Кому прогон передал задачу — часть машиночитаемой шапки: без этого «вернул
+// на доработку» и «одобрил» в переписке неразличимы, а круги «правки → ревью»
+// считать нечем. Ключ необязательный: маркеры этапа 2 разбираются как раньше.
+func TestMarkerCarriesNextOwner(t *testing.T) {
+	m := Marker{RunID: runID, Role: "reviewer", Outcome: "done", Next: "implementer", ConfigSHA: "5bc6a3b0"}
+	line := "[office run:488e8d8f role:reviewer outcome:done next:implementer config:5bc6a3b0]"
+
+	if got := m.String(); got != line {
+		t.Errorf("маркер %q, ожидался %q", got, line)
+	}
+	parsed, ok := ParseMarker(line)
+	if !ok {
+		t.Fatalf("свой же маркер не разобран: %s", line)
+	}
+	if parsed.Next != "implementer" {
+		t.Errorf("next разобран как %q", parsed.Next)
+	}
+
+	// Пустое значение поля маркером не является вовсе (ParseMarker строг),
+	// поэтому пустой next в строку не попадает.
+	without := Marker{RunID: runID, Role: "implementer", Outcome: "done", ConfigSHA: "5bc6a3b0"}
+	if got := without.String(); strings.Contains(got, "next:") {
+		t.Errorf("пустой next попал в маркер: %s", got)
+	}
+	if _, ok := ParseMarker(without.String()); !ok {
+		t.Errorf("маркер без next не разобран: %s", without.String())
+	}
+}
+
 func TestParseMarkerRejectsForeignLines(t *testing.T) {
 	lines := []string{
 		"",
@@ -64,6 +93,9 @@ func TestParseMarkerRejectsForeignLines(t *testing.T) {
 		"[office run:488e8d8f role:implementer outcome:done event:human-reply config:5bc]", // и то и другое
 		"[office run:488e8d8f role:implementer outcome:done config:5bc6a3b0 лишнее:поле]",  // неизвестный ключ
 		" [office run:488e8d8f role:implementer outcome:done config:5bc6a3b0]",             // не первый символ
+		// Кому передана задача — свойство отчёта о прогоне. У системной записи
+		// исхода нет, и передавать ей нечего.
+		"[office run:488e8d8f role:implementer event:lease-expired next:human config:5bc6a3b0]",
 	}
 	for _, line := range lines {
 		if _, ok := ParseMarker(line); ok {
@@ -332,5 +364,91 @@ func TestLeaseExpiriesIgnoresPlainComments(t *testing.T) {
 
 	if got := LeaseExpiries(comments, "implementer"); got != 2 {
 		t.Errorf("серия %d, ожидалась 2: комментарий без маркера ничего не значит", got)
+	}
+}
+
+// handover — отчёт прогона, передающий задачу дальше.
+func handover(role, outcome, next string, minute int) Comment {
+	m := Marker{RunID: runID, Role: role, Outcome: outcome, Next: next, ConfigSHA: "5bc6a3b0"}
+	return comment("office", m.String()+"\nОтчёт прогона.", minute)
+}
+
+// Круг «правки → ревью» — отчёт роли, вернувшей задачу другой. Считаются они
+// с конца и подряд: работа между теми же двумя ролями, в которую никто больше
+// не вмешивался.
+//
+// Серия обрывается иначе, чем серия смертей прогона, и это не небрежность:
+// смерть говорит об одном (прогон не дожил), круг — о другом (роли не сошлись).
+// Поэтому у каждой серии свои правила обрыва, а общий обход только считает.
+func TestReviewRoundsCountsStreakFromTheEnd(t *testing.T) {
+	agents := []string{"office"}
+	comments := []Comment{
+		report("implementer", "done", 1),
+		handover("reviewer", "done", "implementer", 2),
+		report("implementer", "done", 3),
+		handover("reviewer", "done", "implementer", 4),
+	}
+
+	if got := ReviewRounds(comments, "reviewer", agents); got != 2 {
+		t.Errorf("кругов %d, ожидалось 2: отчёты implementer'а серию не обрывают", got)
+	}
+}
+
+// Одобрение закрывает разговор: задача уходит к человеку, а прежние круги
+// к следующему заходу не относятся.
+func TestReviewRoundsResetAfterApproval(t *testing.T) {
+	agents := []string{"office"}
+	comments := []Comment{
+		handover("reviewer", "done", "implementer", 1),
+		handover("reviewer", "done", "human", 2),
+	}
+
+	if got := ReviewRounds(comments, "reviewer", agents); got != 0 {
+		t.Errorf("кругов %d, ожидался ноль: последним было одобрение", got)
+	}
+}
+
+// Отчёт того же рода, но без next — маркер этапа 2. Кому ушла задача, он
+// не говорит, и считать его кругом значило бы гадать.
+func TestReviewRoundsStopAtMarkerWithoutNext(t *testing.T) {
+	agents := []string{"office"}
+	comments := []Comment{
+		handover("reviewer", "done", "implementer", 1),
+		report("reviewer", "done", 2),
+	}
+
+	if got := ReviewRounds(comments, "reviewer", agents); got != 0 {
+		t.Errorf("кругов %d, ожидался ноль: старый маркер кругом не считается", got)
+	}
+}
+
+// Вмешательство человека обнуляет счёт, чьей бы роли ни касался разбор ответа:
+// человек говорил о задаче целиком, а не о нити одной роли. Иначе задачу,
+// которую он только что разблокировал, тут же вернули бы ему обратно.
+func TestReviewRoundsResetAfterHumanReply(t *testing.T) {
+	agents := []string{"office"}
+	comments := []Comment{
+		handover("reviewer", "done", "implementer", 1),
+		handover("reviewer", "done", "implementer", 2),
+		notice("implementer", EventHumanReply, 3),
+	}
+
+	if got := ReviewRounds(comments, "reviewer", agents); got != 0 {
+		t.Errorf("кругов %d, ожидался ноль: в задачу вмешался человек", got)
+	}
+}
+
+// Реплика человека — тоже вмешательство, даже если раннер ещё не успел
+// её разобрать.
+func TestReviewRoundsResetAfterHumanComment(t *testing.T) {
+	agents := []string{"office"}
+	comments := []Comment{
+		handover("reviewer", "done", "implementer", 1),
+		handover("reviewer", "done", "implementer", 2),
+		comment("owner", "Так и задумано, не трогайте.", 3),
+	}
+
+	if got := ReviewRounds(comments, "reviewer", agents); got != 0 {
+		t.Errorf("кругов %d, ожидался ноль: человек сказал своё слово", got)
 	}
 }
