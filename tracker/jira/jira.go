@@ -31,9 +31,9 @@ const dateLayout = "2006-01-02T15:04:05.000-0700"
 // apiPath — префикс REST API.
 const apiPath = "/rest/api/2"
 
-// maxComments — сколько комментариев тянуть за раз. Раннер режет их сам,
-// поэтому нужны все.
-const maxComments = 100
+// pageSize — сколько комментариев просить за раз. Раннер режет их сам, поэтому
+// нужны все: страницы крутятся до конца переписки.
+const pageSize = 100
 
 // Config — подключение и раскладка полей. Живёт в tracker.yaml.
 type Config struct {
@@ -354,33 +354,50 @@ func (t *Tracker) searchFields() []string {
 	}
 }
 
-// comments тянет всю переписку: раннер режет её сам по маркеру.
+// comments тянет всю переписку страницами: раннер режет её сам по маркеру.
+//
+// Нужны именно все. Раннер отсчитывает хвост от последнего маркера своей роли,
+// то есть от конца истории, а сортировка по возрастанию отдаёт её начало: одной
+// страницей он на длинном тикете получил бы ровно не то, ради чего его будили,
+// и ответ человека пропал бы молча.
+//
+// Шаг цикла считается по числу пришедших комментариев, а не по запрошенному
+// размеру страницы: JIRA вправе отдать меньше, чем просили, — предел выдачи
+// на сервере свой. Пустая страница обрывает цикл: соври сервер про total,
+// круг иначе стал бы вечным.
 func (t *Tracker) comments(key string) ([]tracker.Comment, error) {
-	var page struct {
-		Comments []struct {
-			ID     string `json:"id"`
-			Body   string `json:"body"`
-			Author struct {
-				Name string `json:"name"`
-			} `json:"author"`
-			Created string `json:"created"`
-		} `json:"comments"`
-		Total int `json:"total"`
-	}
+	var comments []tracker.Comment
 
-	path := fmt.Sprintf("/issue/%s/comment?maxResults=%d&orderBy=created", key, maxComments)
-	if err := t.call(http.MethodGet, path, nil, &page); err != nil {
-		return nil, err
-	}
+	for start := 0; ; {
+		var page struct {
+			Comments []struct {
+				ID     string `json:"id"`
+				Body   string `json:"body"`
+				Author struct {
+					Name string `json:"name"`
+				} `json:"author"`
+				Created string `json:"created"`
+			} `json:"comments"`
+			Total int `json:"total"`
+		}
 
-	comments := make([]tracker.Comment, 0, len(page.Comments))
-	for _, raw := range page.Comments {
-		created, _ := time.Parse(dateLayout, raw.Created)
-		comments = append(comments, tracker.Comment{
-			ID: raw.ID, Author: raw.Author.Name, Created: created, Body: raw.Body,
-		})
+		path := fmt.Sprintf("/issue/%s/comment?startAt=%d&maxResults=%d&orderBy=created", key, start, pageSize)
+		if err := t.call(http.MethodGet, path, nil, &page); err != nil {
+			return nil, err
+		}
+
+		for _, raw := range page.Comments {
+			created, _ := time.Parse(dateLayout, raw.Created)
+			comments = append(comments, tracker.Comment{
+				ID: raw.ID, Author: raw.Author.Name, Created: created, Body: raw.Body,
+			})
+		}
+
+		start += len(page.Comments)
+		if len(page.Comments) == 0 || start >= page.Total {
+			return comments, nil
+		}
 	}
-	return comments, nil
 }
 
 // issue — ответ JIRA о задаче. Кастомные поля лежат в общей карте: их имена

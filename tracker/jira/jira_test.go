@@ -3,9 +3,11 @@ package jira
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,9 +36,19 @@ type fakeJira struct {
 	verifyRunID string
 	claimed     bool
 
-	lastUpdate map[string]any // fields последнего PUT
-	lastJQL    string
-	transitons []string // имена статусов, в которые переводили
+	lastUpdate   map[string]any // fields последнего PUT
+	lastJQL      string
+	transitons   []string // имена статусов, в которые переводили
+	commentPages int      // сколько раз спрашивали страницу комментариев
+	fakeTotal    int      // ненулевой — сервер врёт про размер переписки
+}
+
+// number — целое из строки запроса, с запасным значением на пустоту и мусор.
+func number(raw string, fallback int) int {
+	if n, err := strconv.Atoi(raw); err == nil {
+		return n
+	}
+	return fallback
 }
 
 func (f *fakeJira) issue() map[string]any {
@@ -116,7 +128,25 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 
 	case r.URL.Path == "/rest/api/2/issue/VO-1/comment" && r.Method == http.MethodGet:
-		write(map[string]any{"comments": f.comments, "total": len(f.comments), "startAt": 0, "maxResults": 50})
+		// Страницы отдаются честно: сервер режет выдачу по startAt и maxResults,
+		// а полный размер сообщает в total. Отдавай подделка всё разом — тест
+		// на пагинацию проходил бы и без пагинации.
+		start := number(r.URL.Query().Get("startAt"), 0)
+		size := number(r.URL.Query().Get("maxResults"), 50)
+		f.commentPages++
+
+		page := []map[string]any{}
+		if start < len(f.comments) {
+			page = f.comments[start:min(start+size, len(f.comments))]
+		}
+		total := len(f.comments)
+		if f.fakeTotal != 0 {
+			total = f.fakeTotal
+		}
+		write(map[string]any{
+			"comments": page, "total": total,
+			"startAt": start, "maxResults": size,
+		})
 
 	case r.URL.Path == "/rest/api/2/issue/VO-1/comment" && r.Method == http.MethodPost:
 		f.comments = append(f.comments, map[string]any{
@@ -436,5 +466,62 @@ func TestConfigRequiresCredential(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("трекер открылся без креда")
+	}
+}
+
+// Раннер режет историю с конца — по последнему маркеру своей роли, — поэтому
+// ему нужен именно хвост. Сортировка по возрастанию отдаёт первую сотню, то есть
+// начало: на длинной переписке ответ человека потерялся бы молча.
+func TestGetReadsAllCommentPages(t *testing.T) {
+	tr, fake := fixture(t)
+	const total = 250
+	for i := 1; i <= total; i++ {
+		fake.comments = append(fake.comments, map[string]any{
+			"id": fmt.Sprint(i), "body": fmt.Sprintf("комментарий %d", i),
+			"author":  map[string]any{"name": "office"},
+			"created": "2026-08-17T12:00:00.000+0000",
+		})
+	}
+
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+
+	if len(task.Comments) != total {
+		t.Fatalf("получено %d комментариев из %d: хвост переписки потерян", len(task.Comments), total)
+	}
+	if fake.commentPages < 2 {
+		t.Errorf("страниц запрошено %d: пагинации нет, а тест её якобы проверил", fake.commentPages)
+	}
+	// Порядок обязан уцелеть: по нему раннер находит последний маркер.
+	if got := task.Comments[total-1].Body; got != "комментарий 250" {
+		t.Errorf("последний комментарий %q, ожидался «комментарий 250»", got)
+	}
+	if got := task.Comments[0].Body; got != "комментарий 1" {
+		t.Errorf("первый комментарий %q, ожидался «комментарий 1»", got)
+	}
+}
+
+// Сервер вправе соврать про размер переписки, и цикл по страницам не должен
+// становиться вечным: пустая страница означает, что читать больше нечего.
+// Без этой оговорки раннер молотил бы JIRA запросами до скончания века.
+func TestGetStopsWhenServerLiesAboutTotal(t *testing.T) {
+	tr, fake := fixture(t)
+	for i := 1; i <= 100; i++ {
+		fake.comments = append(fake.comments, map[string]any{
+			"id": fmt.Sprint(i), "body": fmt.Sprintf("комментарий %d", i),
+			"author":  map[string]any{"name": "office"},
+			"created": "2026-08-17T12:00:00.000+0000",
+		})
+	}
+	fake.fakeTotal = 250 // а на деле их сто
+
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if len(task.Comments) != 100 {
+		t.Errorf("получено %d комментариев, а лежит 100", len(task.Comments))
 	}
 }
