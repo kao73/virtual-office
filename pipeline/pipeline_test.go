@@ -806,3 +806,77 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 		t.Errorf("лог молчит о том, что песочницы не нашлось:\n%s", log.String())
 	}
 }
+
+// unknownProject — трекер, не знающий одного из проектов конфигурации.
+// Так выглядит протухшая строка в projects.yaml: проект описан, а в трекере
+// его нет и никогда не было.
+type unknownProject struct {
+	tracker.Tracker
+	missing string
+}
+
+func (u unknownProject) ListReady(project, status string) ([]tracker.TaskRef, error) {
+	if project == u.missing {
+		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	}
+	return u.Tracker.ListReady(project, status)
+}
+
+func (u unknownProject) ListExpired(project string, now time.Time) ([]tracker.TaskRef, error) {
+	if project == u.missing {
+		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	}
+	return u.Tracker.ListExpired(project, now)
+}
+
+// Проекты обходятся по порядку, и раньше первый же незнакомый трекеру проект
+// бросал весь цикл — работа по остальным вставала. Заглушка в projects.yaml
+// останавливала reap на полигоне до настоящего проекта; поймано живой проверкой.
+func TestTickSkipsProjectUnknownToTracker(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	// Имя нарочно раньше OFF по алфавиту: обход дойдёт до него первым.
+	o.Office.Projects["AAA"] = tracker.Project{
+		RepoURL: o.origin, DefaultBranch: "master", BranchPrefix: "agent/",
+	}
+	o.Office.Tracker = unknownProject{Tracker: o.tasks, missing: "AAA"}
+
+	if !o.tick(t) {
+		t.Fatal("цикл бросил работу из-за проекта, которого трекер не знает")
+	}
+	if task := o.get(t, "OFF-1"); task.Status != "Review" {
+		t.Errorf("задача годного проекта не сделана: %s", task.Status)
+	}
+	if !strings.Contains(log.String(), "AAA") {
+		t.Errorf("пропуск проекта не объяснён в логе:\n%s", log.String())
+	}
+}
+
+// То же для reap: его гоняет планировщик, и там некому заметить, что цикл
+// перестал доходить до половины проектов.
+func TestReapSkipsProjectUnknownToTracker(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Log = io.Discard
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
+		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	})
+	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
+		t.Fatal("смерть раннера не замечена")
+	}
+
+	o.Office.Projects["AAA"] = tracker.Project{
+		RepoURL: o.origin, DefaultBranch: "master", BranchPrefix: "agent/",
+	}
+	later := now.Add(2 * time.Hour)
+	o.tasks.Now = func() time.Time { return later }
+	o.Office.Now = func() time.Time { return later }
+	o.Office.Tracker = unknownProject{Tracker: o.tasks, missing: "AAA"}
+
+	if err := o.Reap(context.Background()); err != nil {
+		t.Fatalf("reap бросил работу из-за незнакомого проекта: %v", err)
+	}
+	if task := o.get(t, "OFF-1"); task.Status != "Ready" {
+		t.Errorf("зависшая задача годного проекта не возвращена: %s", task.Status)
+	}
+}

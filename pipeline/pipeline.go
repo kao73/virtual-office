@@ -109,6 +109,9 @@ func (o *Office) claim(roleName string, flow tracker.RoleFlow, role runner.Role)
 
 	for _, project := range o.projects() {
 		refs, err := o.Tracker.ListReady(project, flow.ReadsFrom)
+		if o.skipProject(project, err) {
+			continue
+		}
 		if err != nil {
 			return tracker.TaskRef{}, "", err
 		}
@@ -274,6 +277,9 @@ func (o *Office) HumanReplies(ctx context.Context, roleName string) (int, error)
 	for _, project := range o.projects() {
 		// Задачи, ждущие человека, лежат без аренды — их и отдаёт ListReady.
 		refs, err := o.Tracker.ListReady(project, flow.Blocked())
+		if o.skipProject(project, err) {
+			continue
+		}
 		if err != nil {
 			return count, err
 		}
@@ -342,6 +348,9 @@ func (o *Office) Reap(ctx context.Context) error {
 
 	for _, project := range o.projects() {
 		refs, err := o.Tracker.ListExpired(project, now)
+		if o.skipProject(project, err) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -539,6 +548,24 @@ func (o *Office) accounts() []string {
 		accounts = append(accounts, whoami)
 	}
 	return accounts
+}
+
+// skipProject решает, пропустить ли проект, которого трекер не знает.
+//
+// Такой проект — ошибка конфигурации, а не работы: строка в projects.yaml
+// осталась от прежней задумки или опечатана. Роняя из-за неё весь цикл, раннер
+// останавливал работу и по всем остальным проектам — а обходит он их по порядку,
+// так что достаточно одной неудачной буквы в начале алфавита. Поймано живой
+// проверкой: заглушка OFFICE не давала reap дойти до настоящего проекта.
+//
+// Жаловаться раннер продолжает каждый цикл, и это намеренно: молчаливый пропуск
+// означал бы, что проект просто не обслуживается, и заметить это было бы нечем.
+func (o *Office) skipProject(project string, err error) bool {
+	if !errors.Is(err, tracker.ErrNoProject) {
+		return false
+	}
+	o.logf("%s: проект описан в %s, но трекер его не знает — пропускаю", project, tracker.ProjectsFile)
+	return true
 }
 
 // projects — ключи проектов в устойчивом порядке: два прогона должны обходить

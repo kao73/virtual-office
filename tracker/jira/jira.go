@@ -145,7 +145,7 @@ func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 	jql := fmt.Sprintf(`project = %q AND status = %q AND (%s IS EMPTY OR %s <= now()) ORDER BY priority DESC, created ASC`,
 		project, t.status(status), t.jqlField(t.cfg.Fields.LeaseUntil), t.jqlField(t.cfg.Fields.LeaseUntil))
 
-	return t.search(jql, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
+	return t.searchProject(project, jql, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
 }
 
 // ListExpired — задачи с истёкшей арендой: сырьё для reaper.
@@ -153,9 +153,43 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 	jql := fmt.Sprintf(`project = %q AND %s IS NOT EMPTY AND %s <= now() ORDER BY created ASC`,
 		project, t.jqlField(t.cfg.Fields.RunID), t.jqlField(t.cfg.Fields.LeaseUntil))
 
-	return t.search(jql, func(task tracker.Task) bool {
+	return t.searchProject(project, jql, func(task tracker.Task) bool {
 		return task.RunID != "" && !task.LeaseAlive(now)
 	})
+}
+
+// searchProject — поиск по проекту, отличающий незнакомый проект от прочих бед.
+//
+// JQL по несуществующему проекту JIRA отвергает четырёхсоткой, и без разбора
+// такой отказ роняет весь цикл: раннер обходит проекты по порядку и на первом же
+// отказе бросает остальные. Одна протухшая строка в projects.yaml останавливала бы
+// работу по всем проектам сразу — поймано живой проверкой.
+//
+// Разбираем не по тексту ошибки: он зависит от версии сервера и однажды сменится
+// молча. Вместо этого спрашиваем сам проект — и только когда поиск уже упал,
+// так что в счастливом пути лишнего запроса не появляется.
+func (t *Tracker) searchProject(project, jql string, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+	refs, err := t.search(jql, keep)
+	if err == nil {
+		return refs, nil
+	}
+	if known, checkErr := t.projectExists(project); checkErr == nil && !known {
+		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	}
+	return nil, err
+}
+
+// projectExists спрашивает у сервера, знает ли он такой проект.
+func (t *Tracker) projectExists(project string) (bool, error) {
+	err := t.call(http.MethodGet, "/project/"+project, nil, nil)
+	switch {
+	case errors.Is(err, tracker.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, err
+	default:
+		return true, nil
+	}
 }
 
 // Get — задача целиком, включая все комментарии.

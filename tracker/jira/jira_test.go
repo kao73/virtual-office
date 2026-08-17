@@ -41,6 +41,12 @@ type fakeJira struct {
 	transitons   []string // имена статусов, в которые переводили
 	commentPages int      // сколько раз спрашивали страницу комментариев
 	fakeTotal    int      // ненулевой — сервер врёт про размер переписки
+
+	// badSearch заставляет поиск падать, а knownProject — единственный проект,
+	// который сервер признаёт своим. Вместе они изображают заглушку
+	// в projects.yaml: JQL по несуществующему проекту JIRA отвергает.
+	badSearch    bool
+	knownProject string
 }
 
 // number — целое из строки запроса, с запасным значением на пустоту и мусор.
@@ -85,7 +91,20 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case r.URL.Path == "/rest/api/2/search":
 		f.lastJQL, _ = body["jql"].(string)
+		if f.badSearch {
+			w.WriteHeader(http.StatusBadRequest)
+			write(map[string]any{"errorMessages": []string{"поиск не удался"}})
+			return
+		}
 		write(map[string]any{"issues": []any{f.issue()}})
+
+	case strings.HasPrefix(r.URL.Path, "/rest/api/2/project/"):
+		if key := strings.TrimPrefix(r.URL.Path, "/rest/api/2/project/"); key == f.knownProject {
+			write(map[string]any{"key": key, "name": "Virtual Office"})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		write(map[string]any{"errorMessages": []string{"No project could be found with key"}})
 
 	case r.URL.Path == "/rest/api/2/issue/VO-1" && r.Method == http.MethodGet:
 		issue := f.issue()
@@ -542,5 +561,38 @@ func TestOpenRejectsUnimplementedAuthMode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "basic") {
 		t.Errorf("отказ не подсказывает рабочий режим: %v", err)
+	}
+}
+
+// Проект, описанный в projects.yaml, но неизвестный трекеру, роняет весь цикл:
+// раннер обходит проекты по порядку и на первом же отказе бросает остальные.
+// Поймано живой проверкой — заглушка OFFICE остановила reap до настоящего VO.
+func TestListReadyTellsUnknownProjectApart(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.badSearch = true
+	fake.knownProject = "VO"
+
+	_, err := tr.ListReady("OFFICE", "Ready")
+	if !errors.Is(err, tracker.ErrNoProject) {
+		t.Fatalf("незнакомый проект не распознан: %v", err)
+	}
+	if !strings.Contains(err.Error(), "OFFICE") {
+		t.Errorf("в ошибке нет имени проекта, чинить придётся вслепую: %v", err)
+	}
+}
+
+// Отличать надо именно незнакомый проект: упавший поиск по любой другой причине
+// обязан оставаться бедой, а не поводом молча пропустить проект целиком.
+func TestListReadyKeepsOtherSearchFailures(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.badSearch = true
+	fake.knownProject = "VO"
+
+	_, err := tr.ListReady("VO", "Ready")
+	if err == nil {
+		t.Fatal("отказ поиска потерян")
+	}
+	if errors.Is(err, tracker.ErrNoProject) {
+		t.Errorf("обычный отказ поиска выдан за незнакомый проект: %v", err)
 	}
 }
