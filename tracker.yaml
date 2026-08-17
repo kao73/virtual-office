@@ -7,7 +7,10 @@
 base_url: http://localhost:2990/jira
 
 auth:
-  mode: basic          # basic для Server 8.13; pat — для инстансов с токенами
+  # Режим один: персональные токены появились в Jira Server с 8.14, а целевая
+  # версия — 8.13. Появится инстанс с токенами — добавится и режим; обещать его
+  # заранее незачем, см. docs/notes/jira-api.md.
+  mode: basic
   user_env: JIRA_USER
   secret_env: JIRA_PASSWORD
 

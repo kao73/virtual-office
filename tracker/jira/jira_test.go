@@ -525,3 +525,22 @@ func TestGetStopsWhenServerLiesAboutTotal(t *testing.T) {
 		t.Errorf("получено %d комментариев, а лежит 100", len(task.Comments))
 	}
 }
+
+// Режим pat конфигурация объявляла, а код не реализовывал: запрос уходил
+// с basic-авторизацией независимо от него. Обещание, которого никто не держит,
+// хуже отсутствия обещания — и Open теперь отказывается его давать.
+func TestOpenRejectsUnimplementedAuthMode(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	_, err := Open(Config{
+		BaseURL: "http://localhost",
+		Auth:    Auth{Mode: "pat", UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+	})
+	if err == nil {
+		t.Fatal("трекер открылся в режиме, которого нет: запросы пошли бы как basic")
+	}
+	if !strings.Contains(err.Error(), "basic") {
+		t.Errorf("отказ не подсказывает рабочий режим: %v", err)
+	}
+}

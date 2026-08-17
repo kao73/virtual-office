@@ -57,9 +57,9 @@ type Config struct {
 
 // Auth — способ авторизации.
 type Auth struct {
-	Mode      string `yaml:"mode"`       // basic или pat
+	Mode      string `yaml:"mode"`       // только basic
 	UserEnv   string `yaml:"user_env"`   // переменная с именем пользователя
-	SecretEnv string `yaml:"secret_env"` // переменная с паролем или токеном
+	SecretEnv string `yaml:"secret_env"` // переменная с паролем
 }
 
 // Fields — идентификаторы кастомных полей аренды (customfield_NNNNN).
@@ -90,10 +90,12 @@ func Open(cfg Config) (*Tracker, error) {
 	if cfg.BaseURL == "" {
 		return nil, errors.New("base_url не задан")
 	}
-	switch cfg.Auth.Mode {
-	case "basic", "pat":
-	default:
-		return nil, fmt.Errorf("auth.mode=%q: допустимы basic и pat", cfg.Auth.Mode)
+	// Режим один, и это не упущение. Персональные токены появились в Jira Server
+	// с 8.14, а целевая версия — 8.13: проверить их не на чем, а необъявленное
+	// лучше необслуживаемого. Когда инстанс с токенами появится, добавится
+	// заголовок Authorization: Bearer — см. docs/notes/jira-api.md.
+	if cfg.Auth.Mode != "basic" {
+		return nil, fmt.Errorf("auth.mode=%q: реализован только basic", cfg.Auth.Mode)
 	}
 
 	secret := os.Getenv(cfg.Auth.SecretEnv)
