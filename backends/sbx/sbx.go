@@ -123,29 +123,32 @@ type Sandboxes struct {
 	run func(args ...string) (string, error)
 }
 
-// Remove сносит песочницу прогона.
+// Remove сносит песочницу прогона и отвечает, нашлось ли что сносить.
 //
 // Сначала список, потом снос: `sbx rm` несуществующей песочницы отвечает
 // отказом, а её отсутствие — обычное дело. Reap мог быть запущен не на той
 // машине, где шёл прогон, и чинить ему там нечего.
 //
+// Отвечать «убрана» в этом случае нельзя: на первой живой проверке лог именно
+// так и соврал — сообщил об уборке трёх песочниц, которых не существовало.
+//
 // Метём точечно, по одному имени. Всё остальное в списке — чужая собственность:
 // песочница соседнего процесса или другой роли, и она может быть жива.
-func (s Sandboxes) Remove(runID string) error {
+func (s Sandboxes) Remove(runID string) (bool, error) {
 	name := sandboxName(runID)
 
 	out, err := s.exec("ls", "--quiet")
 	if err != nil {
-		return fmt.Errorf("список песочниц не получен: %w", err)
+		return false, fmt.Errorf("список песочниц не получен: %w", err)
 	}
 	if !slices.Contains(strings.Fields(out), name) {
-		return nil
+		return false, nil
 	}
 
 	if _, err := s.exec("rm", "--force", name); err != nil {
-		return fmt.Errorf("песочница %s не снесена: %w", name, err)
+		return false, fmt.Errorf("песочница %s не снесена: %w", name, err)
 	}
-	return nil
+	return true, nil
 }
 
 // exec зовёт sbx: настоящий CLI или подделку из теста.

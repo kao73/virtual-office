@@ -46,12 +46,13 @@ func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, error) {
 // проверяется целиком, без sbx на машине.
 type fakeSandboxes struct {
 	removed []string
+	absent  bool // песочницы прогона на этой машине нет
 	err     error
 }
 
-func (f *fakeSandboxes) Remove(runID string) error {
+func (f *fakeSandboxes) Remove(runID string) (bool, error) {
 	f.removed = append(f.removed, runID)
-	return f.err
+	return !f.absent && f.err == nil, f.err
 }
 
 func gitIn(dir string, args ...string) string {
@@ -772,5 +773,36 @@ func TestReapStreakResetsAfterSuccessfulRun(t *testing.T) {
 	task := o.get(t, "OFF-1")
 	if task.Status != "Ready" || task.HumanFlag {
 		t.Errorf("серия не обнулилась отчётом: %s, флаг %v", task.Status, task.HumanFlag)
+	}
+}
+
+// Живая проверка поймала то, чего не видели тесты: reap сообщал «песочница
+// прогона X убрана» там, где песочницы не было вовсе — прогон жил на другой
+// машине. Лог, утверждающий несделанное, хуже молчания: по нему потом судят,
+// что происходило.
+func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	o.Office.Sandboxes = &fakeSandboxes{absent: true}
+	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, error) {
+		return runner.Result{}, errors.New("раннера убили посреди прогона")
+	})
+
+	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
+		t.Fatal("смерть раннера не замечена")
+	}
+	later := now.Add(2 * time.Hour)
+	o.tasks.Now = func() time.Time { return later }
+	o.Office.Now = func() time.Time { return later }
+	if err := o.Reap(context.Background()); err != nil {
+		t.Fatalf("reap не прошёл: %v", err)
+	}
+
+	if strings.Contains(log.String(), "убрана") {
+		t.Errorf("лог сообщает об уборке, которой не было:\n%s", log.String())
+	}
+	if !strings.Contains(log.String(), "на этой машине нет") {
+		t.Errorf("лог молчит о том, что песочницы не нашлось:\n%s", log.String())
 	}
 }

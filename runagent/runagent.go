@@ -129,7 +129,7 @@ type backendRun func(context.Context, *runner.Launch, string) (int, error)
 // Sandboxes — уборка песочниц прогонов, не переживших своего раннера.
 // Реализует её тот бэкенд, у которого песочницы есть.
 type Sandboxes interface {
-	Remove(runID string) error
+	Remove(runID string) (bool, error)
 }
 
 // SandboxesOf выдаёт уборщика песочниц бэкенда. Пустой ответ означает, что

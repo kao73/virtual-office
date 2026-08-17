@@ -41,7 +41,9 @@ type Request struct {
 // Реализует бэкенд: имя песочницы знает он, а reap знает run_id мёртвой аренды.
 // Пустое значение означает «убирать нечего» — так устроен бэкенд local.
 type Sandboxes interface {
-	Remove(runID string) error
+	// Remove сносит песочницу прогона и отвечает, нашлось ли что сносить:
+	// на машине, где прогон не жил, её нет и не было.
+	Remove(runID string) (bool, error)
 }
 
 // Office — конвейер над одним трекером.
@@ -442,11 +444,15 @@ func (o *Office) sweep(task tracker.Task) {
 	if o.Sandboxes == nil || task.RunID == "" {
 		return
 	}
-	if err := o.Sandboxes.Remove(task.RunID); err != nil {
+	removed, err := o.Sandboxes.Remove(task.RunID)
+	switch {
+	case err != nil:
 		o.logf("%s: песочница прогона %s не убрана, уберите вручную: %v", task.Key, short(task.RunID), err)
-		return
+	case removed:
+		o.logf("%s: песочница прогона %s убрана", task.Key, short(task.RunID))
+	default:
+		o.logf("%s: песочницы прогона %s на этой машине нет", task.Key, short(task.RunID))
 	}
-	o.logf("%s: песочница прогона %s убрана", task.Key, short(task.RunID))
 }
 
 // Loop гоняет цикл по расписанию, пока не остановят.

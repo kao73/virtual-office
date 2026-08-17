@@ -169,8 +169,12 @@ func TestSandboxesRemoveDeletesSandboxOfRun(t *testing.T) {
 	sbx := &fakeSbx{list: "office-11111111\noffice-550e8400\noffice-22222222\n"}
 	s := Sandboxes{run: sbx.run}
 
-	if err := s.Remove("550e8400-e29b-41d4-a716-446655440000"); err != nil {
+	removed, err := s.Remove("550e8400-e29b-41d4-a716-446655440000")
+	if err != nil {
 		t.Fatalf("песочница не убрана: %v", err)
+	}
+	if !removed {
+		t.Error("уборка не признаётся состоявшейся, а песочница была")
 	}
 
 	if len(sbx.calls) == 0 {
@@ -196,8 +200,14 @@ func TestSandboxesRemoveSkipsMissingSandbox(t *testing.T) {
 	sbx := &fakeSbx{list: "office-11111111\n"}
 	s := Sandboxes{run: sbx.run}
 
-	if err := s.Remove("550e8400-e29b-41d4-a716-446655440000"); err != nil {
+	removed, err := s.Remove("550e8400-e29b-41d4-a716-446655440000")
+	if err != nil {
 		t.Fatalf("отсутствие песочницы сочтено бедой: %v", err)
+	}
+	// Отвечать «убрана», когда убирать было нечего, — значит врать в логе:
+	// именно так и вышло на первой живой проверке.
+	if removed {
+		t.Error("уборка признана состоявшейся, хотя песочницы не было")
 	}
 	for _, call := range sbx.calls {
 		if len(call) > 0 && call[0] == "rm" {
@@ -212,7 +222,7 @@ func TestSandboxesRemoveReportsFailure(t *testing.T) {
 	sbx := &fakeSbx{list: "office-550e8400\n", fail: errors.New("sbx не отвечает")}
 	s := Sandboxes{run: sbx.run}
 
-	if err := s.Remove("550e8400-e29b-41d4-a716-446655440000"); err == nil {
+	if _, err := s.Remove("550e8400-e29b-41d4-a716-446655440000"); err == nil {
 		t.Error("отказ уборки потерян: песочница осталась, а никто не узнал")
 	}
 }
