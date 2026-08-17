@@ -434,3 +434,52 @@ func TestListMarksLostDirectory(t *testing.T) {
 		t.Fatalf("потерянный каталог не отмечен: %+v", entries)
 	}
 }
+
+// Токен обязан жить только в окружении. Помощник по учётным данным получает
+// имя переменной, а не значение: командная строка процесса видна в `ps` любому
+// пользователю хоста.
+func TestCredentialArgsCarryVariableNameNotValue(t *testing.T) {
+	const secret = "ghp_очень-секретное-значение"
+	t.Setenv(TokenEnv, secret)
+
+	line := strings.Join(credentialArgs(), " ")
+	if strings.Contains(line, secret) {
+		t.Errorf("значение токена попало в командную строку, его видно в ps: %s", line)
+	}
+	if !strings.Contains(line, "$"+TokenEnv) {
+		t.Errorf("помощник не читает переменную окружения, брать токен ему неоткуда: %s", line)
+	}
+}
+
+// Второе место, где токен не должен оседать, — конфигурация клона: она переживает
+// прогон и лежит на диске. Помощник передаётся флагом -c, то есть на один вызов.
+func TestPushLeavesNoCredentialInRepoConfig(t *testing.T) {
+	const secret = "ghp_очень-секретное-значение"
+	t.Setenv(TokenEnv, secret)
+	m, project, task := setup(t)
+
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	gitT(t, ws.Dir, "commit", "-q", "--allow-empty", "-m", "работа агента")
+	if _, err := m.Push(ws); err != nil {
+		t.Fatalf("пуш не удался: %v", err)
+	}
+
+	// Именно --local: без него git отвечает и системными уровнями, а на macOS
+	// там лежит credential.helper=osxkeychain — чужая настройка, не наша.
+	// `config --get-regexp` без совпадений выходит с кодом 1 — здесь это успех.
+	out, err := exec.Command("git", "-C", ws.Repo, "config", "--local", "--get-regexp", "credential").CombinedOutput()
+	if err == nil || strings.TrimSpace(string(out)) != "" {
+		t.Errorf("в конфигурации клона осела запись о помощнике: %s", out)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(ws.Repo, "config"))
+	if err != nil {
+		t.Fatalf("конфигурация клона не прочитана: %v", err)
+	}
+	if strings.Contains(string(raw), secret) {
+		t.Error("значение токена записано в конфигурацию клона")
+	}
+}
