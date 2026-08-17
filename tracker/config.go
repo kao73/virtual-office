@@ -73,8 +73,13 @@ type Limits struct {
 }
 
 // HumanReplyRule — что делает раннер, увидев ответ человека на заблокированную задачу.
+//
+// Маршрута по умолчанию здесь нет: задача возвращается той роли, которая говорила
+// последней, и её очередь известна из графа. Fallback — на случай, когда роли
+// из маркера в графе больше нет: её переименовали или убрали, а задача с её
+// вопросом осталась.
 type HumanReplyRule struct {
-	To            string `yaml:"to"`
+	Fallback      string `yaml:"fallback"`
 	ResetAttempts bool   `yaml:"reset_attempts"`
 }
 
@@ -94,6 +99,27 @@ func LoadWorkflow(path string) (Workflow, error) {
 // LeaseMargin — запас, который раннер добавляет к таймауту роли, назначая аренду.
 func (w Workflow) LeaseMargin() time.Duration {
 	return time.Duration(w.Limits.LeaseMarginSec) * time.Second
+}
+
+// HumanColumns — колонки, в которых задача ждёт человека: всё, куда ведут исходы
+// с пометкой human. Порядок устойчивый, повторов нет — две роли вправе ждать
+// человека в одной колонке.
+//
+// Набор нужен разбору ответов человека. Он идёт отдельным проходом, без роли:
+// задачу в ожидание отправляет не только агент своим вопросом, но и сам раннер —
+// исчерпав попытки или устав возвращать зависшую задачу, — и спрашивать «а чья
+// это колонка» в такой момент не у кого.
+func (w Workflow) HumanColumns() []string {
+	var columns []string
+	for _, role := range w.Roles {
+		for _, outcome := range role.Outcomes {
+			if outcome.Human && !slices.Contains(columns, outcome.To) {
+				columns = append(columns, outcome.To)
+			}
+		}
+	}
+	slices.Sort(columns)
+	return columns
 }
 
 // Role — описание роли в графе.
@@ -154,7 +180,7 @@ func (w Workflow) validate() error {
 	if w.Limits.LeaseMarginSec < 0 {
 		errs = append(errs, fmt.Errorf("limits.lease_margin_sec=%d: ожидается неотрицательное число", w.Limits.LeaseMarginSec))
 	}
-	known("human_reply.to", w.HumanReply.To)
+	known("human_reply.fallback", w.HumanReply.Fallback)
 
 	return errors.Join(errs...)
 }

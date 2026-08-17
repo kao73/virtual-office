@@ -69,6 +69,19 @@ type Office struct {
 // Tick — один цикл роли: разобрать ответы человека, взять не больше одной задачи,
 // выполнить её и вернуть в граф. Отвечает, нашлась ли работа.
 func (o *Office) Tick(ctx context.Context, roleName string) (bool, error) {
+	// Ответы человека разбираются раньше поиска работы: разблокированная задача
+	// должна попасть в очередь до того, как роль выберет кандидата. Проход идёт
+	// и здесь, и в TickAll: cron с одной ролью не должен оставлять ожидающие
+	// задачи в ожидании навсегда.
+	if _, err := o.HumanReplies(ctx); err != nil {
+		return false, err
+	}
+	return o.tickRole(ctx, roleName)
+}
+
+// tickRole — цикл одной роли без разбора ответов: его делает вызывающий,
+// один раз на весь заход, сколько бы ролей ни было в графе.
+func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	flow, err := o.Workflow.Role(roleName)
 	if err != nil {
 		return false, err
@@ -78,17 +91,11 @@ func (o *Office) Tick(ctx context.Context, roleName string) (bool, error) {
 		return false, err
 	}
 
-	// Ответы человека разбираются раньше поиска работы: разблокированная задача
-	// должна попасть в очередь до того, как эта же роль выберет кандидата.
-	if _, err := o.HumanReplies(ctx, roleName); err != nil {
+	task, err := o.claim(roleName, flow, role)
+	if err != nil || task.ref.Key == "" {
 		return false, err
 	}
-
-	ref, runID, err := o.claim(roleName, flow, role)
-	if err != nil || ref.Key == "" {
-		return false, err
-	}
-	return true, o.work(ctx, ref, runID, roleName, flow, role)
+	return true, o.work(ctx, task, roleName, flow, role)
 }
 
 // CheckWorkflow предупреждает о workflow, в котором захват задачи не может стать
@@ -145,19 +152,34 @@ func (o *Office) workingStatuses() []string {
 }
 
 // TickAll прогоняет по циклу на каждую роль графа, в порядке имён.
+//
+// Ответы человека разбираются один раз на весь заход, а не перед каждой ролью:
+// проход безролевой, и повторять его — лишние запросы к трекеру ради заведомо
+// пустого результата.
 func (o *Office) TickAll(ctx context.Context) error {
+	if _, err := o.HumanReplies(ctx); err != nil {
+		return err
+	}
 	roles := slices.Sorted(maps(o.Workflow.Roles))
 	for _, role := range roles {
-		if _, err := o.Tick(ctx, role); err != nil {
+		if _, err := o.tickRole(ctx, role); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// claim выбирает первого годного кандидата и захватывает его. Пустой ключ
-// означает, что работы нет.
-func (o *Office) claim(roleName string, flow tracker.RoleFlow, role runner.Role) (tracker.TaskRef, string, error) {
+// claimed — взятая в работу задача: рабочая папка и аренда уже наши.
+type claimed struct {
+	ref     tracker.TaskRef
+	runID   string
+	project tracker.Project
+	ws      workspace.Workspace
+}
+
+// claim выбирает первого годного кандидата и берёт его. Пустой ключ означает,
+// что работы нет.
+func (o *Office) claim(roleName string, flow tracker.RoleFlow, role runner.Role) (claimed, error) {
 	lease := o.now().Add(time.Duration(role.Limits.TimeoutSec)*time.Second + o.Workflow.LeaseMargin())
 
 	for _, project := range o.projects() {
@@ -166,66 +188,97 @@ func (o *Office) claim(roleName string, flow tracker.RoleFlow, role runner.Role)
 			continue
 		}
 		if err != nil {
-			return tracker.TaskRef{}, "", err
+			return claimed{}, err
 		}
 		for _, ref := range refs {
 			if ref.Attempts >= o.Workflow.Limits.MaxAttempts {
 				o.logf("%s: попытки исчерпаны (%d), пропускаю", ref.Key, ref.Attempts)
 				continue
 			}
-
-			runID, err := runner.NewRunID()
+			task, taken, err := o.take(ref, roleName, flow, lease)
 			if err != nil {
-				return tracker.TaskRef{}, "", err
+				return claimed{}, err
 			}
-			err = o.Tracker.Claim(tracker.ClaimRequest{
-				Key: ref.Key, RunID: runID, Owner: roleName, LeaseUntil: lease,
-				ExpectStatus: flow.ReadsFrom, WorkingStatus: flow.Working,
-			})
-			switch {
-			case errors.Is(err, tracker.ErrClaimLost):
-				// Гонка — обычное дело, а не беда: берём следующего кандидата.
-				o.logf("%s: захват не удался (%v), беру следующую", ref.Key, err)
-				continue
-			case err != nil:
-				return tracker.TaskRef{}, "", err
+			if taken {
+				return task, nil
 			}
-			o.logf("%s: захвачена, прогон %s до %s", ref.Key, runID, lease.Format(time.RFC3339))
-			return ref, runID, nil
 		}
 	}
-	return tracker.TaskRef{}, "", nil
+	return claimed{}, nil
 }
 
-// work выполняет захваченную задачу и возвращает её в граф.
-func (o *Office) work(ctx context.Context, ref tracker.TaskRef, runID, roleName string, flow tracker.RoleFlow, role runner.Role) error {
+// take берёт одного кандидата: сперва рабочую папку, потом задачу.
+//
+// Порядок именно такой, и это не косметика. Захват в JIRA не CAS, поэтому
+// на одной машине два прогона могут счесть задачу своей; захватывая первым,
+// второй успевал перезаписать аренду первого — и только потом упирался в замок
+// рабочей папки. Барьер, взятый раньше аренды, останавливает его до того, как
+// он тронет трекер.
+//
+// Занятая папка и проигранный захват — не беда, а обычное дело: берём следующего
+// кандидата. Замок при этом снимается, иначе победитель гонки упрётся в него
+// на пустом месте.
+func (o *Office) take(ref tracker.TaskRef, roleName string, flow tracker.RoleFlow, lease time.Time) (claimed, bool, error) {
 	project, err := o.Projects.Get(ref.Project)
 	if err != nil {
-		return err
-	}
-	task, err := o.Tracker.Get(ref.Key)
-	if err != nil {
-		return err
+		// Проект отсеивается до захвата: раньше задача успевала стать
+		// арендованной и ждала reaper'а, хотя работать над ней было негде.
+		o.logf("%s: %v, пропускаю", ref.Key, err)
+		return claimed{}, false, nil
 	}
 
 	ws, err := o.Workspaces.Ensure(ref, project)
 	if errors.Is(err, workspace.ErrWorktreeBusy) {
-		// В папке работает другой прогон — барьер сделал ровно то, ради чего
-		// заведён. Аренду не трогаем: она либо чужая, и мы не вправе, либо наша,
-		// и её вернёт reap. Сняв её сами, мы вернули бы задачу в очередь, где
-		// следующий tick упёрся бы в тот же замок.
-		o.logf("%s: %v, оставляю задачу как есть", ref.Key, err)
-		return nil
+		o.logf("%s: %v, беру следующую", ref.Key, err)
+		return claimed{}, false, nil
 	}
+	if err != nil {
+		return claimed{}, false, err
+	}
+
+	runID, err := runner.NewRunID()
+	if err != nil {
+		o.unlock(ref.Key, ws)
+		return claimed{}, false, err
+	}
+
+	err = o.Tracker.Claim(tracker.ClaimRequest{
+		Key: ref.Key, RunID: runID, Owner: roleName, LeaseUntil: lease,
+		ExpectStatus: flow.ReadsFrom, WorkingStatus: flow.Working,
+	})
+	switch {
+	case errors.Is(err, tracker.ErrClaimLost):
+		o.logf("%s: захват не удался (%v), беру следующую", ref.Key, err)
+		o.unlock(ref.Key, ws)
+		return claimed{}, false, nil
+	case err != nil:
+		o.unlock(ref.Key, ws)
+		return claimed{}, false, err
+	}
+
+	o.logf("%s: захвачена, прогон %s до %s", ref.Key, runID, lease.Format(time.RFC3339))
+	return claimed{ref: ref, runID: runID, project: project, ws: ws}, true, nil
+}
+
+// unlock снимает барьер рабочей папки, жалуясь в лог на неудачу: продолжать
+// после неё можно, а молчать нельзя — следующий прогон упрётся в этот замок.
+func (o *Office) unlock(key string, ws workspace.Workspace) {
+	if err := ws.Unlock(); err != nil {
+		o.logf("%s: замок рабочей папки не снят: %v", key, err)
+	}
+}
+
+// work выполняет взятую задачу и возвращает её в граф.
+func (o *Office) work(ctx context.Context, c claimed, roleName string, flow tracker.RoleFlow, role runner.Role) error {
+	task, err := o.Tracker.Get(c.ref.Key)
 	if err != nil {
 		return err
 	}
-	// Барьер держится до конца прогона: пуш и отчёт — тоже работа над задачей.
-	defer func() {
-		if err := ws.Unlock(); err != nil {
-			o.logf("%s: замок рабочей папки не снят: %v", ref.Key, err)
-		}
-	}()
+	ws, runID := c.ws, c.runID
+
+	// Барьер взят вместе с задачей и держится до конца прогона: пуш и отчёт —
+	// тоже работа над ней.
+	defer o.unlock(task.Key, ws)
 
 	passport := runner.Run{
 		RunID: runID, Role: roleName, ConfigSHA: o.ConfigSHA,
@@ -331,59 +384,73 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	return o.Tracker.Release(task.Key, by)
 }
 
-// HumanReplies возвращает в очередь задачи, на вопросы которых ответил человек.
+// HumanReplies возвращает в работу задачи, которым ответил человек.
 // Отвечает, сколько задач разблокировано.
-func (o *Office) HumanReplies(ctx context.Context, roleName string) (int, error) {
-	flow, err := o.Workflow.Role(roleName)
-	if err != nil {
-		return 0, err
-	}
+//
+// Проход безролевой и идёт один на цикл. Задачу в ожидание отправляет не только
+// агент своим вопросом: раннер делает это сам, исчерпав попытки или устав
+// возвращать зависшую задачу. Роли у такой блокировки нет, а обход по ролям
+// вдобавок означал бы, что задачу, оставшуюся от выбывшей роли, не разберёт
+// никто и никогда.
+func (o *Office) HumanReplies(ctx context.Context) (int, error) {
 	accounts := o.accounts()
 
 	count := 0
 	for _, project := range o.projects() {
-		// Задачи, ждущие человека, лежат без аренды — их и отдаёт ListReady.
-		refs, err := o.Tracker.ListReady(project, flow.Blocked())
-		if o.skipProject(project, err) {
-			continue
-		}
-		if err != nil {
-			return count, err
-		}
-		for _, ref := range refs {
-			task, err := o.Tracker.Get(ref.Key)
+		for _, column := range o.Workflow.HumanColumns() {
+			// Задачи, ждущие человека, лежат без аренды — их и отдаёт ListReady.
+			refs, err := o.Tracker.ListReady(project, column)
+			if o.skipProject(project, err) {
+				break
+			}
 			if err != nil {
 				return count, err
 			}
-			if !task.HumanFlag {
-				continue
-			}
-			reply, found := tracker.HumanReply(task.Comments, roleName, accounts)
-			if !found {
-				continue
-			}
-
-			if err := o.unblock(task, roleName, reply); err != nil {
-				if errors.Is(err, tracker.ErrNotOwner) {
-					// Задачу перехватили между чтением и записью — не наша забота.
-					o.logf("%s: разблокировать не вышло (%v), пропускаю", task.Key, err)
+			for _, ref := range refs {
+				task, err := o.Tracker.Get(ref.Key)
+				if err != nil {
+					return count, err
+				}
+				if !task.HumanFlag {
 					continue
 				}
-				return count, err
+				reply, roleName, found := tracker.HumanReply(task.Comments, accounts)
+				if !found {
+					continue
+				}
+
+				if err := o.unblock(task, roleName, reply); err != nil {
+					if errors.Is(err, tracker.ErrNotOwner) {
+						// Задачу перехватили между чтением и записью — не наша забота.
+						o.logf("%s: разблокировать не вышло (%v), пропускаю", task.Key, err)
+						continue
+					}
+					return count, err
+				}
+				count++
 			}
-			count++
 		}
 	}
 	return count, nil
 }
 
-// unblock возвращает разблокированную задачу в очередь роли.
+// unblock возвращает разблокированную задачу в очередь роли, говорившей последней.
+//
+// Роли в графе может уже не быть — её убрали или переименовали, а задача с её
+// вопросом осталась. Тогда работает запасной маршрут: оставить задачу в ожидании
+// было бы хуже, чем вернуть её не в ту очередь.
 func (o *Office) unblock(task tracker.Task, roleName string, reply tracker.Comment) error {
 	runID, err := runner.NewRunID()
 	if err != nil {
 		return err
 	}
-	to := o.Workflow.HumanReply.To
+
+	to := o.Workflow.HumanReply.Fallback
+	if flow, err := o.Workflow.Role(roleName); err == nil {
+		to = flow.ReadsFrom
+	} else {
+		o.logf("%s: роль %q в графе не описана, возвращаю задачу запасным маршрутом в %s", task.Key, roleName, to)
+	}
 
 	marker := tracker.Marker{
 		RunID: runID, Role: roleName, Event: tracker.EventHumanReply, ConfigSHA: o.ConfigSHA,

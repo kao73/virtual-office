@@ -123,8 +123,13 @@ func TestTailAfterRole(t *testing.T) {
 	}
 }
 
-// Ответ человека — комментарий не-агента после маркера needs_human своей роли.
-// Комментарий другой роли ответом человека не является, даже если он последний.
+// Ответ человека — реплика не-агента после **последней записи офиса** на задаче,
+// ждущей человека. Кто и чем её заблокировал, роли не играет: прежнее правило
+// требовало маркер needs_human, и задачи, заблокированные самим раннером
+// (попытки исчерпаны, серия смертей прогона), человек не мог вернуть в работу
+// вовсе — они стояли в ожидании вечно.
+//
+// Вместе с ответом возвращается роль последней записи: ей задача и достанется.
 func TestHumanReply(t *testing.T) {
 	agents := []string{"office", "office-reviewer"}
 
@@ -132,50 +137,81 @@ func TestHumanReply(t *testing.T) {
 		name     string
 		comments []Comment
 		want     string // тело ответа; пусто — ответа нет
+		role     string // кому вернуть задачу
 	}{
 		{
-			name:     "человек ответил",
+			name:     "ответ на вопрос роли",
 			comments: []Comment{report("implementer", "needs_human", 1), comment("человек", "Stripe.", 2)},
 			want:     "Stripe.",
+			role:     "implementer",
+		},
+		{
+			// Задачу заблокировал раннер: попытки исчерпаны, последняя запись —
+			// отчёт о провале, а не вопрос.
+			name:     "попытки исчерпаны",
+			comments: []Comment{report("implementer", "failed", 1), comment("человек", "Попробуй иначе.", 2)},
+			want:     "Попробуй иначе.",
+			role:     "implementer",
+		},
+		{
+			// И серия смертей прогона: последняя запись — системная.
+			name:     "прогон не доживает до отчёта",
+			comments: []Comment{notice("implementer", EventLeaseExpired, 1), comment("человек", "Починил машину.", 2)},
+			want:     "Починил машину.",
+			role:     "implementer",
+		},
+		{
+			// Маршрут — к тому, кто говорил последним: спросил reviewer, ему
+			// задача и вернётся, а не в очередь implementer'а.
+			name: "спрашивал reviewer",
+			comments: []Comment{
+				report("implementer", "done", 1),
+				report("reviewer", "needs_human", 2),
+				comment("человек", "Так и надо.", 3),
+			},
+			want: "Так и надо.",
+			role: "reviewer",
 		},
 		{
 			name:     "вопрос задан, ответа нет",
 			comments: []Comment{report("implementer", "needs_human", 1)},
 		},
 		{
-			name:     "после вопроса писал только другой агент",
+			name:     "после записи офиса писал только другой агент",
 			comments: []Comment{report("implementer", "needs_human", 1), comment("office-reviewer", "Посмотрел.", 2)},
 		},
 		{
-			name:     "последний отчёт роли — не вопрос",
-			comments: []Comment{report("implementer", "needs_human", 1), comment("человек", "Stripe.", 2), report("implementer", "failed", 3)},
-		},
-		{
-			// Идемпотентность: подтверждение уже написано, значит ответ разобран.
-			// Без этого следующий tick разбирал бы тот же ответ вечно.
+			// Идемпотентность: подтверждение разбора — тоже запись офиса, и она
+			// закрывает вопрос. Без этого следующий tick разбирал бы тот же ответ вечно.
 			name: "ответ уже разобран",
 			comments: []Comment{
 				report("implementer", "needs_human", 1),
 				comment("человек", "Stripe.", 2),
-				comment("office", Marker{RunID: runID, Role: "implementer", Event: EventHumanReply, ConfigSHA: "5bc6a3b0"}.String()+"\nВозвращаю в работу.", 3),
+				notice("implementer", EventHumanReply, 3),
 			},
 		},
 		{
-			name:     "вопроса не было вовсе",
+			// Офис ещё не говорил — отвечать было не на что.
+			name:     "записей офиса нет вовсе",
 			comments: []Comment{comment("человек", "Просто мысль.", 1)},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := HumanReply(tc.comments, "implementer", agents)
+			got, role, ok := HumanReply(tc.comments, agents)
 			switch {
 			case tc.want == "" && ok:
-				t.Errorf("найден ответ, которого нет: %q", got.Body)
-			case tc.want != "" && !ok:
-				t.Error("ответ человека не найден")
-			case tc.want != "" && got.Body != tc.want:
+				t.Fatalf("найден ответ, которого нет: %q", got.Body)
+			case tc.want == "":
+				return
+			case !ok:
+				t.Fatal("ответ человека не найден")
+			case got.Body != tc.want:
 				t.Errorf("ответ %q, ожидался %q", got.Body, tc.want)
+			}
+			if role != tc.role {
+				t.Errorf("задача вернётся роли %q, ожидалась %q", role, tc.role)
 			}
 		})
 	}

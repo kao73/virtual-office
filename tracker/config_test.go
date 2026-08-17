@@ -3,6 +3,7 @@ package tracker
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,9 +62,34 @@ limits:
   max_lease_expiries: 3
   lease_margin_sec: 300
 human_reply:
-  to: Ready
+  fallback: Ready
   reset_attempts: true
 `
+
+// Задача с вопросом уходит в колонку ожидания, и туда же её отправляет раннер,
+// заблокировав по своим причинам. Безролевому проходу разбора ответов набор
+// таких колонок нужен целиком: роли у него нет, а искать ожидающие задачи
+// где-то надо. Повторов в наборе быть не должно — две роли вправе ждать человека
+// в одной колонке.
+func TestHumanColumns(t *testing.T) {
+	twoRoles := strings.Replace(validWorkflow, "limits:", `  reviewer:
+    reads_from: Review
+    working: InProgress
+    outcomes:
+      done:        { to: Done }
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Review, attempts: +1 }
+      failed:      { to: Review, attempts: +1 }
+limits:`, 1)
+
+	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, twoRoles))
+	if err != nil {
+		t.Fatalf("граф не загружен: %v", err)
+	}
+	if got := wf.HumanColumns(); !slices.Equal(got, []string{"Blocked"}) {
+		t.Errorf("колонки ожидания %v, ожидалась одна Blocked", got)
+	}
+}
 
 func TestLoadWorkflow(t *testing.T) {
 	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, validWorkflow))
@@ -121,8 +147,8 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			want: "blocked",
 		},
 		{
-			name: "ответ человека ведёт в никуда",
-			yaml: strings.Replace(validWorkflow, "human_reply:\n  to: Ready", "human_reply:\n  to: Todo", 1),
+			name: "запасной маршрут ответа ведёт в никуда",
+			yaml: strings.Replace(validWorkflow, "human_reply:\n  fallback: Ready", "human_reply:\n  fallback: Todo", 1),
 			want: "Todo",
 		},
 		{

@@ -3,8 +3,6 @@ package tracker
 import (
 	"slices"
 	"strings"
-
-	"github.com/kao73/virtual-office/runner"
 )
 
 // Prefix — с чего начинается любая запись офиса в трекере.
@@ -147,33 +145,41 @@ func LeaseExpiries(comments []Comment, role string) int {
 	return streak
 }
 
-// HumanReply ищет неразобранный ответ человека на вопрос роли.
+// HumanReply ищет неразобранный ответ человека и роль, которой после него
+// достанется задача.
 //
-// Ответ — комментарий любой учётки не из agents, написанный после маркера
-// `outcome:needs_human` этой роли. Смотрим именно на последний маркер роли:
-// если после вопроса роль уже отчитывалась снова или раннер уже отметил разбор
-// ответа записью `event:human-reply`, вопрос закрыт. Иначе каждый следующий tick
-// разбирал бы тот же ответ заново.
-func HumanReply(comments []Comment, role string, agents []string) (Comment, bool) {
-	// Здесь, в отличие от нарезки хвоста, годится любая запись роли: подтверждение
-	// разбора `event:human-reply` обязано закрывать вопрос.
-	last := lastOfRole(comments, role, func(Marker) bool { return true })
-	if last < 0 {
-		return Comment{}, false
-	}
-	// Имена исходов берутся из контракта «раннер ↔ агент», а не заводятся заново:
-	// два списка одних и тех же значений разъезжаются.
-	m, _ := MarkerOf(comments[last].Body)
-	if m.Outcome != string(runner.OutcomeNeedsHuman) {
-		return Comment{}, false
-	}
-
-	for _, c := range comments[last+1:] {
-		if !slices.Contains(agents, c.Author) {
-			return c, true
+// Ответ — реплика любой учётки не из agents, написанная после **последней записи
+// офиса**, какой бы та ни была. Вопрос роли, отчёт о провале с исчерпанными
+// попытками, серия смертей прогона — задачу в ожидание отправляет не только
+// агент, и человек обязан уметь вернуть её в работу в любом из этих случаев.
+// Прежнее правило требовало маркер `outcome:needs_human`, и всё, что заблокировал
+// сам раннер, застревало навсегда.
+//
+// Смотреть надо именно на последнюю запись: подтверждение разбора
+// `event:human-reply` — тоже запись офиса, и она закрывает вопрос. Иначе каждый
+// следующий tick разбирал бы тот же ответ заново.
+//
+// Роль берётся из той же последней записи: разговор ведёт она, ей задача
+// и вернётся. Спросил reviewer — вернётся в его очередь, а не в очередь
+// implementer'а.
+func HumanReply(comments []Comment, agents []string) (Comment, string, bool) {
+	last := -1
+	for i := len(comments) - 1; i >= 0 && last < 0; i-- {
+		if _, found := MarkerOf(comments[i].Body); found {
+			last = i
 		}
 	}
-	return Comment{}, false
+	if last < 0 {
+		return Comment{}, "", false
+	}
+
+	marker, _ := MarkerOf(comments[last].Body)
+	for _, c := range comments[last+1:] {
+		if !slices.Contains(agents, c.Author) {
+			return c, marker.Role, true
+		}
+	}
+	return Comment{}, "", false
 }
 
 // lastOfRole — индекс последней записи офиса, помеченной этой ролью и подошедшей

@@ -382,15 +382,79 @@ func TestHumanReplyIsProcessedOnce(t *testing.T) {
 	}
 
 	// Первый разбор возвращает задачу в очередь, второй не должен найти работы.
-	replies, err := o.HumanReplies(context.Background(), "implementer")
+	replies, err := o.HumanReplies(context.Background())
 	if err != nil {
 		t.Fatalf("разбор ответов не прошёл: %v", err)
 	}
 	if replies != 1 {
 		t.Fatalf("разобрано ответов %d, ожидался 1", replies)
 	}
-	if replies, err = o.HumanReplies(context.Background(), "implementer"); err != nil || replies != 0 {
+	if replies, err = o.HumanReplies(context.Background()); err != nil || replies != 0 {
 		t.Errorf("повторный разбор дал %d, %v", replies, err)
+	}
+}
+
+// Задачу в ожидание отправляет не только вопрос агента: раннер делает это сам,
+// исчерпав попытки. Ответ человека обязан возвращать её в работу и в этом случае,
+// иначе она остаётся в Blocked навсегда — снять флаг ожидания больше некому.
+func TestHumanReplyReturnsTaskBlockedByRunner(t *testing.T) {
+	o := newOffice(t)
+	o.agent.result = runner.Result{Outcome: runner.OutcomeFailed, Summary: "не вышло", NextOwner: "human"}
+	for i := 0; i < o.Workflow.Limits.MaxAttempts; i++ {
+		o.tick(t)
+	}
+	if task := o.get(t, "OFF-1"); task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("задача не ушла к человеку после исчерпания попыток: %+v", task)
+	}
+
+	if err := o.tasks.AddComment("OFF-1", "human", "Попробуй иначе."); err != nil {
+		t.Fatalf("ответ не записан: %v", err)
+	}
+	o.agent.result = done("сделал по подсказке")
+
+	if !o.tick(t) {
+		t.Fatal("после ответа человека задача не взята")
+	}
+	task := o.get(t, "OFF-1")
+	if task.Status != "Review" {
+		t.Errorf("статус %q, ожидался Review", task.Status)
+	}
+	if task.HumanFlag {
+		t.Error("атрибут ожидания не снят")
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d, ожидался сброс: человек снял причину", task.Attempts)
+	}
+}
+
+// Роль, говорившая последней, могла исчезнуть из графа — её убрали или
+// переименовали, а задача с её вопросом осталась. Возвращать такую задачу
+// в очередь несуществующей роли некуда, на это в графе есть запасной маршрут.
+func TestHumanReplyFallsBackWhenRoleIsGone(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Blocked", Summary: "спрашивал исчезнувший",
+		HumanFlag: true,
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	marker := tracker.Marker{RunID: "мертвец-1", Role: "planner", Outcome: "needs_human", ConfigSHA: "5bc6a3b0"}
+	if err := o.tasks.AddComment("OFF-2", mock.Account, marker.String()+"\nНужно решение."); err != nil {
+		t.Fatalf("вопрос не записан: %v", err)
+	}
+	if err := o.tasks.AddComment("OFF-2", "human", "Делаем первое."); err != nil {
+		t.Fatalf("ответ не записан: %v", err)
+	}
+
+	if replies, err := o.HumanReplies(context.Background()); err != nil || replies != 1 {
+		t.Fatalf("разобрано ответов %d, %v", replies, err)
+	}
+	task := o.get(t, "OFF-2")
+	if task.Status != o.Workflow.HumanReply.Fallback {
+		t.Errorf("статус %q, ожидался запасной маршрут %q", task.Status, o.Workflow.HumanReply.Fallback)
+	}
+	if task.HumanFlag {
+		t.Error("атрибут ожидания не снят")
 	}
 }
 
@@ -441,6 +505,15 @@ func TestTickTakesNextTaskAfterLostClaim(t *testing.T) {
 	if task := o.get(t, "OFF-1"); task.Status != "Ready" {
 		t.Errorf("проигранная задача сдвинулась: %+v", task)
 	}
+
+	// Замок на папке проигранной задачи взят до захвата, и его обязаны снять:
+	// иначе победитель гонки упрётся в чужой замок на пустом месте.
+	lost, err := o.Office.Workspaces.Ensure(
+		tracker.TaskRef{Key: "OFF-1", Project: "OFF"}, o.Office.Projects["OFF"])
+	if err != nil {
+		t.Fatalf("папка проигранной задачи осталась запертой: %v", err)
+	}
+	lost.Unlock()
 }
 
 // Прогон, доживший до конца после reap, не пишет в трекер ничего, кроме
@@ -807,11 +880,10 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	}
 }
 
-// Барьер рабочей папки — второй после трекера, и он не зависит от workflow:
-// в папке OFF-1 уже работает другой прогон. tick обязан отступить, не тронув
-// аренду: сняв её, он вернул бы задачу в очередь, где следующий заход упёрся бы
-// в тот же замок.
-func TestTickStepsAsideWhenWorktreeIsBusy(t *testing.T) {
+// Барьер рабочей папки берётся **до** захвата, и это не косметика: захватив
+// задачу первым, tick успевал бы перезаписать аренду соседа, прежде чем упереться
+// в замок. Занята папка — в трекере не должно измениться ничего.
+func TestTickDoesNotTouchTrackerWhenWorktreeIsBusy(t *testing.T) {
 	var log strings.Builder
 	o := newOffice(t)
 	o.Office.Log = &log
@@ -823,22 +895,44 @@ func TestTickStepsAsideWhenWorktreeIsBusy(t *testing.T) {
 	}
 	defer busy.Unlock()
 
-	if !o.tick(t) {
-		t.Fatal("цикл не взял задачу")
+	if o.tick(t) {
+		t.Fatal("цикл взял задачу, рабочая папка которой занята")
 	}
 	if o.agent.runs != 0 {
 		t.Errorf("агент запущен в чужой рабочей папке: прогонов %d", o.agent.runs)
 	}
 
 	task := o.get(t, "OFF-1")
-	if task.Status != "InProgress" {
-		t.Errorf("статус %q: задача не оставлена как есть", task.Status)
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался Ready: задача не должна была быть захвачена", task.Status)
 	}
-	if !task.LeaseAlive(now) {
-		t.Errorf("аренда снята — задача вернётся в очередь и упрётся в тот же замок: %+v", task)
+	if task.RunID != "" {
+		t.Errorf("аренда записана поверх чужой работы: %+v", task)
 	}
 	if !strings.Contains(log.String(), "занята") {
 		t.Errorf("отступление не объяснено в логе:\n%s", log.String())
+	}
+}
+
+// Занятая папка — не конец цикла: берём следующего кандидата. Прежде обход
+// обрывался на первой же занятой задаче, потому что замок брался после захвата
+// и упирался в него уже сам прогон.
+func TestTickTakesNextTaskWhenWorktreeIsBusy(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Ready")
+
+	busy, err := o.Office.Workspaces.Ensure(
+		tracker.TaskRef{Key: "OFF-1", Project: "OFF"}, o.Office.Projects["OFF"])
+	if err != nil {
+		t.Fatalf("папка не занята: %v", err)
+	}
+	defer busy.Unlock()
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял ни одной задачи")
+	}
+	if o.agent.seen.Passport.TaskKey != "OFF-2" {
+		t.Errorf("в работу ушла %q, ожидалась OFF-2", o.agent.seen.Passport.TaskKey)
 	}
 }
 

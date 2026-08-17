@@ -421,19 +421,22 @@ func TestHumanReplyThroughStore(t *testing.T) {
 		t.Fatalf("аренда не снята: %v", err)
 	}
 
-	if _, found := tracker.HumanReply(get(t, tr).Comments, "implementer", agents); found {
+	if _, _, found := tracker.HumanReply(get(t, tr).Comments, agents); found {
 		t.Error("ответ найден до того, как человек ответил")
 	}
 
 	if err := tr.AddComment("OFF-1", "человек", "Берём Stripe."); err != nil {
 		t.Fatalf("ответ не записан: %v", err)
 	}
-	reply, found := tracker.HumanReply(get(t, tr).Comments, "implementer", agents)
+	reply, role, found := tracker.HumanReply(get(t, tr).Comments, agents)
 	if !found {
 		t.Fatal("ответ человека не найден")
 	}
 	if reply.Body != "Берём Stripe." {
 		t.Errorf("ответ прочитан как %q", reply.Body)
+	}
+	if role != "implementer" {
+		t.Errorf("задача вернётся роли %q, ожидалась implementer", role)
 	}
 
 	// Отметка о разборе закрывает вопрос: следующий tick не должен разбирать его снова.
@@ -441,7 +444,7 @@ func TestHumanReplyThroughStore(t *testing.T) {
 	if err := tr.Comment("OFF-1", tracker.BySystem(), tracker.NoticeBody(done, "Возвращаю в работу.")); err != nil {
 		t.Fatalf("отметка не записана: %v", err)
 	}
-	if _, found := tracker.HumanReply(get(t, tr).Comments, "implementer", agents); found {
+	if _, _, found := tracker.HumanReply(get(t, tr).Comments, agents); found {
 		t.Error("разобранный ответ найден повторно")
 	}
 }
