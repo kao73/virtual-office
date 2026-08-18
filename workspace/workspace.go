@@ -311,25 +311,71 @@ func (m *Manager) hasWorktree(repo, dir string) (bool, error) {
 	return false, nil
 }
 
-// addWorktree заводит рабочую папку: на существующей ветке задачи, если она уже
-// есть в клоне, иначе новой веткой от origin/<default>.
+// addWorktree заводит рабочую папку на ветке задачи.
+//
+// Ветка ищется в трёх местах, по порядку: локальные ссылки клона,
+// `origin/<ветка задачи>` и — если её нигде нет — `origin/<default>`.
+//
+// Средний случай не роскошь. Раннер сам публикует ветку задачи после каждого
+// прогона, а локальные ссылки живут в клоне, который сносят: стёртое хозяйство,
+// вторая машина, новый диск. Без взгляда на origin implementer стартовал бы
+// от ветки по умолчанию, не увидев плана аналитика, а его собственный пуш потом
+// отвергался бы как non-fast-forward — работа целая, но никто не понимает, где.
 func (m *Manager) addWorktree(ws Workspace, project tracker.Project) error {
-	exists, err := branchExists(ws.Repo, ws.Branch)
+	local, err := refExists(ws.Repo, "refs/heads/"+ws.Branch)
 	if err != nil {
 		return err
 	}
-	if exists {
-		_, err = git(ws.Repo, "worktree", "add", "--quiet", ws.Dir, ws.Branch)
+	remote, err := refExists(ws.Repo, "refs/remotes/origin/"+ws.Branch)
+	if err != nil {
 		return err
 	}
 
-	base := "origin/" + project.DefaultBranch
-	_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, base)
+	switch {
+	case local:
+		// Локальная ветка есть — но fetch мог принести на неё чужие коммиты.
+		// Отставшую подтягиваем, разошедшуюся оставляем как есть: сливать
+		// расхождение — не дело раннера, и об этом всё равно скажет push-failed
+		// (docs/contracts/tracker-protocol.md).
+		if remote {
+			if err := fastForward(ws.Repo, ws.Branch); err != nil {
+				return err
+			}
+		}
+		_, err = git(ws.Repo, "worktree", "add", "--quiet", ws.Dir, ws.Branch)
+	case remote:
+		_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, "origin/"+ws.Branch)
+	default:
+		_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, "origin/"+project.DefaultBranch)
+	}
 	return err
 }
 
-func branchExists(repo, branch string) (bool, error) {
-	cmd := exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+// fastForward подтягивает локальную ветку задачи к origin, если это перемотка.
+//
+// Ветка в этот момент ни в одной рабочей папке не выложена — addWorktree зовут
+// только тогда, когда папки нет, — поэтому двигается она ссылкой, без checkout.
+func fastForward(repo, branch string) error {
+	local, remote := "refs/heads/"+branch, "refs/remotes/origin/"+branch
+
+	cmd := exec.Command("git", "-C", repo, "merge-base", "--is-ancestor", local, remote)
+	cmd.Env = gitEnv()
+	switch err := cmd.Run(); {
+	case err == nil:
+		_, err := git(repo, "branch", "--force", branch, remote)
+		return err
+	case isExitCode(err, 1):
+		return nil // локальная впереди или ветки разошлись — не наше дело
+	default:
+		return fmt.Errorf("ветка %s не сверена с origin: %w", branch, err)
+	}
+}
+
+// refExists — есть ли такая ссылка в клоне. Имя даётся целиком
+// (`refs/heads/...`, `refs/remotes/origin/...`): сокращённое git разрешает
+// по своим правилам приоритета, а нам нужно знать, какая именно ссылка есть.
+func refExists(repo, ref string) (bool, error) {
+	cmd := exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", ref)
 	cmd.Env = gitEnv()
 	switch err := cmd.Run(); {
 	case err == nil:
@@ -337,7 +383,7 @@ func branchExists(repo, branch string) (bool, error) {
 	case isExitCode(err, 1):
 		return false, nil
 	default:
-		return false, fmt.Errorf("ветка %s не проверена: %w", branch, err)
+		return false, fmt.Errorf("ссылка %s не проверена: %w", ref, err)
 	}
 }
 

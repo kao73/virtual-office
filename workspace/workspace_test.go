@@ -228,6 +228,119 @@ func TestEnsureFetchesBeforeNewTask(t *testing.T) {
 	}
 }
 
+// seedBranch публикует в origin ветку с одним файлом и отдаёт её коммит.
+// Так выглядит работа, сделанная не этой машиной: другим раннером, другой ролью
+// или этим же раннером до того, как его хозяйство снесли.
+func seedBranch(t *testing.T, originURL, branch, file, content string) string {
+	t.Helper()
+	root := t.TempDir()
+	gitT(t, root, "clone", "-q", originURL, "work")
+	work := filepath.Join(root, "work")
+
+	// Ветку продолжаем, если она в origin уже есть, и заводим от умолчания, если
+	// нет: помощнику нужны оба случая — «другая машина ушла вперёд» и «другая
+	// машина сделала своё».
+	if exec.Command("git", "-C", work, "show-ref", "--verify", "--quiet",
+		"refs/remotes/origin/"+branch).Run() == nil {
+		gitT(t, work, "checkout", "-q", "-B", branch, "origin/"+branch)
+	} else {
+		gitT(t, work, "checkout", "-q", "-B", branch)
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(work, file)), 0o755); err != nil {
+		t.Fatalf("каталог не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(work, file), []byte(content), 0o644); err != nil {
+		t.Fatalf("файл не записан: %v", err)
+	}
+	gitT(t, work, "add", "-A")
+	gitT(t, work, "commit", "-q", "-m", "работа другой машины")
+	gitT(t, work, "push", "-q", "origin", branch)
+	return gitT(t, work, "rev-parse", "HEAD")
+}
+
+// На свежем клоне локальной ветки задачи нет, а работа предыдущей роли лежит
+// в origin: раннер сам её туда запушил. Ветвиться от origin/<default> здесь
+// значило бы начать задачу заново — implementer не увидел бы плана аналитика,
+// а его пуш потом отвергся бы как non-fast-forward.
+func TestEnsureTakesTaskBranchFromOrigin(t *testing.T) {
+	m, project, task := setup(t)
+	want := seedBranch(t, project.RepoURL, "agent/OFF-1", "docs/changes/OFF-1/tasks.md", "- [ ] шаг\n")
+
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	if got := gitT(t, ws.Dir, "rev-parse", "HEAD"); got != want {
+		t.Errorf("worktree стоит на %s, а работа задачи — на %s", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(ws.Dir, "docs/changes/OFF-1/tasks.md")); err != nil {
+		t.Errorf("работа из origin не приехала: %v", err)
+	}
+}
+
+// Локальная ветка задачи есть, но отстала: пока папки не было, работу
+// опубликовала другая машина. Перемотка возможна — значит раннер обязан её
+// сделать, иначе роль стартует со старого состояния.
+func TestEnsurePullsUpStaleTaskBranch(t *testing.T) {
+	m, project, task := setup(t)
+
+	first, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("первая рабочая папка не создана: %v", err)
+	}
+	gitT(t, first.Dir, "commit", "-q", "--allow-empty", "-m", "план аналитика")
+	if _, err := m.Push(first); err != nil {
+		t.Fatalf("ветка не опубликована: %v", err)
+	}
+	if err := first.Unlock(); err != nil {
+		t.Fatalf("замок не снят: %v", err)
+	}
+	if err := m.Remove(first); err != nil {
+		t.Fatalf("worktree не удалён: %v", err)
+	}
+
+	want := seedBranch(t, project.RepoURL, "agent/OFF-1", "docs/changes/OFF-1/tasks.md", "- [ ] шаг\n")
+
+	second, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("вторая рабочая папка не создана: %v", err)
+	}
+	if got := gitT(t, second.Dir, "rev-parse", "HEAD"); got != want {
+		t.Errorf("отставшая ветка не подтянута: %s вместо %s", got, want)
+	}
+}
+
+// Ветки разошлись — раннер их не сливает и ничего не переписывает: у него
+// нет ни права решать за роли, ни способа разобрать конфликт. Работа остаётся
+// на месте, а о расхождении скажет push-failed после прогона.
+func TestEnsureKeepsDivergedTaskBranch(t *testing.T) {
+	m, project, task := setup(t)
+
+	first, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("первая рабочая папка не создана: %v", err)
+	}
+	gitT(t, first.Dir, "commit", "-q", "--allow-empty", "-m", "местная работа")
+	local := gitT(t, first.Dir, "rev-parse", "HEAD")
+	if err := first.Unlock(); err != nil {
+		t.Fatalf("замок не снят: %v", err)
+	}
+	if err := m.Remove(first); err != nil {
+		t.Fatalf("worktree не удалён: %v", err)
+	}
+
+	// В origin та же ветка, но выросшая из другого корня: перемотки нет.
+	seedBranch(t, project.RepoURL, "agent/OFF-1", "чужое.txt", "не наше\n")
+
+	second, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("вторая рабочая папка не создана: %v", err)
+	}
+	if got := gitT(t, second.Dir, "rev-parse", "HEAD"); got != local {
+		t.Errorf("расхождение переписано: ветка стоит на %s вместо %s", got, local)
+	}
+}
+
 func TestPushOnlyWhenThereIsSomethingToPush(t *testing.T) {
 	m, project, task := setup(t)
 
