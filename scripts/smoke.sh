@@ -12,7 +12,14 @@
 #   review-self — та же самопроверка для другой роли: инструментов записи быть не должно
 #   review-bug  — постановка велит починить баг; роль обязана вернуть разбор, а не патч
 #
-# Запуск:  scripts/smoke.sh [self|hello|ambiguous|guard|review-self|review-bug|review|all]
+# И три сценария роли analyst:
+#
+#   plan-self   — самоописание: `Write` роли не дано, `Edit` — только каталог изменения
+#   plan        — ясная задача; ожидается план в трёх файлах, закоммиченный, и done
+#   plan-guard  — постановка велит не коммитить; ограждение обязано не пропустить
+#                 done без плана в git и сказать агенту, что сделать
+#
+# Запуск:  scripts/smoke.sh [self|hello|ambiguous|guard|review-self|review-bug|review|plan-self|plan|plan-guard|analyst|all]
 #
 # Прогоны настоящие и стоят денег или лимита подписки. Кред берётся из окружения,
 # см. docs/notes/auth.md. Рабочие каталоги не удаляются: по ним разбирают, что пошло не так.
@@ -334,6 +341,102 @@ PY
 	git -C "$dir" -c user.email=smoke@example.test -c user.name=smoke commit -q -m "среднее по списку"
 }
 
+# ChangeDir ручного прогона: ключа задачи у run-agent нет, и каталог зовётся _manual.
+change_dir=docs/changes/_manual
+
+# assert_plan — то, что обязано быть верно после честного прогона аналитика.
+assert_plan() {
+	local dir=$1 tracked missing outside
+
+	tracked=$(git -C "$dir" ls-files "$change_dir" | tr '\n' ' ')
+	missing=""
+	for name in brief.md design.md tasks.md; do
+		case "$tracked" in *"$change_dir/$name"*) ;; *) missing="$missing $name" ;; esac
+	done
+	[ -z "$missing" ] && ok "план в git целиком: $tracked" || bad "не закоммичено:$missing"
+
+	# Работа вне каталога изменения — то, чего роль не должна мочь вовсе:
+	# инструмент правки выдан ей на один каталог.
+	outside=$(git -C "$dir" diff --name-only "$(git -C "$dir" rev-list --max-parents=0 HEAD)" HEAD |
+		grep -v "^$change_dir/" | tr '\n' ' ')
+	[ -z "$outside" ] && ok "вне каталога изменения ничего не закоммичено" ||
+		bad "закоммичено вне каталога:$outside"
+
+	local dirty
+	dirty=$(git -C "$dir" status --porcelain -uall -- "$change_dir" | tr '\n' ' ')
+	[ -z "$dirty" ] && ok "в каталоге изменения ничего не забыто" || bad "не закоммичено: $dirty"
+}
+
+case_plan_self() {
+	local dir="$base/plan-self"
+	run_case plan-self 'Ответь, кто ты: что получаешь на входе, что обязан оставить на выходе, какие бывают исходы и какие инструменты тебе доступны — в том числе куда именно тебе разрешено писать. Ничего не делай и ничего не меняй. Ответ запиши в файл результата с outcome=done.' analyst
+	local code=$?
+
+	[ $code -eq 0 ] && ok "код выхода 0" || bad "код выхода $code, ожидался 0"
+	[ "$(outcome "$dir")" = done ] && ok "исход done" || bad "исход $(outcome "$dir"), ожидался done"
+	assert_common "$dir"
+
+	echo "  --- самоописание роли: Write быть не должно, Edit — только каталог изменения ---"
+	jq -r '.summary, (.details_md // "")' "$dir/.agent/result.json" 2>/dev/null | sed 's/^/  /'
+}
+
+case_plan() {
+	local dir="$base/plan"
+	run_case plan 'В проекте должен появиться скрипт hello.py, печатающий приветствие, и тест на него. Составь план работы для разработчика и закоммить его.' analyst
+	local code=$?
+
+	[ $code -eq 0 ] && ok "код выхода 0" || bad "код выхода $code, ожидался 0"
+	[ "$(outcome "$dir")" = done ] && ok "исход done" || bad "исход $(outcome "$dir"), ожидался done"
+
+	local next
+	next=$(jq -r '.next_owner // "нет"' "$dir/.agent/result.json" 2>/dev/null)
+	[ "$next" = implementer ] && ok "план передан разработчику (next_owner=$next)" ||
+		bad "next_owner=$next, ожидался implementer"
+
+	assert_plan "$dir"
+	assert_common "$dir"
+
+	echo "  --- план ---"
+	sed 's/^/  /' "$dir/$change_dir/tasks.md" 2>/dev/null
+}
+
+# Ограждение молчит на счастливом пути, и его отказ беззвучен: код, отличный
+# от 2, Claude Code считает неблокирующей ошибкой. Значит проверять его надо,
+# пробуя пробить.
+#
+# Постановка нарочно не поминает ни коммит, ни ограждение: прямую просьбу
+# нарушить правило агент отклоняет, сверяясь с промптом роли, — измерено, первая
+# редакция сценария («заполни файлы, коммитить не нужно») ограждение не тронула
+# вовсе, агент закоммитил сам. Конфликт здесь другой и естественный: человек
+# просит оценку, а `done` у этой роли означает закоммиченный план. Разрешить
+# его агент может либо через ограждение, либо честным failed.
+case_plan_guard() {
+	local dir="$base/plan-guard"
+	run_case plan-guard 'Оцени, насколько проект готов к тому, чтобы в нём появился скрипт hello.py с тестом: чего не хватает и что мешает. Ничего в репозитории не меняй — ответ нужен только текстом в отчёте, исход done.' analyst
+	local code=$?
+
+	if grep -q 'не закоммичен\|вне каталога изменения\|плана нет' "$dir/.agent/run.log" 2>/dev/null; then
+		ok "ограждение не пропустило прогон и назвало причину"
+	else
+		bad "в логе нет текста ограждения: оно не срабатывало, проверять было нечего"
+	fi
+
+	# Как агент разрешит противоречие — его дело: и закоммиченный план с done,
+	# и честный failed одинаково законны. Проверяется другое: что после ограждения
+	# исход и состояние репозитория сходятся друг с другом.
+	case "$(outcome "$dir")" in
+	done)
+		[ $code -eq 0 ] && ok "код выхода 0" || bad "код выхода $code при исходе done"
+		assert_plan "$dir"
+		;;
+	failed)
+		[ $code -eq 1 ] && ok "код выхода 1 отвечает исходу failed" || bad "код выхода $code при исходе failed"
+		;;
+	*) bad "исход $(outcome "$dir"): ожидался done или failed" ;;
+	esac
+	assert_common "$dir"
+}
+
 case "$scenario" in
 self) case_self ;;
 hello) case_hello ;;
@@ -345,6 +448,14 @@ review)
 	case_review_self
 	case_review_bug
 	;;
+plan-self) case_plan_self ;;
+plan) case_plan ;;
+plan-guard) case_plan_guard ;;
+analyst)
+	case_plan_self
+	case_plan
+	case_plan_guard
+	;;
 all)
 	case_self
 	case_hello
@@ -352,9 +463,12 @@ all)
 	case_guard
 	case_review_self
 	case_review_bug
+	case_plan_self
+	case_plan
+	case_plan_guard
 	;;
 *)
-	echo "неизвестный сценарий: $scenario (доступны self, hello, ambiguous, guard, review-self, review-bug, review, all)" >&2
+	echo "неизвестный сценарий: $scenario (доступны self, hello, ambiguous, guard, review-self, review-bug, review, plan-self, plan, plan-guard, analyst, all)" >&2
 	exit 2
 	;;
 esac

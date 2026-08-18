@@ -131,6 +131,22 @@ func execute() (int, error) {
 		BaseCommit: base,
 	}
 
+	// Каталог изменения готовится так же, как в проде: роль, объявившая область
+	// записи, получает готовые артефакты по своим шаблонам. Ключа задачи здесь
+	// нет — трекера нет вовсе, — и каталог называется _manual: отладка роли
+	// обязана выглядеть как её работа.
+	created, err := runner.PrepareChangeDir(workdir, role, passport.TaskKey)
+	if err != nil {
+		return 0, err
+	}
+	// Заготовки, до которых не дошли руки, не должны пережить прогон: три пустых
+	// шаблона в чужой папке — мусор, который потом читается как план.
+	sweep := func() {
+		if err := runner.SweepChangeDir(workdir, role, created); err != nil {
+			fmt.Fprintln(os.Stderr, "run-agent: заготовки каталога изменения не убраны:", err)
+		}
+	}
+
 	// Свою ветку рабочая папка знает сама, базовую — нет: она задаётся флагом.
 	// В проде обе называет раннер, здесь их подставляет человек.
 	input := runner.Input{Task: task, Branch: headBranch(workdir), BaseBranch: *baseFlag}
@@ -153,10 +169,12 @@ func execute() (int, error) {
 		}
 		defer func() { _ = launch.Cleanup() }()
 		printDryRun(launch, passport)
+		sweep()
 		return 0, nil
 	}
 
 	out, err := runagent.Execute(context.Background(), opts)
+	sweep()
 	if err != nil {
 		// Прогон мог состояться, а сорваться архивация — тогда исход печатаем,
 		// но о беде говорим отдельно.

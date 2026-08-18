@@ -191,3 +191,53 @@ func mustRead(t *testing.T, path string) []byte {
 
 // Сложение дробей даёт хвост в последнем знаке; в деньгах он значения не имеет.
 func closeEnough(got, want float64) bool { return got-want < 1e-9 && want-got < 1e-9 }
+
+// Переигрыш исхода — вторая строка того же прогона, без расхода. Прогон был
+// один и оплачен один раз: в сводке он остаётся одним, а исход показывается
+// эффективный — тот, по которому задача поехала.
+func TestLedgerOverrideReplacesOutcome(t *testing.T) {
+	l := newLedger(t)
+	run := entry("OFF-1", "analyst", 0.42, day)
+	override := Entry{
+		RunID: run.RunID, Task: run.Task, Role: run.Role, Project: run.Project,
+		Started: run.Started, Outcome: "failed", ConfigSHA: run.ConfigSHA, Overrides: true,
+	}
+	write(t, l, run, override, entry("OFF-2", "implementer", 0.10, day))
+
+	total, err := l.Sum(Filter{})
+	if err != nil {
+		t.Fatalf("сводка не собрана: %v", err)
+	}
+	if total.Runs != 2 {
+		t.Errorf("прогонов %d, ожидалось 2: переигрыш прогоном не является", total.Runs)
+	}
+	if total.CostUSD != 0.52 {
+		t.Errorf("сумма $%.4f, ожидалось $0.52: за прогон заплачено один раз", total.CostUSD)
+	}
+	if total.ByOutcome["failed"] != 1 || total.ByOutcome["done"] != 1 {
+		t.Errorf("исходы %v, ожидались failed 1 и done 1", total.ByOutcome)
+	}
+	// Строка переигрыша цены не называет, но прогоном без цены её считать нельзя:
+	// сумма из-за неё не занижена.
+	if total.Unknown != 0 {
+		t.Errorf("прогонов без цены %d, ожидалось 0", total.Unknown)
+	}
+}
+
+// Начало файла бывает обрезано, и переигрыш можно прочитать без его прогона.
+// Выдумывать за него прогон нечестно: сводка молча пропускает такую строку.
+func TestLedgerOverrideWithoutItsRun(t *testing.T) {
+	l := newLedger(t)
+	write(t, l, Entry{
+		RunID: "потерянный", Task: "OFF-1", Role: "analyst", Started: day,
+		Outcome: "failed", ConfigSHA: "5bc6a3b0", Overrides: true,
+	})
+
+	total, err := l.Sum(Filter{})
+	if err != nil {
+		t.Fatalf("сводка не собрана: %v", err)
+	}
+	if total.Runs != 0 || len(total.ByOutcome) != 0 {
+		t.Errorf("сводка %+v, ожидалась пустая", total)
+	}
+}

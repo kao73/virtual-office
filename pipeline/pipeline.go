@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kao73/virtual-office/budget"
+	"github.com/kao73/virtual-office/guard"
 	"github.com/kao73/virtual-office/ledger"
 	"github.com/kao73/virtual-office/runner"
 	"github.com/kao73/virtual-office/tracker"
@@ -386,6 +387,14 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		RunID: runID, Role: roleName, ConfigSHA: o.ConfigSHA,
 		StartedAt: o.now(), TaskKey: task.Key, BaseCommit: base,
 	}
+	// Каталог изменения готовит раннер: роль, объявившая область записи, получает
+	// готовые файлы и право их править — создавать ей нечем. Делается это до сборки
+	// контекста: путь к каталогу агент узнаёт оттуда, а на первом прогоне каталога
+	// ещё нет вовсе. Имени роли здесь нет — поведение следует из её спецификации.
+	created, err := runner.PrepareChangeDir(ws.Dir, role, task.Key)
+	if err != nil {
+		return false, err
+	}
 	input := runner.Input{
 		Task:       taskBody(task),
 		Branch:     ws.Branch,
@@ -450,7 +459,30 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		return false, o.pushFailed(task, runID, roleName, flow, result, usage, pushErr)
 	}
 
-	to, err := o.finish(task, runID, roleName, flow, result, branch, usage)
+	// Ограждения роли — здесь же, где выбирается маршрут. Хук зовёт их, пока агент
+	// жив и может починить сделанное, но прогон, убитый таймаутом или пределом
+	// шагов, до хука не доживает; раннер зовёт их всегда. Прогон, у которого
+	// отобрали аренду или не удалась публикация, маршрута не выбирает вовсе,
+	// и сюда не доходит.
+	rp := o.replayOf(role, ws.Dir, passport, result)
+	if rp.Reason != "" {
+		o.logf("%s: ограждение %s не пропустило прогон: %s", task.Key, rp.Guard, rp.Reason)
+		// Вторая строка того же прогона, без расхода: заплачено за него один раз,
+		// а сводка обязана показывать исход, по которому задача поехала.
+		o.account(ledger.Entry{
+			RunID: runID, Task: task.Key, Role: roleName, Project: c.ref.Project,
+			Started: passport.StartedAt, Outcome: string(rp.Outcome),
+			ConfigSHA: o.ConfigSHA, Overrides: true,
+		})
+	}
+	// Заготовки, до которых у агента не дошли руки, не должны пережить прогон —
+	// но убирать их можно только после ограждений: незакоммиченный шаблон
+	// в каталоге и есть то, по чему видно, что плана нет.
+	if err := runner.SweepChangeDir(ws.Dir, role, created); err != nil {
+		o.logf("%s: заготовки каталога изменения не убраны: %v", task.Key, err)
+	}
+
+	to, err := o.finish(task, runID, roleName, flow, result, branch, usage, rp)
 	if err != nil {
 		return false, err
 	}
@@ -540,14 +572,57 @@ func spent(usage runner.Usage) string {
 	return ""
 }
 
+// replay — переигранный исход прогона: ограждение роли не пропустило сделанное.
+//
+// До сих пор раннер исход агента не додумывал: синтетический failed появлялся
+// только там, где результата не было вовсе. Переигрыш — другое: результат есть
+// и он валиден, но работа нарушает правило, которое роль объявила себе сама.
+// Отчёт агента при этом остаётся в переписке как есть — это его слова, — а маршрут
+// выбирается по переигранному исходу, и рядом появляется системная запись
+// с причиной.
+//
+// Пустая причина означает, что переигрывать нечего.
+type replay struct {
+	Guard   string
+	Outcome runner.Outcome
+	Reason  string
+}
+
+// replayOf проверяет ограждения роли и решает, переигрывать ли исход.
+//
+// Уже провалившийся прогон не переигрывается: маршрут у него тот же самый,
+// а вторая запись о том, что он провалился, ничего человеку не сообщает.
+func (o *Office) replayOf(role runner.Role, workdir string, passport runner.Run, result runner.Result) replay {
+	if len(role.Guards) == 0 || result.Outcome == runner.OutcomeFailed {
+		return replay{}
+	}
+	env := guard.EnvFrom(runner.RunEnv(role, workdir, passport))
+	// Исход раннер называет сам: у него результат уже разобран, и по нему же
+	// поедет задача. Ограждение в хуке читает файл — другого источника у него
+	// нет, — но там и прогон ещё жив.
+	env.Outcome = result.Outcome
+
+	name, err := guard.CheckAll(role.Guards, env)
+	if err == nil {
+		return replay{}
+	}
+	return replay{Guard: name, Outcome: runner.OutcomeFailed, Reason: err.Error()}
+}
+
 // finish пишет отчёт и двигает задачу по графу.
 //
 // Порядок именно такой: комментарий раньше перехода. Упади раннер между ними —
 // задача останется в прежнем статусе с объяснением, а не уедет в новый молча.
-func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, branch string, usage runner.Usage) (string, error) {
-	transition, found := flow.Outcomes[string(result.Outcome)]
+func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, branch string, usage runner.Usage, rp replay) (string, error) {
+	// Исход, по которому едет задача: агентский, а при переигрыше — тот, который
+	// назначило ограждение. Отчёт ниже пишется всё равно агентский.
+	outcome := result.Outcome
+	if rp.Reason != "" {
+		outcome = rp.Outcome
+	}
+	transition, found := flow.Outcomes[string(outcome)]
 	if !found {
-		return "", fmt.Errorf("%s: для исхода %s нет перехода в графе", roleName, result.Outcome)
+		return "", fmt.Errorf("%s: для исхода %s нет перехода в графе", roleName, outcome)
 	}
 
 	// Роль графа, названная следующим владельцем, но не описанная в карте этого
@@ -556,7 +631,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	// вместе с рабочей папкой. Правило действует только у `done` и только при
 	// непустой карте: провал с названным владельцем — это повтор, как и раньше,
 	// а `human`, `none` и незнакомое имя едут по умолчанию, как ехали.
-	stray := result.Outcome == runner.OutcomeDone && len(transition.ByNextOwner) > 0 &&
+	stray := outcome == runner.OutcomeDone && len(transition.ByNextOwner) > 0 &&
 		o.handsOver(roleName, result.NextOwner) && !transition.Routed(result.NextOwner)
 
 	attempts := task.Attempts + transition.Attempts
@@ -567,7 +642,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	// обезоруживали бы остальные. `human` и `none` — не роли графа и счётчик
 	// не трогают: работу они никому не передают. Передача, которую граф не знает,
 	// не состоялась вовсе — и счётчика не касается.
-	if !stray && result.Outcome == runner.OutcomeDone && o.handsOver(roleName, result.NextOwner) {
+	if !stray && outcome == runner.OutcomeDone && o.handsOver(roleName, result.NextOwner) {
 		attempts = 0
 	}
 	// Маршрут выбирает граф по тому, кому агент передал задачу. Агент называет
@@ -606,6 +681,19 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 
 	if err := o.Tracker.Comment(task.Key, by, tracker.ReportBody(marker, result, branch, usage)); err != nil {
 		return "", err
+	}
+	// Переигрыш объясняется сразу за отчётом: между словами агента и маршрутом
+	// задачи не должно оставаться места для догадок.
+	if rp.Reason != "" {
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: roleName, Event: tracker.EventOutcomeOverridden, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Ограждение %s не пропустило прогон: %s.\n\nОтчёт run:%s выше остаётся как есть — "+
+			"это слова агента. Исход %s раннер не принял и ведёт задачу как %s. Ветку раннер публикует "+
+			"до проверок и при любом исходе, чтобы работа не пропала, — значит лишний коммит, если он был, "+
+			"уже опубликован: откатывать его надо `git revert`, а не забыть.",
+			rp.Guard, rp.Reason, short(runID), result.Outcome, rp.Outcome)); err != nil {
+			return "", err
+		}
 	}
 	// Объяснение — отдельной записью после отчёта: замечания роли остаются
 	// в переписке, а человек видит, почему разговор роли с ролью на этом кончился.
@@ -646,7 +734,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 			return "", err
 		}
 	}
-	o.logf("%s: %s → %s", task.Key, result.Outcome, to)
+	o.logf("%s: %s → %s", task.Key, outcome, to)
 	return to, o.Tracker.Release(task.Key, by)
 }
 

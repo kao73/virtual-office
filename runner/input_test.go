@@ -270,8 +270,8 @@ func read(t *testing.T, workdir, name string) string {
 // всё, чего он не может узнать сам, сидя в рабочей папке.
 func TestContextCarriesRunnerSections(t *testing.T) {
 	workdir := gitRepo(t)
-	if err := os.WriteFile(filepath.Join(workdir, PlanFile), []byte("1. Сделать\n2. Проверить\n"), 0o644); err != nil {
-		t.Fatalf("план не записан: %v", err)
+	if err := os.WriteFile(filepath.Join(workdir, StateFile), []byte("Разбираю модуль оплаты.\n"), 0o644); err != nil {
+		t.Fatalf("черновик не записан: %v", err)
 	}
 
 	passport := fixturePassport()
@@ -283,7 +283,7 @@ func TestContextCarriesRunnerSections(t *testing.T) {
 	}
 
 	context := read(t, workdir, FileContext)
-	for _, want := range []string{"OFF-1", "берём Stripe", "2. Проверить"} {
+	for _, want := range []string{"OFF-1", "берём Stripe", "Разбираю модуль оплаты"} {
 		if !strings.Contains(context, want) {
 			t.Errorf("в контексте нет %q:\n%s", want, context)
 		}
@@ -295,5 +295,45 @@ func TestContextCarriesRunnerSections(t *testing.T) {
 	}
 	if got.TaskKey != "OFF-1" {
 		t.Errorf("ключ задачи не попал в паспорт: %+v", got)
+	}
+}
+
+// Путь каталога изменения агент не выведет сам: он собирается из ключа задачи,
+// а на первом прогоне каталог ещё пуст и от прочих не отличается. План
+// называется отдельной строкой и только когда он в git: незакоммиченный файл
+// для следующей роли не существует, и обещать его нельзя.
+func TestContextNamesChangeDirAndPlan(t *testing.T) {
+	workdir, role := gitRepo(t), scopedRole(t)
+	passport := fixturePassport()
+	passport.TaskKey = "OFF-1"
+
+	prepare := func() string {
+		t.Helper()
+		if err := PrepareInput(workdir, role, passport, Input{Task: "Задача\n"}); err != nil {
+			t.Fatalf("вход не подготовлен: %v", err)
+		}
+		return read(t, workdir, FileContext)
+	}
+
+	if context := prepare(); strings.Contains(context, "Каталог изменения") {
+		t.Errorf("обещан каталог, которого нет:\n%s", context)
+	}
+
+	if _, err := PrepareChangeDir(workdir, role, passport.TaskKey); err != nil {
+		t.Fatalf("каталог изменения не подготовлен: %v", err)
+	}
+	context := prepare()
+	if !strings.Contains(context, "Каталог изменения: docs/changes/OFF-1") {
+		t.Errorf("в контексте нет каталога изменения:\n%s", context)
+	}
+	if strings.Contains(context, "План:") {
+		t.Errorf("обещан незакоммиченный план:\n%s", context)
+	}
+
+	git(t, workdir, "add", filepath.Join(ChangeDirRel(passport.TaskKey), FileTasks))
+	git(t, workdir, "-c", "user.email=t@example.test", "-c", "user.name=test", "commit", "-q", "-m", "план")
+
+	if context := prepare(); !strings.Contains(context, "План: docs/changes/OFF-1/tasks.md") {
+		t.Errorf("в контексте нет закоммиченного плана:\n%s", context)
 	}
 }

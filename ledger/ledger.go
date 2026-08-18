@@ -44,6 +44,12 @@ type Entry struct {
 	runner.Usage
 	Outcome   string `json:"outcome"`
 	ConfigSHA string `json:"config_sha"`
+	// Overrides — строка переигрыша: раннер не принял исход агента, и здесь
+	// записан эффективный. Прогоном она не считается вовсе и расхода не несёт
+	// (`cost_usd` нулевой): прогон был один, и заплачено за него один раз.
+	// Строкой, а не правкой прежней: реестр дописывается в конец и не правится
+	// никогда — иначе два раннера на машине затирали бы друг друга.
+	Overrides bool `json:"overrides,omitempty"`
 }
 
 // Ledger — файл реестра.
@@ -138,8 +144,15 @@ func (t Total) Average() float64 {
 // Нечитаемая строка не роняет чтение, но и не пропадает молча: она попадает
 // в Broken. Иначе испорченный хвост занижал бы сумму, а на суммы смотрят лимиты —
 // и лимит, тихо переставший срабатывать, хуже отсутствующего.
+//
+// Строка переигрыша прогоном не считается: она подменяет исход своего прогона
+// и не добавляет ни к числу прогонов, ни к сумме. Иначе один прогон стоил бы
+// в сводке двух, а исходы считались бы дважды — и агентский, и эффективный.
 func (l *Ledger) Sum(f Filter) (Total, error) {
 	total := Total{ByOutcome: map[string]int{}}
+	// Исход, засчитанный прогону: строка переигрыша идёт после своего прогона
+	// и заменяет его исход на эффективный.
+	counted := map[string]string{}
 
 	file, err := os.Open(l.Path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -167,9 +180,24 @@ func (l *Ledger) Sum(f Filter) (Total, error) {
 		if !f.match(e) {
 			continue
 		}
+		if e.Overrides {
+			// Прогона в сводке может и не быть: реестр читают с любого места,
+			// а начало файла бывает обрезано. Переигрыш без прогона молча
+			// пропускается — выдумывать за него прогон нечестно.
+			if was, found := counted[e.RunID]; found {
+				total.ByOutcome[was]--
+				if total.ByOutcome[was] == 0 {
+					delete(total.ByOutcome, was)
+				}
+				total.ByOutcome[e.Outcome]++
+				counted[e.RunID] = e.Outcome
+			}
+			continue
+		}
 		total.Runs++
 		total.CostUSD += e.CostUSD
 		total.ByOutcome[e.Outcome]++
+		counted[e.RunID] = e.Outcome
 		if !e.Known() {
 			total.Unknown++
 		}

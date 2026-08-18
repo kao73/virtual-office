@@ -12,12 +12,13 @@ import (
 	"strings"
 )
 
-// Файлы, которые агент оставляет в корне рабочей папки между прогонами.
-// Их пишет он сам, раннер только приносит их обратно в контекст.
-const (
-	StateFile = "STATE.md"
-	PlanFile  = "PLAN.md"
-)
+// StateFile — черновик, который агент оставляет в корне рабочей папки между
+// прогонами. Пишет его он сам, раннер только приносит файл обратно в контекст.
+//
+// Пары ему больше нет: планом задачи заведует каталог изменения, и лежит он
+// в git, а не в рабочей папке. Файл в корне, переживающий прогоны, но не ветку,
+// планом быть не может — следующая роль его не увидит.
+const StateFile = "STATE.md"
 
 // Input — то, что раннер знает о задаче, а агент узнать не может: постановка
 // и собранный контекст. Пустой Task означает, что постановка уже лежит
@@ -101,9 +102,14 @@ func HeadCommit(workdir string) (string, error) {
 // `core.quotepath=false` нужен по делу: с умолчанием git отдаёт кириллицу
 // восьмеричными escape-последовательностями, и сравнение пути с каталогом
 // изменения ломается на первом же русском имени файла.
+//
+// `-uall` — по той же причине. С умолчанием git сворачивает целиком неотслеживаемый
+// каталог в одну строку `?? docs/`, и по ней не сказать ни что внутри, ни лежит ли
+// это внутри каталога изменения: первый же план в проекте, где нет `docs/`,
+// выглядел бы работой вне своей области.
 func WorktreeStatus(workdir string) ([]byte, error) {
 	out, err := exec.Command("git", "-C", workdir,
-		"-c", "core.quotepath=false", "status", "--porcelain").Output()
+		"-c", "core.quotepath=false", "status", "--porcelain", "-uall").Output()
 	if err != nil {
 		return nil, fmt.Errorf("состояние рабочей папки %s не снято: %w", workdir, err)
 	}
@@ -148,6 +154,16 @@ func composeContext(workdir string, role Role, run Run, in Input) (string, error
 	if in.BaseBranch != "" {
 		fmt.Fprintf(&b, "- Базовая ветка: %s\n", in.BaseBranch)
 	}
+	// Каталог изменения агент сам не найдёт: путь собирается из ключа задачи,
+	// а на первом прогоне каталог ещё пуст и от прочих не отличается. План
+	// называется отдельно и только когда он в git: незакоммиченный файл для
+	// следующей роли не существует, и обещать его нельзя.
+	if dir := ChangeDirRel(run.TaskKey); exists(filepath.Join(workdir, dir)) {
+		fmt.Fprintf(&b, "- Каталог изменения: %s\n", dir)
+		if plan := filepath.Join(dir, FileTasks); TrackedByGit(workdir, plan) {
+			fmt.Fprintf(&b, "- План: %s\n", plan)
+		}
+	}
 	fmt.Fprintf(&b, "- Файл результата: %s\n", role.ResultFile)
 	fmt.Fprintf(&b, "- Предел шагов: %d\n", role.Limits.MaxTurns)
 	fmt.Fprintf(&b, "- Предел времени: %d с\n", role.Limits.TimeoutSec)
@@ -160,21 +176,27 @@ func composeContext(workdir string, role Role, run Run, in Input) (string, error
 		fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(in.Context))
 	}
 
-	// STATE.md и PLAN.md пишет сам агент, чтобы следующий прогон продолжил
-	// с того же места. Раннер их не трактует, а просто приносит обратно.
-	for _, name := range []string{StateFile, PlanFile} {
-		content, err := os.ReadFile(filepath.Join(workdir, name))
-		switch {
-		case err == nil:
-			fmt.Fprintf(&b, "\n## %s\n\n%s\n", name, bytes.TrimSpace(content))
-		case errors.Is(err, fs.ErrNotExist):
-			// Первый запуск по задаче — файлов ещё нет, это нормально.
-		default:
-			return "", fmt.Errorf("%s не прочитан: %w", name, err)
-		}
+	// STATE.md пишет сам агент, чтобы следующий прогон продолжил с того же
+	// места. Раннер его не трактует, а просто приносит обратно.
+	content, err := os.ReadFile(filepath.Join(workdir, StateFile))
+	switch {
+	case err == nil:
+		fmt.Fprintf(&b, "\n## %s\n\n%s\n", StateFile, bytes.TrimSpace(content))
+	case errors.Is(err, fs.ErrNotExist):
+		// Первый запуск по задаче — файла ещё нет, это нормально.
+	default:
+		return "", fmt.Errorf("%s не прочитан: %w", StateFile, err)
 	}
 
 	return b.String(), nil
+}
+
+// exists — есть ли такой каталог или файл. Беду чтения от отсутствия здесь
+// не отличают намеренно: контекст собирается на лучших усилиях, и уронить
+// из-за него прогон было бы хуже, чем не сказать одной строки.
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // excludeComment помечает происхождение строки в чужом файле исключений.

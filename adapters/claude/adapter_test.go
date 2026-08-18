@@ -653,3 +653,108 @@ func TestBuildKeepsPushTokenFromAgent(t *testing.T) {
 		t.Error("токен пуша доехал до агента: роль получила право публиковать работу")
 	}
 }
+
+// Роль, объявившая областью записи каталог изменения: так устроен analyst.
+const scopedRoleYAML = `name: tester
+prompt: role.md
+includes:
+  - ../_base/base.md
+skills: []
+tools:
+  allow: ["Read", "Bash(git add*)"]
+hooks:
+  stop:
+    - hooks/require-result.sh
+write_scope:
+  dir: change_dir
+  ignore: [".venv", ".agent"]
+guards:
+  - change_dir_only
+limits:
+  max_turns: 5
+  timeout_sec: 60
+result_file: .agent/result.json
+`
+
+// scopedLaunch — запуск роли с областью записи. Шаблоны артефактов кладутся
+// рядом с ролью: без них она не грузится вовсе.
+func scopedLaunch(t *testing.T) (*runner.Launch, runner.Role, string, runner.Run) {
+	t.Helper()
+	t.Setenv("ANTHROPIC_API_KEY", "тестовый-ключ")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	root := fixtureOffice(t, scopedRoleYAML)
+	for _, name := range runner.ChangeFiles() {
+		path := filepath.Join(root, "roles", "tester", runner.TemplatesDir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("каталог шаблонов не создан: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatalf("шаблон не записан: %v", err)
+		}
+	}
+
+	role, err := runner.LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+	workdir := t.TempDir()
+	run := runner.Run{RunID: "550e8400-e29b-41d4-a716-446655440000", Role: "tester", TaskKey: "OFF-1"}
+
+	launch, err := Build(role, workdir, run, stubValidator(t))
+	if err != nil {
+		t.Fatalf("запуск не собран: %v", err)
+	}
+	t.Cleanup(func() { _ = launch.Cleanup() })
+	return launch, role, workdir, run
+}
+
+// Роль называет намерение — «каталог изменения», — а правило на путь собирает
+// адаптер: путь известен только на прогоне, из ключа задачи. Инструмент правки
+// он добавляет сам: голого `Edit` в allow роли держать нельзя, тот разрешил бы
+// правку всего репозитория, а состав --tools собирается из имён правил.
+func TestBuildSynthesizesWriteScopeRule(t *testing.T) {
+	launch, _, workdir, run := scopedLaunch(t)
+
+	rule := FileRule + "(/" + runner.ChangeDir(workdir, run.TaskKey) + "/**)"
+	if !strings.Contains(launch.Settings, rule) {
+		t.Errorf("в разрешениях нет %s:\n%s", rule, launch.Settings)
+	}
+	if tools := strings.Split(argValue(t, launch.Argv, "--tools"), ","); !slices.Contains(tools, FileRule) {
+		t.Errorf("роли с областью записи нечем править: %q", tools)
+	}
+	if !slices.Contains(launch.Env, runner.EnvChangeDir+"="+runner.ChangeDir(workdir, run.TaskKey)) {
+		t.Errorf("в окружении прогона нет каталога изменения:\n%q", launch.Env)
+	}
+	if !slices.Contains(launch.Env, runner.EnvWriteIgnore+"=.venv,.agent") {
+		t.Errorf("в окружении прогона нет списка исключений:\n%q", launch.Env)
+	}
+}
+
+// Ограждения роли — это Stop-хук, зовущий тот же бинарник, что проверяет
+// результат, вторым режимом. Порядок важен: сперва require-result.sh, и
+// о невалидном результате агент узнаёт раньше, чем о претензиях к работе.
+func TestBuildWiresGuardsToStopHook(t *testing.T) {
+	launch, _, _, _ := scopedLaunch(t)
+
+	guardCall := runner.ValidatorName + "' guard '" + runner.GuardChangeDirOnly + "'"
+	if !strings.Contains(launch.Settings, guardCall) {
+		t.Errorf("ограждение роли не позвано:\n%s", launch.Settings)
+	}
+	result := strings.Index(launch.Settings, "require-result.sh")
+	checked := strings.Index(launch.Settings, guardCall)
+	if result < 0 || result > checked {
+		t.Errorf("проверка результата идёт не первой:\n%s", launch.Settings)
+	}
+}
+
+// Роль без объявленной области записи правила на каталог не получает: границу
+// ей задаёт состав инструментов, и выдавать ей право писать в чужой план
+// незачем.
+func TestBuildWithoutWriteScopeHasNoChangeDirRule(t *testing.T) {
+	launch, _, _ := fixtureLaunch(t, readOnlyRoleYAML)
+
+	if strings.Contains(launch.Settings, runner.ChangesDir) {
+		t.Errorf("роли без write_scope выдано право писать в каталог изменения:\n%s", launch.Settings)
+	}
+}

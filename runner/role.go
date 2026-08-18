@@ -26,6 +26,22 @@ const RoleFile = "role.yaml"
 // в любом случае и отдельно — см. адаптер.
 const WriteTool = "Write"
 
+// Ограждения, которые роль вправе потребовать от прогона.
+//
+// Имена живут здесь, рядом с разбором роли: опечатка в `guards` — это ограждение,
+// которое молча не сработает, и узнать о ней надо на загрузке. Сами проверки —
+// в пакете guard; он же обязан покрывать весь этот список.
+const (
+	// GuardChangeDirOnly — вся работа прогона лежит в каталоге изменения,
+	// а при исходе done ещё и закоммичена.
+	GuardChangeDirOnly = "change_dir_only"
+	// GuardPlanMarksOnly — в плане изменились только отметки пунктов.
+	GuardPlanMarksOnly = "plan_marks_only"
+)
+
+// KnownGuards — все ограждения, известные контракту роли.
+func KnownGuards() []string { return []string{GuardChangeDirOnly, GuardPlanMarksOnly} }
+
 // Role — спецификация роли. Агент её не видит: перевод в нативные механизмы
 // конкретного агента делает адаптер.
 type Role struct {
@@ -39,6 +55,14 @@ type Role struct {
 	Network    Network  `yaml:"network"`
 	ResultFile string   `yaml:"result_file"`
 
+	// Guards — детерминированные проверки прогона, которые роль требует к себе.
+	// Роль называет их по имени и не знает, как они устроены; исполняет их
+	// раннер — в хуке, пока агент жив, и у себя после прогона.
+	Guards []string `yaml:"guards"`
+	// WriteScope — куда роли положено писать. Пусто означает «правил нет»:
+	// границу задаёт состав инструментов, как у ревьюера и implementer'а.
+	WriteScope WriteScope `yaml:"write_scope"`
+
 	dir        string // каталог роли; от него отсчитываются prompt и includes
 	configRoot string // корень конфиг-репозитория; от него отсчитываются skills и hooks
 }
@@ -46,6 +70,19 @@ type Role struct {
 type Tools struct {
 	Allow []string `yaml:"allow"`
 	Deny  []string `yaml:"deny"`
+}
+
+// WriteScope — область записи роли: намерение, а не правило.
+//
+// Роль называет, куда ей положено писать; во что это превратится, решает адаптер
+// (в Claude Code — правило разрешений на путь). Написать здесь готовое правило
+// значило бы поселить в спецификации роли устройство конкретного агента.
+type WriteScope struct {
+	// Dir — область. Пока значение одно: ScopeChangeDir.
+	Dir string `yaml:"dir"`
+	// Ignore — что не считать работой роли: каталоги окружения и кэшей,
+	// которые заводят не агент и не задача. Ограждения судят по этому списку.
+	Ignore []string `yaml:"ignore"`
 }
 
 type Hooks struct {
@@ -127,6 +164,21 @@ func (r Role) validate(dirName string) error {
 		errs = append(errs, fmt.Errorf("tools.deny запрещает %s целиком: роли нечем будет записать результат", WriteTool))
 	}
 
+	// Неизвестное ограждение — это ограждение, которого нет: раннер о нём
+	// не знает, а роль считает себя огороженной.
+	for _, name := range r.Guards {
+		if !slices.Contains(KnownGuards(), name) {
+			errs = append(errs, fmt.Errorf("guards: ограждение %q не существует; есть %s", name, strings.Join(KnownGuards(), ", ")))
+		}
+	}
+
+	switch {
+	case r.WriteScope.Dir == "" && len(r.WriteScope.Ignore) > 0:
+		errs = append(errs, errors.New("write_scope.ignore задан без write_scope.dir: исключать нечего, области записи нет"))
+	case r.WriteScope.Dir != "" && r.WriteScope.Dir != ScopeChangeDir:
+		errs = append(errs, fmt.Errorf("write_scope.dir=%q: известно одно значение — %s", r.WriteScope.Dir, ScopeChangeDir))
+	}
+
 	// Домен, записанный как URL, не совпадёт ни с чем, и роль молча останется
 	// без сети: узнать об этом можно будет только по провалу прогона.
 	for i, host := range r.Network.Allow {
@@ -147,6 +199,13 @@ func (r Role) validate(dirName string) error {
 			errs = append(errs, fmt.Errorf("скилл не найден: %w", err))
 		} else if !fi.IsDir() {
 			errs = append(errs, fmt.Errorf("скилл %s не каталог", path))
+		}
+	}
+	// Роль, объявившая область записи, обязана дать и заготовки: каталог изменения
+	// готовит раннер, и обнаружить пропажу шаблона в середине прогона поздно.
+	for _, path := range r.TemplateFiles() {
+		if _, err := os.Stat(path); err != nil {
+			errs = append(errs, fmt.Errorf("шаблон артефакта не найден: %w", err))
 		}
 	}
 	for _, path := range r.HookFiles() {
@@ -210,6 +269,25 @@ func (r Role) HookFiles() []string {
 	paths := make([]string, 0, len(r.Hooks.Stop))
 	for _, h := range r.Hooks.Stop {
 		paths = append(paths, filepath.Join(r.configRoot, h))
+	}
+	return paths
+}
+
+// TemplateFile — заготовка артефакта в каталоге роли.
+func (r Role) TemplateFile(name string) string {
+	return filepath.Join(r.dir, TemplatesDir, name)
+}
+
+// TemplateFiles — заготовки, которые роль обязана иметь: они нужны ровно тогда,
+// когда роль объявила область записи, — раннер готовит по ним каталог изменения.
+func (r Role) TemplateFiles() []string {
+	if r.WriteScope.Dir != ScopeChangeDir {
+		return nil
+	}
+	names := ChangeFiles()
+	paths := make([]string, 0, len(names))
+	for _, name := range names {
+		paths = append(paths, r.TemplateFile(name))
 	}
 	return paths
 }

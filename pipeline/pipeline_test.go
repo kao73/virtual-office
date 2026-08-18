@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,9 @@ type fakeAgent struct {
 	byRole map[string]runner.Result
 	err    error
 	commit string // сообщение коммита; пусто — агент ничего не сделал
+	// work — что агент делает в рабочей папке. Пусто — ничего не делает:
+	// большинству проверок конвейера содержимое папки безразлично.
+	work func(req Request)
 	// usage — во что обошёлся прогон. Пустое значение законно и означает
 	// «неизвестно»: так выглядит прогон, не оставивший итогового события.
 	usage runner.Usage
@@ -51,6 +55,9 @@ func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, runner.U
 			f.context = map[string]string{}
 		}
 		f.context[req.Role.Name] = string(raw)
+	}
+	if f.work != nil {
+		f.work(req)
 	}
 	if f.commit != "" {
 		gitIn(req.Workdir, "commit", "-q", "--allow-empty", "-m", f.commit)
@@ -2265,5 +2272,186 @@ func TestReapSkipsProjectUnknownToTracker(t *testing.T) {
 	}
 	if task := o.get(t, "OFF-1"); task.Status != "Ready" {
 		t.Errorf("зависшая задача годного проекта не возвращена: %s", task.Status)
+	}
+}
+
+// tickRoleOnce прогоняет цикл одной роли и падает на инфраструктурной ошибке.
+func (o *office) tickRoleOnce(t *testing.T, role string) bool {
+	t.Helper()
+	worked, err := o.Tick(context.Background(), role)
+	if err != nil {
+		t.Fatalf("цикл роли %s не прошёл: %v", role, err)
+	}
+	return worked
+}
+
+// ledgerLines — строки реестра этого офиса, разобранные по порядку.
+func (o *office) ledgerLines(t *testing.T) []map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(o.home, ledger.FileName))
+	if err != nil {
+		t.Fatalf("реестр не прочитан: %v", err)
+	}
+	var lines []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("строка реестра не разобрана: %v", err)
+		}
+		lines = append(lines, entry)
+	}
+	return lines
+}
+
+// findMarker ищет в переписке запись с таким событием.
+func findMarker(task tracker.Task, event string) (tracker.Comment, bool) {
+	for _, comment := range task.Comments {
+		if m, ok := tracker.MarkerOf(comment.Body); ok && m.Event == event {
+			return comment, true
+		}
+	}
+	return tracker.Comment{}, false
+}
+
+// Каталог изменения готовит раннер: у аналитика нет инструмента создания файлов,
+// ему остаётся правка готовых. Путь он узнаёт из контекста — вывести его самому
+// неоткуда.
+func TestAnalystGetsPreparedChangeDir(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Analysis")
+	o.agent.byRole = map[string]runner.Result{"analyst": {
+		Outcome: runner.OutcomeDone, Summary: "План готов.", NextOwner: "implementer",
+	}}
+	o.agent.work = func(req Request) {
+		dir := runner.ChangeDirRel("OFF-2")
+		for _, name := range runner.ChangeFiles() {
+			if _, err := os.Stat(filepath.Join(req.Workdir, dir, name)); err != nil {
+				t.Errorf("раннер не подготовил %s: %v", name, err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(req.Workdir, dir, runner.FileTasks),
+			[]byte("# Что делать\n\n- [ ] написать тест\n"), 0o644); err != nil {
+			t.Fatalf("план не записан: %v", err)
+		}
+		gitIn(req.Workdir, "add", dir)
+		gitIn(req.Workdir, "commit", "-q", "-m", "план")
+	}
+
+	if !o.tickRoleOnce(t, "analyst") {
+		t.Fatal("аналитик не взял задачу")
+	}
+
+	task := o.get(t, "OFF-2")
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался Ready", task.Status)
+	}
+	if _, found := findMarker(task, tracker.EventOutcomeOverridden); found {
+		t.Errorf("честный прогон переигран:\n%s", lastComment(t, task).Body)
+	}
+	if context := o.agent.context["analyst"]; !strings.Contains(context, "Каталог изменения: docs/changes/OFF-2") {
+		t.Errorf("аналитику не сказали, где каталог изменения:\n%s", context)
+	}
+}
+
+// Переигрыш исхода: ограждение роли не пропустило работу, и раннер ведёт задачу
+// не туда, куда объявил агент. Отчёт агента при этом остаётся в переписке как
+// есть — это его слова, — а рядом появляется системная запись с причиной.
+func TestGuardReplaysOutcomeOfAnalyst(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Analysis")
+	o.agent.byRole = map[string]runner.Result{"analyst": {
+		Outcome: runner.OutcomeDone, Summary: "План готов, передаю разработчику.", NextOwner: "implementer",
+	}}
+	// Агент объявил готовность, не закоммитив плана: для следующей роли его нет.
+
+	if !o.tickRoleOnce(t, "analyst") {
+		t.Fatal("аналитик не взял задачу")
+	}
+
+	task := o.get(t, "OFF-2")
+	if task.Status != "Analysis" {
+		t.Errorf("статус %q, ожидался Analysis: работа не принята", task.Status)
+	}
+	if task.Attempts != 1 {
+		t.Errorf("счётчик попыток %d, ожидалась 1: переигранный исход — провал", task.Attempts)
+	}
+	if task.HumanFlag {
+		t.Error("человека позвали раньше времени: попытки ещё есть")
+	}
+
+	// Отчёт агента остаётся в переписке нетронутым.
+	report := task.Comments[0]
+	marker, ok := tracker.MarkerOf(report.Body)
+	if !ok || marker.Outcome != string(runner.OutcomeDone) {
+		t.Fatalf("отчёт агента подменён:\n%s", report.Body)
+	}
+	if !strings.Contains(report.Body, "План готов, передаю разработчику") {
+		t.Errorf("слова агента потеряны:\n%s", report.Body)
+	}
+
+	// А следом — объяснение раннера: что не так и что уже уехало в origin.
+	record, found := findMarker(task, tracker.EventOutcomeOverridden)
+	if !found {
+		t.Fatal("переигрыш не объяснён человеку")
+	}
+	for _, want := range []string{runner.GuardChangeDirOnly, "не закоммичен", "git revert"} {
+		if !strings.Contains(record.Body, want) {
+			t.Errorf("в объяснении нет %q:\n%s", want, record.Body)
+		}
+	}
+}
+
+// Прогон был один и оплачен один раз. В реестре у него две строки: своя,
+// с расходом и исходом агента, и строка переигрыша — без расхода, с исходом,
+// по которому задача поехала.
+func TestGuardWritesSecondLedgerLine(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Analysis")
+	o.agent.usage = runner.Usage{CostUSD: 0.42, DurationMS: 1000, Turns: 5}
+	o.agent.byRole = map[string]runner.Result{"analyst": {
+		Outcome: runner.OutcomeDone, Summary: "План готов.", NextOwner: "implementer",
+	}}
+
+	if !o.tickRoleOnce(t, "analyst") {
+		t.Fatal("аналитик не взял задачу")
+	}
+
+	lines := o.ledgerLines(t)
+	if len(lines) != 2 {
+		t.Fatalf("строк реестра %d, ожидалось 2: %v", len(lines), lines)
+	}
+	if lines[0]["outcome"] != "done" || lines[0]["cost_usd"] != 0.42 {
+		t.Errorf("первая строка не про прогон агента: %v", lines[0])
+	}
+	if lines[1]["outcome"] != "failed" || lines[1]["overrides"] != true {
+		t.Errorf("вторая строка не про переигрыш: %v", lines[1])
+	}
+	if cost, found := lines[1]["cost_usd"]; found && cost != 0.0 {
+		t.Errorf("переигрыш посчитан вторым расходом: %v", lines[1])
+	}
+	if lines[0]["run_id"] != lines[1]["run_id"] {
+		t.Errorf("строки разных прогонов: %v и %v", lines[0], lines[1])
+	}
+}
+
+// Провалившийся прогон не должен оставить после себя три пустых шаблона:
+// следующая роль прочитала бы их как план.
+func TestFailedRunLeavesNoEmptyTemplates(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Analysis")
+	o.agent.byRole = map[string]runner.Result{"analyst": {
+		Outcome: runner.OutcomeFailed, Summary: "Не разобрался в проекте.", NextOwner: "human",
+	}}
+
+	if !o.tickRoleOnce(t, "analyst") {
+		t.Fatal("аналитик не взял задачу")
+	}
+
+	workdir := o.agent.seen.Workdir
+	if _, err := os.Stat(workdir); err != nil {
+		t.Fatalf("рабочая папка не пережила провал: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, runner.ChangeDirRel("OFF-2"))); err == nil {
+		t.Error("пустые заготовки пережили провалившийся прогон")
 	}
 }

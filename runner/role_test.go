@@ -126,6 +126,26 @@ func TestLoadRoleRejects(t *testing.T) {
 			yaml:     fixtureRoleYAML + "network:\n  allow: [\"pypi.org files.pythonhosted.org\"]\n",
 			wantPart: "network.allow",
 		},
+		// Опечатка в имени ограждения — это ограждение, которого нет: раннер
+		// о нём не знает, а роль считает себя огороженной.
+		"неизвестное ограждение": {
+			yaml:     fixtureRoleYAML + "guards: [change_dir]\n",
+			wantPart: "не существует",
+		},
+		"незнакомая область записи": {
+			yaml:     fixtureRoleYAML + "write_scope:\n  dir: whole_repo\n",
+			wantPart: "write_scope.dir",
+		},
+		"исключения без области": {
+			yaml:     fixtureRoleYAML + "write_scope:\n  ignore: [.venv]\n",
+			wantPart: "write_scope.ignore",
+		},
+		// Каталог изменения раннер готовит по шаблонам роли, и обнаружить их
+		// пропажу в середине прогона поздно: токены уже потрачены.
+		"область записи без шаблонов": {
+			yaml:     fixtureRoleYAML + "write_scope:\n  dir: change_dir\n",
+			wantPart: "шаблон артефакта не найден",
+		},
 	}
 
 	for name, tc := range cases {
