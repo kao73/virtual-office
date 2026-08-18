@@ -316,6 +316,10 @@ func printResult(out runagent.Outcome, passport runner.Run) {
 	if u := out.Usage; u.Known() {
 		fmt.Printf("расход: $%.4f, %s, %d шагов\n", u.CostUSD, u.Duration().Round(time.Second), u.Turns)
 	}
+	// Про открытое окно не говорится: оно открыто у каждого прогона.
+	if notice := out.Limit.Notice(); notice != "" {
+		fmt.Printf("пределы: %s\n", notice)
+	}
 	fmt.Printf("run_id: %s\nлог:    %s\n", passport.RunID, out.LogPath)
 	if out.Archive != "" {
 		fmt.Printf("архив:  %s\n", out.Archive)

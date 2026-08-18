@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,7 +104,10 @@ type Outcome struct {
 	// Usage — во что прогон обошёлся. Наблюдение раннера, а не заявление агента:
 	// в result.json этих полей нет, читаются они из лога прогона. Пустое значение
 	// законно — прогон, убитый на середине, о расходе не отчитывается.
-	Usage    runner.Usage
+	Usage runner.Usage
+	// Limit — что лог сказал о пределах поставщика. Пока только наблюдение:
+	// исход прогона от него не зависит, но человек о нём узнаёт.
+	Limit    runner.Limit
 	ExitCode int    // код выхода агента; результат всё равно считается истиной
 	LogPath  string // куда писался вывод агента
 	Archive  string // копия каталога обмена; пусто, если заархивировать не вышло
@@ -166,7 +170,13 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 		result = runner.FailedResult(reason)
 	}
 
-	out := Outcome{Result: result, Usage: usageOf(logPath), ExitCode: exitCode, LogPath: logPath}
+	out := Outcome{
+		Result:   result,
+		Usage:    usageOf(logPath),
+		Limit:    limitOf(logPath),
+		ExitCode: exitCode,
+		LogPath:  logPath,
+	}
 
 	// Каталог обмена эфемерен: рабочей папкой служит worktree, а его удаляют.
 	// Неудача архивации не подменяет исход прогона — материал в этот момент
@@ -178,17 +188,27 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 }
 
 // usageOf читает расход прогона из его лога.
+func usageOf(logPath string) runner.Usage { return fromLog(logPath, claude.ParseUsage) }
+
+// limitOf читает оттуда же состояние окна поставщика: исчерпанное окно —
+// такое же наблюдение раннера за прогоном, как и цена, и в result.json его нет
+// тем более (агент, отвергнутый окном, файла результата не пишет вовсе).
+func limitOf(logPath string) runner.Limit { return fromLog(logPath, claude.ParseLimit) }
+
+// fromLog читает лог прогона разбором адаптера.
 //
-// Неудача чтения — не беда прогона: он уже состоялся, работа сделана, а учёт
-// просто не узнает цены. Ошибку здесь возвращать некому и незачем — пустой
-// расход и означает «неизвестно».
-func usageOf(logPath string) runner.Usage {
+// Неудача чтения — не беда прогона: он уже состоялся, работа сделана, а раннер
+// просто не узнает, во что она обошлась и в каком состоянии были пределы.
+// Ошибку здесь возвращать некому и незачем — пустое значение и означает
+// «неизвестно».
+func fromLog[T any](logPath string, parse func(io.Reader) T) T {
 	log, err := os.Open(logPath)
 	if err != nil {
-		return runner.Usage{}
+		var unknown T
+		return unknown
 	}
 	defer func() { _ = log.Close() }()
-	return claude.ParseUsage(log)
+	return parse(log)
 }
 
 // backendRun — исполнение подготовленного запуска. Подпись одна у всех бэкендов:

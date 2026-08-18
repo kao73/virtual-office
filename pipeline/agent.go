@@ -44,6 +44,13 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (runner.Result, runn
 		Passport:   req.Passport,
 		Mounts:     req.Mounts,
 	})
+	// Пределы поставщика — наблюдение, а не решение: исход прогона от них
+	// не зависит, но человек о них узнаёт. Об открытом окне не говорится —
+	// оно открыто у каждого прогона, и строка о нём стояла бы над каждым.
+	if notice := out.Limit.Notice(); notice != "" {
+		a.logf("%s: %s", req.Passport.TaskKey, notice)
+	}
+
 	if err != nil {
 		// Исход есть — значит прогон состоялся, а сорвалось что-то после него
 		// (например, архивация). Хоронить из-за этого задачу незачем, но и молчать
