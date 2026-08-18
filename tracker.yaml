@@ -52,6 +52,7 @@ also_agents: []
 # превратилась бы в несуществующий статус.
 status_map:
   Backlog: Backlog
+  Analysis: Analysis
   Ready: Ready
   InProgress: In Progress
   Review: Review

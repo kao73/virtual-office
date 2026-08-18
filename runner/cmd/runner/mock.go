@@ -20,6 +20,7 @@ const mockUsage = `runner mock — файловый трекер для ручн
                         [--project <ключ>] [--labels a,b]
   runner mock ls [--project <ключ>] [--status <статус>]
   runner mock show <KEY>
+  runner mock move <KEY> <статус>
   runner mock comment <KEY> [--author <учётка>] <текст>
 
 Хранилище — ${OFFICE_HOME:-~/.office}/mock.`
@@ -38,6 +39,8 @@ func mockCommand(tr *mock.Tracker, args []string, out io.Writer) error {
 		return mockList(tr, args[1:], out)
 	case "show":
 		return mockShow(tr, args[1:], out)
+	case "move":
+		return mockMove(tr, args[1:], out)
 	case "comment":
 		return mockComment(tr, args[1:], out)
 	default:
@@ -152,6 +155,26 @@ func mockShow(tr *mock.Tracker, args []string, out io.Writer) error {
 	for _, c := range task.Comments {
 		fmt.Fprintf(out, "\n--- %s, %s, %s\n%s\n", c.ID, c.Author, c.Created.Local().Format(time.RFC3339), c.Body)
 	}
+	return nil
+}
+
+// mockMove — человеческий перевод задачи: то, что в JIRA делается мышкой.
+// Без него на файловом трекере нечем сказать «берите в работу», а это первый шаг
+// любого сценария: задача попадает в очередь роли рукой человека, а не сама.
+func mockMove(tr *mock.Tracker, args []string, out io.Writer) error {
+	fs := flags("move")
+	key, err := parseKeyFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	status := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if status == "" {
+		return errors.New("нужен статус вторым аргументом: runner mock move <KEY> <статус>")
+	}
+	if err := tr.Move(key, status); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%s переведена в %s\n", key, status)
 	return nil
 }
 

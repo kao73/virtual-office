@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kao73/virtual-office/tracker"
 	"github.com/kao73/virtual-office/tracker/mock"
 )
 
@@ -62,6 +63,32 @@ func TestMockCLIListFilters(t *testing.T) {
 	}
 }
 
+// Перевод задачи рукой человека — первый шаг любого сценария: в очередь роли
+// задачу кладёт он, а не офис. Заодно снимается метка ожидания: человек
+// ответил делом, а не словом, и задача больше его не ждёт.
+func TestMockCLIMovesTaskAndClearsHumanFlag(t *testing.T) {
+	tr := mock.New(t.TempDir())
+	run(t, tr, "add", "OFF-1", "--summary", "первая", "--status", "Blocked")
+	if err := tr.SetHumanFlag("OFF-1", tracker.BySystem(), true); err != nil {
+		t.Fatalf("метка не выставлена: %v", err)
+	}
+
+	if out := run(t, tr, "move", "OFF-1", "Analysis"); !strings.Contains(out, "Analysis") {
+		t.Errorf("перевод не подтверждён:\n%s", out)
+	}
+
+	task, err := tr.Get("OFF-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if task.Status != "Analysis" {
+		t.Errorf("статус %q, ожидался Analysis", task.Status)
+	}
+	if task.HumanFlag {
+		t.Error("метка ожидания осталась: задача так и числится ждущей человека")
+	}
+}
+
 // Ошибки CLI должны быть внятными: им пользуется человек, а не раннер.
 func TestMockCLIRejectsNonsense(t *testing.T) {
 	tr := mock.New(t.TempDir())
@@ -74,6 +101,8 @@ func TestMockCLIRejectsNonsense(t *testing.T) {
 		{"show", "OFF-404"},             // нет такой задачи
 		{"comment", "OFF-404", "текст"}, // нет такой задачи
 		{"comment", "OFF-1"},            // нечего писать
+		{"move", "OFF-1"},               // без статуса
+		{"move", "OFF-404", "Ready"},    // нет такой задачи
 	}
 	for _, args := range cases {
 		var out bytes.Buffer

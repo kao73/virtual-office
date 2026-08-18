@@ -89,7 +89,7 @@ PY
 id_of() { awk -v n="$1" '$0 ~ "^" n " " {print $NF}' "$work/statuses.txt"; }
 
 echo "шаги:"
-for status in Ready Review Approved Blocked; do
+for status in Analysis Ready Review Approved Blocked; do
 	steps_page
 	if grep -q "id=\"step_link_[0-9]*\">$status</a>" "$work/steps.html"; then
 		echo "  $status — шаг уже есть"
@@ -105,19 +105,30 @@ for status in Ready Review Approved Blocked; do
 done
 
 # Переходы — ровно те, которыми ходит раннер (workflow.yaml): захват, исходы
-# обеих ролей, reap, ответ человека, остановка по бюджету и человеческий триаж
-# Backlog → Ready. Больше в трекере не нужно ничего.
-transitions="Ready|In Progress|Claim
-Ready|Blocked|Block
+# трёх ролей, reap, ответ человека, остановка по бюджету — плюс человеческие:
+# триаж Backlog → Analysis и возврат родителя Blocked → Backlog после разбиения.
+# Больше в трекере не нужно ничего.
+#
+# Backlog → Ready оставлен: задачу, которой план не нужен, человек кладёт
+# в очередь разработчика напрямую.
+transitions="Backlog|Analysis|Plan
 Backlog|Ready|Triage
+Analysis|Ready|Handoff
+Analysis|Blocked|Block
+Ready|In Progress|Claim
+Ready|Blocked|Block
 In Progress|Review|Submit
 In Progress|Ready|Return
+In Progress|Analysis|Replan
 In Progress|Blocked|Block
 Review|Approved|Approve
 Review|Ready|Return
+Review|Analysis|Replan
 Review|Blocked|Block
+Blocked|Analysis|Unblock to Analysis
 Blocked|Ready|Unblock to Ready
-Blocked|Review|Unblock to Review"
+Blocked|Review|Unblock to Review
+Blocked|Backlog|Back to Backlog"
 
 echo "переходы:"
 while IFS='|' read -r src dst name; do

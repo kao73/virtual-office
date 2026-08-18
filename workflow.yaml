@@ -14,7 +14,11 @@
 # Backlog и Done — человеческие статусы: «до триажа» и «смержено». Ни одна роль
 # их не читает и в них не пишет, но задачи в них есть, и `runner ls` покажет их
 # тоже. Валидатор статусу без роли не удивляется.
-statuses: [Backlog, Ready, InProgress, Review, Approved, Done, Blocked]
+#
+# Analysis — очередь аналитика, и переводит туда задачу человек: этим он говорит
+# «берите в работу». Backlog остаётся территорией человека и автоматически
+# не читается никем.
+statuses: [Backlog, Analysis, Ready, InProgress, Review, Approved, Done, Blocked]
 
 # Статусы, в которых жизнь задачи кончается: работа опубликована, дальше её ведёт
 # человек, рабочая папка больше не нужна.
@@ -23,11 +27,31 @@ terminal: [Approved]
 # Порядок обхода ролей в цикле без --role. Задаётся явно: порядок ключей YAML-карты
 # не сохраняется, и «по алфавиту» было бы совпадением, а не правилом.
 #
-# Ревьюер идёт первым намеренно: он разгружает Review, откуда работа уходит с доски,
-# а implementer её туда только добавляет. Обратный порядок копил бы очередь на разбор.
-tick_order: [reviewer, implementer]
+# Порядок обратный ходу конвейера, и это намеренно: сначала разгрузить его с конца,
+# потом брать новое. Ревьюер освобождает Review, implementer — Ready, аналитик
+# только добавляет работы остальным. Прямой порядок копил бы очередь на разбор.
+tick_order: [reviewer, implementer, analyst]
 
 roles:
+  analyst:
+    # Рабочего статуса нет намеренно: работа аналитика — это аренда, а отдельный
+    # «планирую» на доске ничего человеку не сообщает.
+    reads_from: Analysis
+    outcomes:
+      # Аналитик закончил план — дальше его исполняют. Карта названа явно, хотя
+      # маршрут в ней один: без неё `next_owner: reviewer` от аналитика уехал бы
+      # в Ready молча, а с ней упрётся в правило «маршрута нет» и попадёт к человеку.
+      done:
+        to: Ready
+        by_next_owner:
+          implementer: Ready
+      # Сюда же уходит «план готов, утвердите»: маршрута с флагом для этого нет
+      # и не нужно — оба пути ведут в Blocked, а ответ человека вернёт задачу
+      # тому, кто спросил.
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Analysis, attempts: +1 }
+      failed:      { to: Analysis, attempts: +1 }
+
   implementer:
     reads_from: Ready       # откуда берёт задачи
     # Рабочий статус — опция роли. У implementer'а он есть: «в работе» —
@@ -35,7 +59,13 @@ roles:
     # из которого читает, а «сейчас занят» означает живую аренду.
     working: InProgress
     outcomes:
-      done:        { to: Review }
+      # План разошёлся с кодом — это не повод для самодеятельности: задача
+      # возвращается аналитику, а не правится по месту.
+      done:
+        to: Review
+        by_next_owner:
+          reviewer: Review
+          analyst: Analysis
       needs_human: { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
@@ -53,6 +83,8 @@ roles:
         by_next_owner:
           implementer: Ready
           human: Approved
+          # Ревьюер вправе усомниться в самом плане, а не только в коде.
+          analyst: Analysis
       needs_human: { to: Blocked, human: true }
       # Возврат в свой же статус: разбор не состоялся, задача ждёт следующего.
       blocked:     { to: Review, attempts: +1 }
@@ -60,7 +92,7 @@ roles:
 
 limits:
   max_attempts: 3           # исчерпав попытки, задача уходит в Blocked к человеку
-  max_review_rounds: 3      # отчётов reviewer'а с next:implementer подряд
+  max_return_rounds: 3      # отчётов одной роли одному и тому же владельцу подряд
   lease_margin_sec: 300     # аренда = таймаут роли + этот запас
 
   # Сколько раз подряд прогон может не дожить до отчёта. Считается отдельно

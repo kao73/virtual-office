@@ -96,7 +96,7 @@ limits:
   max_attempts: 3
   max_lease_expiries: 3
   max_push_failures: 3
-  max_review_rounds: 3
+  max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -267,8 +267,8 @@ func TestLoadWorkflowRejectsBrokenTwoRoleGraph(t *testing.T) {
 			// Круги «правки → ревью» возможны там, где есть маршрут по next_owner.
 			// Без предела задача ходила бы между ролями вечно.
 			name: "предел кругов не задан",
-			yaml: strings.Replace(twoRoleWorkflow, "max_review_rounds: 3", "max_review_rounds: 0", 1),
-			want: "max_review_rounds",
+			yaml: strings.Replace(twoRoleWorkflow, "max_return_rounds: 3", "max_return_rounds: 0", 1),
+			want: "max_return_rounds",
 		},
 	}
 

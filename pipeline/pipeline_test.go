@@ -981,9 +981,9 @@ func (o *office) round(t *testing.T, note string) {
 
 // Круги «правки → ревью» ограничены: не сойдясь за отведённое число, роли зовут
 // человека. Без предела задача ходила бы между ними вечно, тратя деньги молча.
-func TestReviewRoundsExhaustedCallsHuman(t *testing.T) {
+func TestReturnRoundsExhaustedCallsHuman(t *testing.T) {
 	o := newOffice(t)
-	limit := o.Workflow.Limits.MaxReviewRounds
+	limit := o.Workflow.Limits.MaxReturnRounds
 
 	for i := 1; i < limit; i++ {
 		o.round(t, fmt.Sprintf("замечание %d", i))
@@ -1007,7 +1007,7 @@ func TestReviewRoundsExhaustedCallsHuman(t *testing.T) {
 	// Человеку нужно объяснение, а не только статус: сколько кругов и почему.
 	last := lastComment(t, task)
 	marker, ok := tracker.MarkerOf(last.Body)
-	if !ok || marker.Event != tracker.EventReviewRoundsExhausted {
+	if !ok || marker.Event != tracker.EventReturnRoundsExhausted {
 		t.Fatalf("последняя запись не объясняет остановку:\n%s", last.Body)
 	}
 	if !strings.Contains(last.Body, fmt.Sprint(limit)) {
@@ -1019,6 +1019,73 @@ func TestReviewRoundsExhaustedCallsHuman(t *testing.T) {
 	}
 	if !strings.Contains(task.Comments[len(task.Comments)-2].Body, "круги кончились") {
 		t.Errorf("последний разбор ревьюера потерян:\n%s", task.Comments[len(task.Comments)-2].Body)
+	}
+}
+
+// План разошёлся с кодом — задача возвращается аналитику, а не правится по месту.
+// Маршрут задаёт граф: агент лишь называет владельца.
+func TestImplementerReturnsTaskToAnalyst(t *testing.T) {
+	o := newOffice(t)
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "План велит править ридер, а его в проекте нет.",
+		NextOwner: "analyst",
+	}
+
+	if !o.tick(t) {
+		t.Fatal("автор не взял задачу")
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Analysis" {
+		t.Errorf("статус %q, ожидался Analysis: план правит аналитик", task.Status)
+	}
+	if task.HumanFlag {
+		t.Error("возврат аналитику не должен звать человека")
+	}
+	if _, err := os.Stat(o.agent.seen.Workdir); err != nil {
+		t.Errorf("рабочая папка не пережила возврат: %v", err)
+	}
+}
+
+// Ответ человека возвращает задачу той роли, которая спрашивала, — без
+// промежуточных: спросил аналитик, аналитику и продолжать. Очередь его известна
+// из графа, запасной маршрут тут ни при чём.
+func TestHumanReplyReturnsTaskToAnalyst(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Blocked", Summary: "противоречивая постановка",
+		HumanFlag: true,
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	marker := tracker.Marker{RunID: "аналитик-1", Role: "analyst", Outcome: "needs_human", ConfigSHA: "5bc6a3b0"}
+	if err := o.tasks.AddComment("OFF-2", mock.RoleAccount("analyst"), marker.String()+"\nQ1: идемпотентность или скорость?"); err != nil {
+		t.Fatalf("вопрос не записан: %v", err)
+	}
+	if err := o.tasks.AddComment("OFF-2", "human", "Идемпотентность."); err != nil {
+		t.Fatalf("ответ не записан: %v", err)
+	}
+
+	if replies, err := o.HumanReplies(context.Background()); err != nil || replies != 1 {
+		t.Fatalf("разобрано ответов %d, %v", replies, err)
+	}
+
+	task := o.get(t, "OFF-2")
+	if task.Status != "Analysis" {
+		t.Errorf("статус %q, ожидался Analysis: спрашивал аналитик", task.Status)
+	}
+	if task.HumanFlag {
+		t.Error("атрибут ожидания не снят")
+	}
+}
+
+// Порядок обхода — обратный ходу конвейера: сначала разгрузить его с конца.
+// Проверяется он здесь, а не в графе, потому что цикл без --role исполняет
+// именно этот список, и роль, забытая в нём, просто не получит работы.
+func TestTickAllWalksThreeRoles(t *testing.T) {
+	o := newOffice(t)
+	if got := o.Workflow.Order(); !slices.Equal(got, []string{"reviewer", "implementer", "analyst"}) {
+		t.Errorf("порядок обхода %v", got)
 	}
 }
 
@@ -1801,7 +1868,7 @@ limits:
   max_attempts: 3
   max_lease_expiries: 3
   max_push_failures: 3
-  max_review_rounds: 3
+  max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -1845,6 +1912,108 @@ func TestFinishRoutesByNextOwner(t *testing.T) {
 	}
 }
 
+// strayRouteWorkflow — граф, в котором ревьюер вправе вернуть работу автору,
+// но про аналитика у его исхода не сказано ничего. Так выглядит недосмотр
+// человека, пишущего карту маршрутов, и именно его правило и ловит.
+const strayRouteWorkflow = `statuses: [Analysis, Ready, InProgress, Review, Blocked, Approved]
+terminal: [Approved]
+tick_order: [reviewer, implementer, analyst]
+roles:
+  analyst:
+    reads_from: Analysis
+    outcomes:
+      done:        { to: Ready, by_next_owner: { implementer: Ready } }
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Analysis, attempts: +1 }
+      failed:      { to: Analysis, attempts: +1 }
+  implementer:
+    reads_from: Ready
+    working: InProgress
+    outcomes:
+      done:        { to: Review }
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Ready, attempts: +1 }
+      failed:      { to: Ready, attempts: +1 }
+  reviewer:
+    reads_from: Review
+    outcomes:
+      done:
+        to: Approved
+        by_next_owner:
+          implementer: Ready
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Review, attempts: +1 }
+      failed:      { to: Review, attempts: +1 }
+limits:
+  max_attempts: 3
+  max_lease_expiries: 3
+  max_push_failures: 3
+  max_return_rounds: 3
+  lease_margin_sec: 300
+human_reply:
+  fallback: Ready
+  reset_attempts: true
+`
+
+// Роль графа, названную владельцем и не описанную в карте исхода, раннер
+// по умолчанию не везёт. Умолчание тут — терминал: работа была бы принята
+// и снесена вместе с рабочей папкой, хотя её как раз вернули на переделку.
+func TestUnknownRouteCallsHumanAndKeepsWork(t *testing.T) {
+	o := newOffice(t)
+	o.withWorkflow(t, strayRouteWorkflow)
+	o.addTried("OFF-2", "Review", 1)
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "План неверен, дело не в коде.", NextOwner: "analyst",
+	}
+
+	if worked, err := o.Tick(context.Background(), "reviewer"); err != nil || !worked {
+		t.Fatalf("ревьюер не взял задачу: worked=%v, err=%v", worked, err)
+	}
+
+	task := o.get(t, "OFF-2")
+	if task.Status != "Blocked" {
+		t.Errorf("статус %q, ожидался Blocked: маршрута для аналитика в карте нет", task.Status)
+	}
+	if !task.HumanFlag {
+		t.Error("человека не позвали, а решать ему")
+	}
+	// Попытку это не тратит и счётчик не обнуляет: передачи не было вовсе.
+	if task.Attempts != 1 {
+		t.Errorf("счётчик попыток %d, ожидалась прежняя единица", task.Attempts)
+	}
+	if _, err := os.Stat(o.agent.seen.Workdir); err != nil {
+		t.Errorf("рабочая папка не пережила остановку: %v", err)
+	}
+
+	last := lastComment(t, task)
+	marker, ok := tracker.MarkerOf(last.Body)
+	if !ok || marker.Event != tracker.EventRouteUnknown {
+		t.Fatalf("последняя запись не объясняет остановку:\n%s", last.Body)
+	}
+	if !strings.Contains(last.Body, "analyst") {
+		t.Errorf("в объяснении не назван владелец:\n%s", last.Body)
+	}
+}
+
+// `human` и `none` ролями графа не являются: для них маршрут по умолчанию —
+// это и есть маршрут, а не недосмотр. Правило их не касается.
+func TestUnknownRouteIgnoresReservedOwners(t *testing.T) {
+	o := newOffice(t)
+	o.withWorkflow(t, strayRouteWorkflow)
+	o.add("OFF-2", "Review")
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "Принято.", NextOwner: "none",
+	}
+
+	if worked, err := o.Tick(context.Background(), "reviewer"); err != nil || !worked {
+		t.Fatalf("ревьюер не взял задачу: worked=%v, err=%v", worked, err)
+	}
+
+	if task := o.get(t, "OFF-2"); task.Status != "Approved" {
+		t.Errorf("статус %q, ожидался Approved: маршрут по умолчанию", task.Status)
+	}
+}
+
 // spyTransitions считает переводы. Нужен там, где важно не то, куда задача
 // уехала, а то, что её никуда не двигали.
 type spyTransitions struct {
@@ -1872,7 +2041,7 @@ limits:
   max_attempts: 3
   max_lease_expiries: 3
   max_push_failures: 3
-  max_review_rounds: 3
+  max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
   fallback: Ready

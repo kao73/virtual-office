@@ -418,7 +418,7 @@ func handover(role, outcome, next string, minute int) Comment {
 // Серия обрывается иначе, чем серия смертей прогона, и это не небрежность:
 // смерть говорит об одном (прогон не дожил), круг — о другом (роли не сошлись).
 // Поэтому у каждой серии свои правила обрыва, а общий обход только считает.
-func TestReviewRoundsCountsStreakFromTheEnd(t *testing.T) {
+func TestReturnRoundsCountsStreakFromTheEnd(t *testing.T) {
 	agents := []string{"office"}
 	comments := []Comment{
 		report("implementer", "done", 1),
@@ -427,35 +427,74 @@ func TestReviewRoundsCountsStreakFromTheEnd(t *testing.T) {
 		handover("reviewer", "done", "implementer", 4),
 	}
 
-	if got := ReviewRounds(comments, "reviewer", agents); got != 2 {
+	if got := ReturnRounds(comments, "reviewer", "implementer", agents); got != 2 {
 		t.Errorf("кругов %d, ожидалось 2: отчёты implementer'а серию не обрывают", got)
 	}
 }
 
+// Круг считается по паре (роль, владелец), а не по одной роли. На двух ролях
+// разницы не было: у ревьюера всё, что с `next`, было возвратом. С тремя
+// счёт по роли принял бы работающий конвейер за спор — обычные передачи
+// implementer'а ревьюеру идут подряд десятками.
+func TestReturnRoundsCountsPairNotRole(t *testing.T) {
+	agents := []string{"office"}
+	comments := []Comment{
+		handover("implementer", "done", "reviewer", 1),
+		handover("reviewer", "done", "implementer", 2),
+		handover("implementer", "done", "reviewer", 3),
+		handover("reviewer", "done", "implementer", 4),
+		handover("implementer", "done", "analyst", 5),
+	}
+
+	if got := ReturnRounds(comments, "implementer", "analyst", agents); got != 1 {
+		t.Errorf("кругов %d, ожидался один: к аналитику задача ушла впервые", got)
+	}
+	if got := ReturnRounds(comments, "implementer", "reviewer", agents); got != 0 {
+		t.Errorf("кругов %d, ожидался ноль: последним implementer отдал задачу аналитику", got)
+	}
+}
+
+// Системная запись той же роли обрывает серию — так же, как обрывала прежний
+// счётчик. Между двумя отчётами что-то случилось с самим прогоном, и считать
+// их идущими подряд значило бы приписать роли упорство, которого не было.
+func TestReturnRoundsStopAtSystemRecord(t *testing.T) {
+	agents := []string{"office"}
+	comments := []Comment{
+		handover("reviewer", "done", "implementer", 1),
+		notice("reviewer", EventPushFailed, 2),
+		handover("reviewer", "done", "implementer", 3),
+	}
+
+	if got := ReturnRounds(comments, "reviewer", "implementer", agents); got != 1 {
+		t.Errorf("кругов %d, ожидался один: серию оборвала системная запись", got)
+	}
+}
+
 // Одобрение закрывает разговор: задача уходит к человеку, а прежние круги
-// к следующему заходу не относятся.
-func TestReviewRoundsResetAfterApproval(t *testing.T) {
+// к следующему заходу не относятся. Обрывает серию тут пара, а не исход:
+// отчёт той же роли с другим владельцем — это уже другая нить.
+func TestReturnRoundsResetAfterApproval(t *testing.T) {
 	agents := []string{"office"}
 	comments := []Comment{
 		handover("reviewer", "done", "implementer", 1),
 		handover("reviewer", "done", "human", 2),
 	}
 
-	if got := ReviewRounds(comments, "reviewer", agents); got != 0 {
+	if got := ReturnRounds(comments, "reviewer", "implementer", agents); got != 0 {
 		t.Errorf("кругов %d, ожидался ноль: последним было одобрение", got)
 	}
 }
 
 // Отчёт того же рода, но без next — маркер этапа 2. Кому ушла задача, он
 // не говорит, и считать его кругом значило бы гадать.
-func TestReviewRoundsStopAtMarkerWithoutNext(t *testing.T) {
+func TestReturnRoundsStopAtMarkerWithoutNext(t *testing.T) {
 	agents := []string{"office"}
 	comments := []Comment{
 		handover("reviewer", "done", "implementer", 1),
 		report("reviewer", "done", 2),
 	}
 
-	if got := ReviewRounds(comments, "reviewer", agents); got != 0 {
+	if got := ReturnRounds(comments, "reviewer", "implementer", agents); got != 0 {
 		t.Errorf("кругов %d, ожидался ноль: старый маркер кругом не считается", got)
 	}
 }
@@ -463,7 +502,7 @@ func TestReviewRoundsStopAtMarkerWithoutNext(t *testing.T) {
 // Вмешательство человека обнуляет счёт, чьей бы роли ни касался разбор ответа:
 // человек говорил о задаче целиком, а не о нити одной роли. Иначе задачу,
 // которую он только что разблокировал, тут же вернули бы ему обратно.
-func TestReviewRoundsResetAfterHumanReply(t *testing.T) {
+func TestReturnRoundsResetAfterHumanReply(t *testing.T) {
 	agents := []string{"office"}
 	comments := []Comment{
 		handover("reviewer", "done", "implementer", 1),
@@ -471,14 +510,14 @@ func TestReviewRoundsResetAfterHumanReply(t *testing.T) {
 		notice("implementer", EventHumanReply, 3),
 	}
 
-	if got := ReviewRounds(comments, "reviewer", agents); got != 0 {
+	if got := ReturnRounds(comments, "reviewer", "implementer", agents); got != 0 {
 		t.Errorf("кругов %d, ожидался ноль: в задачу вмешался человек", got)
 	}
 }
 
 // Реплика человека — тоже вмешательство, даже если раннер ещё не успел
 // её разобрать.
-func TestReviewRoundsResetAfterHumanComment(t *testing.T) {
+func TestReturnRoundsResetAfterHumanComment(t *testing.T) {
 	agents := []string{"office"}
 	comments := []Comment{
 		handover("reviewer", "done", "implementer", 1),
@@ -486,7 +525,7 @@ func TestReviewRoundsResetAfterHumanComment(t *testing.T) {
 		comment("owner", "Так и задумано, не трогайте.", 3),
 	}
 
-	if got := ReviewRounds(comments, "reviewer", agents); got != 0 {
+	if got := ReturnRounds(comments, "reviewer", "implementer", agents); got != 0 {
 		t.Errorf("кругов %d, ожидался ноль: человек сказал своё слово", got)
 	}
 }

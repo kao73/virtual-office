@@ -550,14 +550,24 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 		return "", fmt.Errorf("%s: для исхода %s нет перехода в графе", roleName, result.Outcome)
 	}
 
+	// Роль графа, названная следующим владельцем, но не описанная в карте этого
+	// исхода, по умолчанию не едет. Умолчание тут опасно: у ревьюера оно ведёт
+	// в терминал, и работа, возвращённая аналитику, была бы принята и снесена
+	// вместе с рабочей папкой. Правило действует только у `done` и только при
+	// непустой карте: провал с названным владельцем — это повтор, как и раньше,
+	// а `human`, `none` и незнакомое имя едут по умолчанию, как ехали.
+	stray := result.Outcome == runner.OutcomeDone && len(transition.ByNextOwner) > 0 &&
+		o.handsOver(roleName, result.NextOwner) && !transition.Routed(result.NextOwner)
+
 	attempts := task.Attempts + transition.Attempts
 	// Передача другой роли графа обнуляет счётчик: попытки считают провалы
 	// текущей роли, а не возраст задачи. Правило действует и на возврате
 	// (ревьюер → implementer, implementer → аналитик): следующему владельцу
 	// достаётся полный запас, иначе на трёх ролях два провала одной роли
 	// обезоруживали бы остальные. `human` и `none` — не роли графа и счётчик
-	// не трогают: работу они никому не передают.
-	if result.Outcome == runner.OutcomeDone && o.handsOver(roleName, result.NextOwner) {
+	// не трогают: работу они никому не передают. Передача, которую граф не знает,
+	// не состоялась вовсе — и счётчика не касается.
+	if !stray && result.Outcome == runner.OutcomeDone && o.handsOver(roleName, result.NextOwner) {
 		attempts = 0
 	}
 	// Маршрут выбирает граф по тому, кому агент передал задачу. Агент называет
@@ -569,6 +579,11 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 		to, human = flow.Blocked(), true
 		o.logf("%s: попытки исчерпаны (%d), задача уходит к человеку", task.Key, attempts)
 	}
+	if stray {
+		to, human = flow.Blocked(), true
+		o.logf("%s: роль %s назвала владельцем %s, маршрута нет — задача уходит к человеку",
+			task.Key, roleName, result.NextOwner)
+	}
 
 	by := tracker.ByRun(runID)
 	marker := tracker.Marker{
@@ -578,12 +593,14 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 
 	// Круги считаются по маркерам, а этот ещё не написан: к прошлым добавляется
 	// нынешний. Считаем до записи отчёта, чтобы не считать самих себя дважды.
+	// Считается пара (роль, владелец): передача вперёд идёт подряд десятками
+	// и кругом не является.
 	rounds := 0
 	if marker.IsHandover() && transition.Returns(result.NextOwner) {
-		rounds = tracker.ReviewRounds(task.Comments, roleName, o.Accounts) + 1
-		if rounds >= o.Workflow.Limits.MaxReviewRounds {
+		rounds = tracker.ReturnRounds(task.Comments, roleName, result.NextOwner, o.Accounts) + 1
+		if rounds >= o.Workflow.Limits.MaxReturnRounds {
 			to, human = flow.Blocked(), true
-			o.logf("%s: круги ревью исчерпаны (%d), спор решает человек", task.Key, rounds)
+			o.logf("%s: круги исчерпаны (%d), спор решает человек", task.Key, rounds)
 		}
 	}
 
@@ -592,12 +609,23 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	}
 	// Объяснение — отдельной записью после отчёта: замечания роли остаются
 	// в переписке, а человек видит, почему разговор роли с ролью на этом кончился.
-	if rounds > 0 && rounds >= o.Workflow.Limits.MaxReviewRounds {
+	if rounds > 0 && rounds >= o.Workflow.Limits.MaxReturnRounds {
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: roleName, Event: tracker.EventReviewRoundsExhausted, ConfigSHA: o.ConfigSHA,
-		}, fmt.Sprintf("Роль %s вернула задачу автору %d раза подряд и не одобрила её — это предел "+
-			"(limits.max_review_rounds). Дальше крутить круги бессмысленно: спор решает человек. "+
-			"Замечания последнего разбора — в отчёте run:%s выше.", roleName, rounds, short(runID))); err != nil {
+			RunID: runID, Role: roleName, Event: tracker.EventReturnRoundsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Роль %s отдала задачу роли %s %d раза подряд и не сдвинула её вперёд — это предел "+
+			"(limits.max_return_rounds). Дальше крутить круги бессмысленно: спор решает человек. "+
+			"Замечания последнего разбора — в отчёте run:%s выше.",
+			roleName, result.NextOwner, rounds, short(runID))); err != nil {
+			return "", err
+		}
+	}
+	if stray {
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: roleName, Event: tracker.EventRouteUnknown, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Роль %s назвала следующим владельцем роль %s, но маршрута для неё "+
+			"у исхода done в графе нет — решите, куда задаче дальше. Везти её по умолчанию "+
+			"раннер не стал: у этого исхода умолчание ведёт в %s. Работа цела, отчёт run:%s выше.",
+			roleName, result.NextOwner, transition.To, short(runID))); err != nil {
 			return "", err
 		}
 	}

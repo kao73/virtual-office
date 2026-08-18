@@ -90,6 +90,16 @@ type Outcome struct {
 	ByNextOwner map[string]string `yaml:"by_next_owner"`
 }
 
+// Routed — описан ли этот владелец в карте маршрутов исхода.
+//
+// Нужен затем, что «маршрута нет» и «маршрут по умолчанию» — разные вещи, а Route
+// их не различает: он обязан всегда отвечать статусом. Роль графа, названную
+// владельцем и не описанную в карте, раннер по умолчанию не везёт.
+func (o Outcome) Routed(nextOwner string) bool {
+	_, found := o.ByNextOwner[nextOwner]
+	return found
+}
+
 // Route — статус, в который уходит задача при этом исходе и таком next_owner.
 func (o Outcome) Route(nextOwner string) string {
 	if to, found := o.ByNextOwner[nextOwner]; found {
@@ -101,10 +111,10 @@ func (o Outcome) Route(nextOwner string) string {
 // Limits — общие пределы конвейера.
 type Limits struct {
 	MaxAttempts int `yaml:"max_attempts"`
-	// MaxReviewRounds — сколько раз подряд роль может вернуть задачу другой,
-	// не одобрив её. Круги возможны там, где у исхода есть маршрут по next_owner;
-	// без предела задача ходила бы между ролями вечно.
-	MaxReviewRounds int `yaml:"max_review_rounds"`
+	// MaxReturnRounds — сколько раз подряд роль может отдать задачу одному и тому же
+	// владельцу, не сдвинув её вперёд. Круги возможны там, где у исхода есть маршрут
+	// по next_owner; без предела задача ходила бы между ролями вечно.
+	MaxReturnRounds int `yaml:"max_return_rounds"`
 	// MaxLeaseExpiries — сколько раз подряд прогон может не дожить до отчёта,
 	// прежде чем задачу отдадут человеку. Предел отдельный от попыток намеренно:
 	// смерть раннера — не провал агента, и разговор с человеком о ней другой.
@@ -262,9 +272,9 @@ func (w Workflow) validate() error {
 
 	// Круги считаются там, где роль вправе вернуть задачу другой. Без предела
 	// задача ходила бы между ролями вечно.
-	if rounds && w.Limits.MaxReviewRounds <= 0 {
-		errs = append(errs, fmt.Errorf("limits.max_review_rounds=%d: у графа есть маршрут по next_owner, круги нужно ограничить",
-			w.Limits.MaxReviewRounds))
+	if rounds && w.Limits.MaxReturnRounds <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_return_rounds=%d: у графа есть маршрут по next_owner, круги нужно ограничить",
+			w.Limits.MaxReturnRounds))
 	}
 
 	if w.Limits.MaxAttempts <= 0 {
