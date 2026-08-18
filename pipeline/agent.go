@@ -28,6 +28,13 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (runner.Result, runn
 	if notice := runagent.NetworkNotice(a.Backend, req.Role.Network.Allow); notice != "" {
 		a.logf("%s: %s", req.Passport.TaskKey, notice)
 	}
+	// А закрывает ли что-нибудь сама машина — вопрос отдельный: базовую политику
+	// ставит человек, и без неё список роли ничего не ограничивает. Спрашивается
+	// это перед каждым прогоном, а не при старте раннера: политику машины меняют
+	// одной командой, и прогон обязан говорить о той сети, которую получил сам.
+	if notice := runagent.NetworkAudit(a.Backend); notice != "" {
+		a.logf("%s: %s", req.Passport.TaskKey, notice)
+	}
 
 	out, err := runagent.Execute(ctx, runagent.Options{
 		ConfigRoot: a.ConfigRoot,

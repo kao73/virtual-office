@@ -105,6 +105,11 @@ func execute() (int, error) {
 	if notice := runagent.NetworkNotice(*backend, role.Network.Allow); notice != "" {
 		fmt.Fprintln(os.Stderr, "run-agent:", notice)
 	}
+	// И там же — про базовую политику машины: список роли работает только поверх
+	// закрытой сети, а закрывает её человек, а не раннер.
+	if notice := runagent.NetworkAudit(*backend); notice != "" {
+		fmt.Fprintln(os.Stderr, "run-agent:", notice)
+	}
 
 	runID, err := runner.NewRunID()
 	if err != nil {

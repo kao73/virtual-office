@@ -42,3 +42,13 @@ func TestNetworkNoticeSilentWhereNothingIsLost(t *testing.T) {
 		})
 	}
 }
+
+// Базовую политику проверяют у той машины, где есть песочницы. У local их нет
+// вовсе: там сеть агента — сеть хоста, и сказано об этом в NetworkNotice.
+// Спрашивать sbx о машине, на которой он не участвует, — лишний вызов и лишняя
+// строка.
+func TestNetworkAuditSkipsLocalBackend(t *testing.T) {
+	if notice := NetworkAudit(BackendLocal); notice != "" {
+		t.Errorf("сказано лишнее: %s", notice)
+	}
+}

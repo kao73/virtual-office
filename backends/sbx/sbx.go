@@ -196,18 +196,7 @@ func (s Sandboxes) Remove(runID string) (bool, error) {
 
 // exec зовёт sbx: настоящий CLI или подделку из теста.
 func (s Sandboxes) exec(args ...string) (string, error) {
-	if s.run != nil {
-		return s.run(args...)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), removeTimeout)
-	defer cancel()
-
-	out, err := exec.CommandContext(ctx, Executable, args...).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("sbx %s: %w\n%s", strings.Join(args, " "), err, out)
-	}
-	return string(out), nil
+	return output(s.run, removeTimeout, args...)
 }
 
 // createArgs собирает команду создания песочницы. Рабочие пространства идут
