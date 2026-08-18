@@ -16,9 +16,9 @@ import (
 // руками, поэтому важнее полнота, чем краткость.
 const mockUsage = `runner mock — файловый трекер для ручных сценариев
 
-  runner mock add <KEY> --summary <тема> [--description <текст>] [--status <колонка>]
+  runner mock add <KEY> --summary <тема> [--description <текст>] [--status <статус>]
                         [--project <ключ>] [--labels a,b]
-  runner mock ls [--project <ключ>] [--status <колонка>]
+  runner mock ls [--project <ключ>] [--status <статус>]
   runner mock show <KEY>
   runner mock comment <KEY> [--author <учётка>] <текст>
 
@@ -49,7 +49,7 @@ func mockAdd(tr *mock.Tracker, args []string, out io.Writer) error {
 	fs := flags("add")
 	summary := fs.String("summary", "", "тема задачи")
 	description := fs.String("description", "", "постановка")
-	status := fs.String("status", "Ready", "колонка")
+	status := fs.String("status", "Ready", "статус")
 	project := fs.String("project", "", "ключ проекта; по умолчанию — часть ключа задачи до дефиса")
 	labels := fs.String("labels", "", "метки через запятую")
 
@@ -81,7 +81,7 @@ func mockAdd(tr *mock.Tracker, args []string, out io.Writer) error {
 func mockList(tr *mock.Tracker, args []string, out io.Writer) error {
 	fs := flags("ls")
 	project := fs.String("project", "", "показывать только этот проект")
-	status := fs.String("status", "", "показывать только эту колонку")
+	status := fs.String("status", "", "показывать только этот статус")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

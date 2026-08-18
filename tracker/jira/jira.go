@@ -55,9 +55,11 @@ type Config struct {
 	// Единственный список, который пишется руками, — вывести его неоткуда.
 	AlsoAgents []string `yaml:"also_agents"`
 
-	// Statuses — колонка графа → имя статуса в JIRA. Раннер знает только колонки
-	// из workflow.yaml; «In Progress» с пробелом остаётся здесь.
-	Statuses map[string]string `yaml:"statuses"`
+	// StatusMap — статус графа → имя статуса в JIRA. Ключ — узел workflow.yaml,
+	// значение — как этот узел зовут на инстансе: «In Progress» с пробелом
+	// остаётся здесь. Имя ключа не `statuses`: там, где слово значит и узел графа,
+	// и его перевод, одно однажды прочитают вместо другого.
+	StatusMap map[string]string `yaml:"status_map"`
 
 	Fields Fields `yaml:"fields"`
 
@@ -133,11 +135,11 @@ type Fields struct {
 
 // Tracker — трекер поверх JIRA.
 type Tracker struct {
-	cfg     Config
-	client  *http.Client
-	user    string
-	secret  string
-	columns map[string]string // статус JIRA → колонка графа
+	cfg    Config
+	client *http.Client
+	user   string
+	secret string
+	graph  map[string]string // имя статуса в JIRA → статус графа
 
 	// Now — часы раннера. Аренду сверяем ими, а не серверными: сервер считает
 	// now() в своей зоне, и полагаться на совпадение не стоит.
@@ -171,21 +173,21 @@ func OpenAs(cfg Config, role string) (*Tracker, error) {
 
 	// Обратная карта статусов: её строим один раз и падаем на неоднозначности
 	// сразу, а не на середине первого цикла.
-	columns := make(map[string]string, len(cfg.Statuses))
-	for column, status := range cfg.Statuses {
-		if before, found := columns[status]; found {
-			return nil, fmt.Errorf("статус %q сопоставлен и с %q, и с %q", status, before, column)
+	graph := make(map[string]string, len(cfg.StatusMap))
+	for status, name := range cfg.StatusMap {
+		if before, found := graph[name]; found {
+			return nil, fmt.Errorf("статус %q сопоставлен и с %q, и с %q", name, before, status)
 		}
-		columns[status] = column
+		graph[name] = status
 	}
 
 	return &Tracker{
-		cfg:     cfg,
-		client:  &http.Client{Timeout: 30 * time.Second},
-		user:    os.Getenv(account.UserEnv),
-		secret:  secret,
-		columns: columns,
-		Now:     time.Now,
+		cfg:    cfg,
+		client: &http.Client{Timeout: 30 * time.Second},
+		user:   os.Getenv(account.UserEnv),
+		secret: secret,
+		graph:  graph,
+		Now:    time.Now,
 	}, nil
 }
 
@@ -219,29 +221,29 @@ func (t *Tracker) Whoami() (string, error) {
 	return me.Name, nil
 }
 
-// ListReady — кандидаты в колонке проекта: без живой аренды, отсортированы.
+// ListReady — кандидаты в статусе проекта: без живой аренды, отсортированы.
 //
 // JQL отбирает грубо, а решает раннер: сервер сравнивает время своими часами,
 // и полагаться на совпадение с нашими нельзя.
 func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 	jql := fmt.Sprintf(`project = %q AND status = %q AND (%s IS EMPTY OR %s <= now()) ORDER BY priority DESC, created ASC`,
-		project, t.status(status), t.jqlField(t.cfg.Fields.LeaseUntil), t.jqlField(t.cfg.Fields.LeaseUntil))
+		project, t.jiraStatus(status), t.jqlField(t.cfg.Fields.LeaseUntil), t.jqlField(t.cfg.Fields.LeaseUntil))
 
 	return t.searchProject(project, jql, searchPage, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
 }
 
-// List — задачи проекта в названных колонках, как есть.
+// List — задачи проекта в названных статусах, как есть.
 //
 // Аренду он не отбрасывает, в отличие от ListReady: этот список показывают
 // человеку, а «кто работает прямо сейчас» — первое, что он в нём ищет.
 func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, error) {
 	if len(statuses) == 0 {
-		return nil, nil // спрашивать «задачи ни в одной колонке» незачем
+		return nil, nil // спрашивать «задачи ни в одном статусе» незачем
 	}
 
 	names := make([]string, 0, len(statuses))
 	for _, status := range statuses {
-		names = append(names, strconv.Quote(t.status(status)))
+		names = append(names, strconv.Quote(t.jiraStatus(status)))
 	}
 	jql := fmt.Sprintf(`project = %q AND status IN (%s) ORDER BY created ASC`,
 		project, strings.Join(names, ", "))
@@ -269,7 +271,7 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 // задача, уже находящаяся в рабочем статусе. Её отсутствие — не «всё хорошо»,
 // а «проверить было не на чем», и отличать одно от другого обязан вызывающий.
 func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.WorkflowCheck, error) {
-	working := t.status(workingStatus)
+	working := t.jiraStatus(workingStatus)
 	jql := fmt.Sprintf(`project = %q AND status = %q`, project, working)
 
 	// Одна задача, а не очередь: это проверка настройки, а не поиск работы.
@@ -387,9 +389,9 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	}); err != nil {
 		return err
 	}
-	// Статус меняется, только если роли есть куда переводить задачу. Рабочая
-	// колонка необязательна: без неё «в работе» означает живую аренду в той же
-	// колонке, из которой роль читает. Перевод «в тот же самый статус» вдобавок
+	// Статус меняется, только если роли есть куда переводить задачу. Рабочий
+	// статус необязателен: без него «в работе» означает живую аренду в том же
+	// статусе, из которого роль читает. Перевод «в тот же самый статус» вдобавок
 	// не всегда существует — перехода Review → Review в workflow может не быть
 	// вовсе, и захват падал бы на ровном месте.
 	if req.WorkingStatus != "" && req.WorkingStatus != task.Status {
@@ -490,7 +492,7 @@ func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, error) {
 
 // transition находит переход по имени целевого статуса и исполняет его.
 func (t *Tracker) transition(key, toStatus string) error {
-	want := t.status(toStatus)
+	want := t.jiraStatus(toStatus)
 
 	options, err := t.transitions(key)
 	if err != nil {
@@ -544,7 +546,7 @@ func (t *Tracker) transitions(key string) ([]transitionOption, error) {
 //
 // Страница одна, и это предел на будущее, а не насовсем. ListReady от него не
 // страдает: из кандидатов берут первого годного, а не весь список. Reap разберёт
-// остаток следующим заходом. Когда очередь одной колонки перестанет влезать
+// остаток следующим заходом. Когда очередь одного статуса перестанет влезать
 // в пятьдесят, страницы крутятся по startAt — как в comments.
 func (t *Tracker) search(jql string, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
 	var result struct {
@@ -643,7 +645,7 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 	}
 
 	if status, ok := fields["status"].(map[string]any); ok {
-		task.Status = t.column(text(status["name"]))
+		task.Status = t.graphStatus(text(status["name"]))
 	}
 	if project, ok := fields["project"].(map[string]any); ok {
 		task.Project = text(project["key"])
@@ -667,20 +669,20 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 	return task
 }
 
-// status — имя статуса в JIRA по колонке графа.
-func (t *Tracker) status(column string) string {
-	if name, found := t.cfg.Statuses[column]; found {
-		return name
-	}
-	return column
-}
-
-// column — колонка графа по имени статуса в JIRA.
-func (t *Tracker) column(status string) string {
-	if name, found := t.columns[status]; found {
+// jiraStatus — имя статуса на инстансе по статусу графа.
+func (t *Tracker) jiraStatus(status string) string {
+	if name, found := t.cfg.StatusMap[status]; found {
 		return name
 	}
 	return status
+}
+
+// graphStatus — статус графа по имени статуса на инстансе.
+func (t *Tracker) graphStatus(name string) string {
+	if status, found := t.graph[name]; found {
+		return status
+	}
+	return name
 }
 
 // jqlField переводит customfield_10003 в форму cf[10003]: по имени поля JQL тоже
@@ -791,8 +793,8 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.Accounts.Default.UserEnv == "" || cfg.Accounts.Default.SecretEnv == "" {
 		errs = append(errs, errors.New("accounts.default не задана: под ней офис ходит в трекер по умолчанию, учётки ролей — опция поверх неё"))
 	}
-	if len(cfg.Statuses) == 0 {
-		errs = append(errs, errors.New("statuses пуст: раннер не поймёт, какой колонке какой статус соответствует"))
+	if len(cfg.StatusMap) == 0 {
+		errs = append(errs, errors.New("status_map пуст: раннер не поймёт, какому статусу графа какой статус инстанса соответствует"))
 	}
 	for name, field := range map[string]string{
 		"agent_owner": cfg.Fields.Owner, "run_id": cfg.Fields.RunID,

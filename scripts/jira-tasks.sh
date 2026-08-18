@@ -87,7 +87,7 @@ for t in json.load(sys.stdin)["transitions"]:
 	fi
 
 	# Ответ проверяется, а не выбрасывается: неудачный перевод оставляет задачу
-	# в колонке, которую роль не читает, и очередь тихо оказывается пустой.
+	# в статусе, которого роль не читает, и очередь тихо оказывается пустой.
 	response=$(api -X POST "$url/rest/api/2/issue/$key/transitions" \
 		-d "{\"transition\": {\"id\": \"$transition\"}}")
 	if [ -n "$response" ]; then

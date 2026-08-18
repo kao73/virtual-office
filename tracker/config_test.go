@@ -47,7 +47,7 @@ func writeTemp(t *testing.T, name, body string) string {
 	return path
 }
 
-const validWorkflow = `columns: [Ready, InProgress, Review, Blocked, Done]
+const validWorkflow = `statuses: [Ready, InProgress, Review, Blocked, Done]
 roles:
   implementer:
     reads_from: Ready
@@ -67,9 +67,9 @@ human_reply:
   reset_attempts: true
 `
 
-// Граф этапа 3: две роли, у одной рабочей колонки нет, маршрут исхода `done`
+// Граф этапа 3: две роли, у одной рабочего статуса нет, маршрут исхода `done`
 // зависит от того, кому агент передаёт задачу.
-const twoRoleWorkflow = `columns: [Backlog, Ready, InProgress, Review, Approved, Blocked]
+const twoRoleWorkflow = `statuses: [Backlog, Ready, InProgress, Review, Approved, Blocked]
 terminal: [Approved]
 tick_order: [reviewer, implementer]
 roles:
@@ -103,8 +103,8 @@ human_reply:
   reset_attempts: true
 `
 
-// Рабочая колонка — опция роли. У implementer'а она есть: «в работе» на доске
-// ждут увидеть. У reviewer'а её нет — проверка длится минуты, и отдельная колонка
+// Рабочий статус — опция роли. У implementer'а он есть: «в работе» на доске
+// ждут увидеть. У reviewer'а его нет — проверка длится минуты, и отдельный статус
 // под неё была бы шумом; «сейчас смотрят» там означает живую аренду.
 func TestLoadWorkflowWithOptionalWorking(t *testing.T) {
 	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, twoRoleWorkflow))
@@ -117,10 +117,10 @@ func TestLoadWorkflowWithOptionalWorking(t *testing.T) {
 		t.Fatalf("роль reviewer не найдена: %v", err)
 	}
 	if reviewer.Working != "" {
-		t.Errorf("рабочая колонка reviewer'а %q, ожидалась пустая", reviewer.Working)
+		t.Errorf("рабочий статус reviewer'а %q, ожидался пустой", reviewer.Working)
 	}
 	if implementer, _ := wf.Role("implementer"); implementer.Working != "InProgress" {
-		t.Errorf("рабочая колонка implementer'а %q, ожидалась InProgress", implementer.Working)
+		t.Errorf("рабочий статус implementer'а %q, ожидался InProgress", implementer.Working)
 	}
 }
 
@@ -177,30 +177,30 @@ func TestRouteByNextOwner(t *testing.T) {
 	}
 }
 
-// Задача с вопросом уходит в колонку ожидания, и туда же её отправляет раннер,
+// Задача с вопросом уходит в статус ожидания, и туда же её отправляет раннер,
 // заблокировав по своим причинам. Безролевому проходу разбора ответов набор
 // таких колонок нужен целиком: роли у него нет, а искать ожидающие задачи
 // где-то надо. Повторов в наборе быть не должно — две роли вправе ждать человека
-// в одной колонке.
-func TestHumanColumns(t *testing.T) {
+// в одном статусе.
+func TestHumanStatuses(t *testing.T) {
 	wf, err := LoadWorkflow(writeTemp(t, WorkflowFile, twoRoleWorkflow))
 	if err != nil {
 		t.Fatalf("граф не загружен: %v", err)
 	}
-	if got := wf.HumanColumns(); !slices.Equal(got, []string{"Blocked"}) {
-		t.Errorf("колонки ожидания %v, ожидалась одна Blocked", got)
+	if got := wf.HumanStatuses(); !slices.Equal(got, []string{"Blocked"}) {
+		t.Errorf("статусы ожидания %v, ожидался один Blocked", got)
 	}
 }
 
-// Колонка, на которую не ссылается ни одна роль, — не ошибка: Backlog и Done
+// Статус, на который не ссылается ни одна роль, — не ошибка: Backlog и Done
 // человеческие, офис их не читает и в них не пишет, но `runner ls` показывает
-// доску целиком.
-func TestLoadWorkflowAllowsHumanColumns(t *testing.T) {
+// задачи и в них.
+func TestLoadWorkflowAllowsHumanStatuses(t *testing.T) {
 	yaml := strings.Replace(twoRoleWorkflow,
-		"columns: [Backlog, Ready, InProgress, Review, Approved, Blocked]",
-		"columns: [Backlog, Ready, InProgress, Review, Approved, Done, Blocked]", 1)
+		"statuses: [Backlog, Ready, InProgress, Review, Approved, Blocked]",
+		"statuses: [Backlog, Ready, InProgress, Review, Approved, Done, Blocked]", 1)
 	if _, err := LoadWorkflow(writeTemp(t, WorkflowFile, yaml)); err != nil {
-		t.Fatalf("граф с человеческой колонкой не загружен: %v", err)
+		t.Fatalf("граф с человеческим статусом не загружен: %v", err)
 	}
 }
 
@@ -233,12 +233,12 @@ func TestLoadWorkflowRejectsBrokenTwoRoleGraph(t *testing.T) {
 			want: "planner",
 		},
 		{
-			name: "терминальная колонка выдумана",
+			name: "терминальный статус выдуман",
 			yaml: strings.Replace(twoRoleWorkflow, "terminal: [Approved]", "terminal: [Готово]", 1),
 			want: "Готово",
 		},
 		{
-			name: "рабочая колонка выдумана",
+			name: "рабочий статус выдуман",
 			yaml: strings.Replace(twoRoleWorkflow, "working: InProgress", "working: Работаю", 1),
 			want: "Работаю",
 		},
@@ -251,7 +251,7 @@ func TestLoadWorkflowRejectsBrokenTwoRoleGraph(t *testing.T) {
 			want: "by_next_owner",
 		},
 		{
-			name: "маршрут ведёт в несуществующую колонку",
+			name: "маршрут ведёт в несуществующий статус",
 			yaml: strings.Replace(twoRoleWorkflow, "          implementer: Ready", "          implementer: Todo", 1),
 			want: "Todo",
 		},
@@ -324,12 +324,12 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			want: "limmits",
 		},
 		{
-			name: "исход ведёт в несуществующую колонку",
+			name: "исход ведёт в несуществующий статус",
 			yaml: strings.Replace(validWorkflow, "done:        { to: Review }", "done:        { to: Готово }", 1),
 			want: "Готово",
 		},
 		{
-			name: "роль читает из несуществующей колонки",
+			name: "роль читает из несуществующего статуса",
 			yaml: strings.Replace(validWorkflow, "reads_from: Ready", "reads_from: Todo", 1),
 			want: "Todo",
 		},
@@ -361,9 +361,9 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			want: "max_push_failures",
 		},
 		{
-			name: "колонки не заданы",
-			yaml: strings.Replace(validWorkflow, "columns: [Ready, InProgress, Review, Blocked, Done]", "columns: []", 1),
-			want: "columns",
+			name: "статусы не заданы",
+			yaml: strings.Replace(validWorkflow, "statuses: [Ready, InProgress, Review, Blocked, Done]", "statuses: []", 1),
+			want: "statuses",
 		},
 	}
 

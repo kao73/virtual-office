@@ -9,7 +9,7 @@ import (
 	"github.com/kao73/virtual-office/tracker"
 )
 
-// boardCommand печатает доску: задачи всех проектов в колонках графа.
+// boardCommand печатает плоский список: задачи всех проектов во всех статусах графа.
 //
 // Это не очередь: задачи с живой арендой из неё не выбрасываются, потому что
 // «кто работает прямо сейчас» — первое, что человек ищет глазами. Переписку
@@ -30,14 +30,14 @@ func boardCommand(args []string, out io.Writer) error {
 		}
 		projects = []string{*project}
 	}
-	return printBoard(o.Tracker, projects, o.Workflow.Columns, time.Now(), out)
+	return printBoard(o.Tracker, projects, o.Workflow.Statuses, time.Now(), out)
 }
 
 // printBoard печатает доску проектов: по запросу на проект, без переписки.
-func printBoard(tasks tracker.Tracker, projects, columns []string, now time.Time, out io.Writer) error {
+func printBoard(tasks tracker.Tracker, projects, statuses []string, now time.Time, out io.Writer) error {
 	shown := 0
 	for _, project := range projects {
-		refs, err := tasks.List(project, columns)
+		refs, err := tasks.List(project, statuses)
 		if notice, skip := tracker.SkipUnknownProject(project, err); skip {
 			fmt.Fprintln(out, notice)
 			continue
@@ -79,7 +79,7 @@ func waiting(ref tracker.TaskRef) string {
 	return ""
 }
 
-// age — сколько задачу не трогали, огрублённо. Человеку в этой колонке нужен
+// age — сколько задачу не трогали, огрублённо. Человеку здесь нужен
 // порядок величины: «висит третий день» решает, а «висит 62 часа 14 минут» — нет.
 func age(updated, now time.Time) string {
 	if updated.IsZero() {

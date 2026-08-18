@@ -175,8 +175,8 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	done, err := o.work(ctx, task, roleName, flow, role)
 	if done {
 		if rmErr := o.Workspaces.Remove(task.ws); rmErr != nil {
-			// Неубранная папка — мусор, а не поломка: задача уже в терминальной
-			// колонке, работа опубликована. Молчать про неё всё равно нельзя.
+			// Неубранная папка — мусор, а не поломка: задача уже в терминальном
+			// статусе, работа опубликована. Молчать про неё всё равно нельзя.
 			o.logf("%s: рабочая папка не убрана: %v", task.ref.Key, rmErr)
 		} else {
 			o.logf("%s: рабочая папка убрана: задача дошла до конца", task.ref.Key)
@@ -207,7 +207,7 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 // что не ответил, незачем — проверка ничего не решает.
 //
 // Трекер, не умеющий отвечать про свой workflow, пропускается молча: у файлового
-// workflow нет вовсе, и жаловаться было бы не на что. Роль без рабочей колонки —
+// workflow нет вовсе, и жаловаться было бы не на что. Роль без рабочего статуса —
 // тоже: её захват статуса не меняет, и лазейка к ней не относится.
 func (o *Office) checkWorkflow(project string, flow tracker.RoleFlow) {
 	checker, able := o.Tracker.(tracker.WorkflowChecker)
@@ -447,7 +447,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	if err != nil {
 		return false, err
 	}
-	// Терминальная колонка — конец жизни задачи: работа опубликована, дальше её
+	// Терминальный статус — конец жизни задачи: работа опубликована, дальше её
 	// ведёт человек, и рабочая папка больше не нужна.
 	return o.Workflow.IsTerminal(to), nil
 }
@@ -536,7 +536,7 @@ func spent(usage runner.Usage) string {
 // finish пишет отчёт и двигает задачу по графу.
 //
 // Порядок именно такой: комментарий раньше перехода. Упади раннер между ними —
-// задача останется в прежней колонке с объяснением, а не уедет в новую молча.
+// задача останется в прежнем статусе с объяснением, а не уедет в новый молча.
 func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.RoleFlow, result runner.Result, branch string, usage runner.Usage) (string, error) {
 	transition, found := flow.Outcomes[string(result.Outcome)]
 	if !found {
@@ -619,7 +619,7 @@ func (o *Office) HumanReplies(ctx context.Context) (int, error) {
 
 	count := 0
 	for _, project := range o.projects() {
-		for _, column := range o.Workflow.HumanColumns() {
+		for _, column := range o.Workflow.HumanStatuses() {
 			// Задачи, ждущие человека, лежат без аренды — их и отдаёт ListReady.
 			refs, err := o.Tracker.ListReady(project, column)
 			if o.skipProject(project, err) {
@@ -892,10 +892,10 @@ func (o *Office) keepLease(ctx context.Context, key, runID string, role runner.R
 	}
 }
 
-// move переводит задачу в колонку, если она ещё не там.
+// move переводит задачу в статус, если она ещё не там.
 //
 // Перевод «в тот же самый статус» не делается вовсе, и это общее правило,
-// а не частный случай. У роли без рабочей колонки в её же колонку ведут
+// а не частный случай. У роли без рабочего статуса в её же статус ведут
 // и возвраты по исходам, и reap; в JIRA переход «в себя» существует не всегда,
 // и раннер спотыкался бы на ровном месте — а сказать ему было бы нечего:
 // задача уже там, где надо.

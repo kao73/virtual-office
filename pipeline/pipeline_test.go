@@ -821,7 +821,7 @@ func TestEveryGraphRoleIsShipped(t *testing.T) {
 	}
 }
 
-// Ревьюер читает из Review и возвращает работу автору. Рабочей колонки у него нет:
+// Ревьюер читает из Review и возвращает работу автору. Рабочего статуса у него нет:
 // задача остаётся в Review с живой арендой, а по исходу уходит туда, куда велит
 // граф по next_owner.
 func TestReviewerReturnsWorkToImplementer(t *testing.T) {
@@ -956,7 +956,7 @@ func TestReviewRoundsExhaustedCallsHuman(t *testing.T) {
 		t.Errorf("счётчик попыток %d: круг ревью — не провал агента", task.Attempts)
 	}
 
-	// Человеку нужно объяснение, а не только колонка: сколько кругов и почему.
+	// Человеку нужно объяснение, а не только статус: сколько кругов и почему.
 	last := lastComment(t, task)
 	marker, ok := tracker.MarkerOf(last.Body)
 	if !ok || marker.Event != tracker.EventReviewRoundsExhausted {
@@ -974,7 +974,7 @@ func TestReviewRoundsExhaustedCallsHuman(t *testing.T) {
 	}
 }
 
-// Одобрение уводит задачу в терминальную колонку: дальше её ведёт человек.
+// Одобрение уводит задачу в терминальный статус: дальше её ведёт человек.
 func TestReviewerApprovalMovesTaskToApproved(t *testing.T) {
 	o := newOffice(t)
 	o.add("OFF-2", "Review")
@@ -1082,7 +1082,7 @@ func TestPushFailuresExhaustedCallHuman(t *testing.T) {
 	}
 }
 
-// В терминальной колонке жизнь задачи кончается: работа опубликована, дальше её
+// В терминальном статусе жизнь задачи кончается: работа опубликована, дальше её
 // ведёт человек, и рабочая папка больше не нужна. Не убирать её — копить худший
 // вид мусора: тот, который выглядит рабочим.
 func TestTerminalColumnRemovesWorktree(t *testing.T) {
@@ -1107,7 +1107,7 @@ func TestTerminalColumnRemovesWorktree(t *testing.T) {
 	}
 }
 
-// В нетерминальной колонке папка обязана остаться: следующая роль продолжит
+// В нетерминальном статусе папка обязана остаться: следующая роль продолжит
 // с той же незаконченной работы.
 func TestNonTerminalColumnKeepsWorktree(t *testing.T) {
 	o := newOffice(t)
@@ -1736,7 +1736,7 @@ func (o *office) withWorkflow(t *testing.T, yaml string) {
 }
 
 // routingWorkflow — граф, в котором исход `done` разветвляется по next_owner.
-const routingWorkflow = `columns: [Ready, InProgress, Review, Blocked, Done]
+const routingWorkflow = `statuses: [Ready, InProgress, Review, Blocked, Done]
 roles:
   implementer:
     reads_from: Ready
@@ -1809,9 +1809,9 @@ func (s *spyTransitions) Transition(key string, by tracker.Actor, to string) err
 	return s.Tracker.Transition(key, by, to)
 }
 
-// noWorkingWorkflow — граф роли без рабочей колонки: она читает и работает
+// noWorkingWorkflow — граф роли без рабочего статуса: она читает и работает
 // в одной и той же.
-const noWorkingWorkflow = `columns: [Ready, InProgress, Review, Blocked, Done]
+const noWorkingWorkflow = `statuses: [Ready, InProgress, Review, Blocked, Done]
 roles:
   implementer:
     reads_from: Ready
@@ -1832,7 +1832,7 @@ human_reply:
 `
 
 // Перевод в тот статус, в котором задача и так лежит, не делается вовсе.
-// Это общее правило раннера, а не частный случай: у роли без рабочей колонки
+// Это общее правило раннера, а не частный случай: у роли без рабочего статуса
 // туда ведут и reap, и возвраты по исходам, а в JIRA перехода «в себя»
 // может не быть в workflow вовсе — и захват падал бы на ровном месте.
 func TestFinishSkipsTransitionToSameStatus(t *testing.T) {
@@ -1957,7 +1957,7 @@ func TestCheckWorkflowSilentForTrackerWithoutWorkflow(t *testing.T) {
 	}
 }
 
-// Роль без рабочей колонки проверять нечего: захват её задачи статуса
+// Роль без рабочего статуса проверять нечего: захват её задачи статуса
 // не меняет, и лазейка «вход в рабочий статус из него самого» к ней
 // не относится вовсе. Спрашивать о ней трекер — значит спрашивать о пустом
 // статусе.
@@ -1973,7 +1973,7 @@ func TestCheckWorkflowSilentForRoleWithoutWorking(t *testing.T) {
 	}
 
 	if strings.Contains(log.String(), "workflow") {
-		t.Errorf("роль без рабочей колонки вызвала жалобу:\n%s", log.String())
+		t.Errorf("роль без рабочего статуса вызвала жалобу:\n%s", log.String())
 	}
 }
 

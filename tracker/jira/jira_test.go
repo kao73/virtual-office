@@ -236,10 +236,10 @@ func fixture(t *testing.T) (*Tracker, *fakeJira) {
 	t.Setenv("JIRA_PASSWORD", "секрет")
 
 	tr, err := Open(Config{
-		BaseURL:  server.URL,
-		Auth:     Auth{Mode: "basic"},
-		Accounts: Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
-		Statuses: map[string]string{"Ready": "Ready", "InProgress": "In Progress", "Review": "Review", "Blocked": "Blocked"},
+		BaseURL:   server.URL,
+		Auth:      Auth{Mode: "basic"},
+		Accounts:  Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
+		StatusMap: map[string]string{"Ready": "Ready", "InProgress": "In Progress", "Review": "Review", "Blocked": "Blocked"},
 		Fields: Fields{
 			Owner: "customfield_10001", RunID: "customfield_10002",
 			LeaseUntil: "customfield_10003", Attempts: "customfield_10004",
@@ -261,7 +261,7 @@ func TestWhoami(t *testing.T) {
 	}
 }
 
-// Статусы JIRA переводятся в колонки графа и обратно: раннер работает
+// Имена статусов на инстансе переводятся в статусы графа и обратно: раннер работает
 // с именами из workflow.yaml и про «In Progress» с пробелом знать не должен.
 func TestGetMapsStatusToColumn(t *testing.T) {
 	tr, fake := fixture(t)
@@ -277,7 +277,7 @@ func TestGetMapsStatusToColumn(t *testing.T) {
 		t.Fatalf("задача не прочитана: %v", err)
 	}
 	if task.Status != "InProgress" {
-		t.Errorf("статус %q, ожидалась колонка InProgress", task.Status)
+		t.Errorf("статус %q, ожидался статус графа InProgress", task.Status)
 	}
 	if task.RunID != "прогон-1" || task.Owner != "implementer" {
 		t.Errorf("аренда прочитана как %q/%q", task.Owner, task.RunID)
@@ -336,15 +336,15 @@ func TestClaimWritesFieldsAndVerifies(t *testing.T) {
 	}
 }
 
-// Рабочая колонка — опция роли. Без неё захват записывает аренду и не трогает
-// статус: «в работе» означает живую аренду в той же колонке, из которой роль
+// Рабочий статус — опция роли. Без него захват записывает аренду и не трогает
+// статус: «в работе» означает живую аренду в том же статусе, из которого роль
 // читает. Перевод в пустой статус был бы бедой, а перевод «в тот же самый» —
 // запросом, которого workflow может и не разрешить: переход Review → Review
 // в JIRA существует не всегда.
 func TestClaimWithoutWorkingStatusKeepsColumn(t *testing.T) {
 	cases := map[string]string{
-		"рабочей колонки у роли нет":                         "",
-		"рабочая колонка та же, что и та, из которой читаем": "Review",
+		"рабочего статуса у роли нет":               "",
+		"рабочий статус тот же, из которого читаем": "Review",
 	}
 
 	for name, working := range cases {
@@ -543,7 +543,7 @@ func accountsConfig(baseURL string) Config {
 			},
 		},
 		AlsoAgents:     []string{"renovate-bot"},
-		Statuses:       map[string]string{"Ready": "Ready", "Review": "Review"},
+		StatusMap:      map[string]string{"Ready": "Ready", "Review": "Review"},
 		Fields:         Fields{Owner: "customfield_10001", RunID: "customfield_10002", LeaseUntil: "customfield_10003", Attempts: "customfield_10004"},
 		HumanFlagLabel: "office-waits-human",
 	}
@@ -657,7 +657,7 @@ func TestCheckAccountPassesWhenNamesMatch(t *testing.T) {
 	}
 }
 
-// `ls` показывает доску, а не очередь: задачи в названных колонках как есть,
+// `ls` показывает всё, а не очередь: задачи в названных статусах как есть,
 // вместе с живой арендой. Один запрос на проект, переписка не тянется.
 func TestListBuildsJQLForStatuses(t *testing.T) {
 	tr, fake := fixture(t)
@@ -720,7 +720,7 @@ auth: { mode: basic }
 accounts:
   roles:
     reviewer: { user_env: JIRA_REVIEWER_USER, secret_env: JIRA_REVIEWER_PASSWORD }
-statuses: { Ready: Ready }
+status_map: { Ready: Ready }
 fields:
   agent_owner: customfield_10001
   run_id: customfield_10002

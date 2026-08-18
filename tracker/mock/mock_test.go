@@ -44,7 +44,7 @@ func claim(tr *Tracker, runID string) error {
 	})
 }
 
-// Рабочая колонка — опция роли: без неё захват записывает аренду и оставляет
+// Рабочий статус — опция роли: без него захват записывает аренду и оставляет
 // задачу там, где она лежит. Файловый трекер обязан вести себя как JIRA
 // и здесь — иначе расхождение вылезет на живой доске, а не в тестах.
 func TestClaimWithoutWorkingStatusKeepsColumn(t *testing.T) {
@@ -113,7 +113,7 @@ func TestClaimTakesLeaseAndMovesTask(t *testing.T) {
 	}
 }
 
-// Захват задачи, уже уехавшей в другую колонку, не наш.
+// Захват задачи, уже уехавшей в другой статус, не наш.
 func TestClaimChecksExpectedStatus(t *testing.T) {
 	tr := fixture(t)
 	err := tr.Claim(tracker.ClaimRequest{
@@ -250,7 +250,7 @@ func TestExpiredLeaseIsFreeAgain(t *testing.T) {
 func TestListReadyFiltersByProjectAndStatus(t *testing.T) {
 	tr := fixture(t)
 	for _, task := range []tracker.Task{
-		{Key: "OFF-2", Project: "OFF", Status: "Review", Summary: "не та колонка"},
+		{Key: "OFF-2", Project: "OFF", Status: "Review", Summary: "не тот статус"},
 		{Key: "OTH-1", Project: "OTH", Status: "Ready", Summary: "не тот проект"},
 	} {
 		if err := tr.Add(task); err != nil {
@@ -422,8 +422,8 @@ func TestListShowsBoardIncludingLeasedTasks(t *testing.T) {
 	}
 }
 
-// Колонка, которой не спрашивали, в ответ не попадает: `ls` показывает доску
-// по графу, а не всё, что лежит в хранилище.
+// Статус, которого не спрашивали, в ответ не попадает: `ls` показывает статусы
+// графа, а не всё, что лежит в хранилище.
 func TestListFiltersByStatus(t *testing.T) {
 	tr := fixture(t)
 	if err := tr.Add(tracker.Task{Key: "OFF-2", Project: "OFF", Status: "Done", Summary: "Смержена"}); err != nil {
@@ -435,7 +435,7 @@ func TestListFiltersByStatus(t *testing.T) {
 		t.Fatalf("доска не прочитана: %v", err)
 	}
 	if len(refs) != 1 || refs[0].Key != "OFF-1" {
-		t.Errorf("отбор по колонкам не сработал: %+v", refs)
+		t.Errorf("отбор по статусам не сработал: %+v", refs)
 	}
 }
 

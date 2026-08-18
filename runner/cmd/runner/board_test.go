@@ -41,8 +41,8 @@ func TestBoardShowsWhoWorksAndForHowLong(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	columns := []string{"Ready", "InProgress", "Review", "Blocked"}
-	if err := printBoard(tr, []string{"OFF"}, columns, boardNow, &out); err != nil {
+	statuses := []string{"Ready", "InProgress", "Review", "Blocked"}
+	if err := printBoard(tr, []string{"OFF"}, statuses, boardNow, &out); err != nil {
 		t.Fatalf("доска не напечатана: %v", err)
 	}
 
@@ -73,7 +73,7 @@ func TestBoardSaysWhenEmpty(t *testing.T) {
 	}
 }
 
-// Возраст читается человеком, а не машиной: секунды в колонке «сколько висит»
+// Возраст читается человеком, а не машиной: секунды в графе «сколько висит»
 // не нужны никому.
 func TestAgeIsHumanReadable(t *testing.T) {
 	cases := map[time.Duration]string{
@@ -101,11 +101,11 @@ type unknownProject struct {
 	missing string
 }
 
-func (u unknownProject) List(project string, columns []string) ([]tracker.TaskRef, error) {
+func (u unknownProject) List(project string, statuses []string) ([]tracker.TaskRef, error) {
 	if project == u.missing {
 		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
 	}
-	return u.Tracker.List(project, columns)
+	return u.Tracker.List(project, statuses)
 }
 
 // Незнакомый трекеру проект `tick` пропускает, а `ls` на нём падал: одна причина,

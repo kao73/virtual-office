@@ -32,11 +32,16 @@ var outcomes = []string{
 	string(runner.OutcomeFailed),
 }
 
-// Workflow — граф состояний: колонки, роли и то, куда роль двигает задачу
+// Workflow — граф состояний: статусы, роли и то, куда роль двигает задачу
 // по каждому исходу. Всё, что раннер «решает», решается отсюда, а не эвристикой.
+//
+// Статусы — узлы графа, то есть узлы workflow самого трекера. Колонок здесь нет
+// и быть не может: колонка — свойство доски, представление, и досок с разной
+// раскладкой одних и тех же статусов бывает сколько угодно. Раннер о досках
+// не знает ничего (DESIGN §1).
 type Workflow struct {
-	Columns []string `yaml:"columns"`
-	// Terminal — колонки, в которых жизнь задачи кончается: работа опубликована,
+	Statuses []string `yaml:"statuses"`
+	// Terminal — статусы, в которых жизнь задачи кончается: работа опубликована,
 	// рабочая папка больше не нужна.
 	Terminal []string `yaml:"terminal"`
 	// TickOrder — порядок обхода ролей. Задаётся явно: порядок YAML-карты
@@ -50,17 +55,17 @@ type Workflow struct {
 // RoleFlow — место роли в графе.
 type RoleFlow struct {
 	ReadsFrom string `yaml:"reads_from"`
-	// Working — рабочая колонка, куда роль переводит захваченную задачу.
-	// Необязательна: без неё «в работе» означает живую аренду в той же колонке,
-	// из которой роль читает. Доска делается для людей, и отдельная колонка
-	// под проверку, длящуюся минуты, была бы на ней шумом.
+	// Working — рабочий статус, в который роль переводит захваченную задачу.
+	// Необязателен: без него «в работе» означает живую аренду в том же статусе,
+	// из которого роль читает. Статус видят люди на доске, и отдельный статус
+	// под проверку, длящуюся минуты, был бы на ней шумом.
 	Working  string             `yaml:"working"`
 	Outcomes map[string]Outcome `yaml:"outcomes"`
 }
 
-// Blocked — колонка, в которой задача ждёт человека. Отдельной настройки для неё
+// Blocked — статус, в котором задача ждёт человека. Отдельной настройки для него
 // нет намеренно: это ровно то место, куда роль отправляет задачу с вопросом,
-// и раздваивать его — значит однажды развести их по разным колонкам.
+// и раздваивать его — значит однажды развести их по разным статусам.
 func (r RoleFlow) Blocked() string {
 	return r.Outcomes[string(runner.OutcomeNeedsHuman)].To
 }
@@ -85,7 +90,7 @@ type Outcome struct {
 	ByNextOwner map[string]string `yaml:"by_next_owner"`
 }
 
-// Route — колонка, в которую уходит задача при этом исходе и таком next_owner.
+// Route — статус, в который уходит задача при этом исходе и таком next_owner.
 func (o Outcome) Route(nextOwner string) string {
 	if to, found := o.ByNextOwner[nextOwner]; found {
 		return to
@@ -148,31 +153,31 @@ func (w Workflow) Order() []string {
 	return slices.Sorted(maps.Keys(w.Roles))
 }
 
-// IsTerminal — кончается ли жизнь задачи в этой колонке. Дальше её ведёт
+// IsTerminal — кончается ли жизнь задачи в этом статусе. Дальше её ведёт
 // человек, а рабочая папка больше не нужна.
-func (w Workflow) IsTerminal(column string) bool {
-	return slices.Contains(w.Terminal, column)
+func (w Workflow) IsTerminal(status string) bool {
+	return slices.Contains(w.Terminal, status)
 }
 
-// HumanColumns — колонки, в которых задача ждёт человека: всё, куда ведут исходы
+// HumanStatuses — статусы, в которых задача ждёт человека: всё, куда ведут исходы
 // с пометкой human. Порядок устойчивый, повторов нет — две роли вправе ждать
-// человека в одной колонке.
+// человека в одном статусе.
 //
 // Набор нужен разбору ответов человека. Он идёт отдельным проходом, без роли:
 // задачу в ожидание отправляет не только агент своим вопросом, но и сам раннер —
-// исчерпав попытки или устав возвращать зависшую задачу, — и спрашивать «а чья
-// это колонка» в такой момент не у кого.
-func (w Workflow) HumanColumns() []string {
-	var columns []string
+// исчерпав попытки или устав возвращать зависшую задачу, — и спрашивать «а чей
+// это статус» в такой момент не у кого.
+func (w Workflow) HumanStatuses() []string {
+	var statuses []string
 	for _, role := range w.Roles {
 		for _, outcome := range role.Outcomes {
-			if outcome.Human && !slices.Contains(columns, outcome.To) {
-				columns = append(columns, outcome.To)
+			if outcome.Human && !slices.Contains(statuses, outcome.To) {
+				statuses = append(statuses, outcome.To)
 			}
 		}
 	}
-	slices.Sort(columns)
-	return columns
+	slices.Sort(statuses)
+	return statuses
 }
 
 // Role — описание роли в графе.
@@ -187,21 +192,21 @@ func (w Workflow) Role(name string) (RoleFlow, error) {
 func (w Workflow) validate() error {
 	var errs []error
 
-	if len(w.Columns) == 0 {
-		errs = append(errs, errors.New("columns пуст: графа нет"))
+	if len(w.Statuses) == 0 {
+		errs = append(errs, errors.New("statuses пуст: графа нет"))
 	}
-	known := func(field, column string) {
-		if column == "" {
+	known := func(field, status string) {
+		if status == "" {
 			errs = append(errs, fmt.Errorf("%s не задан", field))
 			return
 		}
-		if !slices.Contains(w.Columns, column) {
-			errs = append(errs, fmt.Errorf("%s=%q: такой колонки нет в columns", field, column))
+		if !slices.Contains(w.Statuses, status) {
+			errs = append(errs, fmt.Errorf("%s=%q: такого статуса нет в statuses", field, status))
 		}
 	}
 
-	for _, column := range w.Terminal {
-		known("terminal", column)
+	for _, status := range w.Terminal {
+		known("terminal", status)
 	}
 
 	if len(w.Roles) == 0 {
@@ -210,13 +215,13 @@ func (w Workflow) validate() error {
 	rounds := false
 	for name, role := range w.Roles {
 		known(name+".reads_from", role.ReadsFrom)
-		// Рабочая колонка необязательна: без неё «в работе» означает живую
-		// аренду в колонке, из которой роль читает.
+		// Рабочий статус необязателен: без него «в работе» означает живую
+		// аренду в статусе, из которого роль читает.
 		if role.Working != "" {
 			known(name+".working", role.Working)
 		}
 
-		// Исход без перехода — это задача, застрявшая в рабочей колонке
+		// Исход без перехода — это задача, застрявшая в рабочем статусе
 		// без объяснения. Лучше не запуститься.
 		for _, outcome := range outcomes {
 			transition, found := role.Outcomes[outcome]

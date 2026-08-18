@@ -66,7 +66,7 @@ add_status() {
 echo "статусы:"
 add_status Backlog 'Куча задач до триажа: территория человека, офис сюда не смотрит' 2
 add_status Ready 'Очередь роли implementer' 2
-add_status Review 'Очередь роли reviewer и её же рабочая колонка' 4
+add_status Review 'Очередь роли reviewer; рабочего статуса у неё нет' 4
 add_status Approved 'Ревью пройдено, дальше человек делает merge' 3
 add_status Blocked 'Задача ждёт человека' 2
 

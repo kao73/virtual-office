@@ -152,7 +152,7 @@ func (t *Tracker) Get(key string) (tracker.Task, error) {
 	return task, nil
 }
 
-// ListReady — кандидаты в колонке проекта: без живой аренды, по возрастанию ключа.
+// ListReady — кандидаты в статусе проекта: без живой аренды, по возрастанию ключа.
 // Порядок задан жёстко, чтобы два прогона выбирали задачи одинаково.
 func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 	now := t.Now()
@@ -168,7 +168,7 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 	})
 }
 
-// List — задачи проекта в названных колонках, включая захваченные.
+// List — задачи проекта в названных статусах, включая захваченные.
 func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, error) {
 	return t.list(func(task tracker.Task) bool {
 		return task.Project == project && slices.Contains(statuses, task.Status)
@@ -242,8 +242,8 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	// Аренда наша — можно записывать поля. Владелец здесь только для человека:
 	// сверяется всё по run_id из имени файла аренды.
 	//
-	// Статус меняется, только если роли есть куда переводить задачу: рабочая
-	// колонка необязательна, и без неё «в работе» означает живую аренду там же,
+	// Статус меняется, только если роли есть куда переводить задачу: рабочий
+	// статус необязателен, и без него «в работе» означает живую аренду там же,
 	// откуда роль читает. Правило то же, что в JIRA, — разъедься реализации
 	// здесь, расхождение вылезло бы на живой доске.
 	task.Owner = req.Owner
