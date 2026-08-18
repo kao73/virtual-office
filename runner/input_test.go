@@ -46,6 +46,53 @@ func fixturePassport() Run {
 	}
 }
 
+// Снимок статуса — точка отсчёта ограждений: рабочая папка переиспользуется,
+// и чужая незакоммиченная правка лежит в ней ещё до первого шага роли. Судится
+// дельта, поэтому снимок обязан быть, даже когда он пуст.
+func TestPrepareInputSnapshotsBaseStatus(t *testing.T) {
+	workdir := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(workdir, "чужое.txt"), []byte("грязь прошлого прогона\n"), 0o644); err != nil {
+		t.Fatalf("файл не записан: %v", err)
+	}
+	role, passport := fixtureRole(t), fixturePassport()
+
+	if err := PrepareInput(workdir, role, passport, Input{Task: "Сделай хорошо.\n"}); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	snapshot := read(t, workdir, FileBaseStatus)
+	if !strings.Contains(snapshot, "чужое.txt") {
+		t.Errorf("в снимке нет доставшейся грязи:\n%s", snapshot)
+	}
+	// Каталог обмена исключается из git раньше снимка: иначе ограждение
+	// сравнивало бы дельту с собственным конвертом.
+	if strings.Contains(snapshot, Dir) {
+		t.Errorf("каталог обмена попал в снимок:\n%s", snapshot)
+	}
+}
+
+// Точку отсчёта наблюдает раннер, а не агент. В репозитории без коммитов её
+// не существует — это не ошибка, а «сравнивать не с чем».
+func TestHeadCommit(t *testing.T) {
+	repo := gitRepo(t)
+	head, err := HeadCommit(repo)
+	if err != nil {
+		t.Fatalf("HEAD не прочитан: %v", err)
+	}
+	if want := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD")); head != want {
+		t.Errorf("HEAD %q, ожидался %q", head, want)
+	}
+
+	empty := t.TempDir()
+	git(t, empty, "init", "-q")
+	switch head, err := HeadCommit(empty); {
+	case err != nil:
+		t.Errorf("репозиторий без коммитов сочтён поломкой: %v", err)
+	case head != "":
+		t.Errorf("в репозитории без коммитов найден HEAD %q", head)
+	}
+}
+
 func TestPrepareInputWritesExchange(t *testing.T) {
 	workdir := gitRepo(t)
 	role, passport := fixtureRole(t), fixturePassport()

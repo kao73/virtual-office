@@ -375,9 +375,16 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	// тоже работа над ней.
 	defer o.unlock(task.Key, ws)
 
+	// Точку отсчёта наблюдает раннер, а не агент: ограждения сверяются с тем,
+	// как папка выглядела до прогона, и заявление агента о собственной базе
+	// было бы заявлением подсудимого.
+	base, err := runner.HeadCommit(ws.Dir)
+	if err != nil {
+		return false, err
+	}
 	passport := runner.Run{
 		RunID: runID, Role: roleName, ConfigSHA: o.ConfigSHA,
-		StartedAt: o.now(), TaskKey: task.Key,
+		StartedAt: o.now(), TaskKey: task.Key, BaseCommit: base,
 	}
 	input := runner.Input{
 		Task:       taskBody(task),

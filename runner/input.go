@@ -69,7 +69,63 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 		return fmt.Errorf("%s не записан: %w", filepath.Join(Dir, FileRun), err)
 	}
 
-	return ExcludeAgentDir(workdir)
+	if err := ExcludeAgentDir(workdir); err != nil {
+		return err
+	}
+	// Снимок статуса — последним: каталог обмена уже исключён из git, и в снимке
+	// его не видно. Иначе ограждение сравнивало бы дельту с собственным конвертом.
+	return writeBaseStatus(workdir)
+}
+
+// HeadCommit — коммит, на котором стоит рабочая папка. Пусто без ошибки, если
+// коммитов нет вовсе: в свежем репозитории точки отсчёта не существует, а вести
+// себя это должно как «сравнивать не с чем», а не как поломка.
+func HeadCommit(workdir string) (string, error) {
+	out, err := exec.Command("git", "-C", workdir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", nil // репозиторий без коммитов
+		}
+		return "", fmt.Errorf("HEAD рабочей папки %s не прочитан: %w", workdir, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// WorktreeStatus — незакоммиченное в рабочей папке, `git status --porcelain`.
+//
+// Команда живёт одной функцией потому, что снимок на старте и сверка после
+// прогона обязаны быть сделаны одинаково: разойдись флаги — и дельта покажет
+// разницу форматов вместо разницы состояний.
+//
+// `core.quotepath=false` нужен по делу: с умолчанием git отдаёт кириллицу
+// восьмеричными escape-последовательностями, и сравнение пути с каталогом
+// изменения ломается на первом же русском имени файла.
+func WorktreeStatus(workdir string) ([]byte, error) {
+	out, err := exec.Command("git", "-C", workdir,
+		"-c", "core.quotepath=false", "status", "--porcelain").Output()
+	if err != nil {
+		return nil, fmt.Errorf("состояние рабочей папки %s не снято: %w", workdir, err)
+	}
+	return out, nil
+}
+
+// writeBaseStatus снимает состояние рабочей папки на старте прогона.
+//
+// Нужен он затем, что папка переиспользуется: после reap или ответа человека
+// роль возвращается к незаконченной работе, и чужая незакоммиченная правка
+// лежит там ещё до её первого шага. Ограждение судит **дельту** — то, что
+// появилось за этот прогон, — и без снимка судило бы чужое.
+func writeBaseStatus(workdir string) error {
+	out, err := WorktreeStatus(workdir)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(workdir, Dir, FileBaseStatus)
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		return fmt.Errorf("%s не записан: %w", filepath.Join(Dir, FileBaseStatus), err)
+	}
+	return nil
 }
 
 // composeContext собирает context.md. На этом этапе это имя роли, паспорт запуска,

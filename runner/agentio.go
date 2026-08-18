@@ -26,6 +26,10 @@ const (
 	FileRun     = "run.json"
 	FileResult  = "result.json"
 	FileLog     = "run.log"
+	// FileBaseStatus — снимок `git status --porcelain` на старте прогона.
+	// Точка отсчёта для ограждений: грязь, доставшаяся от прошлых прогонов
+	// в переиспользуемой папке, — не работа этой роли, и судится дельта.
+	FileBaseStatus = "base-status.txt"
 )
 
 // Outcome — исход запуска. Других значений контракт не допускает.
@@ -54,6 +58,10 @@ type Run struct {
 	StartedAt time.Time `json:"started_at"`
 	// TaskKey — ключ задачи в трекере. Пуст при ручном запуске: трекера там нет.
 	TaskKey string `json:"task_key,omitempty"`
+	// BaseCommit — HEAD рабочей папки на старте прогона: точка отсчёта для
+	// ограждений. Необязателен — в репозитории без коммитов его нет вовсе,
+	// и тогда сравнивать не с чем, остаётся один снимок статуса.
+	BaseCommit string `json:"base_commit,omitempty"`
 }
 
 // Зарезервированные значения next_owner: всё остальное трактуется как имя роли.

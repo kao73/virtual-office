@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -195,10 +196,10 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		Workdir: workdir,
 		Timeout: time.Duration(role.Limits.TimeoutSec) * time.Second,
 
-		Env: append([]string{
+		Env: append(append([]string{
 			"CLAUDE_CONFIG_DIR=" + configDir,
 			credVar + "=" + credValue,
-		}, identityVars(role)...),
+		}, identityVars(role)...), officeVars(role, workdir, run)...),
 		HostEnv: hostEnv,
 
 		Workspaces: []runner.Workspace{
@@ -232,6 +233,30 @@ func networkAllow(role runner.Role) []string {
 	hosts := append([]string{AgentAPIHost}, role.Network.Allow...)
 	slices.Sort(hosts)
 	return slices.Compact(hosts)
+}
+
+// officeVars — параметры прогона для ограждений. Хук получает их из окружения,
+// а не аргументами: аргументы задаёт адаптер, и второй адаптер, написанный под
+// другого агента, повторил бы их по-своему. Имена `OFFICE_*` — агент-нейтральная
+// часть контракта прогона, см. docs/contracts/agent-io.md.
+//
+// Пустые значения не передаются вовсе: «переменной нет» и «значение пустое» —
+// одно и то же, и в шелле это одна форма `${VAR:-}`.
+func officeVars(role runner.Role, workdir string, run runner.Run) []string {
+	vars := map[string]string{
+		"OFFICE_TASK_KEY":    run.TaskKey,
+		"OFFICE_BASE_COMMIT": run.BaseCommit,
+		"OFFICE_BASE_STATUS": filepath.Join(workdir, runner.Dir, runner.FileBaseStatus),
+		"OFFICE_RESULT_FILE": filepath.Join(workdir, role.ResultFile),
+	}
+
+	env := make([]string, 0, len(vars))
+	for _, name := range slices.Sorted(maps.Keys(vars)) {
+		if vars[name] != "" {
+			env = append(env, name+"="+vars[name])
+		}
+	}
+	return env
 }
 
 // identityVars задают личность коммитов. Переменные окружения выбраны потому, что

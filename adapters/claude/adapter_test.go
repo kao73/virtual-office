@@ -118,6 +118,58 @@ func argValue(t *testing.T, argv []string, flag string) string {
 	return argv[i+1]
 }
 
+// Параметры прогона едут к ограждениям окружением: аргументы задаёт адаптер,
+// и второй адаптер повторил бы их по-своему, а имена OFFICE_* — общая часть
+// контракта. Что Stop-хуки это окружение наследуют, проверено живьём на обоих
+// бэкендах, см. docs/notes/claude-cli.md.
+func TestBuildCarriesRunVarsToHooks(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "тестовый-ключ")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	root := fixtureOffice(t, readOnlyRoleYAML)
+	role, err := runner.LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+	workdir := t.TempDir()
+
+	launch, err := Build(role, workdir, runner.Run{
+		RunID: "550e8400-e29b-41d4-a716-446655440000", Role: "tester",
+		TaskKey: "OFF-1", BaseCommit: "a1b2c3d",
+	}, stubValidator(t))
+	if err != nil {
+		t.Fatalf("запуск не собран: %v", err)
+	}
+	t.Cleanup(func() { _ = launch.Cleanup() })
+
+	want := map[string]string{
+		"OFFICE_TASK_KEY":    "OFF-1",
+		"OFFICE_BASE_COMMIT": "a1b2c3d",
+		"OFFICE_BASE_STATUS": filepath.Join(workdir, runner.Dir, runner.FileBaseStatus),
+		"OFFICE_RESULT_FILE": filepath.Join(workdir, role.ResultFile),
+	}
+	for name, value := range want {
+		if !slices.Contains(launch.Env, name+"="+value) {
+			t.Errorf("в окружении прогона нет %s=%s:\n%q", name, value, launch.Env)
+		}
+	}
+}
+
+// Ручной запуск идёт без трекера, и ключа задачи у него нет. Пустая переменная
+// от отсутствующей ничем не отличается — значит её и не передаём: `${VAR:-}`
+// в хуке читает оба случая одинаково, а пустое значение в командной строке
+// песочницы выглядит настройкой, которой нет.
+func TestBuildOmitsEmptyRunVars(t *testing.T) {
+	launch, _, _ := fixtureLaunch(t, readOnlyRoleYAML)
+
+	for _, kv := range launch.Env {
+		name, value, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "OFFICE_") && value == "" {
+			t.Errorf("пустая переменная прогона %s в окружении", name)
+		}
+	}
+}
+
 // Файл результата — часть контракта прогона, а не работа роли: завершиться без него
 // нельзя. Значит право записать его даёт обвязка, как и подгрузку скиллов, — иначе
 // роль без инструментов записи не может закончиться ничем, кроме синтетического failed.

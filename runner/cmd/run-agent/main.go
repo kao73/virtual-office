@@ -119,11 +119,16 @@ func execute() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	base, err := runner.HeadCommit(workdir)
+	if err != nil {
+		return 0, err
+	}
 	passport := runner.Run{
-		RunID:     runID,
-		Role:      role.Name,
-		ConfigSHA: configSHA,
-		StartedAt: time.Now(),
+		RunID:      runID,
+		Role:       role.Name,
+		ConfigSHA:  configSHA,
+		StartedAt:  time.Now(),
+		BaseCommit: base,
 	}
 
 	// Свою ветку рабочая папка знает сама, базовую — нет: она задаётся флагом.
