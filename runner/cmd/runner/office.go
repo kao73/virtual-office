@@ -150,8 +150,6 @@ func tickCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	o.CheckWorkflow()
-
 	ctx := context.Background()
 	if *role == "" {
 		return o.TickAll(ctx)
@@ -188,10 +186,6 @@ func loopCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// Один раз при старте, а не каждый цикл: workflow меняют руками и редко,
-	// а строка в логе на каждом заходе быстро перестала бы читаться.
-	o.CheckWorkflow()
-
 	// Остановка между циклами, а не посреди: прерванный прогон оставил бы
 	// задачу арендованной до истечения аренды.
 	ctx, stop := signalContext()

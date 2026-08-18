@@ -1871,16 +1871,15 @@ func (k knownWorkflow) CheckWorkflow(string, string) (tracker.WorkflowCheck, err
 // Рабочий статус, доступный переходом из него самого, позволяет двум прогонам
 // захватить одну задачу. С одним раннером на проект это безопасно — потому
 // раннер и предупреждает, а не отказывается работать.
-func TestCheckWorkflowWarnsAboutTwoOwners(t *testing.T) {
+func TestClaimWarnsAboutWorkflowWithTwoOwners(t *testing.T) {
 	var log strings.Builder
 	o := newOffice(t)
 	o.Office.Log = &log
-	o.Office.Tracker = knownWorkflow{
-		Tracker: o.tasks,
-		check:   tracker.WorkflowCheck{Sample: "OFF-1", SelfEntry: true},
-	}
+	o.useTracker(knownWorkflow{Tracker: o.tasks, check: tracker.WorkflowCheck{Sample: "OFF-1", SelfEntry: true}})
 
-	o.Office.CheckWorkflow()
+	if _, err := o.Tick(context.Background(), "implementer"); err != nil {
+		t.Fatalf("тик не прошёл: %v", err)
+	}
 
 	if !strings.Contains(log.String(), "двух владельцев") {
 		t.Errorf("раннер не сказал, чем грозит такой workflow:\n%s", log.String())
@@ -1890,32 +1889,70 @@ func TestCheckWorkflowWarnsAboutTwoOwners(t *testing.T) {
 	}
 }
 
-// Проверить workflow не на чем, пока в рабочем статусе нет ни одной задачи:
-// переходы JIRA показывает только у конкретной задачи. Молчание в этом месте
-// читалось бы как «проверил, всё в порядке».
-func TestCheckWorkflowSaysWhenItCouldNotRun(t *testing.T) {
+// Спрашивается workflow при захвате, а не при старте, потому что переходы JIRA
+// показывает только у конкретной задачи: до захвата рабочий статус может быть
+// пуст, и ответа не будет вовсе. Захват же сам кладёт туда задачу — образец
+// появляется ровно к моменту вопроса.
+//
+// Отсюда главное для живого лога: тик без работы про workflow не говорит ничего
+// и ничего не спрашивает. Раньше строка «проверка не выполнена» печаталась
+// на каждый заход и утапливала ту, ради которой всё затевалось.
+func TestIdleTickSaysNothingAboutWorkflow(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.useTracker(knownWorkflow{Tracker: o.tasks, check: tracker.WorkflowCheck{Sample: "OFF-1", SelfEntry: true}})
+
+	// Единственную задачу забирает первый тик; второму работы уже нет.
+	if _, err := o.Tick(context.Background(), "implementer"); err != nil {
+		t.Fatalf("тик не прошёл: %v", err)
+	}
+	o.Office.Log = &log
+	worked, err := o.Tick(context.Background(), "implementer")
+	if err != nil {
+		t.Fatalf("тик не прошёл: %v", err)
+	}
+	if worked {
+		t.Fatal("работа нашлась там, где её не должно быть: тест проверяет не то")
+	}
+
+	if strings.Contains(log.String(), "workflow") {
+		t.Errorf("тик без работы шумит про workflow:\n%s", log.String())
+	}
+}
+
+// Workflow меняют руками и редко, а захватов за час бывают десятки. Повторять
+// одно и то же предупреждение на каждый — то же самое, что не предупреждать:
+// строку перестают читать. Память живёт столько же, сколько процесс.
+func TestWorkflowWarningSaidOncePerProcess(t *testing.T) {
 	var log strings.Builder
 	o := newOffice(t)
 	o.Office.Log = &log
-	o.useTracker(knownWorkflow{Tracker: o.tasks})
+	o.add("OFF-2", "Ready")
+	o.useTracker(knownWorkflow{Tracker: o.tasks, check: tracker.WorkflowCheck{Sample: "OFF-1", SelfEntry: true}})
 
-	o.Office.CheckWorkflow()
+	for range 2 {
+		if _, err := o.Tick(context.Background(), "implementer"); err != nil {
+			t.Fatalf("тик не прошёл: %v", err)
+		}
+	}
 
-	if !strings.Contains(log.String(), "проверка workflow не выполнена") {
-		t.Errorf("невыполненная проверка выдана за успешную:\n%s", log.String())
+	if got := strings.Count(log.String(), "двух владельцев"); got != 1 {
+		t.Errorf("предупреждений %d, ожидалось одно:\n%s", got, log.String())
 	}
 }
 
 // У файлового трекера workflow нет вовсе, и жаловаться не на что: проверка
-// молча пропускается, а не превращается в шум на каждом запуске.
+// молча пропускается, а не превращается в шум на каждом захвате.
 func TestCheckWorkflowSilentForTrackerWithoutWorkflow(t *testing.T) {
 	var log strings.Builder
 	o := newOffice(t)
 	o.Office.Log = &log
 
-	o.Office.CheckWorkflow()
+	if _, err := o.Tick(context.Background(), "implementer"); err != nil {
+		t.Fatalf("тик не прошёл: %v", err)
+	}
 
-	if log.String() != "" {
+	if strings.Contains(log.String(), "workflow") {
 		t.Errorf("трекер без workflow вызвал жалобу:\n%s", log.String())
 	}
 }
@@ -1923,20 +1960,19 @@ func TestCheckWorkflowSilentForTrackerWithoutWorkflow(t *testing.T) {
 // Роль без рабочей колонки проверять нечего: захват её задачи статуса
 // не меняет, и лазейка «вход в рабочий статус из него самого» к ней
 // не относится вовсе. Спрашивать о ней трекер — значит спрашивать о пустом
-// статусе и шуметь в логе на каждом запуске.
+// статусе.
 func TestCheckWorkflowSilentForRoleWithoutWorking(t *testing.T) {
 	var log strings.Builder
 	o := newOffice(t)
 	o.withWorkflow(t, noWorkingWorkflow)
 	o.Office.Log = &log
-	o.Office.Tracker = knownWorkflow{
-		Tracker: o.tasks,
-		check:   tracker.WorkflowCheck{Sample: "OFF-1", SelfEntry: true},
+	o.useTracker(knownWorkflow{Tracker: o.tasks, check: tracker.WorkflowCheck{Sample: "OFF-1", SelfEntry: true}})
+
+	if _, err := o.Tick(context.Background(), "implementer"); err != nil {
+		t.Fatalf("тик не прошёл: %v", err)
 	}
 
-	o.Office.CheckWorkflow()
-
-	if log.String() != "" {
+	if strings.Contains(log.String(), "workflow") {
 		t.Errorf("роль без рабочей колонки вызвала жалобу:\n%s", log.String())
 	}
 }

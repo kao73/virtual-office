@@ -166,6 +166,9 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	if err != nil || task.ref.Key == "" {
 		return false, err
 	}
+	// Захват только что положил задачу в рабочий статус — есть на чём спросить
+	// трекер о его workflow. Без работы этот вопрос не задаётся вовсе.
+	o.checkWorkflow(task.ref.Project, flow)
 
 	// Порядок строгий: Release и Unlock внутри work, Remove — здесь, после них.
 	// Снести папку раньше значило бы снимать замок с того, чего уже нет.
@@ -182,7 +185,7 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	return true, err
 }
 
-// CheckWorkflow предупреждает о workflow, в котором захват задачи не может стать
+// checkWorkflow предупреждает о workflow, в котором захват задачи не может стать
 // CAS: рабочий статус, доступный переходом из него самого, позволяет двум прогонам
 // захватить одну задачу и уйти работать в один worktree.
 //
@@ -191,51 +194,44 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 // раннеров запущено на самом деле, отсюда не видно: сказать об этом человеку
 // раннер может, решить за него — нет.
 //
+// Зовётся она после захвата, а не при старте раннера, и это не мелочь. Переходы
+// трекер показывает только у конкретной задачи, а задача в рабочем статусе есть
+// не всегда — при старте вопрос чаще всего оставался без ответа, и раннер вместо
+// проверки печатал «проверить было не на чем» на каждый заход. Захват же кладёт
+// задачу в рабочий статус сам: образец появляется ровно к моменту вопроса,
+// а тик без работы молчит и ничего не спрашивает.
+//
+// Спрашивается один раз на проект за жизнь процесса: workflow меняют руками
+// и редко, а захватов за час бывают десятки. Второй попытки не получает и неудачная:
+// строка о ней в логе уже есть, а долбить трекер вопросом, на который он только
+// что не ответил, незачем — проверка ничего не решает.
+//
 // Трекер, не умеющий отвечать про свой workflow, пропускается молча: у файлового
-// workflow нет вовсе, и жаловаться было бы не на что.
-func (o *Office) CheckWorkflow() {
+// workflow нет вовсе, и жаловаться было бы не на что. Роль без рабочей колонки —
+// тоже: её захват статуса не меняет, и лазейка к ней не относится.
+func (o *Office) checkWorkflow(project string, flow tracker.RoleFlow) {
 	checker, able := o.Tracker.(tracker.WorkflowChecker)
-	if !able {
+	if !able || flow.Working == "" {
+		return
+	}
+	if !o.sayOnce("workflow:" + project + ":" + flow.Working) {
 		return
 	}
 
-	for _, project := range o.projects() {
-		for _, status := range o.workingStatuses() {
-			check, err := checker.CheckWorkflow(project, status)
-			if o.skipProject(project, err) {
-				break
-			}
-			switch {
-			case err != nil:
-				o.logf("%s: проверка workflow не выполнена: %v", project, err)
-			case check.Sample == "":
-				// Переходы трекер показывает только у конкретной задачи. Нет
-				// задачи в работе — нет и ответа; молчание здесь читалось бы
-				// как «проверил, всё в порядке».
-				o.logf("%s: проверка workflow не выполнена: нет задачи в рабочем статусе %s", project, status)
-			case check.SelfEntry:
-				o.logf("workflow %s допускает двух владельцев (в %s можно войти из него самого); "+
-					"безопасно только с одним раннером на проект, см. docs/contracts/tracker-protocol.md",
-					project, status)
-			}
-		}
+	check, err := checker.CheckWorkflow(project, flow.Working)
+	switch {
+	case err != nil:
+		o.logf("%s: проверка workflow не выполнена: %v", project, err)
+	case check.Sample == "":
+		// Задачу в рабочий статус только что перевели мы сами. Не найти её
+		// там — не «нечего проверять», а расхождение трекера с самим собой.
+		o.logf("%s: проверка workflow не выполнена: трекер не видит задач в рабочем статусе %s, "+
+			"хотя задача туда только что переведена", project, flow.Working)
+	case check.SelfEntry:
+		o.logf("workflow %s допускает двух владельцев (в %s можно войти из него самого); "+
+			"безопасно только с одним раннером на проект, см. docs/contracts/tracker-protocol.md",
+			project, flow.Working)
 	}
-}
-
-// workingStatuses — рабочие колонки всех ролей графа, без повторов и в устойчивом
-// порядке: две роли вправе работать в одной колонке, спрашивать о ней дважды незачем.
-//
-// Роли без рабочей колонки пропускаются: их захват статуса не меняет, и лазейка
-// «вход в рабочий статус из него самого» к ним не относится вовсе.
-func (o *Office) workingStatuses() []string {
-	var statuses []string
-	for _, role := range o.Workflow.Roles {
-		if role.Working != "" && !slices.Contains(statuses, role.Working) {
-			statuses = append(statuses, role.Working)
-		}
-	}
-	slices.Sort(statuses)
-	return statuses
 }
 
 // TickAll прогоняет по циклу на каждую роль графа, в порядке имён.
@@ -936,11 +932,11 @@ func (o *Office) record(key string, by tracker.Actor, marker tracker.Marker, tex
 // Жаловаться раннер продолжает каждый цикл, и это намеренно: молчаливый пропуск
 // означал бы, что проект просто не обслуживается, и заметить это было бы нечем.
 func (o *Office) skipProject(project string, err error) bool {
-	if !errors.Is(err, tracker.ErrNoProject) {
-		return false
+	notice, skip := tracker.SkipUnknownProject(project, err)
+	if skip {
+		o.logf("%s", notice)
 	}
-	o.logf("%s: проект описан в %s, но трекер его не знает — пропускаю", project, tracker.ProjectsFile)
-	return true
+	return skip
 }
 
 // projects — ключи проектов в устойчивом порядке: два прогона должны обходить

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -89,5 +90,48 @@ func TestAgeIsHumanReadable(t *testing.T) {
 	}
 	if got := age(time.Time{}, boardNow); got != "—" {
 		t.Errorf("неизвестный возраст показан как %q", got)
+	}
+}
+
+// unknownProject — трекер, не знающий одного из проектов конфигурации. Так
+// выглядит протухшая строка в projects.yaml: проект описан, а в трекере его
+// нет и никогда не было.
+type unknownProject struct {
+	tracker.Tracker
+	missing string
+}
+
+func (u unknownProject) List(project string, columns []string) ([]tracker.TaskRef, error) {
+	if project == u.missing {
+		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	}
+	return u.Tracker.List(project, columns)
+}
+
+// Незнакомый трекеру проект `tick` пропускает, а `ls` на нём падал: одна причина,
+// два разных поведения. Доска нужна как раз затем, чтобы такую строку в конфигурации
+// увидеть, — отказываться её показывать из-за неё же бессмысленно.
+func TestBoardSkipsProjectUnknownToTracker(t *testing.T) {
+	tr := mock.New(t.TempDir())
+	tr.Now = func() time.Time { return boardNow }
+	if err := tr.Add(tracker.Task{Key: "OFF-1", Project: "OFF", Status: "Ready", Summary: "Добавить hello.py"}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+
+	var out bytes.Buffer
+	// Имя нарочно раньше OFF по алфавиту: обход дойдёт до него первым.
+	tasks := unknownProject{Tracker: tr, missing: "AAA"}
+	if err := printBoard(tasks, []string{"AAA", "OFF"}, []string{"Ready"}, boardNow, &out); err != nil {
+		t.Fatalf("доска не напечатана: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "OFF-1") {
+		t.Errorf("из-за чужого проекта потеряна вся доска:\n%s", got)
+	}
+	// Молчать о пропуске нельзя: строка в projects.yaml выглядит рабочей,
+	// а задач по ней не видно — человеку нужно знать почему.
+	if !strings.Contains(got, "AAA") {
+		t.Errorf("о пропущенном проекте не сказано ни слова:\n%s", got)
 	}
 }

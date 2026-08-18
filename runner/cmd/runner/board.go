@@ -38,6 +38,10 @@ func printBoard(tasks tracker.Tracker, projects, columns []string, now time.Time
 	shown := 0
 	for _, project := range projects {
 		refs, err := tasks.List(project, columns)
+		if notice, skip := tracker.SkipUnknownProject(project, err); skip {
+			fmt.Fprintln(out, notice)
+			continue
+		}
 		if err != nil {
 			return err
 		}
