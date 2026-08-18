@@ -544,6 +544,15 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	}
 
 	attempts := task.Attempts + transition.Attempts
+	// Передача другой роли графа обнуляет счётчик: попытки считают провалы
+	// текущей роли, а не возраст задачи. Правило действует и на возврате
+	// (ревьюер → implementer, implementer → аналитик): следующему владельцу
+	// достаётся полный запас, иначе на трёх ролях два провала одной роли
+	// обезоруживали бы остальные. `human` и `none` — не роли графа и счётчик
+	// не трогают: работу они никому не передают.
+	if result.Outcome == runner.OutcomeDone && o.handsOver(roleName, result.NextOwner) {
+		attempts = 0
+	}
 	// Маршрут выбирает граф по тому, кому агент передал задачу. Агент называет
 	// следующего владельца, но карту маршрутов пишет человек: значения, которого
 	// в ней нет, хватает ровно на переход по умолчанию (DESIGN §2.1).
@@ -604,6 +613,17 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	}
 	o.logf("%s: %s → %s", task.Key, result.Outcome, to)
 	return to, o.Tracker.Release(task.Key, by)
+}
+
+// handsOver — передал ли отчёт задачу другой роли графа.
+//
+// Имя роли проверяется по графу, а не по формату: `next_owner` — свободная
+// строка, и «analyst» от выбывшей роли или опечатка в имени задачей никого
+// не наделяют. Себе самой роль передать не может: это продолжение работы,
+// а не смена владельца.
+func (o *Office) handsOver(role, nextOwner string) bool {
+	_, known := o.Workflow.Roles[nextOwner]
+	return known && nextOwner != role
 }
 
 // HumanReplies возвращает в работу задачи, которым ответил человек.

@@ -147,6 +147,16 @@ func newOffice(t *testing.T) *office {
 	return o
 }
 
+// addTried заводит задачу, у которой уже есть неудачные попытки.
+func (o *office) addTried(key, status string, attempts int) {
+	if err := o.tasks.Add(tracker.Task{
+		Key: key, Project: "OFF", Status: status, Attempts: attempts,
+		Summary: "Задача " + key, Description: "Сделать что-нибудь полезное.",
+	}); err != nil {
+		panic(err)
+	}
+}
+
 func (o *office) add(key, status string) {
 	if err := o.tasks.Add(tracker.Task{
 		Key: key, Project: "OFF", Status: status,
@@ -848,6 +858,44 @@ func TestReviewerReturnsWorkToImplementer(t *testing.T) {
 	}
 	if task.Attempts != 0 {
 		t.Errorf("счётчик попыток %d: круг ревью — не провал агента", task.Attempts)
+	}
+}
+
+// Попытки считают провалы текущей роли, а не возраст задачи. Передача другой
+// роли графа обнуляет счётчик — в том числе возврат назад по конвейеру: иначе
+// на трёх ролях два провала одной роли оставили бы следующей одну попытку.
+func TestHandoverToAnotherRoleResetsAttempts(t *testing.T) {
+	o := newOffice(t)
+	o.addTried("OFF-2", "Review", 2)
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "Тесты не покрывают отказ.", NextOwner: "implementer",
+	}
+
+	if _, err := o.Tick(context.Background(), "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	if got := o.get(t, "OFF-2").Attempts; got != 0 {
+		t.Errorf("счётчик попыток %d, ожидался 0: задача ушла другой роли", got)
+	}
+}
+
+// `none` и `human` ролями графа не являются и работу никому не передают:
+// счётчик остаётся как был. Обнулять его здесь значило бы прощать провалы
+// тому, кто просто закончил разговор.
+func TestFinishWithoutHandoverKeepsAttempts(t *testing.T) {
+	o := newOffice(t)
+	o.addTried("OFF-2", "Review", 2)
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeDone, Summary: "Работа принята.", NextOwner: "none",
+	}
+
+	if _, err := o.Tick(context.Background(), "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	if got := o.get(t, "OFF-2").Attempts; got != 2 {
+		t.Errorf("счётчик попыток %d, ожидалось 2: владелец не сменился", got)
 	}
 }
 
