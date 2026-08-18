@@ -60,10 +60,10 @@ statuses:
 # Кастомные поля аренды. Идентификаторы печатает scripts/jira-setup.sh —
 # на другом инстансе они будут другими.
 fields:
-  agent_owner: customfield_10001
-  run_id: customfield_10002
-  lease_until: customfield_10003
-  attempts: customfield_10004
+  agent_owner: customfield_10101
+  run_id: customfield_10102
+  lease_until: customfield_10103
+  attempts: customfield_10104
 
 # Атрибут «ждёт человека» — метка: её видно в списке задач, и она не требует
 # настройки экранов.
