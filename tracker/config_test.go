@@ -61,6 +61,7 @@ limits:
   max_attempts: 3
   max_lease_expiries: 3
   max_push_failures: 3
+  max_idle_runs: 3
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -96,6 +97,7 @@ limits:
   max_attempts: 3
   max_lease_expiries: 3
   max_push_failures: 3
+  max_idle_runs: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -359,6 +361,19 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			name: "предел неудачных пушей не задан",
 			yaml: strings.Replace(validWorkflow, "max_push_failures: 3", "max_push_failures: 0", 1),
 			want: "max_push_failures",
+		},
+		{
+			name: "предел пустых прогонов не задан",
+			yaml: strings.Replace(validWorkflow, "max_idle_runs: 3", "max_idle_runs: 0", 1),
+			want: "max_idle_runs",
+		},
+		{
+			// Без предела прогон без результата возвращал бы задачу той же роли
+			// вечно, не тратя попыток и не зовя человека: попытки его
+			// не ограничивают, на то он и отдельная серия.
+			name: "предела пустых прогонов нет вовсе",
+			yaml: strings.Replace(validWorkflow, "  max_idle_runs: 3\n", "", 1),
+			want: "max_idle_runs",
 		},
 		{
 			name: "статусы не заданы",

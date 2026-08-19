@@ -54,6 +54,14 @@ func printLedger(runs *ledger.Ledger, filter ledger.Filter, out io.Writer) error
 	fmt.Fprintf(out, "прогонов: %d, сумма $%.4f, в среднем $%.4f\n", total.Runs, total.CostUSD, total.Average())
 	fmt.Fprintf(out, "исходы: %s\n", outcomes(total.ByOutcome))
 
+	// Прогоны, не дошедшие до результата, — отдельной строкой, а не среди исходов:
+	// исход у них синтетический, и в общем ряду они читались бы как провалы агента.
+	// По этой же строке подбирается max_turns роли: сколько прогонов резалось
+	// пределом, видно здесь, а не вслепую.
+	if len(total.ByTermination) > 0 {
+		fmt.Fprintf(out, "без результата: %s\n", outcomes(total.ByTermination))
+	}
+
 	// Обе оговорки означают одно: сумма занижена. Молчать о них нельзя — человек
 	// поверит, что офис стоил меньше, чем стоил, а на те же суммы смотрят пределы.
 	if total.Unknown > 0 {

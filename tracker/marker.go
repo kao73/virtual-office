@@ -39,6 +39,19 @@ const (
 	// умолчание — терминал, и работа, которую вернули аналитику, была бы принята.
 	EventRouteUnknown = "route-unknown"
 
+	// EventAgentUnavailable — прогон не начинался: агент не сделал ни шага
+	// и не оставил следа. Обрыв связи, отказ API, исчерпанное окно подписки —
+	// беда обвязки, а не работы, и попытка задачи на неё не тратится.
+	EventAgentUnavailable = "agent-unavailable"
+	// EventRunTruncated — прогон срезан на ходу: предел шагов роли или таймаут.
+	// Агент работал и не успел отчитаться, поэтому это «продолжить», а не провал:
+	// задача возвращается той же роли, рабочая папка сохраняется.
+	EventRunTruncated = "run-truncated"
+	// EventIdleRunsExhausted — прогоны роли подряд не доходят до результата,
+	// и это предел. Счётчик у agent-unavailable и run-truncated общий: следствие
+	// у них одно, а два раздельных счётчика чередование обошло бы.
+	EventIdleRunsExhausted = "idle-runs-exhausted"
+
 	// EventOutcomeOverridden — раннер переиграл исход прогона: ограждение роли
 	// не пропустило сделанное. Отчёт агента остаётся в переписке как есть,
 	// а маршрут задачи выбирается по переигранному исходу.
@@ -192,18 +205,37 @@ func PushFailures(comments []Comment, role string) int {
 	return eventStreak(comments, role, EventPushFailed)
 }
 
-// eventStreak — серия одинаковых записей роли с конца истории.
+// IdleRuns — сколько прогонов роли подряд не дошли до результата.
+//
+// Считает записи двух видов одним счётчиком: «не начинал» (agent-unavailable)
+// и «не успел» (run-truncated). Счёт общий не для краткости, а по существу:
+// следствие у них одно — прогона как работы не было, — и причина одна.
+// Два раздельных счётчика чередование обошло бы: прогон не начался, следующий
+// оборвался, третий опять не начался, и ни один счётчик не дошёл бы до предела,
+// пока задача крутится вечно.
+//
+// Что серию обрывает — там же, где у остальных: отчёт роли о прогоне, разбор
+// ответа человека, неудачная публикация. Все они означают, что прежние пустые
+// прогоны стали прошлым.
+func IdleRuns(comments []Comment, role string) int {
+	return eventStreak(comments, role, EventAgentUnavailable, EventRunTruncated)
+}
+
+// eventStreak — серия однородных записей роли с конца истории.
+//
+// Событий может быть несколько: серия считается общей, если разные события
+// значат для человека одно и то же (см. IdleRuns).
 //
 // «Подряд» получается само собой: любая другая запись этой роли обрывает счёт.
 // Отчёт означает, что прогон дошёл до конца и опубликовался, запись о разборе
 // ответа — что вмешался человек. Записи чужих ролей и проза без маркера
 // не значат ни того, ни другого и серию не трогают.
-func eventStreak(comments []Comment, role, event string) int {
+func eventStreak(comments []Comment, role string, events ...string) int {
 	return streak(comments, func(_ Comment, m Marker, office bool) verdict {
 		switch {
 		case !office || m.Role != role:
 			return passBy
-		case m.Event == event:
+		case slices.Contains(events, m.Event):
 			return countIn
 		default:
 			return stop

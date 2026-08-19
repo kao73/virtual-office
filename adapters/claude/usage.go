@@ -16,11 +16,26 @@ const resultEventType = "result"
 
 // resultEvent — итоговое событие. Полей в нём куда больше, но раннеру нужны эти:
 // остальное — устройство конкретного агента, и наверх оно не идёт.
+//
+// Читателей у него два, и разбирают они разное: ParseUsage — во что прогон
+// обошёлся, ParseEnding — чем он кончился. Событие одно, поэтому и структура
+// одна: два описания одной строки разъехались бы на первой же правке.
 type resultEvent struct {
 	Type       string  `json:"type"`
 	CostUSD    float64 `json:"total_cost_usd"`
 	DurationMS int     `json:"duration_ms"`
 	Turns      int     `json:"num_turns"`
+
+	// TerminalReason — почему прогон кончился: completed, max_turns, api_error.
+	// Замер по 116 живым прогонам архива: docs/notes/claude-cli.md.
+	TerminalReason string `json:"terminal_reason"`
+	// IsError — считает ли сам агент, что прогон кончился бедой. Отдельной силы
+	// не имеет: на тех же 116 прогонах совпадает с «terminal_reason не
+	// completed». Нужен страховкой от значения, которого мы ещё не видели.
+	IsError bool `json:"is_error"`
+	// Text — итоговая строка агента: у оборванного прогона там «API Error: …».
+	// В отличие от subtype, врать ей незачем — это не классификация, а слова.
+	Text string `json:"result"`
 }
 
 // ParseUsage вытаскивает расход прогона из его лога.

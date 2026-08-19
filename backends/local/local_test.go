@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,12 @@ func TestRunStopsAgentOnTimeout(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("агент превысил предел времени, но запуск признан успешным")
+	}
+	// Таймаут обязан отличаться типом, а не текстом и не кодом возврата: -1 этот
+	// бэкенд возвращает ещё из двух мест, и по коду «работал и не успел»
+	// неотличимо от «прогона не было». Разница в цене задачи — попытка.
+	if !errors.Is(err, runner.ErrRunTimeout) {
+		t.Errorf("таймаут не типизирован, errors.Is его не узнаёт: %v", err)
 	}
 	if !strings.Contains(err.Error(), "не уложился") {
 		t.Errorf("ошибка не объясняет причину: %v", err)

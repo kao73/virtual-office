@@ -45,7 +45,10 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 	runErr := cmd.Run()
 
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return -1, fmt.Errorf("агент не уложился в %s и был остановлен", l.Timeout)
+		// Обёрнутая runner.ErrRunTimeout, а не просто текст: вышедшее время
+		// означает «работал и не успел», а прочие беды этой функции — «прогона
+		// не было». По коду -1 они неразличимы, по errors.Is — да.
+		return -1, runner.RunTimeout(l.Timeout, "")
 	}
 	var exitErr *exec.ExitError
 	if errors.As(runErr, &exitErr) {

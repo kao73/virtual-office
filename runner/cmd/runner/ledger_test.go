@@ -48,6 +48,42 @@ func TestLedgerSummary(t *testing.T) {
 	}
 }
 
+// Прогоны без результата стоят в сводке отдельной строкой, а не среди исходов:
+// исход у них синтетический, и в общем ряду они читались бы как провалы агента.
+// По числу усечений и подбирается max_turns роли — не вслепую.
+func TestLedgerSummaryShowsRunsWithoutResult(t *testing.T) {
+	runs := ledger.New(filepath.Join(t.TempDir(), ledger.FileName))
+	add := func(outcome, termination string, cost float64) {
+		if err := runs.Append(ledger.Entry{
+			RunID: "прогон", Task: "OFF-1", Role: "implementer", Project: "OFF", Started: ledgerNow,
+			Usage:   runner.Usage{CostUSD: cost, DurationMS: 20000, Turns: 5},
+			Outcome: outcome, Termination: termination,
+		}); err != nil {
+			t.Fatalf("строка не записана: %v", err)
+		}
+	}
+	add("done", string(runner.TerminationCompleted), 0.30)
+	add("failed", string(runner.TerminationTruncated), 1.77)
+	add("failed", string(runner.TerminationNotStarted), 0.05)
+	add("failed", string(runner.TerminationErrored), 0.37)
+
+	var out bytes.Buffer
+	if err := printLedger(runs, ledger.Filter{}, &out); err != nil {
+		t.Fatalf("сводка не напечатана: %v", err)
+	}
+
+	for _, want := range []string{"truncated 1", "not_started 1", "errored 1"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("в сводке нет %q:\n%s", want, out.String())
+		}
+	}
+	// Обычный прогон в этой строке не считается: она повторяла бы число прогонов
+	// и ничего не сообщала.
+	if strings.Contains(out.String(), "completed") {
+		t.Errorf("обычные прогоны попали в строку «без результата»:\n%s", out.String())
+	}
+}
+
 // Отбор по роли и по времени — то, ради чего сводку и зовут: «сколько эта роль
 // потратила за сутки».
 func TestLedgerSummaryFilters(t *testing.T) {

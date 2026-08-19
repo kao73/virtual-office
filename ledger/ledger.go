@@ -42,8 +42,16 @@ type Entry struct {
 	// Usage лежит плоско: cost_usd, duration_ms и turns — поля самой строки.
 	// Читать реестр глазами и грепом придётся, а вложенный объект этому мешает.
 	runner.Usage
-	Outcome   string `json:"outcome"`
-	ConfigSHA string `json:"config_sha"`
+	Outcome string `json:"outcome"`
+	// Termination — чем прогон кончился глазами раннера: completed, truncated,
+	// not_started, errored. Рядом с исходом, а не вместо него: исход — слова
+	// агента, а это наблюдение. У прогона без результата исход синтетический
+	// и врёт, и отличить такую строку от настоящего провала можно только здесь.
+	//
+	// По этим же значениям подбирается max_turns роли: сколько прогонов резалось
+	// пределом, видно в сводке, а не вслепую.
+	Termination string `json:"termination,omitempty"`
+	ConfigSHA   string `json:"config_sha"`
 	// Overrides — строка переигрыша: раннер не принял исход агента, и здесь
 	// записан эффективный. Прогоном она не считается вовсе и расхода не несёт
 	// (`cost_usd` нулевой): прогон был один, и заплачено за него один раз.
@@ -118,6 +126,14 @@ type Total struct {
 	Runs      int
 	CostUSD   float64
 	ByOutcome map[string]int
+	// ByTermination — чем прогоны кончались глазами раннера. Рядом с исходами,
+	// а не вместо них: исход — слова агента, и у прогона без результата он
+	// синтетический. Отличить усечение от настоящего провала можно только здесь,
+	// а по числу усечений и подбирается max_turns роли — не вслепую.
+	//
+	// Обычный прогон в счёт не идёт: строка «completed столько-то» повторяла бы
+	// число прогонов и ничего не сообщала.
+	ByTermination map[string]int
 	// Unknown — прогоны, не назвавшие цены: убитые на середине. Считаются
 	// отдельно, потому что сумма без них занижена, и знать об этом обязан
 	// и человек, и лимит.
@@ -149,7 +165,7 @@ func (t Total) Average() float64 {
 // и не добавляет ни к числу прогонов, ни к сумме. Иначе один прогон стоил бы
 // в сводке двух, а исходы считались бы дважды — и агентский, и эффективный.
 func (l *Ledger) Sum(f Filter) (Total, error) {
-	total := Total{ByOutcome: map[string]int{}}
+	total := Total{ByOutcome: map[string]int{}, ByTermination: map[string]int{}}
 	// Исход, засчитанный прогону: строка переигрыша идёт после своего прогона
 	// и заменяет его исход на эффективный.
 	counted := map[string]string{}
@@ -197,6 +213,9 @@ func (l *Ledger) Sum(f Filter) (Total, error) {
 		total.Runs++
 		total.CostUSD += e.CostUSD
 		total.ByOutcome[e.Outcome]++
+		if e.Termination != "" && e.Termination != string(runner.TerminationCompleted) {
+			total.ByTermination[e.Termination]++
+		}
 		counted[e.RunID] = e.Outcome
 		if !e.Known() {
 			total.Unknown++

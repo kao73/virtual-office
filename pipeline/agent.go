@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/kao73/virtual-office/runagent"
-	"github.com/kao73/virtual-office/runner"
 )
 
 // SandboxAgent — настоящий прогон агента: тот же путь, которым идёт ручной
@@ -22,7 +21,7 @@ type SandboxAgent struct {
 // Ошибку возвращает только то, из-за чего прогона не случилось: конвейер
 // понимает её как «задача осталась арендованной, вернёт reaper». Всё, что
 // произошло с самим агентом, приходит исходом — включая синтетический failed.
-func (a SandboxAgent) Run(ctx context.Context, req Request) (runner.Result, runner.Usage, error) {
+func (a SandboxAgent) Run(ctx context.Context, req Request) (AgentRun, error) {
 	// Сеть роли закрывает песочница. Бэкенд, который её не закрывает, обязан
 	// сказать об этом вслух: молчание читалось бы как «применено».
 	if notice := runagent.NetworkNotice(a.Backend, req.Role.Network.Allow); notice != "" {
@@ -51,18 +50,21 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (runner.Result, runn
 		a.logf("%s: %s", req.Passport.TaskKey, notice)
 	}
 
+	run := AgentRun{Result: out.Result, Usage: out.Usage, Termination: out.Termination}
+
 	if err != nil {
 		// Исход есть — значит прогон состоялся, а сорвалось что-то после него
 		// (например, архивация). Хоронить из-за этого задачу незачем, но и молчать
 		// нельзя: беда уходит в лог раннера.
 		if out.Result.Outcome != "" {
 			a.logf("%s: %v", req.Passport.TaskKey, err)
-			return out.Result, out.Usage, nil
+			return run, nil
 		}
-		return runner.Result{}, runner.Usage{}, err
+		return AgentRun{}, err
 	}
-	a.logf("%s: лог прогона %s, архив %s", req.Passport.TaskKey, out.LogPath, out.Archive)
-	return out.Result, out.Usage, nil
+	a.logf("%s: прогон кончился как %s, лог %s, архив %s",
+		req.Passport.TaskKey, out.Termination.Kind, out.LogPath, out.Archive)
+	return run, nil
 }
 
 func (a SandboxAgent) logf(format string, args ...any) {

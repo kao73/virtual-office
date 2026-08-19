@@ -127,7 +127,12 @@ type Limits struct {
 	// MaxPushFailures — сколько раз подряд может не удаться публикация ветки.
 	// Тоже отдельный предел и по той же причине: сломанный remote — не вина агента.
 	MaxPushFailures int `yaml:"max_push_failures"`
-	LeaseMarginSec  int `yaml:"lease_margin_sec"`
+	// MaxIdleRuns — сколько прогонов роли подряд может не дойти до результата,
+	// прежде чем задачу отдадут человеку. Считает записи двух видов одним
+	// счётчиком: «не начинал» и «не успел». Общий он потому, что следствие
+	// у них одно, а два раздельных счётчика чередование обошло бы.
+	MaxIdleRuns    int `yaml:"max_idle_runs"`
+	LeaseMarginSec int `yaml:"lease_margin_sec"`
 }
 
 // HumanReplyRule — что делает раннер, увидев ответ человека на заблокированную задачу.
@@ -290,6 +295,9 @@ func (w Workflow) validate() error {
 	}
 	if w.Limits.MaxPushFailures <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_push_failures=%d: ожидается положительное число", w.Limits.MaxPushFailures))
+	}
+	if w.Limits.MaxIdleRuns <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_idle_runs=%d: ожидается положительное число", w.Limits.MaxIdleRuns))
 	}
 	if w.Limits.LeaseMarginSec < 0 {
 		errs = append(errs, fmt.Errorf("limits.lease_margin_sec=%d: ожидается неотрицательное число", w.Limits.LeaseMarginSec))
