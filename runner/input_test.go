@@ -2,6 +2,8 @@ package runner
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -335,5 +337,28 @@ func TestContextNamesChangeDirAndPlan(t *testing.T) {
 
 	if context := prepare(); !strings.Contains(context, "План: docs/changes/OFF-1/tasks.md") {
 		t.Errorf("в контексте нет закоммиченного плана:\n%s", context)
+	}
+}
+
+// Рабочая папка переиспользуется, а `result.json` в ней остаётся от прошлого
+// прогона. Прогон, не успевший написать свой — упёршийся в предел шагов или
+// убитый таймаутом, — прочитал бы чужой и выдал бы чужие слова за собственный
+// отчёт. Поймано нагрузочным прогоном этапа 4, стоило ложного «done» в тикете.
+func TestPrepareInputRemovesResultOfPreviousRun(t *testing.T) {
+	workdir, role := gitRepo(t), fixtureRole(t)
+	path := filepath.Join(workdir, role.ResultFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("каталог обмена не создан: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(`{"outcome":"done","summary":"чужой отчёт","next_owner":"none"}`), 0o644); err != nil {
+		t.Fatalf("результат прошлого прогона не записан: %v", err)
+	}
+
+	if err := PrepareInput(workdir, role, fixturePassport(), Input{Task: "Задача\n"}); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("результат прошлого прогона пережил подготовку входа: %v", err)
 	}
 }

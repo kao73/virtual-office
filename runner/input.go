@@ -70,6 +70,19 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 		return fmt.Errorf("%s не записан: %w", filepath.Join(Dir, FileRun), err)
 	}
 
+	// Результат прошлого прогона убирается перед новым, и это не нарушение
+	// правила «result.json принадлежит агенту». Правило про то, что раннер
+	// не сочиняет и не правит отчёт; файл же, оставшийся в переиспользуемой
+	// рабочей папке, принадлежит **другому** прогону, и прочитать его как свой —
+	// значит выдать чужие слова за отчёт этого.
+	//
+	// Поймано нагрузочным прогоном: агент, упёршийся в предел шагов, не успел
+	// написать результат, а раннер прочитал файл, оставленный предыдущей ролью,
+	// и увёл задачу вперёд с чужим «done» в тикете (docs/notes/stage-4-retro.md).
+	if err := os.Remove(filepath.Join(workdir, role.ResultFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("результат прошлого прогона не убран: %w", err)
+	}
+
 	if err := ExcludeAgentDir(workdir); err != nil {
 		return err
 	}
