@@ -37,6 +37,13 @@ type fakeAgent struct {
 	// work — что агент делает в рабочей папке. Пусто — ничего не делает:
 	// большинству проверок конвейера содержимое папки безразлично.
 	work func(req Request)
+	// act — поведение прогона целиком: и работа в папке, и результат. Нужен
+	// сквозному сценарию, где роль на втором прогоне делает не то же, что
+	// на первом, а порядок прогонов и есть предмет проверки.
+	act func(req Request, run int) runner.Result
+	// runsByRole — сколько раз каждая роль уже отработала: по этому счётчику
+	// act и различает прогоны.
+	runsByRole map[string]int
 	// usage — во что обошёлся прогон. Пустое значение законно и означает
 	// «неизвестно»: так выглядит прогон, не оставивший итогового события.
 	usage runner.Usage
@@ -55,6 +62,13 @@ func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, runner.U
 			f.context = map[string]string{}
 		}
 		f.context[req.Role.Name] = string(raw)
+	}
+	if f.runsByRole == nil {
+		f.runsByRole = map[string]int{}
+	}
+	f.runsByRole[req.Role.Name]++
+	if f.act != nil {
+		return f.act(req, f.runsByRole[req.Role.Name]), f.usage, f.err
 	}
 	if f.work != nil {
 		f.work(req)
@@ -2545,5 +2559,327 @@ func TestSpentAnswersDoNotReturn(t *testing.T) {
 
 	if context := o.agent.context["analyst"]; strings.Contains(context, "Ответы человека") {
 		t.Errorf("съеденные ответы вернулись в контекст:\n%s", context)
+	}
+}
+
+// alone убирает с дороги задачу, которую заводит newOffice: сценарий про одну
+// задачу не должен спотыкаться о вторую в той же очереди.
+func (o *office) alone(t *testing.T) {
+	t.Helper()
+	if err := o.tasks.Move("OFF-1", "Backlog"); err != nil {
+		t.Fatalf("задача не убрана с дороги: %v", err)
+	}
+}
+
+// План, каким его пишет аналитик: три файла в каталоге изменения, закоммиченные
+// в ветку задачи. Незакоммиченный план для следующей роли не существует.
+func writePlan(t *testing.T, req Request, key, message string, items ...string) {
+	t.Helper()
+	dir := runner.ChangeDirRel(key)
+
+	plan := "# Что делать\n\n"
+	for _, item := range items {
+		plan += "- [ ] " + item + "\n"
+	}
+	files := map[string]string{
+		runner.FileBrief:  "# Зачем\n\nПочинить оплату.\n\n## Критерии приёмки\n\n- [ ] тесты зелёные\n",
+		runner.FileDesign: "# Как\n\nТрогаем billing.\n",
+		runner.FileTasks:  plan,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(req.Workdir, dir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("%s не записан: %v", name, err)
+		}
+	}
+	gitIn(req.Workdir, "add", dir)
+	gitIn(req.Workdir, "commit", "-q", "-m", message)
+}
+
+// markItem отмечает пункт плана — единственное, что разработчику в нём положено.
+func markItem(t *testing.T, req Request, key string, n int) {
+	t.Helper()
+	path := filepath.Join(req.Workdir, runner.ChangeDirRel(key), runner.FileTasks)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("план не прочитан: %v", err)
+	}
+
+	lines, marked := strings.Split(string(raw), "\n"), 0
+	for i, line := range lines {
+		if !strings.HasPrefix(line, "- [ ] ") {
+			continue
+		}
+		if marked++; marked == n {
+			lines[i] = strings.Replace(line, "- [ ] ", "- [x] ", 1)
+			break
+		}
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatalf("план не записан: %v", err)
+	}
+}
+
+// Сквозной сценарий: человек переводит задачу в очередь аналитика, план проходит
+// три роли, разработчик возвращает его на правку и доводит до ревью, ревьюер
+// одобряет. Проверяется не каждая деталь по отдельности, а то, что они сходятся
+// в один конвейер: план из ветки виден следующей роли, маршруты ведут туда, куда
+// задумано, ограждения честную работу пропускают.
+func TestEndToEndTaskThroughThreeRoles(t *testing.T) {
+	o := newOffice(t)
+	o.alone(t)
+	o.add("OFF-3", "Backlog")
+
+	o.agent.act = func(req Request, run int) runner.Result {
+		switch req.Role.Name {
+		case "analyst":
+			if run == 1 {
+				writePlan(t, req, "OFF-3", "план", "написать тест", "починить оплату")
+				return runner.Result{Outcome: runner.OutcomeDone, Summary: "План готов.", NextOwner: "implementer"}
+			}
+			// Разработчик вернул задачу: план правит аналитик, и правка —
+			// это коммит, а не слова в отчёте.
+			writePlan(t, req, "OFF-3", "план поправлен", "написать тест", "починить оплату в billing.py")
+			return runner.Result{Outcome: runner.OutcomeDone, Summary: "План поправлен.", NextOwner: "implementer"}
+		case "implementer":
+			if run == 1 {
+				markItem(t, req, "OFF-3", 1)
+				gitIn(req.Workdir, "add", "-A")
+				gitIn(req.Workdir, "commit", "-q", "-m", "тест")
+				return runner.Result{
+					Outcome: runner.OutcomeDone, NextOwner: "analyst",
+					Summary: "Пункт 2 плана велит править ридер, а оплата живёт в billing.py.",
+				}
+			}
+			markItem(t, req, "OFF-3", 2)
+			gitIn(req.Workdir, "add", "-A")
+			gitIn(req.Workdir, "commit", "-q", "-m", "оплата")
+			return runner.Result{Outcome: runner.OutcomeDone, Summary: "Сделано по плану.", NextOwner: "reviewer"}
+		default:
+			return runner.Result{Outcome: runner.OutcomeDone, Summary: "Сходится с планом, тесты зелёные.", NextOwner: "human"}
+		}
+	}
+
+	// Backlog человеческий: сам по себе он в работу не уходит.
+	o.tickAll(t)
+	if task := o.get(t, "OFF-3"); task.Status != "Backlog" {
+		t.Fatalf("статус %q: Backlog в работу не берут", task.Status)
+	}
+	if o.agent.runs != 0 {
+		t.Fatalf("прогонов %d: работы в Backlog для офиса нет", o.agent.runs)
+	}
+
+	// Дальше задачу ведёт офис, а человек только перенёс её в очередь аналитика.
+	if err := o.tasks.Move("OFF-3", "Analysis"); err != nil {
+		t.Fatalf("задача не переведена: %v", err)
+	}
+
+	// Шаги разбираются поимённо, а не циклом TickAll: за один заход конвейер
+	// успевает и вернуть задачу назад, и снова увести вперёд — порядок обхода
+	// идёт с конца, — и промежуточный статус в такой проверке был бы не виден.
+	for _, step := range []struct{ role, want string }{
+		{"analyst", "Ready"},        // план написан и закоммичен
+		{"implementer", "Analysis"}, // план разошёлся с кодом — назад к автору плана
+		{"analyst", "Ready"},        // аналитик поправил план
+		{"implementer", "Review"},   // работа сделана по плану
+		{"reviewer", "Approved"},    // разбор сошёлся
+	} {
+		if !o.tickRoleOnce(t, step.role) {
+			t.Fatalf("роль %s не взяла задачу", step.role)
+		}
+		if got := o.get(t, "OFF-3").Status; got != step.want {
+			t.Fatalf("после роли %s статус %q, ожидался %q", step.role, got, step.want)
+		}
+	}
+
+	task := o.get(t, "OFF-3")
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: провалов не было", task.Attempts)
+	}
+	if task.HumanFlag {
+		t.Error("человека позвали, хотя спор не заходил в тупик")
+	}
+
+	// План разработчик получил из ветки, а не из отчёта: раннер называет его
+	// путь только когда файл отслеживается git.
+	if context := o.agent.context["implementer"]; !strings.Contains(context, "План: docs/changes/OFF-3/tasks.md") {
+		t.Errorf("разработчик не знал про план:\n%s", context)
+	}
+	if context := o.agent.context["reviewer"]; !strings.Contains(context, "Каталог изменения: docs/changes/OFF-3") {
+		t.Errorf("ревьюеру не назвали каталог изменения:\n%s", context)
+	}
+
+	// Ограждения честную работу пропустили: ни одного переигрыша в переписке.
+	if record, found := findMarker(task, tracker.EventOutcomeOverridden); found {
+		t.Errorf("честный конвейер переигран:\n%s", record.Body)
+	}
+}
+
+// Вопрос человеку и ответ на него: аналитик спрашивает, задача уходит в ожидание,
+// человек отвечает меткой — и она возвращается спросившей роли разобранной,
+// без промежуточных ролей.
+func TestEndToEndQuestionAndAnswer(t *testing.T) {
+	o := newOffice(t)
+	o.alone(t)
+	o.add("OFF-3", "Analysis")
+
+	o.agent.act = func(req Request, run int) runner.Result {
+		if run == 1 {
+			return runner.Result{
+				Outcome: runner.OutcomeNeedsHuman, NextOwner: "human",
+				Summary: "Постановка допускает два прочтения с разной ценой ошибки.",
+				Questions: []runner.Question{{ID: "Q1", Text: "Идемпотентность или скорость?", Options: []runner.Option{
+					{ID: "a", Label: "идемпотентность"}, {ID: "b", Label: "скорость"},
+				}}},
+			}
+		}
+		writePlan(t, req, "OFF-3", "план", "сделать быстро")
+		return runner.Result{Outcome: runner.OutcomeDone, Summary: "План готов.", NextOwner: "implementer"}
+	}
+
+	o.tickAll(t)
+	task := o.get(t, "OFF-3")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("задача не ушла в ожидание: %s, флаг %v", task.Status, task.HumanFlag)
+	}
+	// Вопрос попал в тикет по грамматике протокола — оттуда его и прочитает
+	// следующий тик, другого общего хранилища нет.
+	if body := lastComment(t, task).Body; !strings.Contains(body, "Q1: Идемпотентность или скорость?") ||
+		!strings.Contains(body, "  b) скорость") {
+		t.Fatalf("вопрос записан не по грамматике:\n%s", body)
+	}
+
+	if err := o.tasks.AddComment("OFF-3", "человек", "Q1: b"); err != nil {
+		t.Fatalf("ответ не записан: %v", err)
+	}
+
+	o.tickAll(t)
+	if got := o.get(t, "OFF-3").Status; got != "Ready" {
+		t.Fatalf("статус %q, ожидался Ready: ответ получен, план написан", got)
+	}
+	if context := o.agent.context["analyst"]; !strings.Contains(context, "Q1 «Идемпотентность или скорость?» → b — скорость") {
+		t.Errorf("ответ не дошёл до спросившей роли разобранным:\n%s", context)
+	}
+}
+
+// Круги возврата ограничены, но реплика человека обрывает серию: он вмешался
+// в спор, и считать прежние круги дальше — значит звать его же обратно.
+func TestReturnRoundsBrokenByHumanWord(t *testing.T) {
+	o := newOffice(t)
+	o.alone(t)
+	o.add("OFF-3", "Review")
+	o.agent.byRole = map[string]runner.Result{
+		"reviewer":    {Outcome: runner.OutcomeDone, Summary: "Верните автору.", NextOwner: "implementer"},
+		"implementer": {Outcome: runner.OutcomeDone, Summary: "Готово, смотрите снова.", NextOwner: "reviewer"},
+	}
+	limit := o.Workflow.Limits.MaxReturnRounds
+
+	// Два круга подряд — предел ещё не достигнут.
+	for range limit - 1 {
+		o.tickAll(t)
+	}
+	if task := o.get(t, "OFF-3"); task.HumanFlag {
+		t.Fatalf("человека позвали на %d круге из %d", limit-1, limit)
+	}
+
+	if err := o.tasks.AddComment("OFF-3", "человек", "Смотрю, разбирайтесь дальше сами."); err != nil {
+		t.Fatalf("реплика не записана: %v", err)
+	}
+
+	// Ещё столько же кругов: серия началась заново, и предел не сработал.
+	for range limit - 1 {
+		o.tickAll(t)
+	}
+	task := o.get(t, "OFF-3")
+	if task.HumanFlag {
+		t.Errorf("серия не оборвалась репликой человека: человека позвали снова")
+	}
+	if _, found := findMarker(task, tracker.EventReturnRoundsExhausted); found {
+		t.Error("круги посчитаны через реплику человека")
+	}
+}
+
+// План правит аналитик. Разработчик, переписавший его молча, не проходит
+// ограждение: работа остаётся в ветке, но задача не едет вперёд.
+func TestImplementerRewritingPlanIsReplayed(t *testing.T) {
+	o := newOffice(t)
+	o.alone(t)
+	o.add("OFF-3", "Analysis")
+	o.agent.act = func(req Request, run int) runner.Result {
+		if req.Role.Name == "analyst" {
+			writePlan(t, req, "OFF-3", "план", "написать тест", "починить оплату")
+			return runner.Result{Outcome: runner.OutcomeDone, Summary: "План готов.", NextOwner: "implementer"}
+		}
+		// Разработчик решил, что план надо переписать, и переписал.
+		path := filepath.Join(req.Workdir, runner.ChangeDirRel("OFF-3"), runner.FileTasks)
+		if err := os.WriteFile(path, []byte("# Что делать\n\n- [x] сделал как посчитал нужным\n"), 0o644); err != nil {
+			t.Fatalf("план не записан: %v", err)
+		}
+		gitIn(req.Workdir, "add", "-A")
+		gitIn(req.Workdir, "commit", "-q", "-m", "работа и план")
+		return runner.Result{Outcome: runner.OutcomeDone, Summary: "Сделано, план заодно поправил.", NextOwner: "reviewer"}
+	}
+
+	o.tickAll(t) // аналитик пишет план
+	o.tickAll(t) // разработчик переписывает его
+
+	task := o.get(t, "OFF-3")
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался Ready: работа не принята", task.Status)
+	}
+	record, found := findMarker(task, tracker.EventOutcomeOverridden)
+	if !found {
+		t.Fatal("переписанный план прошёл молча")
+	}
+	if !strings.Contains(record.Body, runner.GuardPlanMarksOnly) {
+		t.Errorf("в записи не названо ограждение:\n%s", record.Body)
+	}
+}
+
+// Крупную задачу офис не режет сам. Аналитик предлагает разбиение в brief.md
+// и спрашивает; подзадачи заводит человек — и он же уводит родителя из очереди,
+// а не отвечает комментарием: тик между ответом и переносом вернул бы задачу
+// аналитику, и тот распланировал бы её заново.
+func TestOversizedTaskGoesBackToHuman(t *testing.T) {
+	o := newOffice(t)
+	o.alone(t)
+	o.add("OFF-3", "Analysis")
+	o.agent.act = func(req Request, _ int) runner.Result {
+		writePlan(t, req, "OFF-3", "разбиение", "часть 1", "часть 2", "часть 3")
+		return runner.Result{
+			Outcome: runner.OutcomeNeedsHuman, NextOwner: "human",
+			Summary: "Задача на три самостоятельные части, разбиение — в brief.md.",
+			Questions: []runner.Question{{ID: "Q1", Text: "Разбить на три задачи, как в brief.md?", Options: []runner.Option{
+				{ID: "yes", Label: "да, заведу подзадачи"}, {ID: "no", Label: "нет, делаем целиком"},
+			}}},
+		}
+	}
+
+	o.tickAll(t)
+	task := o.get(t, "OFF-3")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("задача не ушла к человеку: %s, флаг %v", task.Status, task.HumanFlag)
+	}
+
+	// Подзадач офис не заводит: в трекере ровно те задачи, что были.
+	refs, err := o.tasks.List("OFF", o.Workflow.Statuses)
+	if err != nil {
+		t.Fatalf("список задач не прочитан: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Errorf("задач в проекте %d, ожидалось 2: офис в трекере ничего не создаёт", len(refs))
+	}
+
+	// Человек завёл подзадачи сам и увёл родителя из очереди — переносом,
+	// а не словом: перенос снимает и метку ожидания.
+	if err := o.tasks.Move("OFF-3", "Backlog"); err != nil {
+		t.Fatalf("родитель не уведён: %v", err)
+	}
+	runs := o.agent.runs
+	o.tickAll(t)
+	if o.agent.runs != runs {
+		t.Errorf("прогонов стало %d: задача из Backlog снова взята в работу", o.agent.runs)
+	}
+	if got := o.get(t, "OFF-3"); got.HumanFlag {
+		t.Error("метка ожидания пережила перенос")
 	}
 }
