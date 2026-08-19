@@ -24,15 +24,28 @@ import (
 	"github.com/kao73/virtual-office/workspace"
 )
 
+// AgentRun — всё, что прогон принёс конвейеру.
+//
+// Заявление агента здесь ровно одно — Result. Остальное наблюдает раннер, и это
+// не педантизм: result.json пишет агент, и смешать его слова с наблюдениями
+// значило бы дать ему называть и свою цену, и причину собственной смерти.
+type AgentRun struct {
+	// Result — что агент сказал о работе. У прогона без результата это
+	// синтетический failed, и верить ему нельзя: смотреть надо на Termination.
+	Result runner.Result
+	// Usage — во что прогон обошёлся. Пустое значение законно: прогон, убитый
+	// на середине, о цене не отчитывается.
+	Usage runner.Usage
+	// Termination — чем прогон кончился. Решает маршрут раньше исхода: «не
+	// начинал» и «не успел» не тратят попытку задачи, «не справился» тратит.
+	Termination runner.Termination
+}
+
 // Agent — один прогон агента. Интерфейс нужен ровно затем, чтобы конвейер
 // проверялся целиком без трат на модель: в тестах его закрывает подделка,
 // возвращающая заданный результат.
-//
-// Расход прогона идёт отдельно от результата, а не полем в нём: result.json
-// пишет агент, а во что обошёлся прогон — наблюдение раннера. Смешать их значило
-// бы дать агенту называть свою цену.
 type Agent interface {
-	Run(ctx context.Context, req Request) (runner.Result, runner.Usage, error)
+	Run(ctx context.Context, req Request) (AgentRun, error)
 }
 
 // Request — что конвейер отдаёт агенту. Каталог обмена к этому моменту
@@ -408,7 +421,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	// Аренда продлевается, пока агент работает: иначе долгая задача досталась бы
 	// reaper'у прямо посреди прогона.
 	stop := o.keepLease(ctx, task.Key, runID, role)
-	result, usage, runErr := o.Agent.Run(ctx, Request{
+	run, runErr := o.Agent.Run(ctx, Request{
 		Role: role, Workdir: ws.Dir, Passport: passport, Mounts: ws.Mounts(),
 	})
 	stop()
@@ -417,14 +430,21 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		// Прогон не состоялся: аренда остаётся, задачу вернёт reaper.
 		return false, fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
 	}
-	o.logf("%s: исход %s — %s", task.Key, result.Outcome, result.Summary)
+	result, usage := run.Result, run.Usage
+	if run.Termination.Idle() {
+		o.logf("%s: прогон без результата (%s) — %s", task.Key, run.Termination.Kind, run.Termination.Detail)
+	} else {
+		o.logf("%s: исход %s — %s", task.Key, result.Outcome, result.Summary)
+	}
 
 	// Учёт — сразу после прогона и до всего остального: прогон состоялся и уже
-	// оплачен, что бы дальше ни случилось с публикацией и арендой.
+	// оплачен, что бы дальше ни случилось с публикацией и арендой. Прогона
+	// без результата это касается ровно так же: он тоже оплачен.
 	o.account(ledger.Entry{
 		RunID: runID, Task: task.Key, Role: roleName, Project: c.ref.Project,
 		Started: passport.StartedAt, Usage: usage,
-		Outcome: string(result.Outcome), ConfigSHA: o.ConfigSHA,
+		Outcome: string(result.Outcome), Termination: string(run.Termination.Kind),
+		ConfigSHA: o.ConfigSHA,
 	})
 
 	// Пуш идёт раньше всего остального и при любом исходе: работа не должна жить
@@ -456,7 +476,17 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	if pushErr != nil {
 		// Неопубликованная работа — не провал агента и не повод двигать задачу
 		// вперёд: следующая роль искала бы в origin ветку, которой там нет.
+		//
+		// Идёт это раньше разбора причины завершения намеренно: беда с публикацией
+		// сильнее. У неё своя серия и свой разговор с человеком, а работа, которую
+		// не приняли, — забота более срочная, чем то, почему прогон не дожил.
 		return false, o.pushFailed(task, runID, roleName, flow, result, usage, pushErr)
+	}
+
+	// Прогон без результата маршрута по графу не выбирает: выбирать не по чему.
+	// Отчёта агента тоже нет — его слова были бы выдумкой раннера.
+	if run.Termination.Idle() {
+		return false, o.idleRun(task, runID, roleName, flow, run.Termination, usage)
 	}
 
 	// Ограждения роли — здесь же, где выбирается маршрут. Хук зовёт их, пока агент
@@ -538,6 +568,70 @@ func (o *Office) pushFailed(task tracker.Task, runID, roleName string, flow trac
 	return o.Tracker.Release(task.Key, by)
 }
 
+// idleRun разбирается с прогоном, не дошедшим до результата.
+//
+// Отчёт агента при этом не пишется намеренно, по той же причине, что и при
+// неудачной публикации: агент ничего не сказал, и пересказывать за него было бы
+// выдумкой. Всё, что он успел сделать, лежит в рабочей папке и в опубликованной
+// ветке, а почему прогон кончился — говорит эта запись.
+//
+// Задача возвращается в очередь той же роли, счётчик попыток не трогается:
+// «не начинал» и «не успел» — беды обвязки и поставщика, а не работы. Рабочая
+// папка остаётся: усечённый прогон продолжают с того же места, и у implementer'а
+// продолжение видно по отметкам в tasks.md, у аналитика — по черновикам.
+func (o *Office) idleRun(task tracker.Task, runID, roleName string, flow tracker.RoleFlow,
+	term runner.Termination, usage runner.Usage,
+) error {
+	by := tracker.ByRun(runID)
+	idle := tracker.IdleRuns(task.Comments, roleName) + 1
+
+	event, text := tracker.EventAgentUnavailable, fmt.Sprintf(
+		"Прогон run:%s не начинался: %s\n\nДо работы дело не дошло — ни коммита, ни правки, "+
+			"ни шагов сверх пары первых. Задача возвращается в %s. Счётчик попыток не тронут: "+
+			"агенту это не в упрёк, смотреть надо на сеть и на доступ к API.%s",
+		short(runID), term.Detail, flow.ReadsFrom, spent(usage))
+	if term.Kind == runner.TerminationTruncated {
+		event, text = tracker.EventRunTruncated, fmt.Sprintf(
+			"Прогон run:%s срезан на ходу: %s\n\nЭто не провал: агент работал и не успел отчитаться. "+
+				"Задача возвращается в %s, счётчик попыток не тронут, рабочая папка сохранена — "+
+				"следующий прогон продолжит с того же места, а не начнёт заново.%s",
+			short(runID), term.Detail, flow.ReadsFrom, spent(usage))
+	}
+
+	if err := o.record(task.Key, by, tracker.Marker{
+		RunID: runID, Role: roleName, Event: event, ConfigSHA: o.ConfigSHA,
+	}, text); err != nil {
+		return err
+	}
+
+	to, human := flow.ReadsFrom, false
+	if idle >= o.Workflow.Limits.MaxIdleRuns {
+		to, human = flow.Blocked(), true
+		o.logf("%s: прогоны роли %s не доходят до результата подряд %d раз, задача уходит к человеку",
+			task.Key, roleName, idle)
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: roleName, Event: tracker.EventIdleRunsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Прогоны роли %s не доходят до результата %d раз подряд — это предел "+
+			"(limits.max_idle_runs). Считаются вместе оба вида: и «не начинал», и «не успел», — "+
+			"потому что следствие у них одно, а чередование обошло бы два раздельных счётчика. "+
+			"Смотреть надо не на задачу: либо не пускает сеть и API, либо задача не влезает "+
+			"в предел шагов роли и её пора разрезать. Работа всех этих прогонов цела.",
+			roleName, idle)); err != nil {
+			return err
+		}
+	}
+
+	if err := o.move(task, by, to); err != nil {
+		return err
+	}
+	if human {
+		if err := o.Tracker.SetHumanFlag(task.Key, by, true); err != nil {
+			return err
+		}
+	}
+	return o.Tracker.Release(task.Key, by)
+}
+
 // renew продлевает аренду перед финализацией и отвечает, потеряна ли она.
 //
 // Потерянная аренда — не ошибка: прогон просто опоздал, задачу уже могли отдать
@@ -562,9 +656,9 @@ func (o *Office) renew(task tracker.Task, runID, roleName string, result runner.
 }
 
 // spent — цена прогона отдельным абзацем, для записей, где отчёта агента нет
-// вовсе: неудачной публикации и потерянной аренды. В обоих случаях прогон
-// состоялся и был оплачен, и это единственное место, где человек увидит цену,
-// не заглядывая в реестр.
+// вовсе: неудачной публикации, потерянной аренды и прогона, не дошедшего
+// до результата. Во всех трёх случаях прогон состоялся и был оплачен, и это
+// единственное место, где человек увидит цену, не заглядывая в реестр.
 func spent(usage runner.Usage) string {
 	if line := tracker.SpendLine(usage); line != "" {
 		return "\n\n" + line

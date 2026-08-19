@@ -47,6 +47,9 @@ type fakeAgent struct {
 	// usage — во что обошёлся прогон. Пустое значение законно и означает
 	// «неизвестно»: так выглядит прогон, не оставивший итогового события.
 	usage runner.Usage
+	// termination — чем кончился прогон. Пустое значение означает обычный
+	// прогон с результатом; сценариям про обрыв и усечение оно задаётся явно.
+	termination runner.Termination
 
 	seen Request // что конвейер отдал агенту
 	runs int
@@ -55,7 +58,7 @@ type fakeAgent struct {
 	context map[string]string
 }
 
-func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, runner.Usage, error) {
+func (f *fakeAgent) Run(_ context.Context, req Request) (AgentRun, error) {
 	f.seen, f.runs = req, f.runs+1
 	if raw, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.FileContext)); err == nil {
 		if f.context == nil {
@@ -68,7 +71,7 @@ func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, runner.U
 	}
 	f.runsByRole[req.Role.Name]++
 	if f.act != nil {
-		return f.act(req, f.runsByRole[req.Role.Name]), f.usage, f.err
+		return f.ran(f.act(req, f.runsByRole[req.Role.Name])), f.err
 	}
 	if f.work != nil {
 		f.work(req)
@@ -77,9 +80,22 @@ func (f *fakeAgent) Run(_ context.Context, req Request) (runner.Result, runner.U
 		gitIn(req.Workdir, "commit", "-q", "--allow-empty", "-m", f.commit)
 	}
 	if result, found := f.byRole[req.Role.Name]; found {
-		return result, f.usage, f.err
+		return f.ran(result), f.err
 	}
-	return f.result, f.usage, f.err
+	return f.ran(f.result), f.err
+}
+
+// ran — ответ подделки в том же виде, в каком его даёт настоящий прогон.
+//
+// Пустое termination означает обычный прогон, дошедший до конца: повторять это
+// в каждом тесте незачем, а вот молчать о нём нельзя — по нему конвейер решает,
+// тратить ли попытку.
+func (f *fakeAgent) ran(result runner.Result) AgentRun {
+	term := f.termination
+	if term.Kind == "" {
+		term.Kind = runner.TerminationCompleted
+	}
+	return AgentRun{Result: result, Usage: f.usage, Termination: term}
 }
 
 // fakeSandboxes — поддельный уборщик песочниц: запоминает, за чьими прогонами
@@ -1220,6 +1236,200 @@ func TestPushFailuresExhaustedCallHuman(t *testing.T) {
 	}
 }
 
+// idle настраивает подделку на прогон, не дошедший до результата: раннер в этом
+// случае сам сочиняет синтетический failed, и верить ему нельзя — смотреть надо
+// на Termination. Подделка воспроизводит это в точности.
+func (o *office) idle(kind runner.TerminationKind, detail string) {
+	o.agent.result = runner.FailedResult("результата нет: " + detail)
+	o.agent.termination = runner.Termination{Kind: kind, Detail: detail}
+}
+
+// Прогон, который не начинался, — беда сети и API, а не работы. Задача
+// возвращается своей роли, попытка не тратится, отчёта агента нет: он ничего
+// не сказал, и пересказывать за него было бы выдумкой раннера.
+//
+// Живой образец: f4705aba — десять повторов CLI, ECONNRESET, два шага, $0.05
+// и ни строки в рабочей папке (docs/notes/stage-4-load.md).
+func TestNotStartedRunReturnsTaskWithoutSpendingAttempt(t *testing.T) {
+	o := newOffice(t)
+	o.idle(runner.TerminationNotStarted, "API Error: Unable to connect to API (ECONNRESET)")
+	o.agent.usage = runner.Usage{CostUSD: 0.0495, DurationMS: 183782, Turns: 2}
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу")
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался Ready: прогона не было, задача остаётся у своей роли", task.Status)
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: до работы дело не дошло, тратить попытку не за что", task.Attempts)
+	}
+	if task.LeaseAlive(now) || task.RunID != "" {
+		t.Errorf("аренда не снята: %+v", task)
+	}
+
+	last := lastComment(t, task)
+	if marker, ok := tracker.MarkerOf(last.Body); !ok || marker.Event != tracker.EventAgentUnavailable {
+		t.Fatalf("последняя запись не объясняет недоступность агента:\n%s", last.Body)
+	}
+	// Слова агента о причине человек должен видеть в тикете, не заглядывая
+	// в лог прогона на чужой машине.
+	if !strings.Contains(last.Body, "ECONNRESET") {
+		t.Errorf("в записи нет причины:\n%s", last.Body)
+	}
+	// Прогон оплачен, даже если работы не было: цена названа здесь, потому что
+	// отчёта нет вовсе.
+	if !strings.Contains(last.Body, "$0.0495") {
+		t.Errorf("в записи нет цены прогона:\n%s", last.Body)
+	}
+	for _, c := range task.Comments {
+		if m, _ := tracker.MarkerOf(c.Body); m.Outcome != "" {
+			t.Errorf("написан отчёт агента, который ничего не сказал:\n%s", c.Body)
+		}
+	}
+}
+
+// Усечение — «продолжить», а не провал: агент работал и не успел отчитаться.
+// Задача выходит из рабочего статуса обратно в очередь своей роли, попытка
+// не тратится, а рабочая папка сохраняется — в ней продолжение.
+//
+// Живой образец: 8dfc3e3e — 51 шаг при max_turns 50, $1.78, result.json
+// не написан (docs/notes/stage-4-load-2.md).
+func TestTruncatedRunKeepsWorkAndReturnsTask(t *testing.T) {
+	o := newOffice(t)
+	o.agent.commit = "половина работы"
+	o.idle(runner.TerminationTruncated, "предел шагов роли исчерпан на 51-м шаге, отчитаться агент не успел")
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу")
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Ready" {
+		t.Errorf("статус %q, ожидался Ready: из рабочего статуса задача обязана выйти", task.Status)
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: усечение — не провал агента", task.Attempts)
+	}
+
+	last := lastComment(t, task)
+	if marker, ok := tracker.MarkerOf(last.Body); !ok || marker.Event != tracker.EventRunTruncated {
+		t.Fatalf("последняя запись не объясняет усечение:\n%s", last.Body)
+	}
+	// Папка остаётся: следующий прогон продолжает с того же места, а не заново.
+	if _, err := os.Stat(o.agent.seen.Workdir); err != nil {
+		t.Errorf("рабочая папка снесена вместе с продолжением: %v", err)
+	}
+	// Сделанное до обрыва обязано быть опубликовано: worktree однажды удалят,
+	// а коммит на пункт — настоящая работа.
+	if out := gitIn(o.origin, "log", "--oneline", "--all"); !strings.Contains(out, "половина работы") {
+		t.Errorf("работа усечённого прогона не опубликована:\n%s", out)
+	}
+}
+
+// Счётчик у «не начинал» и «не успел» общий, и это главное в нём. Два
+// раздельных счётчика чередование обошло бы: прогон не начался, следующий
+// оборвался, третий опять не начался — и ни один не дошёл бы до предела,
+// пока задача крутится вечно.
+func TestIdleRunsExhaustedCallHumanEvenWhenKindsAlternate(t *testing.T) {
+	o := newOffice(t)
+	limit := o.Workflow.Limits.MaxIdleRuns
+	if limit < 3 {
+		t.Fatalf("предел %d: сценарий чередования требует хотя бы трёх прогонов", limit)
+	}
+
+	kinds := []runner.TerminationKind{runner.TerminationNotStarted, runner.TerminationTruncated}
+	for i := 0; i < limit; i++ {
+		o.idle(kinds[i%len(kinds)], "прогон без результата")
+		if !o.tick(t) {
+			t.Fatalf("цикл %d не взял задачу", i+1)
+		}
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" {
+		t.Errorf("статус %q, ожидался Blocked после %d пустых прогонов вперемешку", task.Status, limit)
+	}
+	if !task.HumanFlag {
+		t.Error("человека не позвали")
+	}
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: ни один из этих прогонов не был провалом агента", task.Attempts)
+	}
+	last := lastComment(t, task)
+	if marker, ok := tracker.MarkerOf(last.Body); !ok || marker.Event != tracker.EventIdleRunsExhausted {
+		t.Fatalf("последняя запись не объясняет остановку:\n%s", last.Body)
+	}
+	// В переписке видно, что именно было: события разные, счётчик общий.
+	var unavailable, truncated bool
+	for _, c := range task.Comments {
+		switch m, _ := tracker.MarkerOf(c.Body); m.Event {
+		case tracker.EventAgentUnavailable:
+			unavailable = true
+		case tracker.EventRunTruncated:
+			truncated = true
+		}
+	}
+	if !unavailable || !truncated {
+		t.Error("в переписке не различить, какие именно прогоны были пустыми")
+	}
+}
+
+// Прогон, дошедший до результата, серию пустых обрывает: прежние беды стали
+// прошлым. Иначе задача, однажды оборвавшаяся, копила бы счёт через всю жизнь.
+func TestSuccessfulRunBreaksIdleSeries(t *testing.T) {
+	o := newOffice(t)
+	limit := o.Workflow.Limits.MaxIdleRuns
+
+	for i := 0; i < limit-1; i++ {
+		o.idle(runner.TerminationNotStarted, "обрыв связи")
+		if !o.tick(t) {
+			t.Fatalf("цикл %d не взял задачу", i+1)
+		}
+	}
+
+	// Прогон с результатом: задача уезжает вперёд, серия обрывается.
+	o.agent.termination = runner.Termination{}
+	o.agent.result = done("сделал")
+	o.agent.commit = "работа"
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу после успешного прогона")
+	}
+	if task := o.get(t, "OFF-1"); task.Status != "Review" {
+		t.Fatalf("статус %q, ожидался Review", task.Status)
+	}
+
+	if idle := tracker.IdleRuns(o.get(t, "OFF-1").Comments, "implementer"); idle != 0 {
+		t.Errorf("серия пустых прогонов %d, ожидалась оборванной отчётом", idle)
+	}
+}
+
+// Реестр обязан различать прогон без результата и настоящий провал: исход
+// у первого синтетический и врёт. По этим же строкам подбирается max_turns.
+func TestLedgerCarriesTermination(t *testing.T) {
+	o := newOffice(t)
+	o.idle(runner.TerminationTruncated, "предел шагов исчерпан")
+	o.agent.usage = runner.Usage{CostUSD: 1.77, DurationMS: 432672, Turns: 51}
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу")
+	}
+
+	lines := o.ledgerLines(t)
+	if len(lines) == 0 {
+		t.Fatal("прогон не попал в реестр, хотя был оплачен")
+	}
+	last := lines[len(lines)-1]
+	if got := last["termination"]; got != string(runner.TerminationTruncated) {
+		t.Errorf("в реестре termination=%v, ожидалось %q", got, runner.TerminationTruncated)
+	}
+	if got := last["cost_usd"]; got != 1.77 {
+		t.Errorf("в реестре cost_usd=%v: прогон без результата всё равно оплачен", got)
+	}
+}
+
 // В терминальном статусе жизнь задачи кончается: работа опубликована, дальше её
 // ведёт человек, и рабочая папка больше не нужна. Не убирать её — копить худший
 // вид мусора: тот, который выглядит рабочим.
@@ -1436,15 +1646,15 @@ func TestTickWithLostLeaseOnlyWarns(t *testing.T) {
 		usage: runner.Usage{CostUSD: 0.25, DurationMS: 18258, Turns: 3},
 	}
 	stealAgent := o.Office.Agent.(*fakeAgent)
-	o.Office.Agent = agentFunc(func(ctx context.Context, req Request) (runner.Result, runner.Usage, error) {
-		result, usage, err := stealAgent.Run(ctx, req)
+	o.Office.Agent = agentFunc(func(ctx context.Context, req Request) (AgentRun, error) {
+		run, err := stealAgent.Run(ctx, req)
 		later := now.Add(2 * time.Hour) // аренда истекла, пока агент работал
 		o.tasks.Now = func() time.Time { return later }
 		o.Office.Now = func() time.Time { return later }
 		if err := o.Reap(context.Background()); err != nil {
 			t.Fatalf("reap не прошёл: %v", err)
 		}
-		return result, usage, err
+		return run, err
 	})
 
 	o.tick(t)
@@ -1472,17 +1682,17 @@ func TestTickWithLostLeaseOnlyWarns(t *testing.T) {
 	}
 }
 
-type agentFunc func(context.Context, Request) (runner.Result, runner.Usage, error)
+type agentFunc func(context.Context, Request) (AgentRun, error)
 
-func (f agentFunc) Run(ctx context.Context, req Request) (runner.Result, runner.Usage, error) {
+func (f agentFunc) Run(ctx context.Context, req Request) (AgentRun, error) {
 	return f(ctx, req)
 }
 
 // Reaper возвращает зависшую задачу в очередь, объясняя это в тикете.
 func TestReapReturnsExpiredTask(t *testing.T) {
 	o := newOffice(t)
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+		return AgentRun{}, errors.New("раннера убили посреди прогона")
 	})
 
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
@@ -1532,8 +1742,8 @@ func TestReapRemovesSandboxOfDeadRun(t *testing.T) {
 	o := newOffice(t)
 	sandboxes := &fakeSandboxes{}
 	o.Office.Sandboxes = sandboxes
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+		return AgentRun{}, errors.New("раннера убили посреди прогона")
 	})
 
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
@@ -1567,8 +1777,8 @@ func TestReapKeepsSandboxOfReclaimedTask(t *testing.T) {
 	o := newOffice(t)
 	sandboxes := &fakeSandboxes{}
 	o.Office.Sandboxes = sandboxes
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+		return AgentRun{}, errors.New("раннера убили посреди прогона")
 	})
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("смерть раннера не замечена")
@@ -1618,8 +1828,8 @@ func (a afterList) ListExpired(project string, now time.Time) ([]tracker.TaskRef
 func TestReapReturnsTaskWhenSandboxSurvives(t *testing.T) {
 	o := newOffice(t)
 	o.Office.Sandboxes = &fakeSandboxes{err: errors.New("sbx не отвечает")}
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+		return AgentRun{}, errors.New("раннера убили посреди прогона")
 	})
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("смерть раннера не замечена")
@@ -1640,8 +1850,8 @@ func TestReapReturnsTaskWhenSandboxSurvives(t *testing.T) {
 // Живую аренду reaper не трогает.
 func TestReapKeepsLiveLease(t *testing.T) {
 	o := newOffice(t)
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-		return runner.Result{}, runner.Usage{}, errors.New("прогон идёт")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+		return AgentRun{}, errors.New("прогон идёт")
 	})
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("ошибка прогона не замечена")
@@ -1676,8 +1886,8 @@ func TestTickWithoutTasks(t *testing.T) {
 // смотреть, почему прогон не доживает.
 func TestReapCallsHumanAfterStreakOfDeaths(t *testing.T) {
 	o := newOffice(t)
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+		return AgentRun{}, errors.New("раннера убили посреди прогона")
 	})
 
 	limit := o.Workflow.Limits.MaxLeaseExpiries
@@ -1730,8 +1940,8 @@ func TestReapStreakResetsAfterSuccessfulRun(t *testing.T) {
 
 	die := func(at time.Time) time.Time {
 		t.Helper()
-		o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-			return runner.Result{}, runner.Usage{}, errors.New("раннера убили")
+		o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+			return AgentRun{}, errors.New("раннера убили")
 		})
 		o.tasks.Now = func() time.Time { return at }
 		o.Office.Now = func() time.Time { return at }
@@ -1779,8 +1989,8 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	o := newOffice(t)
 	o.Office.Log = &log
 	o.Office.Sandboxes = &fakeSandboxes{absent: true}
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+		return AgentRun{}, errors.New("раннера убили посреди прогона")
 	})
 
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
@@ -1891,6 +2101,7 @@ limits:
   max_attempts: 3
   max_lease_expiries: 3
   max_push_failures: 3
+  max_idle_runs: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -1971,6 +2182,7 @@ limits:
   max_attempts: 3
   max_lease_expiries: 3
   max_push_failures: 3
+  max_idle_runs: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -2064,6 +2276,7 @@ limits:
   max_attempts: 3
   max_lease_expiries: 3
   max_push_failures: 3
+  max_idle_runs: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -2268,8 +2481,8 @@ func TestTickSkipsProjectUnknownToTracker(t *testing.T) {
 func TestReapSkipsProjectUnknownToTracker(t *testing.T) {
 	o := newOffice(t)
 	o.Office.Log = io.Discard
-	o.Office.Agent = agentFunc(func(context.Context, Request) (runner.Result, runner.Usage, error) {
-		return runner.Result{}, runner.Usage{}, errors.New("раннера убили посреди прогона")
+	o.Office.Agent = agentFunc(func(context.Context, Request) (AgentRun, error) {
+		return AgentRun{}, errors.New("раннера убили посреди прогона")
 	})
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("смерть раннера не замечена")

@@ -107,10 +107,14 @@ type Outcome struct {
 	Usage runner.Usage
 	// Limit — что лог сказал о пределах поставщика. Пока только наблюдение:
 	// исход прогона от него не зависит, но человек о нём узнаёт.
-	Limit    runner.Limit
-	ExitCode int    // код выхода агента; результат всё равно считается истиной
-	LogPath  string // куда писался вывод агента
-	Archive  string // копия каталога обмена; пусто, если заархивировать не вышло
+	Limit runner.Limit
+	// Termination — чем прогон кончился и почему так решено. В отличие
+	// от Limit, это наблюдение решает: «не начинал» и «не успел» не тратят
+	// попытку задачи, «не справился» тратит.
+	Termination runner.Termination
+	ExitCode    int    // код выхода агента; результат всё равно считается истиной
+	LogPath     string // куда писался вывод агента
+	Archive     string // копия каталога обмена; пусто, если заархивировать не вышло
 }
 
 // Prepare собирает запуск: ограждение под платформу бэкенда, промпты, настройки,
@@ -157,6 +161,8 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 	logPath := filepath.Join(opts.Workdir, runner.Dir, runner.FileLog)
 	exitCode, runErr := run(ctx, launch.Launch, logPath)
 
+	usage := usageOf(logPath)
+
 	result, err := runner.ReadResult(opts.Workdir)
 	if err != nil {
 		// Раннер не додумывает исход за агента: молчание — это failed.
@@ -171,11 +177,12 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 	}
 
 	out := Outcome{
-		Result:   result,
-		Usage:    usageOf(logPath),
-		Limit:    limitOf(logPath),
-		ExitCode: exitCode,
-		LogPath:  logPath,
+		Result:      result,
+		Usage:       usage,
+		Limit:       limitOf(logPath),
+		Termination: terminationOf(opts, err == nil, endingOf(logPath), usage.Turns, runErr),
+		ExitCode:    exitCode,
+		LogPath:     logPath,
 	}
 
 	// Каталог обмена эфемерен: рабочей папкой служит worktree, а его удаляют.
@@ -189,6 +196,78 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 
 // usageOf читает расход прогона из его лога.
 func usageOf(logPath string) runner.Usage { return fromLog(logPath, claude.ParseUsage) }
+
+// endingOf читает оттуда же то, что агент сказал о конце прогона. Подсказка,
+// а не приговор: решает terminationOf, и решает по следу работы.
+func endingOf(logPath string) runner.Ending { return fromLog(logPath, claude.ParseEnding) }
+
+// terminationOf решает, чем кончился прогон.
+//
+// Три источника, и ни одному из них раннер не верит на слово: событие лога —
+// подсказка, таймаут — факт от бэкенда, след работы — причина. Правило
+// «проверять причину, а не следствие» здесь не украшение: `subtype` итогового
+// события у оборванного прогона равен `"success"`, и офис на этом уже горел
+// (DESIGN §2.3, docs/notes/stage-4-load.md).
+//
+// Порядок вопросов задан ценой ошибки:
+//
+//  1. Результат есть — прогон состоялся, чем бы ни кончился лог. Работа сделана
+//     и опубликована, спорить не о чем.
+//  2. Иначе усечение: предел шагов или таймаут. Оба означают «работал
+//     и не успел», и продолжать надо с того же места.
+//  3. Иначе решает след: пуст — не начинал, есть — поработал и сломался.
+func terminationOf(opts Options, hasResult bool, ending runner.Ending, turns int, runErr error) runner.Termination {
+	if hasResult {
+		return runner.Termination{Kind: runner.TerminationCompleted}
+	}
+
+	switch {
+	case errors.Is(runErr, runner.ErrRunTimeout):
+		return runner.Termination{
+			Kind:   runner.TerminationTruncated,
+			Detail: "прогон остановлен по таймауту роли, отчитаться агент не успел",
+		}
+	case ending.Reason == runner.EndMaxTurns:
+		return runner.Termination{
+			Kind:   runner.TerminationTruncated,
+			Detail: fmt.Sprintf("предел шагов роли исчерпан на %d-м шаге, отчитаться агент не успел", turns),
+		}
+	}
+
+	left, err := runner.LeftTrace(opts.Workdir, opts.Passport.BaseCommit, turns)
+	if err != nil {
+		// Судить след не вышло — рабочая папка сломана. Считаем «не справился»,
+		// и это выбор в сторону сегодняшнего поведения: сейчас всякий прогон
+		// без результата тратит попытку. Не тратить её на то, о чём мы ничего
+		// не знаем, значило бы молча ослабить предел попыток.
+		return runner.Termination{
+			Kind:   runner.TerminationErrored,
+			Detail: fmt.Sprintf("след работы не разобран (%v), прогон считается сломавшимся", err),
+		}
+	}
+	if left {
+		return runner.Termination{Kind: runner.TerminationErrored, Detail: endDetail(ending, runErr)}
+	}
+	return runner.Termination{Kind: runner.TerminationNotStarted, Detail: endDetail(ending, runErr)}
+}
+
+// endDetail — что сказать человеку о прогоне, не оставившем результата.
+//
+// Слова агента идут первыми: «API Error: Unable to connect to API (ECONNRESET)»
+// объясняет больше, чем любой наш пересказ. Дальше — слово поставщика, если
+// оно незнакомо разбору, и уже потом беда самого запуска.
+func endDetail(ending runner.Ending, runErr error) string {
+	switch {
+	case ending.Detail != "":
+		return ending.Detail
+	case ending.Reason == runner.EndUnknown && ending.Provider != "":
+		return fmt.Sprintf("агент сказал о конце прогона незнакомое: %q", ending.Provider)
+	case runErr != nil:
+		return runErr.Error()
+	default:
+		return "агент завершился, не оставив ни результата, ни объяснения"
+	}
+}
 
 // limitOf читает оттуда же состояние окна поставщика: исчерпанное окно —
 // такое же наблюдение раннера за прогоном, как и цена, и в result.json его нет

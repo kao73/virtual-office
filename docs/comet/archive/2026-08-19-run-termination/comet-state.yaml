@@ -1,0 +1,940 @@
+schema: comet.native.v4
+name: run-termination
+language: en
+phase: archive
+status: done
+state_version: 43
+brief: brief.md
+spec_changes:
+  - capability: run-termination
+    operation: create
+    source: specs/run-termination/spec.md
+workspace:
+  isolation: branch
+  change_branch: comet/run-termination
+  target_branch: master
+  finish: merge
+loop:
+  stage: done
+  goal_cycle: 6
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 1
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: "**A1.** Прогон, оставивший валидный `result.json`, получает `completed`
+      независимо от `terminal_reason` и `is_error`: результат есть — значит
+      прогон состоялся. Живой образец: `5beb60cf` — `api_error` и `is_error:
+      true` при валидном результате, задача после него ушла к ревьюеру и была
+      одобрена."
+    result: passed
+    reason:
+      text: "terminationOf при валидном result.json возвращает completed раньше
+        вопросов к логу. 5beb60cf сверен: api_error при собственном валидном
+        результате, в реестре done $0.3671, следом ревьюер 5af0c2de с done,
+        VO-10 одобрена."
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: "**A2.** Прогон без результата с `terminal_reason: max_turns` получает
+      `truncated`. Проверяется на живом логе архива `8dfc3e3e` (51 шаг при
+      `max_turns: 50`)."
+    result: passed
+    reason:
+      text: EndMaxTurns без результата → truncated. Константа endMaxTurns снята с
+        8dfc3e3e дословно, max_turns 50 подтверждён stage-4-load-2.md.
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: "**A3.** Прогон без результата, убитый таймаутом бэкенда, получает
+      `truncated`; таймаут отличается `errors.Is`, а не кодом возврата, и у
+      `sbx`, и у `local`."
+    result: passed
+    reason:
+      text: RunTimeout оборачивает ErrRunTimeout, зовётся обоими бэкендами, различение
+        через errors.Is. Тест у local с настоящим убитым процессом; отдельного
+        sbx-теста нет — в risks.
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: "**A4.** Прогон без результата, без усечения и без следа получает
+      `not_started`. Проверяется на живом логе `f4705aba` (`api_error`, 2 шага,
+      $0.05, ни строки в рабочей папке)."
+    result: passed
+    reason:
+      text: "Пустой след → not_started. f4705aba сверен: api_error, 2 шага,
+        $0.0494975, в логе единственный вызов — read-only cat двух файлов
+        обмена."
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: "**A5.** Прогон без результата, без усечения, со следом получает
+      `errored`. Живые образцы: `251a62ea`, `92f3bb0d`, `cb9a1e30` —
+      `terminal_reason: completed` при отсутствии `result.json`, 5–9 шагов; это
+      первые прогоны ревьюера, которому не дали инструментов записи
+      (`smoke.md`). Событие здесь врёт в сторону, обратную обрыву связи: молчит
+      о беде вместо того, чтобы кричать о ней при успехе."
+    result: passed
+    reason:
+      text: "След при отсутствии результата и усечения → errored. Три образца сверены
+        поимённо: 251a62ea (6), 92f3bb0d (5), cb9a1e30 (9), все reviewer,
+        terminal_reason completed, result.json нет; сценарий review-self, первые
+        три прогона ревьюера в архиве."
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: "**A6.** След = коммиты `base..HEAD` ∪ дельта грязи против снимка старта ∪
+      `num_turns > not_started_turns`; порог — именованная константа со
+      значением 2. Без числа шагов «след пуст» верно только для implementer'а:
+      ревьюер без инструментов записи и аналитик, читающий репозиторий, следа в
+      папке не оставляют."
+    result: passed
+    reason:
+      text: LeftTrace — объединение трёх источников; notStartedTurns = 2 именована,
+        правило строгое, закреплено тестом.
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: "**A7.** `not_started` → запись `event:agent-unavailable`, аренда снята,
+      задача в `reads_from` своей роли, `attempts` не изменился."
+    result: passed
+    reason:
+      text: idleRun при not_started пишет agent-unavailable, зовёт move в ReadsFrom и
+        Release, attempts не трогает. Тест проверяет статус, нулевой счётчик,
+        снятую аренду, причину и цену в записи.
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: "**A8.** `truncated` → запись `event:run-truncated`, аренда снята, задача
+      в `reads_from` своей роли (для роли с рабочим статусом — возврат из него),
+      `attempts` не изменился, рабочая папка сохранена для продолжения."
+    result: passed
+    reason:
+      text: При truncated — run-truncated, выход из рабочего статуса, attempts не
+        меняется, work возвращает false и папка не сносится. Тест проверяет
+        папку и опубликованный коммит.
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: "**A9.** Серия записей одной роли из множества {`agent-unavailable`,
+      `run-truncated`} длиной `limits.max_idle_runs`, в любом чередовании,
+      уводит задачу в `Blocked` с флагом человека и отдельной запиской о
+      причине."
+    result: passed
+    reason:
+      text: IdleRuns считает два события одним eventStreak; при достижении предела —
+        Blocked с флагом человека и отдельной запиской. Два теста, включая
+        чередование.
+      truncated: false
+  - id: A10
+    source: brief.md
+    text: "**A10.** Ни при `not_started`, ни при `truncated` отчёт агента в тикет не
+      пишется: обе записи системные, отчитываться агенту нечем."
+    result: passed
+    reason:
+      text: idleRun не зовёт finish и не пишет маркера с Outcome. Тест обходит все
+        комментарии и падает на любом таком маркере.
+      truncated: false
+  - id: A11
+    source: brief.md
+    text: "**A11.** `errored` ведёт себя как сегодня: синтетический `failed`,
+      попытка тратится, маршрут по графу прежний."
+    result: passed
+    reason:
+      text: "errored не под Idle(), идёт прежним путём: синтетический failed, replayOf
+        пропускает провал, finish; в графе у failed attempts +1 у всех трёх
+        ролей."
+      truncated: false
+  - id: A12
+    source: brief.md
+    text: "**A12.** Граф без `limits.max_idle_runs` или с неположительным значением
+      не загружается — как и остальные пределы серий."
+    result: passed
+    reason:
+      text: validate отвергает max_idle_runs <= 0, отсутствующее поле даёт ноль и тоже
+        отвергается; оба случая в тестах. В корневом workflow.yaml значение 3.
+      truncated: false
+  - id: A13
+    source: brief.md
+    text: "**A13.** Строка реестра прогонов несёт `termination` во всех местах, где
+      строка прогона создаётся; `runner ledger` считает усечения, недоступность
+      и провалы отдельно друг от друга и от исходов — строкой «без результата»."
+    result: passed
+    reason:
+      text: "ledger.Entry создаётся в трёх местах: pipeline.work и run-agent account
+        несут Termination, строка переигрыша прогоном не считается. Сводка
+        печатает строку «без результата». Три теста."
+      truncated: false
+  - id: A14
+    source: brief.md
+    text: "**A14.** `roles/implementer/role.md` велит продолжать с первого
+      неотмеченного пункта, если контекст говорит, что прошлый прогон был
+      усечён."
+    result: passed
+    reason:
+      text: Раздел в role.md добавлен; путь до агента живой — запись run-truncated не
+        несёт Outcome, поэтому TailAfterRole оставляет её в контексте.
+      truncated: false
+  - id: A15
+    source: specs/run-termination/spec.md
+    text: Полное поведение способности после архивации изменения.
+    result: passed
+    reason:
+      text: Структурный фрагмент. Описанное вокруг поведение реализовано и покрыто
+        тестами шести пакетов.
+      truncated: false
+  - id: A16
+    source: specs/run-termination/spec.md
+    text: Канонический контракт офиса живёт в `docs/contracts/agent-io.md` и
+      `docs/contracts/tracker-protocol.md`; план этапа 5 правит их одним заходом
+      на шаге 3, поэтому здесь описано то же поведение, но со стороны этого
+      изменения.
+    result: passed
+    reason:
+      text: Контракты в docs/contracts не тронуты; шаг 3 плана собирает их правку
+        одним заходом.
+      truncated: false
+  - id: A17
+    source: specs/run-termination/spec.md
+    text: "`Termination` — наблюдение раннера о том, чем кончился прогон. Такое же
+      по природе, как `Usage` (расход) и `Limit` (окно поставщика): в
+      `result.json` его нет и быть не может — файл результата пишет агент, а
+      судит о прогоне раннер."
+    result: passed
+    reason:
+      text: "Termination лежит рядом с Usage и Limit, в result.json не проникает:
+        схема и Validate не менялись."
+      truncated: false
+  - id: A18
+    source: specs/run-termination/spec.md
+    text: "Вид один из четырёх:"
+    result: passed
+    reason:
+      text: Структурный фрагмент. Ровно четыре значения TerminationKind, и все четыре
+        возвращаются terminationOf.
+      truncated: false
+  - id: A19
+    source: specs/run-termination/spec.md
+    text: "| Вид | Что значит | Попытка | Куда задача |"
+    result: passed
+    reason:
+      text: "Заголовок таблицы. Разделение вид/смысл/попытка/маршрут реализовано:
+        Idle(), transition.Attempts, ReadsFrom либо граф."
+      truncated: false
+  - id: A20
+    source: specs/run-termination/spec.md
+    text: "| `completed` | валидный результат есть | по графу | по графу |"
+    result: passed
+    reason:
+      text: completed идёт прежним путём finish; ничего в нём не изменено.
+      truncated: false
+  - id: A21
+    source: specs/run-termination/spec.md
+    text: "| `truncated` | результата нет, прогон срезан | не тратится | своей роли,
+      продолжить |"
+    result: passed
+    reason:
+      text: "truncated: attempts не трогается, задача в ReadsFrom, папка сохраняется —
+        продолжение возможно в том же worktree."
+      truncated: false
+  - id: A22
+    source: specs/run-termination/spec.md
+    text: "| `not_started` | результата нет, работа не начиналась | не тратится |
+      своей роли |"
+    result: passed
+    reason:
+      text: "not_started: attempts не трогается, задача в ReadsFrom своей роли."
+      truncated: false
+  - id: A23
+    source: specs/run-termination/spec.md
+    text: "| `errored` | результата нет, работа начиналась | тратится | как `failed`
+      сегодня |"
+    result: passed
+    reason:
+      text: "errored: синтетический failed и маршрут failed с attempts +1 —
+        сегодняшнее поведение."
+      truncated: false
+  - id: A24
+    source: specs/run-termination/spec.md
+    text: "Рядом с видом — `Detail`: короткое человеческое объяснение, обрезанное до
+      читаемой длины. Берётся **первая строка** итога агента — первая, а не
+      последняя, потому что у ошибки в первой строке стоит сама ошибка, а дальше
+      идут подробности, которым в записке раннера места нет."
+    result: passed
+    reason:
+      text: "Termination.Detail есть; trimDetail берёт первую строку и режет по рунам
+        до maxEndDetail = 200 с многоточием. Комментарий к константе сверен с
+        архивом: длины первых строк у четырёх прогонов без результата равны 48,
+        79, 107 и 340 рун, три входят целиком, четвёртая режется — всё точно."
+      truncated: false
+  - id: A25
+    source: specs/run-termination/spec.md
+    text: "Слов агента может не быть вовсе: срезанный пределом шагов прогон итоговой
+      строки не пишет. Тогда объяснение сочиняет раннер («предел шагов роли
+      исчерпан на N-м шаге»), потому что причину он знает и без агента."
+    result: passed
+    reason:
+      text: У 8dfc3e3e поля result в событии нет вовсе; terminationOf сочиняет
+        объяснение сам с числом шагов, тест требует наличия 51 в Detail.
+      truncated: false
+  - id: A26
+    source: specs/run-termination/spec.md
+    text: 'Причина определяется **по следу работы, а не по событию**: событие —
+      подсказка, след — причина (`DESIGN.md` §2.3). Поле `subtype` на вранье уже
+      поймано: у обоих живых прогонов, оборванных связью, оно равно `"success"`
+      при `is_error: true`. Врёт оно не всегда — у срезанных пределом шагов там
+      честное `error_max_turns`, — но именно поэтому по нему и не судят: поле,
+      которое врёт через раз, хуже бесполезного.'
+    result: passed
+    reason:
+      text: "subtype не читается вовсе. Факты сверены: у обоих оборванных связью
+        subtype success при is_error true, у обоих срезанных пределом — честный
+        error_max_turns."
+      truncated: false
+  - id: A27
+    source: specs/run-termination/spec.md
+    text: "Три источника:"
+    result: passed
+    reason:
+      text: Структурный фрагмент. Все три источника заведены и сходятся в
+        terminationOf.
+      truncated: false
+  - id: A28
+    source: specs/run-termination/spec.md
+    text: "**Итоговое событие лога** — разбирает адаптер, наверх идёт нейтральное
+      наблюдение. Читаются `terminal_reason` и `is_error`. Решает
+      `terminal_reason`; `is_error` страхует незнакомое значение — с ним оно
+      разбирается как ошибка, а не как успех. Нет события — шагов ноль."
+    result: passed
+    reason:
+      text: resultEvent читает terminal_reason, is_error и result; незнакомое при
+        is_error true даёт EndError. Нет события — нулевые шаги.
+      truncated: false
+  - id: A29
+    source: specs/run-termination/spec.md
+    text: "**След в рабочей папке** — коммиты `base..HEAD`, дельта грязи против
+      снимка старта, число шагов. След = объединение трёх. Порог шагов —
+      именованная константа `not_started_turns` = 2: без числа шагов «след пуст»
+      верно только для implementer'а, а ревьюер без инструментов записи и
+      аналитик, читающий репозиторий, следа в папке не оставляют."
+    result: passed
+    reason:
+      text: "LeftTrace — объединение трёх; порог сверен с архивом: на пороге f4705aba
+        (2 шага, следа нет), выше три ревьюерских, которые следа в папке не
+        оставляют."
+      truncated: false
+  - id: A30
+    source: specs/run-termination/spec.md
+    text: "**Факт убийства по таймауту** — от бэкенда, типизированной ошибкой
+      (`errors.Is`), а не кодом возврата. Код `-1` сегодня возвращается из
+      четырёх разных мест и причину не различает."
+    result: passed
+    reason:
+      text: ErrRunTimeout плюс конструктор, сверка errors.Is; в sbx.Run код -1
+        действительно из четырёх мест — пересчитано по файлу.
+      truncated: false
+  - id: A31
+    source: specs/run-termination/spec.md
+    text: "Порядок разбора:"
+    result: passed
+    reason:
+      text: Структурный фрагмент. Порядок разбора тот же, что в спеке, и закреплён
+        тестами на каждый шаг.
+      truncated: false
+  - id: A32
+    source: specs/run-termination/spec.md
+    text: Валидный результат есть → `completed`.
+    result: passed
+    reason:
+      text: "Первый вопрос — валидный результат: ReadResult парсит с
+        DisallowUnknownFields и зовёт Validate."
+      truncated: false
+  - id: A33
+    source: specs/run-termination/spec.md
+    text: "Иначе усечение — `terminal_reason: max_turns` либо таймаут бэкенда →
+      `truncated`."
+    result: passed
+    reason:
+      text: Второй — усечение по errors.Is либо EndMaxTurns; прочие беды запуска за
+        таймаут не принимаются.
+      truncated: false
+  - id: A34
+    source: specs/run-termination/spec.md
+    text: Иначе след пуст → `not_started`.
+    result: passed
+    reason:
+      text: Третий — пустой след → not_started; при ошибке разбора следа выбирается
+        errored, а не молчаливое ослабление предела.
+      truncated: false
+  - id: A35
+    source: specs/run-termination/spec.md
+    text: Иначе → `errored`.
+    result: passed
+    reason:
+      text: Иначе errored — покрыт и для обрыва на 25-м шаге, и для молчаливого
+        прогона.
+      truncated: false
+  - id: A36
+    source: specs/run-termination/spec.md
+    text: "**`not_started`** — запись `event:agent-unavailable`, аренда снимается,
+      задача возвращается в `reads_from` своей роли, `attempts` не трогается.
+      Отчёт агента не пишется: отчитываться нечем. Паузы роли до сброса окна
+      подписки нет."
+    result: passed
+    reason:
+      text: "not_started: событие, Release, ReadsFrom, attempts нетронут, отчёта нет.
+        Паузы роли по окну подписки в коде нет."
+      truncated: false
+  - id: A37
+    source: specs/run-termination/spec.md
+    text: "**`truncated`** — запись `event:run-truncated`, аренда снимается, задача
+      возвращается в `reads_from` своей роли (роль с рабочим статусом выходит из
+      него), `attempts` не трогается, **рабочая папка сохраняется**: следующий
+      прогон продолжает с того же места. У implementer'а продолжение видно по
+      отметкам в `tasks.md`, у аналитика — по черновикам в каталоге изменения."
+    result: passed
+    reason:
+      text: "truncated: событие, Release, выход из рабочего статуса, attempts
+        нетронут, папка сохраняется; текст записи обещает продолжение."
+      truncated: false
+  - id: A38
+    source: specs/run-termination/spec.md
+    text: "**Одна серия на оба.** Записи одной роли из множества
+      {`agent-unavailable`, `run-truncated`}, идущие подряд в любом чередовании,
+      считаются одним счётчиком `limits.max_idle_runs`. Достигнут — задача
+      уходит в `Blocked` к человеку с отдельной запиской. Счётчик общий, потому
+      что следствие одно и причина одна — прогон без результата; два раздельных
+      счётчика чередование обошло бы. Серии аренды (`max_lease_expiries`) и
+      публикации (`max_push_failures`) остаются отдельными: там причины
+      независимые."
+    result: passed
+    reason:
+      text: eventStreak вариадический, IdleRuns считает оба события; соседние серии
+        остались раздельными, что закреплено тестом.
+      truncated: false
+  - id: A39
+    source: specs/run-termination/spec.md
+    text: "**`errored`** — как сегодня: синтетический `failed`, попытка тратится,
+      маршрут по графу. Сюда попадает и прогон, упавший по сети на середине:
+      деньги потрачены, начинать всё равно с нуля."
+    result: passed
+    reason:
+      text: errored тратит попытку; сетевая смерть на середине попадает сюда по
+        непустому следу.
+      truncated: false
+  - id: A40
+    source: specs/run-termination/spec.md
+    text: "**`completed`** — как сегодня, во всём."
+    result: passed
+    reason:
+      text: "Путь completed не изменён: те же renew, push, replayOf, Sweep, finish;
+        прежние тесты зелены."
+      truncated: false
+  - id: A41
+    source: specs/run-termination/spec.md
+    text: "Записи в тикете различают беды: `agent-unavailable` и `run-truncated` —
+      разные события с разным текстом, и человек видит, что именно было."
+    result: passed
+    reason:
+      text: Два разных события с разными текстами; тест чередования проверяет, что
+        различимы оба.
+      truncated: false
+  - id: A42
+    source: specs/run-termination/spec.md
+    text: Строка реестра прогонов несёт `termination`.
+    result: passed
+    reason:
+      text: Поле termination заполняется в обеих точках создания строки прогона; тесты
+        на обе.
+      truncated: false
+  - id: A43
+    source: specs/run-termination/spec.md
+    text: "`runner ledger` считает усечения, недоступность и провалы отдельно друг
+      от друга и от исходов — строкой «без результата» под строкой исходов. По
+      ней и подбирается `max_turns`, а не вслепую."
+    result: passed
+    reason:
+      text: ByTermination считает виды раздельно и пропускает completed; строка
+        печатается под исходами.
+      truncated: false
+  - id: A44
+    source: specs/run-termination/spec.md
+    text: "`roles/implementer/role.md` велит продолжать с первого неотмеченного
+      пункта, если контекст говорит, что прошлый прогон был усечён."
+    result: passed
+    reason:
+      text: Раздел role.md говорит именно требуемое, включая выход к аналитику при
+        невлезающей задаче.
+      truncated: false
+  - id: A45
+    source: specs/run-termination/spec.md
+    text: Публикация ветки идёт раньше развилки и при любом виде завершения; неудача
+      публикации сильнее и разбирается своей серией.
+    result: passed
+    reason:
+      text: Push и разбор pushErr стоят раньше проверки Idle(); неудача публикации
+        разбирается своей серией. Коммит усечённого прогона доезжает до origin.
+      truncated: false
+  - id: A46
+    source: specs/run-termination/spec.md
+    text: "Ограждения роли не работают ни при одном виде без результата:
+      `not_started` и `truncated` до них не доходят, а провалившийся прогон
+      переигрывать нечего и не за чем."
+    result: passed
+    reason:
+      text: idleRun возвращает управление до replayOf; провалившийся прогон
+        замалчивается самим replayOf.
+      truncated: false
+  - id: A47
+    source: specs/run-termination/spec.md
+    text: Уборка заготовок каталога изменения не работает при `not_started` и
+      `truncated` — иначе аналитик терял бы черновики между усечёнными
+      прогонами. При `errored` она отрабатывает как и сегодня у `failed` и
+      трогает только файлы, побайтно равные шаблону и неизвестные git.
+    result: passed
+    reason:
+      text: SweepChangeDir до idle-ветки не относится; при errored отрабатывает как
+        раньше и трогает только нетронутые шаблоны, неизвестные git.
+      truncated: false
+  - id: A48
+    source: specs/run-termination/spec.md
+    text: Схема `result.json` не трогается.
+    result: passed
+    reason:
+      text: Схема result.json и промпты не менялись; Termination живёт только в
+        наблюдениях раннера.
+      truncated: false
+builder_handoff:
+  candidate_id: 4ea52a9f-622a-4ecc-a3eb-25576591a919
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:6c202d19-b406-4989-90d5-9078af6057cb
+  iteration: 2
+  summary:
+    text: "Круг 9. Правка одна: комментарий к maxEndDetail в
+      adapters/claude/ending.go. Он врал о живых прогонах — обещал, что всё
+      встречавшееся укладывается в полсотни знаков и что предел взят с запасом,
+      чтобы ничего не обрывалось. Замерено по ~/.office/runs: первые строки
+      итогов у четырёх прогонов без результата равны 48, 79, 107 и 340 рунам; в
+      полсотни укладывается одна, а 340-рунная в предел 200 не влезает и режется
+      многоточием. Комментарий переписан по замеру и говорит прямо
+      противоположное прежнему: предел режет, и это задумано — отказ агента
+      бывает многословным, а полный текст лежит в логе прогона. Названы точные
+      числа и добавлено указание мерить заново перед правкой предела, потому что
+      этот комментарий врал трижды именно из-за неизмеренных длин. Отдельно
+      отмечу: в первой редакции этой же правки я написал «две трети образцов
+      входят целиком» — тоже доля на глаз при фактических трёх из четырёх;
+      поймал сам до сдачи и заменил на точный счёт. Код не менялся ни строкой."
+    truncated: false
+  addressed_acceptance_ids:
+    - A24
+  checks:
+    - name:
+        text: go build ./...
+        truncated: false
+      result: passed
+      note: null
+    - name:
+        text: go vet ./...
+        truncated: false
+      result: passed
+      note: null
+    - name:
+        text: go test ./...
+        truncated: false
+      result: passed
+      note:
+        text: код не менялся
+        truncated: false
+    - name:
+        text: gofmt -l .
+        truncated: false
+      result: passed
+      note: null
+  checks_truncated: false
+  known_limits:
+    - text: README.md:202 говорит, что отвергнутый окном подписки прогон считается
+        обычным провалом и тратит попытку. После этого изменения он разбирается
+        общим правилом как прогон без результата. Владелец решил не трогать
+        README в этом круге; идёт в отчёт шага вместе с правками контрактов шага
+        3.
+      truncated: false
+    - text: "Живого теста таймаута sbx нет: Executable — константа, шва для подмены
+        CLI не существует. Долг записан."
+      truncated: false
+    - text: "Маршрут errored отдельным тестом конвейера не покрыт: путь совпадает с
+        сегодняшним по построению."
+      truncated: false
+    - text: "hasNewDirt сравнивает сырые строки porcelain: доработка уже грязного
+        файла нового следа не даёт."
+      truncated: false
+    - text: "Прогон без результата, потерявший аренду, до idleRun не доходит: серия
+        max_idle_runs не растёт. Форма унаследована от push-failed."
+      truncated: false
+    - text: "Строка «без результата» в сводке считает и errored, тогда как исход
+        failed того же прогона остаётся в строке исходов: один прогон виден в
+        двух строках. Это по замыслу — наблюдение рядом с заявлением агента, а
+        не вместо него, — но объяснить это место надо в контрактах на шаге 3."
+      truncated: false
+    - text: Порог notStartedTurns = 2 откалиброван на образцах с одной машины;
+        калибровка на живом проекте — шаг 5 плана.
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-19T20:11:08.334Z
+blockers: []
+verification:
+  candidate_id: 4ea52a9f-622a-4ecc-a3eb-25576591a919
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:a9ae3b1d-7e08-4f2b-ae86-06d1af6c30aa
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: build
+      name:
+        text: go build ./...
+        truncated: false
+      argv_display:
+        - text: build
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 894
+    - id: vet
+      name:
+        text: go vet ./...
+        truncated: false
+      argv_display:
+        - text: vet
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 168
+    - id: test
+      name:
+        text: go test ./...
+        truncated: false
+      argv_display:
+        - text: test
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 966
+    - id: fmt
+      name:
+        text: gofmt -l .
+        truncated: false
+      argv_display:
+        - text: -l
+          truncated: false
+        - text: .
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 71
+  summary:
+    text: "Реализация соответствует брифу и спецификации: вид завершения собирается
+      по трём источникам, решение принимается по следу, попытка тратится только
+      на errored, серия считается одним счётчиком и не обходится чередованием,
+      отчёт при пустом прогоне не пишется, публикация раньше развилки, реестр
+      однороден. Все утверждения о живых прогонах перепроверены проверяющим
+      самостоятельно — 116 прогонов, четыре без результата с шагами 2/5/6/9 и
+      длинами первых строк 48/79/107/340 рун — расхождений нет. Проверки
+      перезапущены, зелено; все 48 пунктов выполнены."
+    truncated: false
+  risks:
+    - text: "Живого теста таймаута sbx нет: Executable — константа, шва для подмены
+        CLI не существует. Тест есть только у local."
+      truncated: false
+    - text: "Маршрут errored отдельным тестом конвейера не покрыт: путь совпадает с
+        сегодняшним по построению."
+      truncated: false
+    - text: "endingOf гасит Detail при Reason == EndCompleted, поэтому у трёх живых
+        образцов errored слова агента до Termination.Detail не доходят.
+        Наблюдаемых следствий нет: Detail читается только на пути idleRun
+        (not_started и truncated), а errored туда не попадает — в тикет уходит
+        синтетический failed. Проверено обходом всех мест чтения
+        Termination.Detail."
+      truncated: false
+    - text: "При truncated по max_turns раннер сочиняет Detail всегда, а не только
+        когда агент промолчал. Ненаблюдаемо: у обоих живых max_turns поля result
+        в событии нет вовсе."
+      truncated: false
+    - text: "hasNewDirt сравнивает сырые строки porcelain: доработка уже грязного
+        файла нового следа не даёт, ловится только числом шагов."
+      truncated: false
+    - text: "Прогон без результата, потерявший аренду, до idleRun не доходит: серия не
+        растёт, записка lease-lost цитирует синтетический failed. Форма
+        унаследована от push-failed."
+      truncated: false
+    - text: "В сводке прогон errored виден дважды: как failed среди исходов и как
+        errored в строке «без результата». По замыслу — наблюдение рядом с
+        заявлением агента, — но объяснить это место надо в контрактах на шаге
+        3."
+      truncated: false
+    - text: notStartedTurns = 2 откалиброван на образцах с одной машины за два смежных
+        дня; калибровка — шаг 5 плана.
+      truncated: false
+    - text: claude-cli.md считает прогоны без результата по наличию файла result.json.
+        У 8dfc3e3e файл в архиве есть, но чужой — от прошлого прогона другой
+        роли; сам агент отчёта не написал. Метод назван честно, но разница между
+        «файл есть» и «агент отчитался» стоит отдельного слова.
+      truncated: false
+    - text: README.md:202, контракты и DESIGN.md §2.3/§2.7 всё ещё описывают старое
+        правило «нет результата → failed, попытка тратится». Правка отложена
+        планом на шаг 3 и владельцем.
+      truncated: false
+    - text: "run-agent вид завершения на stdout не печатает: при ручном прогоне он
+        виден только в реестре."
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-19T20:25:04.635Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Проверена реализация в рабочем дереве против брифа и спецификации; go
+        build, go vet, go test ./... и gofmt -l перезапущены проверяющим
+        самостоятельно — зелено. Несущее правило выдержано на деле: адаптер
+        отдаёт для f4705aba и 5beb60cf одно и то же наблюдение (доказано
+        отдельным тестом), а разводит их только след работы. attempts не
+        трогается на not_started и truncated, общая серия считается одним
+        eventStreak по двум событиям и проверена чередованием до предела, отчёт
+        агента при пустом прогоне не пишется. Все 46 пунктов выполнены;
+        найденные дыры ни одного пункта не отменяют и вынесены в risks."
+      truncated: false
+    completed_at: 2026-08-19T17:05:22.741Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Проверка нашла недоделанный A13: ручной run-agent пишет строку реестра
+        без termination, хотя наблюдение там уже есть. Реестр выходит
+        разнородным и недосчитает прогоны, по которым калибруют max_turns.
+        Возврат в Build ради этой правки."
+      truncated: false
+    completed_at: 2026-08-19T17:12:33.351Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Круг 2. Разбор причины завершения собран по несущему правилу: адаптер
+        отдаёт нейтральное наблюдение, вид решает terminationOf по следу — два
+        живых лога с одинаковым api_error (2 и 25 шагов) разводятся именно
+        следом, что закреплено тестами. Конвейер не тратит попытку на
+        not_started и truncated, ведёт обе беды одним счётчиком, отчёта при
+        пустом прогоне не пишет, публикацию оставляет раньше развилки,
+        ограждения и уборку заготовок — за ней. Реестр однороден: вид завершения
+        пишется в обоих местах создания строки. go build, go vet, go test
+        -count=1 и gofmt перезапущены проверяющим — зелено; все 46 пунктов
+        выполнены."
+      truncated: false
+    completed_at: 2026-08-19T17:24:14.488Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Проверка нашла две недоделки круга 2: устаревший комментарий у
+        maxEndDetail (говорит «восьмидесяти хватает» при константе 200) и
+        отсутствие модульного теста на tracker.IdleRuns в своём пакете — серия
+        проверена только через конвейер. Возврат в Build ради обеих."
+      truncated: false
+    completed_at: 2026-08-19T17:37:15.530Z
+  - goal_cycle: 1
+    iteration: 3
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Круг 3. Вид завершения решается по следу, а не по событию: адаптер отдаёт
+        для двух обрывов одно наблюдение, разводит их LeftTrace. Конвейер не
+        тратит попытку на not_started и truncated, ведёт обе беды одним
+        eventStreak (проверено и модульно в tracker, и чередованием в
+        конвейере), отчёта при пустом прогоне не пишет, публикацию оставляет
+        раньше развилки, папку при усечении сохраняет. Реестр однороден.
+        Проверки перезапущены проверяющим — зелено, все 46 пунктов выполнены."
+      truncated: false
+    completed_at: 2026-08-19T17:54:13.409Z
+  - goal_cycle: 1
+    iteration: 3
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Проверка круга 3 нашла два комментария, врущих про соседний код: у
+        maxEndDetail число знаков названо неверно, а комментарий в
+        runner/trace.go обещает счёт байтовых следов, которых git status без
+        --ignored не видит вовсе. В этом репозитории комментарии несут причины
+        решений, поэтому чинится. Код не трогается: добавить --ignored значило
+        бы расширить понятие следа и начать тратить попытки там, где раньше не
+        тратили, чего ни один пункт приёмки не требует."
+      truncated: false
+    completed_at: 2026-08-19T17:54:21.342Z
+  - goal_cycle: 1
+    iteration: 4
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A5
+    summary:
+      text: "Круг 4. Код сделан по несущему правилу и проходит все проверки — build,
+        vet, test, gofmt перезапущены проверяющим, зелено. Провален один пункт,
+        A5: живой образец errored описан неправдой. 5beb60cf оставил собственный
+        валидный result.json с исходом done, реестр пишет ему done и $0.3671,
+        следом идёт одобривший ревьюер — по правилу 1 это completed, попытка не
+        тратилась. Живого образца errored в архиве нет вовсе; порог откалиброван
+        на единственном прогоне без результата. Неверны и заметка claude-cli.md,
+        и комментарий в тесте, и текст самого пункта A5."
+      truncated: false
+    completed_at: 2026-08-19T18:09:43.726Z
+  - goal_cycle: 1
+    iteration: 5
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-19T18:16:03.954Z
+  - goal_cycle: 2
+    iteration: 0
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-19T18:16:11.728Z
+  - goal_cycle: 3
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-19T18:37:58.596Z
+  - goal_cycle: 4
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-19T19:04:15.855Z
+  - goal_cycle: 5
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Живой архив проверен своими запросами: 116 прогонов, распределение
+        112/2/2, ровно четыре без result.json, 5beb60cf с валидным результатом
+        при api_error, 8dfc3e3e — 51 шаг при пределе 50. Все пять тестовых
+        констант совпали с архивом дословно. Код решает по следу: attempts
+        трогается только в finish и unblock, серия считается одним eventStreak,
+        отчёт при пустом прогоне не пишется, реестр однороден. Проверки
+        перезапущены — зелено, все 46 пунктов выполнены."
+      truncated: false
+    completed_at: 2026-08-19T19:46:04.699Z
+  - goal_cycle: 5
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Проверка круга 7 признала все 46 пунктов выполненными, но нашла пять
+        неточностей в текстах: ярлык «архива этапов 2-4» при фактических 3-4 в
+        трёх местах, «образцы с одного этапа» при двух, «ниже порога» про прогон
+        ровно на пороге, и две формулировки спеки шире кода — про Detail при
+        усечении и про уборку заготовок при errored. Три из них — ложные
+        утверждения о фактах, тот же класс, что чинили предыдущие круги. Возврат
+        в Build ради всех пяти."
+      truncated: false
+    completed_at: 2026-08-19T19:46:04.995Z
+  - goal_cycle: 5
+    iteration: 2
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-19T19:47:32.770Z
+  - goal_cycle: 6
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A24
+    summary:
+      text: "Поведение реализовано целиком и сходится со спецификацией; все
+        утверждения о живом архиве пересчитаны проверяющим самостоятельно и
+        верны, тестовые константы совпадают с логами дословно, проверки зелены.
+        Провален один пункт: комментарий к maxEndDetail утверждает о живых
+        прогонах то, что архивом опровергается — первые строки итогов равны 48,
+        79, 107 и 340 рунам, в «полсотни знаков» укладывается одна, а 340-рунная
+        в предел 200 не влезает и режется."
+      truncated: false
+    completed_at: 2026-08-19T20:10:08.218Z
+  - goal_cycle: 6
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Реализация соответствует брифу и спецификации: вид завершения собирается
+        по трём источникам, решение принимается по следу, попытка тратится
+        только на errored, серия считается одним счётчиком и не обходится
+        чередованием, отчёт при пустом прогоне не пишется, публикация раньше
+        развилки, реестр однороден. Все утверждения о живых прогонах
+        перепроверены проверяющим самостоятельно — 116 прогонов, четыре без
+        результата с шагами 2/5/6/9 и длинами первых строк 48/79/107/340 рун —
+        расхождений нет. Проверки перезапущены, зелено; все 48 пунктов
+        выполнены."
+      truncated: false
+    completed_at: 2026-08-19T20:25:04.635Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-19T16:09:20.204Z

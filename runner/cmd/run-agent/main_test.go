@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kao73/virtual-office/ledger"
+	"github.com/kao73/virtual-office/runagent"
 	"github.com/kao73/virtual-office/runner"
 )
 
@@ -216,5 +219,35 @@ func TestValidateResultSubcommand(t *testing.T) {
 	}
 	if !strings.Contains(out, "next_owner") {
 		t.Errorf("причина не названа: %s", out)
+	}
+}
+
+// Реестр один на машину, а сводка считает усечения по всем строкам подряд.
+// Ручной прогон без вида завершения выглядел бы в ней обычным провалом, и число
+// прогонов, срезанных пределом шагов, вышло бы заниженным — ровно то число,
+// по которому подбирают max_turns.
+func TestAccountWritesTermination(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(runner.HomeEnv, home)
+
+	account(runner.Run{RunID: "прогон", Role: "implementer"}, runagent.Outcome{
+		Result:      runner.FailedResult("результата нет"),
+		Usage:       runner.Usage{CostUSD: 1.77, DurationMS: 432672, Turns: 51},
+		Termination: runner.Termination{Kind: runner.TerminationTruncated, Detail: "предел шагов исчерпан"},
+	})
+
+	raw, err := os.ReadFile(filepath.Join(home, ledger.FileName))
+	if err != nil {
+		t.Fatalf("реестр не прочитан: %v", err)
+	}
+	var line ledger.Entry
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &line); err != nil {
+		t.Fatalf("строка реестра не разобрана: %v\n%s", err, raw)
+	}
+	if line.Termination != string(runner.TerminationTruncated) {
+		t.Errorf("termination=%q, ожидалось %q", line.Termination, runner.TerminationTruncated)
+	}
+	if line.CostUSD != 1.77 {
+		t.Errorf("cost_usd=%v: прогон без результата всё равно оплачен", line.CostUSD)
 	}
 }

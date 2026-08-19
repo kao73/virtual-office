@@ -314,6 +314,73 @@ func TestLeaseExpiriesCountsStreakFromTheEnd(t *testing.T) {
 	}
 }
 
+// Пустые прогоны считаются **одним** счётчиком на два события, и это главное
+// в нём: два раздельных счётчика чередование обошло бы — прогон не начался,
+// следующий оборвался, третий опять не начался, и ни один не дошёл бы до предела,
+// пока задача крутится вечно.
+func TestIdleRunsCountsBothKindsAsOneStreak(t *testing.T) {
+	cases := []struct {
+		name     string
+		comments []Comment
+		want     int
+	}{
+		{"чередование считается одной серией", []Comment{
+			notice("implementer", EventAgentUnavailable, 1),
+			notice("implementer", EventRunTruncated, 2),
+			notice("implementer", EventAgentUnavailable, 3),
+		}, 3},
+		{"отчёт роли обрывает счёт", []Comment{
+			notice("implementer", EventRunTruncated, 1),
+			notice("implementer", EventAgentUnavailable, 2),
+			report("implementer", "done", 3),
+		}, 0},
+		{"считается с конца, а не за всю жизнь", []Comment{
+			notice("implementer", EventAgentUnavailable, 1),
+			report("implementer", "failed", 2),
+			notice("implementer", EventRunTruncated, 3),
+			notice("implementer", EventRunTruncated, 4),
+		}, 2},
+		{"разбор ответа человека обрывает счёт", []Comment{
+			notice("implementer", EventAgentUnavailable, 1),
+			notice("implementer", EventHumanReply, 2),
+		}, 0},
+		{"записи чужой роли серию не трогают", []Comment{
+			notice("implementer", EventRunTruncated, 1),
+			notice("reviewer", EventPushFailed, 2),
+			notice("implementer", EventRunTruncated, 3),
+		}, 2},
+		{"чужая серия своей не считается", []Comment{
+			notice("implementer", EventLeaseExpired, 1),
+			notice("implementer", EventPushFailed, 2),
+		}, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IdleRuns(tc.comments, "implementer"); got != tc.want {
+				t.Errorf("серия %d, ожидалась %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// Серии считают разное, поэтому и обрываются по-разному: пустой прогон не имеет
+// отношения ни к смерти аренды, ни к неудачной публикации, и смешать их значило бы
+// звать человека не с тем разговором.
+func TestIdleRunsDoesNotDisturbOtherSeries(t *testing.T) {
+	comments := []Comment{
+		notice("implementer", EventLeaseExpired, 1),
+		notice("implementer", EventAgentUnavailable, 2),
+	}
+
+	if got := LeaseExpiries(comments, "implementer"); got != 0 {
+		t.Errorf("серия смертей аренды %d: пустой прогон обязан её оборвать", got)
+	}
+	if got := IdleRuns(comments, "implementer"); got != 1 {
+		t.Errorf("серия пустых прогонов %d, ожидалась 1", got)
+	}
+}
+
 // Неудачный пуш считается так же и по той же причине: это беда обвязки, а не
 // провал агента, и человека по ней зовут с другим разговором.
 func TestPushFailuresCountStreakFromTheEnd(t *testing.T) {

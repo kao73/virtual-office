@@ -11,7 +11,7 @@ ambient_resume: true
 # Native workflow settings. They do not change Classic state or behavior.
 native:
   # Root directory where Native stores Comet specs and changes. Runtime data stays under .comet.
-  artifact_root: docs/comet
+  artifact_root: docs
   # Artifact language used by Native workflow documents.
   # language: en | zh-CN
   language: en

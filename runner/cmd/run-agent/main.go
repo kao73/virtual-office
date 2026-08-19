@@ -201,12 +201,19 @@ func execute() (int, error) {
 // Неудача записи прогона не отменяет: работа сделана, результат напечатан.
 // Молча ронять её нельзя — расход учитывается не полностью, — поэтому беда
 // уходит в stderr, а код возврата остаётся исходом прогона.
+//
+// Вид завершения пишется наравне с расходом, и это не педантизм: реестр один
+// на машину, а сводка считает усечения по всем строкам подряд. Ручной прогон
+// без этого поля выглядел бы в ней обычным провалом, и число прогонов, срезанных
+// пределом шагов, вышло бы заниженным — ровно то число, по которому подбирают
+// max_turns.
 func account(passport runner.Run, out runagent.Outcome) {
 	runs, err := ledger.Default()
 	if err == nil {
 		err = runs.Append(ledger.Entry{
 			RunID: passport.RunID, Role: passport.Role, Started: passport.StartedAt,
-			Usage: out.Usage, Outcome: string(out.Result.Outcome), ConfigSHA: passport.ConfigSHA,
+			Usage: out.Usage, Outcome: string(out.Result.Outcome),
+			Termination: string(out.Termination.Kind), ConfigSHA: passport.ConfigSHA,
 		})
 	}
 	if err != nil {
