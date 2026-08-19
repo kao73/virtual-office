@@ -1125,6 +1125,17 @@ func contextBody(task tracker.Task, roleName string, accounts []string, maxAttem
 
 	fmt.Fprintf(&b, "## Задача\n\n- Ключ: %s\n- Попытка: %d из %d\n", task.Key, task.Attempts+1, maxAttempts)
 
+	// Ответы человека — раньше переписки: это то, ради чего задачу разбудили,
+	// и искать их в хвосте построчно агенту не надо. Вопросы берутся из тикета
+	// заново: между вопросом и ответом лежит другой тик, и помнить заданное
+	// раннеру негде.
+	if answers := tracker.HumanAnswers(task.Comments, roleName, accounts); len(answers) > 0 {
+		b.WriteString("\n## Ответы человека\n\n")
+		for _, answer := range answers {
+			fmt.Fprintf(&b, "- %s «%s» → %s\n", answer.Question.ID, answer.Question.Text, answerText(answer))
+		}
+	}
+
 	tail := tracker.TailAfterRole(task.Comments, roleName)
 	if len(tail) == 0 {
 		return b.String()
@@ -1139,6 +1150,25 @@ func contextBody(task tracker.Task, roleName string, accounts []string, maxAttem
 		fmt.Fprintf(&b, "\n### %s, %s\n\n%s\n", who, comment.Created.Format(time.RFC3339), strings.TrimSpace(comment.Body))
 	}
 	return b.String()
+}
+
+// answerText — как ответ человека выглядит в контексте роли.
+//
+// Ответ мимо вариантов отдаётся как есть, с пометкой: валидировать человека
+// раннер не станет — отвергнуть его ответ значит его потерять, а решить, что
+// с ним делать, роль может сама.
+func answerText(a tracker.Answer) string {
+	switch {
+	case !a.Answered():
+		return "ответа нет"
+	case a.Label != "" && !strings.EqualFold(a.Text, a.Label):
+		return a.Text + " — " + a.Label
+	case a.Label != "":
+		return a.Label
+	case a.OffOptions():
+		return a.Text + " (такого варианта не предлагалось — решай сам)"
+	}
+	return a.Text
 }
 
 // short — первые восемь символов идентификатора: столько же, сколько в маркере.

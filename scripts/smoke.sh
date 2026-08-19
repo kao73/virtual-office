@@ -228,8 +228,16 @@ case_ambiguous() {
 	questions=$(jq -r '.questions | length' "$dir/.agent/result.json" 2>/dev/null || echo 0)
 	[ "$questions" -gt 0 ] && ok "вопросов задано: $questions" || bad "вопросов нет"
 
+	# Метка — то, чем человек отвечает одним словом, и по ней же раннер разбирает
+	# ответ. Контракт её требует, но интересно другое: попадает ли агент в форму
+	# сам, не упираясь в ограждение.
+	local unlabelled
+	unlabelled=$(jq -r '[.questions[]? | select((.id // "") | test("^Q[0-9]+$") | not)] | length' 		"$dir/.agent/result.json" 2>/dev/null || echo 1)
+	[ "$unlabelled" = 0 ] && ok "у каждого вопроса метка вида Q1" || bad "вопросов без метки: $unlabelled"
+
 	echo "  --- вопросы ---"
-	jq -r '.questions[]? | "  - " + .text' "$dir/.agent/result.json" 2>/dev/null
+	jq -r '.questions[]? | "  " + .id + ": " + .text
+		+ (if .options then "\n" + ([.options[] | "    " + .id + ") " + .label] | join("\n")) else "" end)' 		"$dir/.agent/result.json" 2>/dev/null
 }
 
 # Ограждение никак не проявляет себя на счастливом пути, а его отказ беззвучен:

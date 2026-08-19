@@ -45,13 +45,16 @@ func TestReadResultAccepts(t *testing.T) {
 			content: `{
 			  "outcome": "needs_human",
 			  "summary": "Задача допускает два прочтения.",
-			  "questions": [{"text": "Какую платёжную систему?", "options": ["Stripe", "ЮKassa"]}],
+			  "questions": [{"id": "Q1", "text": "Какую платёжную систему?",
+			    "options": [{"id": "a", "label": "Stripe"}, {"id": "b", "label": "ЮKassa"}]}],
 			  "next_owner": "human"
 			}`,
 			want: Result{
-				Outcome:   OutcomeNeedsHuman,
-				Summary:   "Задача допускает два прочтения.",
-				Questions: []Question{{Text: "Какую платёжную систему?", Options: []string{"Stripe", "ЮKassa"}}},
+				Outcome: OutcomeNeedsHuman,
+				Summary: "Задача допускает два прочтения.",
+				Questions: []Question{{ID: "Q1", Text: "Какую платёжную систему?", Options: []Option{
+					{ID: "a", Label: "Stripe"}, {ID: "b", Label: "ЮKassa"},
+				}}},
 				NextOwner: "human",
 			},
 		},
@@ -59,13 +62,13 @@ func TestReadResultAccepts(t *testing.T) {
 			content: `{
 			  "outcome": "needs_human",
 			  "summary": "Нужен выбор.",
-			  "questions": [{"text": "Куда деплоим?"}],
+			  "questions": [{"id": "Q1", "text": "Куда деплоим?"}],
 			  "next_owner": "human"
 			}`,
 			want: Result{
 				Outcome:   OutcomeNeedsHuman,
 				Summary:   "Нужен выбор.",
-				Questions: []Question{{Text: "Куда деплоим?"}},
+				Questions: []Question{{ID: "Q1", Text: "Куда деплоим?"}},
 				NextOwner: "human",
 			},
 		},
@@ -158,15 +161,56 @@ func TestReadResultRejects(t *testing.T) {
 			wantPart: "questions пуст",
 		},
 		"вопрос без текста": {
-			content:  `{"outcome":"needs_human","summary":"с.","questions":[{"text":" "}],"next_owner":"human"}`,
+			content:  `{"outcome":"needs_human","summary":"с.","questions":[{"id":"Q1","text":" "}],"next_owner":"human"}`,
 			wantPart: "questions[0].text пуст",
+		},
+		// По метке человек отвечает, а раннер разбирает ответ. Метки нет или она
+		// не той формы — ответить нечем; метка повторяется — ответ неадресуем.
+		"вопрос без метки": {
+			content:  `{"outcome":"needs_human","summary":"с.","questions":[{"text":"а?"}],"next_owner":"human"}`,
+			wantPart: "questions[0].id пуст",
+		},
+		"метка не той формы": {
+			content:  `{"outcome":"needs_human","summary":"с.","questions":[{"id":"первый","text":"а?"}],"next_owner":"human"}`,
+			wantPart: "ожидается Q и число",
+		},
+		"метка повторяется": {
+			content: `{"outcome":"needs_human","summary":"с.","questions":[` +
+				`{"id":"Q1","text":"а?"},{"id":"Q1","text":"б?"}],"next_owner":"human"}`,
+			wantPart: "повторяется",
+		},
+		// Вопрос едет в тикет строкой протокола: перевод строки внутри разрезал
+		// бы её пополам, и разбор увидел бы половину.
+		"вопрос в несколько строк": {
+			content:  `{"outcome":"needs_human","summary":"с.","questions":[{"id":"Q1","text":"а?\nи ещё б?"}],"next_owner":"human"}`,
+			wantPart: "в несколько строк",
+		},
+		"вариант без идентификатора": {
+			content: `{"outcome":"needs_human","summary":"с.","questions":[` +
+				`{"id":"Q1","text":"а?","options":[{"id":"","label":"да"}]}],"next_owner":"human"}`,
+			wantPart: "options[0].id пуст",
+		},
+		"идентификатор варианта с пробелом": {
+			content: `{"outcome":"needs_human","summary":"с.","questions":[` +
+				`{"id":"Q1","text":"а?","options":[{"id":"да, конечно","label":"да"}]}],"next_owner":"human"}`,
+			wantPart: "с пробелом",
+		},
+		"варианты с одинаковыми идентификаторами": {
+			content: `{"outcome":"needs_human","summary":"с.","questions":[` +
+				`{"id":"Q1","text":"а?","options":[{"id":"a","label":"да"},{"id":"A","label":"нет"}]}],"next_owner":"human"}`,
+			wantPart: "options[1].id",
+		},
+		"вариант без подписи": {
+			content: `{"outcome":"needs_human","summary":"с.","questions":[` +
+				`{"id":"Q1","text":"а?","options":[{"id":"a","label":" "}]}],"next_owner":"human"}`,
+			wantPart: "options[0].label пуст",
 		},
 		"blocked без блокера": {
 			content:  `{"outcome":"blocked","summary":"с.","next_owner":"human"}`,
 			wantPart: "blocker пуст",
 		},
 		"вопросы при done": {
-			content:  `{"outcome":"done","summary":"с.","questions":[{"text":"а?"}],"next_owner":"none"}`,
+			content:  `{"outcome":"done","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"next_owner":"none"}`,
 			wantPart: "вопросы только для needs_human",
 		},
 		"блокер при done": {

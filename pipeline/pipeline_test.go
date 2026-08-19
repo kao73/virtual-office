@@ -630,7 +630,9 @@ func TestTickNeedsHumanBlocksAndFlags(t *testing.T) {
 	o.agent.commit = "половина работы"
 	o.agent.result = runner.Result{
 		Outcome: runner.OutcomeNeedsHuman, Summary: "Нужен выбор.", NextOwner: "human",
-		Questions: []runner.Question{{Text: "Какую платёжную систему?", Options: []string{"Stripe", "ЮKassa"}}},
+		Questions: []runner.Question{{ID: "Q1", Text: "Какую платёжную систему?", Options: []runner.Option{
+			{ID: "a", Label: "Stripe"}, {ID: "b", Label: "ЮKassa"},
+		}}},
 	}
 
 	o.tick(t)
@@ -700,7 +702,7 @@ func TestHumanReplyReturnsTaskToQueue(t *testing.T) {
 	o := newOffice(t)
 	o.agent.result = runner.Result{
 		Outcome: runner.OutcomeNeedsHuman, Summary: "Нужен выбор.", NextOwner: "human",
-		Questions: []runner.Question{{Text: "Какую платёжную систему?"}},
+		Questions: []runner.Question{{ID: "Q1", Text: "Какую платёжную систему?"}},
 	}
 	o.tick(t)
 
@@ -756,7 +758,7 @@ func TestOfficeDoesNotMistakeItselfForHuman(t *testing.T) {
 	o := newOffice(t)
 	o.agent.result = runner.Result{
 		Outcome: runner.OutcomeNeedsHuman, Summary: "Нужен выбор.", NextOwner: "human",
-		Questions: []runner.Question{{Text: "Какую платёжную систему?"}},
+		Questions: []runner.Question{{ID: "Q1", Text: "Какую платёжную систему?"}},
 	}
 	o.tick(t)
 
@@ -1266,7 +1268,7 @@ func TestHumanReplyIsProcessedOnce(t *testing.T) {
 	o := newOffice(t)
 	o.agent.result = runner.Result{
 		Outcome: runner.OutcomeNeedsHuman, Summary: "Нужен выбор.", NextOwner: "human",
-		Questions: []runner.Question{{Text: "Какую платёжную систему?"}},
+		Questions: []runner.Question{{ID: "Q1", Text: "Какую платёжную систему?"}},
 	}
 	o.tick(t)
 	if err := o.tasks.AddComment("OFF-1", "human", "Берём Stripe."); err != nil {
@@ -2453,5 +2455,95 @@ func TestFailedRunLeavesNoEmptyTemplates(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workdir, runner.ChangeDirRel("OFF-2"))); err == nil {
 		t.Error("пустые заготовки пережили провалившийся прогон")
+	}
+}
+
+// Ответ человека доходит до спросившей роли разобранным. Общее хранилище тут
+// одно — тикет: вопросы раннер напечатал в него прошлым прогоном, оттуда же
+// и читает. Между вопросом и ответом лежит другой тик, и помнить заданное негде.
+func TestAnswersReachTheAskingRole(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Blocked", Summary: "противоречивая постановка",
+		HumanFlag: true,
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+
+	report := tracker.ReportBody(
+		tracker.Marker{RunID: "аналитик-1", Role: "analyst", Outcome: "needs_human", Next: "human", ConfigSHA: "5bc6a3b0"},
+		runner.Result{
+			Outcome: runner.OutcomeNeedsHuman, Summary: "Постановка допускает два прочтения.", NextOwner: "human",
+			Questions: []runner.Question{
+				{ID: "Q1", Text: "Идемпотентность или скорость?", Options: []runner.Option{
+					{ID: "a", Label: "идемпотентность"}, {ID: "b", Label: "скорость"},
+				}},
+				{ID: "Q2", Text: "Какой формат даты в экспорте?"},
+			},
+		}, "", runner.Usage{})
+	if err := o.tasks.AddComment("OFF-2", mock.RoleAccount("analyst"), report); err != nil {
+		t.Fatalf("вопросы не записаны: %v", err)
+	}
+	if err := o.tasks.AddComment("OFF-2", "human", "Q1: b\nQ2: ISO-8601"); err != nil {
+		t.Fatalf("ответ не записан: %v", err)
+	}
+
+	o.agent.byRole = map[string]runner.Result{"analyst": {
+		Outcome: runner.OutcomeFailed, Summary: "Не успел.", NextOwner: "human",
+	}}
+	if !o.tickRoleOnce(t, "analyst") {
+		t.Fatal("аналитик не взял разблокированную задачу")
+	}
+
+	context := o.agent.context["analyst"]
+	for _, want := range []string{
+		"## Ответы человека",
+		"Q1 «Идемпотентность или скорость?» → b — скорость",
+		"Q2 «Какой формат даты в экспорте?» → ISO-8601",
+	} {
+		if !strings.Contains(context, want) {
+			t.Errorf("в контексте нет %q:\n%s", want, context)
+		}
+	}
+}
+
+// Вопросы, на которые уже отработали, второй раз в контекст не попадают: иначе
+// на круге implementer → analyst аналитик получил бы позавчерашний выбор как
+// свежий и решил бы задачу заново.
+func TestSpentAnswersDoNotReturn(t *testing.T) {
+	o := newOffice(t)
+	o.add("OFF-2", "Analysis")
+
+	report := tracker.ReportBody(
+		tracker.Marker{RunID: "аналитик-1", Role: "analyst", Outcome: "needs_human", Next: "human", ConfigSHA: "5bc6a3b0"},
+		runner.Result{
+			Outcome: runner.OutcomeNeedsHuman, Summary: "Нужен выбор.", NextOwner: "human",
+			Questions: []runner.Question{{ID: "Q1", Text: "Идемпотентность или скорость?", Options: []runner.Option{
+				{ID: "a", Label: "идемпотентность"}, {ID: "b", Label: "скорость"},
+			}}},
+		}, "", runner.Usage{})
+	done := tracker.ReportBody(
+		tracker.Marker{RunID: "аналитик-2", Role: "analyst", Outcome: "done", Next: "implementer", ConfigSHA: "5bc6a3b0"},
+		runner.Result{Outcome: runner.OutcomeDone, Summary: "План готов.", NextOwner: "implementer"}, "", runner.Usage{})
+
+	for _, entry := range []struct{ author, body string }{
+		{mock.RoleAccount("analyst"), report},
+		{"human", "Q1: b"},
+		{mock.RoleAccount("analyst"), done},
+	} {
+		if err := o.tasks.AddComment("OFF-2", entry.author, entry.body); err != nil {
+			t.Fatalf("комментарий не записан: %v", err)
+		}
+	}
+
+	o.agent.byRole = map[string]runner.Result{"analyst": {
+		Outcome: runner.OutcomeFailed, Summary: "Не успел.", NextOwner: "human",
+	}}
+	if !o.tickRoleOnce(t, "analyst") {
+		t.Fatal("аналитик не взял задачу")
+	}
+
+	if context := o.agent.context["analyst"]; strings.Contains(context, "Ответы человека") {
+		t.Errorf("съеденные ответы вернулись в контекст:\n%s", context)
 	}
 }

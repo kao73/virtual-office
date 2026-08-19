@@ -519,7 +519,7 @@ func TestHumanReplyThroughStore(t *testing.T) {
 	agents := []string{account}
 
 	question := tracker.Marker{RunID: "прогон-1", Role: "implementer", Outcome: "needs_human", ConfigSHA: "5bc6a3b0"}
-	if err := tr.Comment("OFF-1", tracker.ByRun("прогон-1"), tracker.ReportBody(question, runner.Result{Outcome: runner.OutcomeNeedsHuman, Summary: "Нужен выбор.", NextOwner: "human", Questions: []runner.Question{{Text: "Какую систему?"}}}, "", runner.Usage{})); err != nil {
+	if err := tr.Comment("OFF-1", tracker.ByRun("прогон-1"), tracker.ReportBody(question, runner.Result{Outcome: runner.OutcomeNeedsHuman, Summary: "Нужен выбор.", NextOwner: "human", Questions: []runner.Question{{ID: "Q1", Text: "Какую систему?"}}}, "", runner.Usage{})); err != nil {
 		t.Fatalf("вопрос не записан: %v", err)
 	}
 

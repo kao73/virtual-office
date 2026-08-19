@@ -28,14 +28,10 @@ func ReportBody(m Marker, res runner.Result, branch string, usage runner.Usage) 
 		fmt.Fprintf(&b, "\n## Подробности\n\n%s\n", details)
 	}
 
-	if len(res.Questions) > 0 {
-		b.WriteString("\n## Вопросы\n\n")
-		for _, q := range res.Questions {
-			fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(q.Text))
-			for _, option := range q.Options {
-				fmt.Fprintf(&b, "  - %s\n", option)
-			}
-		}
+	// Вопросы печатаются по грамматике протокола, а не как придётся: этот же
+	// раздел раннер потом разбирает, чтобы понять, на что человек отвечает.
+	if block := QuestionsBlock(res.Questions); block != "" {
+		fmt.Fprintf(&b, "\n%s", block)
 	}
 
 	if blocker := strings.TrimSpace(res.Blocker); blocker != "" {

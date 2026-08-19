@@ -328,9 +328,9 @@ func printResult(out runagent.Outcome, passport runner.Run) {
 		fmt.Printf("блокер: %s\n", r.Blocker)
 	}
 	for _, q := range r.Questions {
-		fmt.Printf("вопрос: %s\n", q.Text)
+		fmt.Printf("вопрос: %s: %s\n", q.ID, q.Text)
 		for _, o := range q.Options {
-			fmt.Printf("        - %s\n", o)
+			fmt.Printf("        %s) %s\n", o.ID, o.Label)
 		}
 	}
 	if len(r.Artifacts) > 0 {

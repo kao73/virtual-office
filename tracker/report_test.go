@@ -49,8 +49,10 @@ func TestReportBodySectionsByOutcome(t *testing.T) {
 				Summary:   "Нужен выбор.",
 				NextOwner: "human",
 				Questions: []runner.Question{
-					{Text: "Какую платёжную систему подключаем?", Options: []string{"Stripe", "ЮKassa"}},
-					{Text: "Нужен ли возврат средств?"},
+					{ID: "Q1", Text: "Какую платёжную систему подключаем?", Options: []runner.Option{
+						{ID: "a", Label: "Stripe"}, {ID: "b", Label: "ЮKassa"},
+					}},
+					{ID: "Q2", Text: "Нужен ли возврат средств?"},
 				},
 			},
 			want:   []string{"Какую платёжную систему", "Stripe", "ЮKassa", "Нужен ли возврат"},
