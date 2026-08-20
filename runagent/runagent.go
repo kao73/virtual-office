@@ -237,9 +237,9 @@ func terminationOf(opts Options, hasResult bool, ending runner.Ending, turns int
 	left, err := runner.LeftTrace(opts.Workdir, opts.Passport.BaseCommit, turns)
 	if err != nil {
 		// Судить след не вышло — рабочая папка сломана. Считаем «не справился»,
-		// и это выбор в сторону сегодняшнего поведения: сейчас всякий прогон
-		// без результата тратит попытку. Не тратить её на то, о чём мы ничего
-		// не знаем, значило бы молча ослабить предел попыток.
+		// и это выбор в сторону строгости: not_started и truncated попытку
+		// не тратят, и уйти в них по незнанию значило бы молча ослабить предел.
+		// Прогон, о котором нельзя сказать ничего, — это errored.
 		return runner.Termination{
 			Kind:   runner.TerminationErrored,
 			Detail: fmt.Sprintf("след работы не разобран (%v), прогон считается сломавшимся", err),

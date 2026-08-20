@@ -9,8 +9,41 @@ import (
 	"github.com/kao73/virtual-office/runner"
 )
 
-// QuestionsHeading — заголовок раздела вопросов в теле отчёта.
+// QuestionsHeading — заголовок раздела вопросов, как его печатает раннер.
+// Офис пишет markdown; читая раздел обратно, его узнают шире — см. IsQuestionsHeading.
 const QuestionsHeading = "## Вопросы"
+
+// questionsTitle — текст заголовка без разметки. Якорем раздела служит именно он:
+// разметку вокруг него трекер вправе заменить своей.
+const questionsTitle = "Вопросы"
+
+// headingLine — строка-заголовок в любой из двух разметок, которыми офис пишет
+// в трекеры: markdown (`## Текст`) и wiki JIRA Server (`h2. Текст`).
+//
+// Обе формы разбираются здесь, а не в реализации трекера, и это не уступка JIRA.
+// Раздел вопросов — протокол: раннер его печатает и он же потом разбирает, а между
+// печатью и разбором лежит трекер, который вправе хранить тело в своей разметке.
+// Значит, якорем не может быть точная строка — им может быть только заголовок
+// с этим текстом, как бы он ни был написан.
+//
+// Отступ допускается не больше трёх пробелов — правило самого markdown: четыре
+// пробела означают блок кода, и заголовок в нём заголовком не является.
+var headingLine = regexp.MustCompile(`^ {0,3}(?:#{1,6}|[hH][1-6]\.)\s+(.*)$`)
+
+// heading — текст заголовка, если строка им является.
+func heading(line string) (string, bool) {
+	m := headingLine.FindStringSubmatch(strings.TrimRight(line, " \t"))
+	if m == nil {
+		return "", false
+	}
+	return strings.TrimSpace(m[1]), true
+}
+
+// IsQuestionsHeading — открывает ли строка раздел вопросов.
+func IsQuestionsHeading(line string) bool {
+	title, ok := heading(line)
+	return ok && title == questionsTitle
+}
 
 // Раздел «Вопросы» — машиночитаемая часть протокола, а не украшение отчёта.
 // Раннер печатает его сам и сам же потом разбирает: тикет — единственное
@@ -56,7 +89,7 @@ func answerHint(questions []runner.Question) string {
 	if len(examples) == 0 {
 		return ""
 	}
-	return "Ответьте комментарием: " + strings.Join(examples, ", ") + "; можно и прозой."
+	return answerHintPrefix + strings.Join(examples, ", ") + "; можно и прозой."
 }
 
 // QuestionsBlock печатает раздел вопросов для тела отчёта.
@@ -92,16 +125,16 @@ func ParseQuestions(body string) []runner.Question {
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimRight(line, "\r")
 		switch {
-		case strings.TrimSpace(line) == QuestionsHeading:
+		case IsQuestionsHeading(line):
 			inside = true
 			continue
 		case !inside:
 			continue
 		// Раздел кончается следующим заголовком или подсказкой про ответ:
 		// дальше идёт проза для человека, и метки в ней уже не наши.
-		case strings.HasPrefix(line, "## "):
+		case IsHeading(line):
 			return questions
-		case strings.HasPrefix(line, "Ответьте комментарием"):
+		case IsAnswerHint(line):
 			return questions
 		}
 
@@ -115,6 +148,24 @@ func ParseQuestions(body string) []runner.Question {
 		}
 	}
 	return questions
+}
+
+// answerHintPrefix — начало последней строки раздела вопросов: как отвечать.
+// Строка эта — граница раздела, а не украшение: на ней разбор останавливается,
+// и по ней же трекер понимает, где кончается непереводимое тело.
+const answerHintPrefix = "Ответьте комментарием: "
+
+// IsAnswerHint — та ли это строка, которой раздел вопросов кончается.
+func IsAnswerHint(line string) bool {
+	return strings.HasPrefix(line, strings.TrimSuffix(answerHintPrefix, ": "))
+}
+
+// IsHeading — заголовок ли это, безразлично какой. Им кончается раздел вопросов —
+// и при разборе, и при записи: трекер, переводящий тело в свою разметку, обязан
+// найти границу раздела там же, где её потом найдёт ParseQuestions.
+func IsHeading(line string) bool {
+	_, ok := heading(line)
+	return ok
 }
 
 // Answer — ответ человека на один вопрос прогона.

@@ -155,10 +155,9 @@ func TestTerminationErroredWhenTraceExists(t *testing.T) {
 	}
 }
 
-// Судить след не вышло — рабочая папка сломана. Считаем «не справился»:
-// это сегодняшнее поведение (всякий прогон без результата тратит попытку),
-// а не тратить её на то, о чём мы ничего не знаем, значило бы молча ослабить
-// предел попыток.
+// Судить след не вышло — рабочая папка сломана. Считаем «не справился»: not_started
+// и truncated попытку не тратят, и уйти в них по незнанию значило бы молча ослабить
+// предел. Прогон, о котором нельзя сказать ничего, — это errored.
 func TestTerminationErroredWhenTraceUnreadable(t *testing.T) {
 	opts := Options{Workdir: filepath.Join(t.TempDir(), "нет-такой-папки"), Passport: runner.Run{BaseCommit: "deadbeef"}}
 

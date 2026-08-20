@@ -1,0 +1,1117 @@
+schema: comet.native.v4
+name: cleanup-for-live
+language: en
+phase: archive
+status: active
+state_version: 43
+brief: brief.md
+spec_changes:
+  - capability: cleanup-for-live
+    operation: create
+    source: specs/cleanup-for-live/spec.md
+workspace:
+  isolation: branch
+  change_branch: comet/cleanup-for-live
+  target_branch: master
+  finish: merge
+loop:
+  stage: archive-ready
+  goal_cycle: 8
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 1
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: archive
+acceptance:
+  - id: A1
+    source: specs/cleanup-for-live/spec.md
+    text: Полное поведение способности после архивации изменения.
+    result: passed
+    reason:
+      text: Спецификация описывает поведение способности целиком.
+      truncated: false
+  - id: A2
+    source: specs/cleanup-for-live/spec.md
+    text: "Шаг 3 этапа 5 доводит офис до состояния, в котором его можно показать
+      чужому проекту: тикет читается человеком, документы не врут, догадки об
+      ограждениях проверены на полигоне."
+    result: passed
+    reason:
+      text: "Три цели шага названы дословно и каждая закрыта разделами ниже: разметка,
+        документы, три живые проверки."
+      truncated: false
+  - id: A3
+    source: specs/cleanup-for-live/spec.md
+    text: "Адаптер `tracker/jira` переводит тело комментария из markdown в
+      wiki-разметку JIRA Server **на записи**, в методе `Comment`. Ни один
+      другой метод тела комментария не трогает, и обратного перевода на чтении
+      нет: JIRA хранит ровно то, что ей записали, и читается оно как есть."
+    result: passed
+    reason:
+      text: wiki(body) — единственное место записи тела; comments() отдаёт тело как
+        есть.
+      truncated: false
+  - id: A4
+    source: specs/cleanup-for-live/spec.md
+    text: "`tracker/mock` пишет тело как есть: файловый трекер — отладочный контур,
+      markdown в нём читается глазами и без перевода."
+    result: passed
+    reason:
+      text: tracker/mock тела не трогает; round-trip сверяет побайтно.
+      truncated: false
+  - id: A5
+    source: specs/cleanup-for-live/spec.md
+    text: "Переводятся названные конструкции, и только они:"
+    result: passed
+    reason:
+      text: Переводятся ровно перечисленные конструкции; обе стороны закреплены
+        тестами.
+      truncated: false
+  - id: A6
+    source: specs/cleanup-for-live/spec.md
+    text: "| markdown | wiki |"
+    result: passed
+    reason:
+      text: Заголовок таблицы соответствий на месте.
+      truncated: false
+  - id: A7
+    source: specs/cleanup-for-live/spec.md
+    text: "| `# X` … `###### X`, отступ до трёх пробелов | `h1. X` … `h6. X` |"
+    result: passed
+    reason:
+      text: mdHeading и headingOf дают h1..h6; четыре пробела заголовком не считаются.
+      truncated: false
+  - id: A8
+    source: specs/cleanup-for-live/spec.md
+    text: "| `- x`, `* x`, `+ x`, вложенность по отступу | `* x`, `** x` |"
+    result: passed
+    reason:
+      text: "mdBullet и depth(): -, *, + и два пробела на уровень."
+      truncated: false
+  - id: A9
+    source: specs/cleanup-for-live/spec.md
+    text: "| `1. x` и `1) x` | `# x` |"
+    result: passed
+    reason:
+      text: "mdNumber покрывает 1. и 1); результат — # по вложенности."
+      truncated: false
+  - id: A10
+    source: specs/cleanup-for-live/spec.md
+    text: "| `> x` | `bq. x` |"
+    result: passed
+    reason:
+      text: mdQuote → bq. ; тест есть.
+      truncated: false
+  - id: A11
+    source: specs/cleanup-for-live/spec.md
+    text: "| `---`, `***`, `___` отдельной строкой | `----` |"
+    result: passed
+    reason:
+      text: rule() признаёт три и больше одинаковых -, *, _; стоит раньше списков.
+      truncated: false
+  - id: A12
+    source: specs/cleanup-for-live/spec.md
+    text: "| ` ```lang ` … ` ``` ` | `{code:lang}` … `{code}` |"
+    result: passed
+    reason:
+      text: fence()/codeOpen(); пустой язык даёт голое {code}.
+      truncated: false
+  - id: A13
+    source: specs/cleanup-for-live/spec.md
+    text: "| `` `x` `` | `{{x}}` |"
+    result: passed
+    reason:
+      text: mdCode → {{…}}.
+      truncated: false
+  - id: A14
+    source: specs/cleanup-for-live/spec.md
+    text: "| `**x**` | `*x*` |"
+    result: passed
+    reason:
+      text: bold() → *$1*.
+      truncated: false
+  - id: A15
+    source: specs/cleanup-for-live/spec.md
+    text: "| `[текст](адрес)` | `[текст\\|адрес]` |"
+    result: passed
+    reason:
+      text: link() строит [текст|адрес] для адресов из linkTarget.
+      truncated: false
+  - id: A16
+    source: specs/cleanup-for-live/spec.md
+    text: "| таблица со строкой-разделителем `\\|---\\|` | шапка `\\|\\|`, строки
+      `\\|` |"
+    result: passed
+    reason:
+      text: Шапка узнаётся только по разделителю; разделитель выбрасывается.
+      truncated: false
+  - id: A17
+    source: specs/cleanup-for-live/spec.md
+    text: "| `[` в прозе и в коде строки | `\\[` |"
+    result: passed
+    reason:
+      text: escapeBrackets применяется к прозе и к содержимому {{…}}.
+      truncated: false
+  - id: A18
+    source: specs/cleanup-for-live/spec.md
+    text: "Сверх таблицы перевод делает несколько вещей, и все они про форму, а не
+      про смысл: закрывает незакрытый блок кода (недописанный блок лучше
+      разметки, съехавшей до конца записи), снимает обратные кавычки из подписи
+      ссылки на адрес (разметку внутри подписи wiki не разбирает, и кавычки
+      показались бы буквально) и не пишет пустого `{code:}` у забора без языка."
+    result: passed
+    reason:
+      text: Автозакрытие незакрытого забора и снятие кавычек из подписи названы в
+        спецификации сверх таблицы.
+      truncated: false
+  - id: A19
+    source: specs/cleanup-for-live/spec.md
+    text: "Внутри блока кода не переводится ничего: содержимое блока — не проза."
+    result: passed
+    reason:
+      text: Тело блока кода добавляется без обработки.
+      truncated: false
+  - id: A20
+    source: specs/cleanup-for-live/spec.md
+    text: "**Не экранирует спецсимволы wiki — кроме одного.** Прозу, где случайно
+      встретился `{` или `+`, JIRA отрисует по-своему, и закрывать их все
+      значило бы испортить читаемость тела ради редкого случая."
+    result: passed
+    reason:
+      text: Экранируется только [; прочее едет как есть.
+      truncated: false
+  - id: A21
+    source: specs/cleanup-for-live/spec.md
+    text: "Исключение — **открывающая квадратная скобка**, и оно измерено, а не
+      предположено: в wiki `[...]` — ссылка, а неразрешимую ссылку JIRA красит
+      красным как ошибку. Красным становится не только машинная строка, но и
+      процитированный пункт плана (`- [x] сделано`) и сноска (`см. [1]`), — а
+      это роли пишут постоянно. Экранируется только открывающая: без неё ссылка
+      не начинается, и один слэш на скобку дешевле двух. Внутри кода в строке —
+      тоже: моноширинный шрифт от wiki не защищает, `{{[x]}}` краснеет так же.
+      **Внутри блока кода — нет**: там текст, который человек копирует, и скобки
+      в блоке JIRA не трогает."
+    result: passed
+    reason:
+      text: Только открывающая; внутри {{…}} да, внутри {code} нет; уже экранированная
+        не удваивается.
+      truncated: false
+  - id: A22
+    source: specs/cleanup-for-live/spec.md
+    text: "**Не трогает одиночные `*x*`** — в markdown это курсив, а отличить его от
+      начала жирного текста построчно нельзя; неверная догадка хуже
+      непереведённого текста."
+    result: passed
+    reason:
+      text: mdBold требует пары **.
+      truncated: false
+  - id: A23
+    source: specs/cleanup-for-live/spec.md
+    text: "**Не переводит `~~x~~` и HTML.** Роли ими не пишут, а угадывать незачем."
+    result: passed
+    reason:
+      text: Правил для ~~ и HTML нет.
+      truncated: false
+  - id: A24
+    source: specs/cleanup-for-live/spec.md
+    text: "**Не превращает голый URL в ссылку.** Он и так кликабелен, а всякая
+      обёртка вокруг него ломала бы чтение адреса из тела записи."
+    result: passed
+    reason:
+      text: Голый адрес не оборачивается; это же требуется firstURL.
+      truncated: false
+  - id: A25
+    source: specs/cleanup-for-live/spec.md
+    text: "**Не делает ссылкой то, чему некуда вести.** Ссылкой становится только
+      настоящий адрес (`http`, `https`, `mailto`); ссылка на путь в репозитории
+      — а роли пишут такие постоянно — превращается в прозу `текст (путь)`.
+      Причина живая: `[текст|docs/…]` JIRA разрешить не может и красит строку
+      красным как ошибку, а красное в отчёте должно означать беду, а не путь к
+      файлу."
+    result: passed
+    reason:
+      text: linkTarget пропускает http/https/mailto; прочее уходит в прозу с
+        экранированной скобкой в пути.
+      truncated: false
+  - id: A26
+    source: specs/cleanup-for-live/spec.md
+    text: "Машинные куски записи едут в JIRA буква в букву. Куски определяются **по
+      причине, а не по позиции**:"
+    result: passed
+    reason:
+      text: Оба машинных куска определяются разбором.
+      truncated: false
+  - id: A27
+    source: specs/cleanup-for-live/spec.md
+    text: "**строка-маркер** — первая строка тела, **если она разбирается как
+      маркер** (`tracker.MarkerOf`). Не «первая строка», а «маркер»: правило,
+      проверяемое по следствию, однажды проверит не то (`DESIGN.md` §2.3);"
+    result: passed
+    reason:
+      text: Первая строка пропускается только если MarkerOf её разобрал.
+      truncated: false
+  - id: A28
+    source: specs/cleanup-for-live/spec.md
+    text: "**тело раздела «Вопросы»** — от строки после его заголовка до подсказки
+      про ответ включительно либо до следующего заголовка, а если ни того ни
+      другого нет — до конца тела. Метки вопросов, отступы вариантов и подсказка
+      разбираются обратно, и переводить их нечем. Границу задают три общих
+      правила — `IsQuestionsHeading`, `IsAnswerHint`, `IsHeading`, — и ими же
+      кончает раздел разбор: разойдись запись и разбор хоть в одной, часть
+      записи молча уехала бы не туда."
+    result: passed
+    reason:
+      text: Границу раздела задают IsQuestionsHeading, IsAnswerHint, IsHeading — те
+        же, что и в разборе.
+      truncated: false
+  - id: A29
+    source: specs/cleanup-for-live/spec.md
+    text: "**Заголовок раздела вопросов — исключение, и оно живое.** В wiki `##`
+      означает вложенный пункт нумерованного списка, поэтому непереведённый
+      заголовок исчезал, а на его месте оказывался пустой пункт с «Вопросы» под
+      ним: раздел, который человек обязан прочитать и на который обязан
+      ответить, выглядел сломанным. Заголовок переводится, а якорем раздела
+      служит **текст заголовка, а не точная строка**: `## Вопросы` и `h2.
+      Вопросы` открывают раздел одинаково, и тем же правилом он кончается на
+      следующем заголовке."
+    result: passed
+    reason:
+      text: "Поведение верно, но два текста этого же изменения его отрицают.
+        Доккомментарий Comment в tracker/jira/jira.go утверждает, что перевод
+        обходит «раздел «Вопросы»» целиком и тот едет буква в букву, — заголовок
+        раздела перевод как раз не обходит, о чём wiki.go говорит прямо. Та же
+        формулировка в брифе дважды. Спецификация и контракт в том же изменении
+        написаны аккуратно — «тело раздела», — то есть семья поправлена
+        наполовину: остались ровно те два места, где формулировку никто не
+        искал."
+      truncated: false
+  - id: A30
+    source: specs/cleanup-for-live/spec.md
+    text: "Знание об этом живёт в `tracker`, а не в реализации трекера, и это не
+      уступка JIRA: раздел вопросов — протокол, раннер его печатает и он же
+      потом разбирает, а между печатью и разбором лежит трекер, который вправе
+      хранить тело в своей разметке. Значит, якорем не может быть точная
+      строка."
+    result: passed
+    reason:
+      text: Все функции границы живут в tracker/questions.go.
+      truncated: false
+  - id: A31
+    source: specs/cleanup-for-live/spec.md
+    text: "`HumanAnswers` и разбор маркера не правятся вовсе."
+    result: passed
+    reason:
+      text: HumanAnswers не тронут; tracker/marker.go не менялся.
+      truncated: false
+  - id: A32
+    source: specs/cleanup-for-live/spec.md
+    text: Отчёт в JIRA рендерится заголовками, списками и блоками кода, а не
+      показывает решётки и дефисы.
+    result: passed
+    reason:
+      text: Код даёт h-заголовки и {code}; живой рендер читан через
+        expand=renderedBody.
+      truncated: false
+  - id: A33
+    source: specs/cleanup-for-live/spec.md
+    text: "Строка-маркер отрисовывается **красной строкой-ошибкой**: в wiki `[...]`
+      — это ссылка, разрешить её JIRA не может и помечает как ошибку. Цена
+      принята сознательно: спрятать маркер можно было бы только научив
+      `MarkerOf` второй форме записи, а этим разбором режется история и
+      собирается контекст агенту — менять его ради цвета не стоит. После
+      экранирования скобок это единственная красная строка в обычной записи —
+      красное в отчёте снова означает ровно одно, и это одно человек и так не
+      читает. Оговорка одна, и она ниже: скобка в тексте вопроса."
+    result: passed
+    reason:
+      text: Маркер едет непереведённым и потому краснеет; оговорка про вопрос названа.
+      truncated: false
+  - id: A34
+    source: specs/cleanup-for-live/spec.md
+    text: "Обратные кавычки в подсказке про ответ видны буквально: подсказка — часть
+      тела раздела и едет как есть. Названная цена, раздел читаем."
+    result: passed
+    reason:
+      text: Подсказка входит в тело раздела и копируется как есть.
+      truncated: false
+  - id: A35
+    source: specs/cleanup-for-live/spec.md
+    text: "Обратный слэш перед скобкой остаётся в теле записи, но виден только тому,
+      кто читает тело как простой текст, — то есть агенту, которому раннер
+      собирает хвост переписки. В теле pull request его нет: markdown понимает
+      `\\[` тем же экранированием и рисует обычную скобку (проверено `POST
+      /markdown` у GitHub). Цена оказалась меньше, чем ожидалась."
+    result: passed
+    reason:
+      text: Доккомментарий escapeBrackets сходится со спецификацией, контрактом и
+        отчётом.
+      truncated: false
+  - id: A36
+    source: specs/cleanup-for-live/spec.md
+    text: "Квадратные скобки **внутри раздела вопросов** не экранируются и краснеют:
+      тело раздела едет буква в букву, потому что раннер его потом разбирает.
+      Если роль напишет скобку в тексте вопроса, она будет красной — то есть
+      «красная строка ровно одна» верно ровно до этого случая."
+    result: passed
+    reason:
+      text: Тело раздела копируется без escapeBrackets; ограничение записано трижды.
+      truncated: false
+  - id: A37
+    source: specs/cleanup-for-live/spec.md
+    text: "Ссылка на адрес внутри строки таблицы сдвинет колонки: в wiki ссылка
+      пишется через палку, а палка в таблице разделяет ячейки. Случай узкий и не
+      чинится дёшево — записан, а не закрыт."
+    result: passed
+    reason:
+      text: Случай со ссылкой в строке таблицы записан как незакрытый.
+      truncated: false
+  - id: A38
+    source: specs/cleanup-for-live/spec.md
+    text: "Отчёт, прочитанный из JIRA обратно, — wiki-текст. Значит, wiki увидят
+      двое: агент, которому раннер собирает хвост переписки, и человек, читающий
+      тело pull request с последним отчётом ревьюера. Обратного перевода нет;
+      текст читаем в обоих местах."
+    result: passed
+    reason:
+      text: Обратного перевода нет ни в одном месте; цена названа.
+      truncated: false
+  - id: A39
+    source: specs/cleanup-for-live/spec.md
+    text: "Round-trip на **обеих** реализациях трекера: записанное тело отчёта,
+      прочитанное обратно, даёт тот же маркер, те же вопросы с вариантами и тот
+      же URL."
+    result: passed
+    reason:
+      text: Два теста round-trip в обоих пакетах.
+      truncated: false
+  - id: A40
+    source: specs/cleanup-for-live/spec.md
+    text: "Живая проверка на полигоне JIRA: отчёт со всеми разделами записывается в
+      задачу, рендер читается через `expand=renderedBody` — не глазами. В нём
+      есть заголовки, списки, таблица, блок кода и цитата, а красной
+      строкой-ошибкой помечен **только** маркер: ни ссылка на путь, ни заголовок
+      раздела вопросов, ни процитированный пункт плана красными не остаются."
+    result: passed
+    reason:
+      text: Код и записанное наблюдение сходятся; наблюдение повторено трижды.
+      truncated: false
+  - id: A41
+    source: specs/cleanup-for-live/spec.md
+    text: "`roles/analyst/role.md` говорит, что заготовки `<!-- -->` в шаблонах —
+      подсказки аналитику, и в готовом плане их остаться не должно."
+    result: passed
+    reason:
+      text: role.md про заготовки; шаблоны их содержат.
+      truncated: false
+  - id: A42
+    source: specs/cleanup-for-live/spec.md
+    text: "`roles/analyst/role.md` называет порог разбиения числом: больше 8 пунктов
+      в `tasks.md` или больше 4 модулей в `design.md` — повод спросить человека
+      про разбиение. Рядом сказано, что число стартовое и калибруется на
+      настоящих задачах."
+    result: passed
+    reason:
+      text: Порог назван числом с пометкой «стартовое».
+      truncated: false
+  - id: A43
+    source: specs/cleanup-for-live/spec.md
+    text: "`role.yaml` всех трёх ролей рядом с `max_turns` объясняет, что предел
+      шагов — теперь **усечение** (`event:run-truncated`), а не провал: попытка
+      не тратится, следующий прогон продолжает в той же рабочей папке. Само
+      число не меняется: калибровать его нечем до живого проекта."
+    result: passed
+    reason:
+      text: Абзац про усечение во всех трёх role.yaml; пределы не менялись.
+      truncated: false
+  - id: A44
+    source: specs/cleanup-for-live/spec.md
+    text: "Проверки идут **на полигоне и до первого не-полигона**: подстраивать
+      ограждения на чужом проекте поздно. Результат каждой записывается в отчёт
+      шага — включая тот, где всё прошло гладко."
+    result: passed
+    reason:
+      text: Все три проверки на файловом полигоне, исход каждой записан.
+      truncated: false
+  - id: A45
+    source: specs/cleanup-for-live/spec.md
+    text: "**Возврат плана аналитику.** Человек руками портит закоммиченный
+      `tasks.md`, разводя план с кодом. Ожидание: implementer возвращает задачу
+      аналитику (`done`, `next_owner: analyst`), а не правит план сам."
+    result: passed
+    reason:
+      text: Возврат плана аналитику записан.
+      truncated: false
+  - id: A46
+    source: specs/cleanup-for-live/spec.md
+    text: "**Конфликт, задевший `tasks.md`, против `plan_marks_only`.** Разрешая
+      конфликт, implementer вынужден тронуть строки плана, а ограждение
+      разрешает ему только отметки `- [x]`. Записывается, пропустило ограждение
+      прогон или переиграло исход."
+    result: passed
+    reason:
+      text: Записано, что ограждение не сработало и прогон прошёл.
+      truncated: false
+  - id: A47
+    source: specs/cleanup-for-live/spec.md
+    text: "**Разрешение конфликта против `deny: git checkout*`.** Записывается,
+      хватило ли агенту `Edit`, или он просил `checkout --ours/--theirs`."
+    result: passed
+    reason:
+      text: checkout --ours/--theirs не понадобился.
+      truncated: false
+  - id: A48
+    source: specs/cleanup-for-live/spec.md
+    text: Ограждение, не пустившее законную работу, правится здесь же, в составе
+      изменения.
+    result: passed
+    reason:
+      text: Ограждение законную работу не останавливало; правило разрешений починено
+        здесь же.
+      truncated: false
+  - id: A49
+    source: specs/cleanup-for-live/spec.md
+    text: "§2.3: утверждение «если агент умер без исхода — reaper проставляет
+      `failed`, снимает lease» заменено на то, что происходит: reaper снимает
+      аренду, возвращает задачу в `reads_from` и **`attempts` не трогает**, а
+      серию смертей считает отдельный счётчик по маркерам."
+    result: passed
+    reason:
+      text: §2.3 сходится с returnExpired.
+      truncated: false
+  - id: A50
+    source: specs/cleanup-for-live/spec.md
+    text: "§2.7: утверждение «отвергнутый прогон по-прежнему считается провалом
+      агента и тратит попытку» заменено на то, что происходит после шага 0:
+      отказ поставщика до первого шага — это `not_started`, попытка не тратится.
+      Отложенным остаётся только решение о паузе роли по окну подписки."
+    result: passed
+    reason:
+      text: §2.7 сходится с terminationOf и Idle().
+      truncated: false
+  - id: A51
+    source: specs/cleanup-for-live/spec.md
+    text: "Появляется раздел про forge и PR-проход, которых в документе нет вовсе:
+      forge — интерфейс рядом с трекером; конфликт слияния считается локально,
+      без сети; маршрут прохода описан блоком `pr` в графе, а не кодом; сливает
+      человек; терминальный статус — `Done`; рабочие папки убирает системный
+      проход."
+    result: passed
+    reason:
+      text: §2.8 сверен с кодом целиком.
+      truncated: false
+  - id: A52
+    source: specs/cleanup-for-live/spec.md
+    text: "`docs/contracts/agent-io.md`:"
+    result: passed
+    reason:
+      text: agent-io.md изменён.
+      truncated: false
+  - id: A53
+    source: specs/cleanup-for-live/spec.md
+    text: "Появляется раздел про наблюдения раннера. `Usage` (расход), `Limit` (окно
+      поставщика) и `Termination` (чем кончился прогон) — наблюдения обвязки, и
+      ни одно из них не лежит в `result.json` и не может там лежать: файл
+      результата пишет агент, а судит о прогоне раннер. Схема результата не
+      меняется."
+    result: passed
+    reason:
+      text: Составы Usage, Limit, Termination совпадают с кодом; схема result.json не
+        тронута.
+      truncated: false
+  - id: A54
+    source: specs/cleanup-for-live/spec.md
+    text: "`docs/contracts/tracker-protocol.md`:"
+    result: passed
+    reason:
+      text: tracker-protocol.md изменён.
+      truncated: false
+  - id: A55
+    source: specs/cleanup-for-live/spec.md
+    text: "Таблица событий пополняется восемью недостающими: `agent-unavailable`,
+      `run-truncated`, `idle-runs-exhausted`, `pr-opened`, `pr-closed`,
+      `merged`, `pr-skipped`, `merge-conflict`. У каждого сказано, когда оно
+      пишется и кто его подписывает."
+    result: passed
+    reason:
+      text: Восемь строк; подписи сверены с ByRun и BySystem.
+      truncated: false
+  - id: A56
+    source: specs/cleanup-for-live/spec.md
+    text: "Счётчиков описано четыре, а не три: к `attempts`, `LeaseExpiries` и
+      `PushFailures` добавлен `IdleRuns` с пределом `max_idle_runs`. Сказано,
+      почему серия у него общая на «не начинал» и «не успел»: следствие одно, а
+      два раздельных счётчика чередование обошло бы."
+    result: passed
+    reason:
+      text: «Четыре счётчика»; нумерация соседнего раздела поправлена согласованно.
+      truncated: false
+  - id: A57
+    source: specs/cleanup-for-live/spec.md
+    text: "Описан блок `pr` графа: роль `office`, ключи `from`, `merged`,
+      `conflict`, `closed`; почему `office` не лежит в `roles:` и не требуется в
+      `tick_order`."
+    result: passed
+    reason:
+      text: Блок pr сходится с workflow.yaml, Workflow.Role, Order() и checkPR.
+      truncated: false
+  - id: A58
+    source: specs/cleanup-for-live/spec.md
+    text: "Описано правило состояния pull request: оно выводится из **последней
+      записи семейства {`pr-opened`, `pr-closed`}** роли `pr.role`, а `merged` и
+      `merge-conflict` в семейство не входят."
+    result: passed
+    reason:
+      text: Семейство совпадает с prEvents и PRState.
+      truncated: false
+  - id: A59
+    source: specs/cleanup-for-live/spec.md
+    text: "Описан проект без forge: проход вырождается, пишется `pr-skipped`, задача
+      уходит в терминальный статус, а конфликт всё равно считается — он
+      локальный."
+    result: passed
+    reason:
+      text: Проект без forge сходится с prpass.go.
+      truncated: false
+  - id: A60
+    source: specs/cleanup-for-live/spec.md
+    text: Раздел `projects.yaml` называет ключи `tracker` (обязательный) и `forge`
+      (необязательный) и говорит, что раннер работает только с проектами своего
+      трекера.
+    result: passed
+    reason:
+      text: Ключи projects.yaml сходятся с загрузчиком и Projects.For.
+      truncated: false
+  - id: A61
+    source: specs/cleanup-for-live/spec.md
+    text: "Сказано, как трекер со своей разметкой обходится с машинными кусками
+      записи: строка-маркер и тело раздела «Вопросы» не переводятся ни одной
+      реализацией, а якорем раздела служит текст заголовка, а не точная строка."
+    result: passed
+    reason:
+      text: Раздел «Разметка записи» говорит ровно то, что делает код.
+      truncated: false
+  - id: A62
+    source: specs/cleanup-for-live/spec.md
+    text: "`docs/notes/stage-5-cleanup.md` записывает: что показали три живые
+      проверки, что вышло с разметкой на живой JIRA, и какие долги шаг
+      **намеренно** не трогает, с причиной по каждому:"
+    result: passed
+    reason:
+      text: Содержимое на месте, но отчёт снова неверно описывает сам себя — тот же
+        класс, за который провалился седьмой круг. Заголовок «### Круги третий —
+        шестой», а под ним пункт «- Седьмой.», и вводная обещает «Список стоит
+        целиком». Пункт дописан под старый заголовок, и заголовок с ним
+        разошёлся.
+      truncated: false
+  - id: A63
+    source: specs/cleanup-for-live/spec.md
+    text: JIRA-CAS — один раннер на проект;
+    result: passed
+    reason:
+      text: JIRA-CAS записан с причиной.
+      truncated: false
+  - id: A64
+    source: specs/cleanup-for-live/spec.md
+    text: локальность реестра прогонов — одна машина;
+    result: passed
+    reason:
+      text: Локальность реестра записана с причиной.
+      truncated: false
+  - id: A65
+    source: specs/cleanup-for-live/spec.md
+    text: учётка аналитика — маркер сильнее автора;
+    result: passed
+    reason:
+      text: Учётка аналитика записана с причиной.
+      truncated: false
+  - id: A66
+    source: specs/cleanup-for-live/spec.md
+    text: "`DESIGN.md` §2.5 и перенос машинной конфигурации — отложенный шаг 1;"
+    result: passed
+    reason:
+      text: §2.5 записан как долг шага 1; в диффе не тронут.
+      truncated: false
+  - id: A67
+    source: specs/cleanup-for-live/spec.md
+    text: "`max_turns` по ролям — калибровать нечем до живого проекта."
+    result: passed
+    reason:
+      text: max_turns записан с числами и выводом; совпадает с role.yaml.
+      truncated: false
+builder_handoff:
+  candidate_id: 9db76762-8cf6-4e15-9aa0-160ceca06066
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:244f1d09-7562-406d-ae4b-1818f9981d10
+  iteration: 2
+  summary:
+    text: "Десятый круг сборки, и на этот раз чинилась причина, а не находка.
+      Девятый круг провалил отчёт шага за то, что раздел «Что нашла независимая
+      проверка» перечислял круги по номерам и отстал на один. Но добавить
+      недостающий круг значило бы починить симптом: раздел лежит ВНУТРИ
+      изменения, которое эти же круги проверяют, поэтому всякое утверждение вида
+      «кругов было столько-то» становится ложным на следующем круге, а его
+      починка добавляет ещё один. Петля по построению. Раздел переписан так,
+      чтобы она разомкнулась: он больше не нумерует круги и не считает их, а
+      говорит о ВИДАХ находок — пять ошибок в поведении (перечислены поимённо,
+      все найдены чтением при зелёных тестах) и ложные утверждения о коде
+      (перечислены характерные экземпляры, без счёта). Первым абзацем прямо
+      сказано, почему счёта нет и где он появится. Содержание при этом не
+      потеряно: оба вида находок, наблюдение про замечания против проваленных
+      пунктов, три вывода и раздел «Найдено и не чинилось» на месте; добавлен
+      четвёртый вывод — про документ, который проверяют. Сплошной поиск по
+      счётным словам в отчёте показал, что оставшееся упоминание кругов
+      относится к закрытому шагу 2 и устареть не может."
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+    - A34
+    - A35
+    - A36
+    - A37
+    - A38
+    - A39
+    - A40
+    - A41
+    - A42
+    - A43
+    - A44
+    - A45
+    - A46
+    - A47
+    - A48
+    - A49
+    - A50
+    - A51
+    - A52
+    - A53
+    - A54
+    - A55
+    - A56
+    - A57
+    - A58
+    - A59
+    - A60
+    - A61
+    - A62
+    - A63
+    - A64
+    - A65
+    - A66
+    - A67
+  checks:
+    - name:
+        text: gofmt -l .
+        truncated: false
+      result: passed
+      note:
+        text: чисто
+        truncated: false
+    - name:
+        text: go vet ./...
+        truncated: false
+      result: passed
+      note: null
+    - name:
+        text: go test ./...
+        truncated: false
+      result: passed
+      note:
+        text: включая новые тесты на обе границы раздела вопросов (заголовок и подсказка
+          про ответ), ссылку с кодом в подписи и отступ в четыре пробела
+        truncated: false
+    - name:
+        text: живой замер рендера скобок в JIRA
+        truncated: false
+      result: passed
+      note:
+        text: "[x], [1] и {{[x]}} краснеют; \\[x] и скобки внутри {code} — нет"
+        truncated: false
+    - name:
+        text: живой замер рендера \[ у GitHub (POST /markdown)
+        truncated: false
+      result: passed
+      note:
+        text: \[x] рендерится как [x] — слэша в теле pull request не видно
+        truncated: false
+    - name:
+        text: живая проверка рендера на полигоне JIRA (трижды)
+        truncated: false
+      result: passed
+      note:
+        text: "последний прогон — после правок конвертера: пункты плана, сноска, [x] в
+          коде строки и в ячейке таблицы, индексы массива в блоке кода, ссылка
+          на путь, ссылка на адрес, ссылка с кодом в подписи, раздел вопросов;
+          красный участок один — маркер; маркер и вопрос с двумя вариантами
+          разобраны из прочитанного обратно тела"
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: Строка-маркер в JIRA по-прежнему отрисовывается красной. После
+        экранирования скобок она единственная такая в записи.
+      truncated: false
+    - text: "Квадратные скобки внутри раздела вопросов не экранируются и краснеют:
+        тело раздела едет буква в букву, потому что раннер его потом разбирает."
+      truncated: false
+    - text: Обратный слэш остаётся в теле записи. В теле pull request его не видно
+        (markdown понимает то же экранирование, замерено), но агенту в хвосте
+        переписки он виден.
+      truncated: false
+    - text: "Обратного перевода wiki → markdown нет: отчёт, прочитанный из JIRA,
+        приедет wiki-разметкой в тело pull request и в контекст агента."
+      truncated: false
+    - text: "DESIGN.md §2.5 «(один репозиторий)» не тронут: заголовок станет ложным
+        только после отложенного шага 1."
+      truncated: false
+    - text: "Случай PYTHONPATH=. uv run против Bash(uv *) не чинится: префикс уводит
+        команду из-под allow так же, как когда-то из-под deny; это свойство
+        сверки с началом строки. Записано, точка настройки — этап 6."
+      truncated: false
+    - text: "Порог разбиения 8/4 сегодня немой: обе крупные задачи замера дали меньше
+        восьми пунктов. Калибровать нечем до живого проекта."
+      truncated: false
+    - text: "Ссылка на адрес внутри строки таблицы сдвинет колонки: в wiki ссылка
+        пишется через палку, а палка в таблице разделяет ячейки. Узкий случай,
+        записан, а не закрыт."
+      truncated: false
+    - text: "Полигон JIRA нестабилен: семь падений за шаг. Причина найдена и записана
+        в отчёт шага — контейнер убивают по памяти (OOMKilled при mem_limit 4g),
+        PID 1 выживает, поэтому контейнер остаётся running и ещё пятнадцать
+        минут показывает healthy."
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-20T17:00:07.941Z
+blockers: []
+verification:
+  candidate_id: 9db76762-8cf6-4e15-9aa0-160ceca06066
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:75a3d189-2bd0-4a7a-b18f-1072889696ff
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: r10-gofmt
+      name:
+        text: gofmt -l .
+        truncated: false
+      argv_display:
+        - text: -l
+          truncated: false
+        - text: .
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 77
+    - id: r10-vet
+      name:
+        text: go vet ./...
+        truncated: false
+      argv_display:
+        - text: vet
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 380
+    - id: r10-test
+      name:
+        text: go test -count=1 ./...
+        truncated: false
+      argv_display:
+        - text: test
+          truncated: false
+        - text: -count=1
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 54715
+  summary:
+    text: "Прочитал 67 пунктов, бриф, спецификацию, весь дифф целиком и лишь затем
+      отчёт сборщика. Все 67 пунктов выполнены, failed нет. Проверял семьями по
+      смыслу: правило «отвергнутый прогон не тратит попытку» закрыто во всех
+      шести местах; формулировка «тело раздела «Вопросы»» согласована в брифе,
+      спецификации, контракте, доккомментарии и отчёте; правило экранирования
+      одной открывающей скобки одинаково сформулировано в четырёх местах.
+      Логика: паник нет, срезы границ не рвут, рекурсия конечна, порядок правил
+      корректен, границы раздела вопросов симметричны разбору по всем трём
+      правилам и в том же порядке, экранирование не портит собственных ссылок.
+      Числа пересчитаны: восемь событий, четыре счётчика, пять ошибок в
+      поведении, пять долгов, максимумы шагов сходятся с замером. Рендер живой
+      JIRA принят: записанное наблюдение сходится с кодом. В замечания вынесено
+      девять вещей, главная — оговорка про заголовок после вопросов, которая
+      сильнее, чем позволяет tracker/report.go."
+    truncated: false
+  risks:
+    - text: "stage-5-cleanup.md: «после вопросов в отчёте всегда идёт заголовок»
+        сильнее, чем позволяет код — tracker/report.go печатает «## Артефакты»
+        только при непустой ветке или артефактах. На поведение не влияет (вторая
+        граница в wiki() как раз для этого и добавлена), но объяснение верно не
+        всегда."
+      truncated: false
+    - text: "stage-5-cleanup.md: раздел говорит о себе «не перечисляет круги по
+        номерам» и ниже называет «девятый заход»; счёт обещан «в конце шага», а
+        в конце документа его нет."
+      truncated: false
+    - text: "stage-5-cleanup.md: «Не разобрала три места» — ниже четыре выделенных
+        находки, четвёртая переформулирует третью."
+      truncated: false
+    - text: "agent-io.md про Limit: «State — allowed, nearing или reached» умалчивает
+        о законном пустом LimitUnknown, который код определяет и обрабатывает
+        отдельно."
+      truncated: false
+    - text: "wiki.go inline(): ссылка внутри жирного текста рвёт пару звёздочек —
+        **[a](b)** даёт **a (b)**, потому что разбор делит строку по границе
+        ссылки раньше bold()."
+      truncated: false
+    - text: 'wiki.go fence(): забор с атрибутами уезжает в {code:go title="x"} — язык
+        берётся всем хвостом строки.'
+      truncated: false
+    - text: "wiki.go: проза, кончающаяся обратным слэшем прямо перед ссылкой, даст
+        ...\\[текст|url] — слэш экранирует уже построенную ссылку. Случай крайне
+        узкий."
+      truncated: false
+    - text: "ParseQuestions не знает про заборы блоков кода, а wiki() знает: `##
+        Вопросы` внутри блока уедет сырым и будет принят разбором за начало
+        раздела. Досталось от master."
+      truncated: false
+    - text: "Изменение целиком лежит в рабочем дереве: коммита нет ни одного."
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-20T17:17:19.249Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T10:38:43.781Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T10:39:48.955Z
+  - goal_cycle: 3
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T11:50:14.690Z
+  - goal_cycle: 4
+    iteration: 0
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T11:50:21.722Z
+  - goal_cycle: 5
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T12:16:54.007Z
+  - goal_cycle: 6
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+      - A19
+    summary:
+      text: "Круг третий. Семья «отвергнутый прогон тратит попытку» закрыта во всех
+        шести местах, латентной паники в переводчике нет, порядок разбора
+        «ссылка раньше кода» верен и покрыт тестом, рекурсия link→inline
+        конечна, скобка конвертера не экранируется. Но болезнь та же и в том же
+        жанре: шапка нового файла tracker/jira/wiki.go отрицает главную правку
+        этого круга, а рядом висит доккомментарий несуществующей функции
+        outsideCode. Тесты этого не видят по определению. Две правки
+        комментариев в одном файле; после них A2 и A19 закрываются. Остальные 64
+        пункта выполнены."
+      truncated: false
+    completed_at: 2026-08-20T12:38:52.985Z
+  - goal_cycle: 6
+    iteration: 2
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+    summary:
+      text: "Круг четвёртый. Логических дефектов в коде не нашёл: правила wiki() и
+        inline() соответствуют спецификации один в один, порядок «что раньше
+        началось» верен, экранирование не задевает ссылки конвертера и не лезет
+        в блок кода, правило заголовка симметрично между записью и разбором,
+        паник нет. Утверждения документов проверены по коду поштучно и сошлись.
+        Одна находка того же рода, и она failed: отчёт шага пишет «Не чиню» про
+        находку, которую этот же шаг починил сорока строками ниже. Остальные 65
+        пунктов выполнены; пять наблюдений вынесены в риски."
+      truncated: false
+    completed_at: 2026-08-20T13:00:49.082Z
+  - goal_cycle: 6
+    iteration: 3
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T13:20:30.304Z
+  - goal_cycle: 7
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+    summary:
+      text: "Круг шестой. Прочитал все изменённые и новые файлы целиком, выписывая
+        утверждения о коде, и сверил их с реализацией. Логических дефектов не
+        нашёл: порядок правил верен, паник нет, границы раздела вопросов при
+        записи и при разборе задаются одними и теми же тремя функциями,
+        экранирование не ломает ни собственные ссылки, ни MarkerOf, ни firstURL;
+        числа и перечисления сходятся. Провален один пункт — A2: доккомментарий
+        headingOf объясняет проверку на nil исчезнувшим различием (отступом),
+        тот же файл сам себе это опровергает, и ту же неправду повторяют
+        комментарий теста и отчёт шага. Чинится тремя правками текста."
+      truncated: false
+    completed_at: 2026-08-20T15:59:23.938Z
+  - goal_cycle: 7
+    iteration: 2
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+    summary:
+      text: "Круг седьмой. Прочитал спецификацию, бриф, весь дифф и целиком новые
+        файлы; каждое утверждение о коде сверял с кодом, числа пересчитывал.
+        Логических дефектов не нашёл: паники нет, порядок правил выдерживает и
+        ссылку с кодом в подписи, и таблицу, и незакрытый забор; граница раздела
+        вопросов симметрична между записью и разбором. 66 пунктов из 67
+        выполнены. Провален A2: отчёт шага врёт о самом себе — абзац
+        «Закономерность» отрицает находки, перечисленные строками выше, и
+        обещает «ровно один дефект» за круг вопреки собственному списку. Та же
+        болезнь, что ловили шесть предыдущих кругов, и внесена снова свежим
+        текстом."
+      truncated: false
+    completed_at: 2026-08-20T16:25:11.548Z
+  - goal_cycle: 7
+    iteration: 3
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T16:42:00.822Z
+  - goal_cycle: 8
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+    summary:
+      text: "Круг девятый. Прочитал пункты приёмки, бриф, спецификацию и всю
+        реализацию целиком, сверил утверждения с кодом. Логических дефектов не
+        нашёл: порядок правил сходится со своими доккомментариями, границы
+        раздела вопросов при записи и при разборе задаются одними и теми же
+        тремя правилами, headingOf не падает, link() не уходит в рекурсию,
+        экранирование не портит собственных ссылок. Семьи утверждений проверены
+        сплошным поиском и разошедшихся экземпляров не дали — правка прошлого
+        захода доведена до всех мест. Провален один пункт, A2: отчёт шага
+        по-прежнему описывает семь кругов, тогда как их было восемь, и счётные
+        утверждения под списком стали неверны."
+      truncated: false
+    completed_at: 2026-08-20T16:59:42.738Z
+  - goal_cycle: 8
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Прочитал 67 пунктов, бриф, спецификацию, весь дифф целиком и лишь затем
+        отчёт сборщика. Все 67 пунктов выполнены, failed нет. Проверял семьями
+        по смыслу: правило «отвергнутый прогон не тратит попытку» закрыто во
+        всех шести местах; формулировка «тело раздела «Вопросы»» согласована в
+        брифе, спецификации, контракте, доккомментарии и отчёте; правило
+        экранирования одной открывающей скобки одинаково сформулировано в
+        четырёх местах. Логика: паник нет, срезы границ не рвут, рекурсия
+        конечна, порядок правил корректен, границы раздела вопросов симметричны
+        разбору по всем трём правилам и в том же порядке, экранирование не
+        портит собственных ссылок. Числа пересчитаны: восемь событий, четыре
+        счётчика, пять ошибок в поведении, пять долгов, максимумы шагов сходятся
+        с замером. Рендер живой JIRA принят: записанное наблюдение сходится с
+        кодом. В замечания вынесено девять вещей, главная — оговорка про
+        заголовок после вопросов, которая сильнее, чем позволяет
+        tracker/report.go."
+      truncated: false
+    completed_at: 2026-08-20T17:17:19.249Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: false
+created_at: 2026-08-20T09:30:34.288Z

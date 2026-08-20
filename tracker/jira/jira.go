@@ -442,12 +442,17 @@ func (t *Tracker) Transition(key string, by tracker.Actor, toStatus string) erro
 }
 
 // Comment пишет комментарий обычным текстом: v2 не знает ADF, и это к лучшему —
-// маркер в первой строке остаётся маркером.
+// тело едет строкой и той же строкой читается обратно.
+//
+// Офис пишет markdown, а Server понимает wiki-разметку, поэтому тело переводится
+// здесь, на записи (wiki.go). Машинные куски записи перевод обходит: строку-маркер
+// и **тело** раздела «Вопросы» читает раннер, и они обязаны доехать буква в букву.
+// Заголовок раздела — исключение и переводится; почему — в wiki.go.
 func (t *Tracker) Comment(key string, by tracker.Actor, body string) error {
 	if _, err := t.owned(key, by); err != nil {
 		return err
 	}
-	return t.call(http.MethodPost, "/issue/"+key+"/comment", map[string]any{"body": body}, nil)
+	return t.call(http.MethodPost, "/issue/"+key+"/comment", map[string]any{"body": wiki(body)}, nil)
 }
 
 // SetHumanFlag выставляет или снимает метку ожидания человека.
