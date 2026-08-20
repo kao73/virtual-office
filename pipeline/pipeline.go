@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kao73/virtual-office/budget"
+	"github.com/kao73/virtual-office/forge"
 	"github.com/kao73/virtual-office/guard"
 	"github.com/kao73/virtual-office/ledger"
 	"github.com/kao73/virtual-office/runner"
@@ -83,6 +84,11 @@ type Office struct {
 	Agent      Agent
 	Sandboxes  Sandboxes
 
+	// Forges — реализации forge по имени из projects.yaml. Проект без forge
+	// живёт по тому же графу: PR-проход для него вырождается. Пустая карта
+	// означает офис, который pull request не открывает вовсе.
+	Forges map[string]forge.Forge
+
 	// Ledger — учёт прогонов. Ведётся всегда и ничего не решает; пустой означает,
 	// что учёта нет вовсе — так конвейер проверяется там, где расход не при чём.
 	Ledger *ledger.Ledger
@@ -117,6 +123,11 @@ func (o *Office) Tick(ctx context.Context, roleName string) (bool, error) {
 	// и здесь, и в TickAll: cron с одной ролью не должен оставлять ожидающие
 	// задачи в ожидании навсегда.
 	if _, err := o.HumanReplies(ctx); err != nil {
+		return false, err
+	}
+	// Системный проход тоже безролевой и идёт до работы: ответ человека мог
+	// вернуть задачу в очередь прохода, и ждать следующего цикла ей незачем.
+	if err := o.PRPass(ctx); err != nil {
 		return false, err
 	}
 	return o.as(roleName).tickRole(ctx, roleName)
@@ -184,19 +195,10 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	// трекер о его workflow. Без работы этот вопрос не задаётся вовсе.
 	o.checkWorkflow(task.ref.Project, flow)
 
-	// Порядок строгий: Release и Unlock внутри work, Remove — здесь, после них.
-	// Снести папку раньше значило бы снимать замок с того, чего уже нет.
-	done, err := o.work(ctx, task, roleName, flow, role)
-	if done {
-		if rmErr := o.Workspaces.Remove(task.ws); rmErr != nil {
-			// Неубранная папка — мусор, а не поломка: задача уже в терминальном
-			// статусе, работа опубликована. Молчать про неё всё равно нельзя.
-			o.logf("%s: рабочая папка не убрана: %v", task.ref.Key, rmErr)
-		} else {
-			o.logf("%s: рабочая папка убрана: задача дошла до конца", task.ref.Key)
-		}
-	}
-	return true, err
+	// Рабочую папку прогон за собой не убирает: её убирает системный проход,
+	// обходя папки, а не задачи. Задача, дошедшая до конца, ещё ждёт слияния,
+	// и вернуться в её папку может понадобиться конфликтом.
+	return true, o.work(ctx, task, roleName, flow, role)
 }
 
 // checkWorkflow предупреждает о workflow, в котором захват задачи не может стать
@@ -255,6 +257,9 @@ func (o *Office) checkWorkflow(project string, flow tracker.RoleFlow) {
 // пустого результата.
 func (o *Office) TickAll(ctx context.Context) error {
 	if _, err := o.HumanReplies(ctx); err != nil {
+		return err
+	}
+	if err := o.PRPass(ctx); err != nil {
 		return err
 	}
 	// Порядок обхода задаёт граф: он не выводится ни из имён, ни из порядка
@@ -375,13 +380,15 @@ func (o *Office) unlock(key string, ws workspace.Workspace) {
 	}
 }
 
-// work выполняет взятую задачу и возвращает её в граф. Отвечает, освободилась ли
-// рабочая папка: сносит её вызывающий — здесь на defer висит снятие замка,
-// и удалять папку раньше значило бы снимать замок с того, чего уже нет.
-func (o *Office) work(ctx context.Context, c claimed, roleName string, flow tracker.RoleFlow, role runner.Role) (bool, error) {
+// work выполняет взятую задачу и возвращает её в граф.
+//
+// Рабочую папку прогон за собой не сносит: она переживает его до слияния, и
+// убирает её системный проход, обходя папки, а не задачи. Здесь на defer висит
+// только снятие замка.
+func (o *Office) work(ctx context.Context, c claimed, roleName string, flow tracker.RoleFlow, role runner.Role) error {
 	task, err := o.Tracker.Get(c.ref.Key)
 	if err != nil {
-		return false, err
+		return err
 	}
 	ws, runID := c.ws, c.runID
 
@@ -394,7 +401,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	// было бы заявлением подсудимого.
 	base, err := runner.HeadCommit(ws.Dir)
 	if err != nil {
-		return false, err
+		return err
 	}
 	passport := runner.Run{
 		RunID: runID, Role: roleName, ConfigSHA: o.ConfigSHA,
@@ -406,7 +413,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	// ещё нет вовсе. Имени роли здесь нет — поведение следует из её спецификации.
 	created, err := runner.PrepareChangeDir(ws.Dir, role, task.Key)
 	if err != nil {
-		return false, err
+		return err
 	}
 	input := runner.Input{
 		Task:       taskBody(task),
@@ -415,7 +422,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		Context:    contextBody(task, roleName, o.Accounts, o.Workflow.Limits.MaxAttempts),
 	}
 	if err := runner.PrepareInput(ws.Dir, role, passport, input); err != nil {
-		return false, err
+		return err
 	}
 
 	// Аренда продлевается, пока агент работает: иначе долгая задача досталась бы
@@ -428,7 +435,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 
 	if runErr != nil {
 		// Прогон не состоялся: аренда остаётся, задачу вернёт reaper.
-		return false, fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
+		return fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
 	}
 	result, usage := run.Result, run.Usage
 	if run.Termination.Idle() {
@@ -468,9 +475,9 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	// не вправе её трогать: задачу уже могли отдать другому.
 	switch lost, err := o.renew(task, runID, roleName, result, usage, published); {
 	case err != nil:
-		return false, err
+		return err
 	case lost:
-		return false, nil
+		return nil
 	}
 
 	if pushErr != nil {
@@ -480,13 +487,13 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		// Идёт это раньше разбора причины завершения намеренно: беда с публикацией
 		// сильнее. У неё своя серия и свой разговор с человеком, а работа, которую
 		// не приняли, — забота более срочная, чем то, почему прогон не дожил.
-		return false, o.pushFailed(task, runID, roleName, flow, result, usage, pushErr)
+		return o.pushFailed(task, runID, roleName, flow, result, usage, pushErr)
 	}
 
 	// Прогон без результата маршрута по графу не выбирает: выбирать не по чему.
 	// Отчёта агента тоже нет — его слова были бы выдумкой раннера.
 	if run.Termination.Idle() {
-		return false, o.idleRun(task, runID, roleName, flow, run.Termination, usage)
+		return o.idleRun(task, runID, roleName, flow, run.Termination, usage)
 	}
 
 	// Ограждения роли — здесь же, где выбирается маршрут. Хук зовёт их, пока агент
@@ -512,13 +519,11 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		o.logf("%s: заготовки каталога изменения не убраны: %v", task.Key, err)
 	}
 
-	to, err := o.finish(task, runID, roleName, flow, result, branch, usage, rp)
-	if err != nil {
-		return false, err
-	}
-	// Терминальный статус — конец жизни задачи: работа опубликована, дальше её
-	// ведёт человек, и рабочая папка больше не нужна.
-	return o.Workflow.IsTerminal(to), nil
+	// Куда задача уехала, здесь больше не спрашивается: рабочую папку убирает
+	// системный проход, от папок, а не от задач. Прогон, доведший задачу
+	// до конца, папку за собой не сносит — она переживёт его до слияния.
+	_, err = o.finish(task, runID, roleName, flow, result, branch, usage, rp)
+	return err
 }
 
 // pushFailed разбирается с работой, которую не удалось опубликовать.
@@ -721,8 +726,8 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 
 	// Роль графа, названная следующим владельцем, но не описанная в карте этого
 	// исхода, по умолчанию не едет. Умолчание тут опасно: у ревьюера оно ведёт
-	// в терминал, и работа, возвращённая аналитику, была бы принята и снесена
-	// вместе с рабочей папкой. Правило действует только у `done` и только при
+	// в очередь PR-прохода, и работа, возвращённая аналитику, была бы принята
+	// и уехала бы открывать pull request. Правило действует только у `done` и только при
 	// непустой карте: провал с названным владельцем — это повтор, как и раньше,
 	// а `human`, `none` и незнакомое имя едут по умолчанию, как ехали.
 	stray := outcome == runner.OutcomeDone && len(transition.ByNextOwner) > 0 &&

@@ -129,10 +129,11 @@ workflow состоит из обычных форм, и они принимаю
 | `AddWorkflowTransition.jspa` | переход: `workflowStep`, `destinationStep`, `transitionName`, `view` пустой |
 | `PublishDraftWorkflow.jspa` | публикация: `enableBackup=false`, `madeDeliberateChoice=true` |
 
-Всё это делает `scripts/jira-workflow.sh`. Он заводит шаги под `Ready`, `Review`,
-`Approved`, `Blocked` и одиннадцать переходов — ровно те, которыми ходит раннер
-по `workflow.yaml`: захват, исходы обеих ролей, reap, ответ человека, остановка
-по бюджету и человеческий триаж `Backlog → Ready`. Повторный запуск безопасен.
+Всё это делает `scripts/jira-workflow.sh`. Он заводит шаги под `Analysis`, `Ready`,
+`Review`, `Approved`, `Done`, `Blocked` и двадцать два перехода — ровно те, которыми
+ходит раннер по `workflow.yaml`: захват, исходы трёх ролей, PR-проход, reap, ответ
+человека, остановка по бюджету и человеческий триаж `Backlog → Analysis` и
+`Backlog → Ready`. Повторный запуск безопасен.
 
 **Глобальных переходов текстовый редактор не умеет** — галочка «Allow all statuses
 to transition to this one» живёт только в редакторе диаграмм. Она и не нужна: переход,

@@ -172,7 +172,7 @@ func TestRouteByNextOwner(t *testing.T) {
 	}
 
 	if !wf.IsTerminal("Approved") {
-		t.Error("Approved не терминальная: рабочую папку никто не уберёт")
+		t.Error("в этом графе Approved объявлена терминальной, а IsTerminal её не признаёт")
 	}
 	if wf.IsTerminal("Review") {
 		t.Error("Review сочтена терминальной")
@@ -399,6 +399,7 @@ const validProjects = `OFF:
   repo_url: https://example.test/office.git
   default_branch: master
   branch_prefix: agent/
+  tracker: mock
 `
 
 func TestLoadProjects(t *testing.T) {
@@ -422,6 +423,27 @@ func TestLoadProjects(t *testing.T) {
 	}
 }
 
+// Раннер запускается с одним трекером и работает только со своими проектами:
+// чужие он не спрашивает (иначе трекер отвечает «нет такого проекта» на каждом
+// проходе) и их рабочие папки не убирает.
+func TestProjectsFor(t *testing.T) {
+	projects := Projects{
+		"OFF": {Tracker: "mock"},
+		"VO":  {Tracker: "jira"},
+		"EXP": {Tracker: "jira"},
+	}
+
+	if got := projects.For("mock").Keys(); !slices.Equal(got, []string{"OFF"}) {
+		t.Errorf("проекты mock: %v, ожидался только OFF", got)
+	}
+	if got := projects.For("jira").Keys(); !slices.Equal(got, []string{"EXP", "VO"}) {
+		t.Errorf("проекты jira: %v, ожидались EXP и VO", got)
+	}
+	if got := projects.For("youtrack").Keys(); len(got) != 0 {
+		t.Errorf("у незнакомого трекера нашлись проекты: %v", got)
+	}
+}
+
 func TestLoadProjectsRejectsIncomplete(t *testing.T) {
 	cases := []struct {
 		name string
@@ -433,6 +455,8 @@ func TestLoadProjectsRejectsIncomplete(t *testing.T) {
 		{"нет ветки по умолчанию", strings.Replace(validProjects, "  default_branch: master\n", "", 1), "default_branch"},
 		{"нет префикса веток", strings.Replace(validProjects, "  branch_prefix: agent/\n", "", 1), "branch_prefix"},
 		{"относительный worktree_root", validProjects + "  worktree_root: ../рядом\n", "worktree_root"},
+		{"нет трекера", strings.Replace(validProjects, "  tracker: mock\n", "", 1), "tracker"},
+		{"чужой трекер", strings.Replace(validProjects, "tracker: mock", "tracker: youtrack", 1), "youtrack"},
 	}
 
 	for _, tc := range cases {
@@ -445,5 +469,104 @@ func TestLoadProjectsRejectsIncomplete(t *testing.T) {
 				t.Errorf("в ошибке не назван %q: %v", tc.want, err)
 			}
 		})
+	}
+}
+
+// Граф с PR-проходом: блок `pr` описывает маршрут pull request, а роли `office`
+// в `roles` нет и быть не должно.
+const prWorkflow = `statuses: [Ready, InProgress, Review, Approved, Done, Blocked]
+terminal: [Done]
+roles:
+  implementer:
+    reads_from: Ready
+    working: InProgress
+    outcomes:
+      done:        { to: Review }
+      needs_human: { to: Blocked, human: true }
+      blocked:     { to: Ready, attempts: +1 }
+      failed:      { to: Ready, attempts: +1 }
+pr:
+  role: office
+  from: Approved
+  merged: Done
+  conflict: Ready
+  closed: Blocked
+limits:
+  max_attempts: 3
+  max_lease_expiries: 3
+  max_push_failures: 3
+  max_idle_runs: 3
+  lease_margin_sec: 300
+human_reply:
+  fallback: Ready
+  reset_attempts: true
+`
+
+// Проход — не роль: в обход ролей он не входит и файла роли у него нет.
+// Но граф о нём отвечает: маркеры прохода подписаны его именем, и разбор ответа
+// человека спрашивает граф именно по имени из маркера.
+func TestWorkflowPRPassIsNotARole(t *testing.T) {
+	w, err := LoadWorkflow(writeTemp(t, WorkflowFile, prWorkflow))
+	if err != nil {
+		t.Fatalf("граф не загружен: %v", err)
+	}
+
+	if slices.Contains(w.Order(), "office") {
+		t.Errorf("проход попал в обход ролей: %v", w.Order())
+	}
+	flow, err := w.Role("office")
+	if err != nil {
+		t.Fatalf("граф не ответил про проход: %v", err)
+	}
+	if flow.ReadsFrom != "Approved" {
+		t.Errorf("проход читает из %q, ожидался Approved", flow.ReadsFrom)
+	}
+	// Ответ человека на закрытый PR возвращает задачу в очередь прохода штатным
+	// механизмом, а закрытый PR уводит её в ожидание — оба маршрута отсюда.
+	if got := flow.Blocked(); got != "Blocked" {
+		t.Errorf("проход зовёт человека в %q, ожидался Blocked", got)
+	}
+	if got := w.HumanStatuses(); !slices.Contains(got, "Blocked") {
+		t.Errorf("статус ожидания прохода не попал в разбор ответов: %v", got)
+	}
+}
+
+func TestWorkflowRejectsBrokenPRPass(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"нет имени", strings.Replace(prWorkflow, "  role: office\n", "", 1), "pr.role"},
+		{"чужой статус", strings.Replace(prWorkflow, "merged: Done", "merged: Смержено", 1), "Смержено"},
+		{"проход назван ролью", strings.Replace(prWorkflow, "role: office", "role: implementer", 1), "implementer"},
+		{"очередь прохода терминальна", strings.Replace(prWorkflow, "terminal: [Done]", "terminal: [Done, Approved]", 1), "pr.from"},
+		{"слияние не терминально", strings.Replace(prWorkflow, "terminal: [Done]", "terminal: [Review]", 1), "pr.merged"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadWorkflow(writeTemp(t, WorkflowFile, tc.yaml))
+			if err == nil {
+				t.Fatal("сломанный блок pr загружен без ошибки")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("в ошибке не назван %q: %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// Граф без блока pr законен: это офис, который pull request не открывает.
+func TestWorkflowWithoutPRPass(t *testing.T) {
+	w, err := LoadWorkflow(writeTemp(t, WorkflowFile, validWorkflow))
+	if err != nil {
+		t.Fatalf("граф не загружен: %v", err)
+	}
+	if w.PR.Set() {
+		t.Error("граф без блока pr считает проход описанным")
+	}
+	if _, err := w.Role("office"); err == nil {
+		t.Error("граф без блока pr отвечает про роль office")
 	}
 }

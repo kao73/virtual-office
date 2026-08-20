@@ -1,0 +1,854 @@
+schema: comet.native.v4
+name: pr-pass
+language: en
+phase: archive
+status: active
+state_version: 24
+brief: brief.md
+spec_changes:
+  - capability: pr-pass
+    operation: create
+    source: specs/pr-pass/spec.md
+workspace:
+  isolation: branch
+  change_branch: comet/pr-pass
+  target_branch: master
+  finish: merge
+loop:
+  stage: archive-ready
+  goal_cycle: 4
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: archive
+acceptance:
+  - id: A1
+    source: specs/pr-pass/spec.md
+    text: Полное поведение способности после архивации изменения.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A2
+    source: specs/pr-pass/spec.md
+    text: Сливает человек. Офис открывает pull request, следит за ним и убирает за
+      собой.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A3
+    source: specs/pr-pass/spec.md
+    text: Авто-слияния нет. Ветка уезжает в `origin` как и раньше — это делает
+      раннер на своём проходе, не агент.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A4
+    source: specs/pr-pass/spec.md
+    text: "PR-проход задан блоком `pr` в `workflow.yaml`:"
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A5
+    source: specs/pr-pass/spec.md
+    text: "`office` не кладётся в `roles:` и в `tick_order`. Иначе валидатор
+      потребует её в порядке обхода, а обход полез бы за
+      `roles/office/role.yaml`, которого нет и не будет: у прохода нет агента."
+    result: passed
+    reason:
+      text: "roles: только три роли, tick_order без office; каталога roles/office нет,
+        а обход зовёт LoadRole по имени роли."
+      truncated: false
+  - id: A6
+    source: specs/pr-pass/spec.md
+    text: '`Workflow.Role("office")` отдаёт поток с `reads_from = pr.from`;
+      `Order()` его не называет. Имени `office` в коде раннера нет — оно
+      приходит из конфигурации.'
+    result: passed
+    reason:
+      text: Workflow.Role отдаёт PR.Flow() при name == PR.Role; Order() его не
+        называет. Литерал office в непроверочном коде — только учётка файлового
+        трекера.
+      truncated: false
+  - id: A7
+    source: specs/pr-pass/spec.md
+    text: "`Approved` перестаёт быть терминальным: теперь это «PR открыт».
+      Терминальный статус — `Done`."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A8
+    source: specs/pr-pass/spec.md
+    text: Оба полигона смотрят в локальный bare-репозиторий, forge у них нет.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A9
+    source: specs/pr-pass/spec.md
+    text: "Такой проект живёт по тому же графу: проход переводит задачу из `pr.from`
+      сразу в `pr.merged` и пишет `event:pr-skipped` — не `merged`, потому что
+      слияния не было."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A10
+    source: specs/pr-pass/spec.md
+    text: "Проверка конфликта идёт всё равно: она локальная и сети не требует."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A11
+    source: specs/pr-pass/spec.md
+    text: "Терминальность остаётся свойством графа: файловый полигон и `smoke.sh` не
+      ломаются."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A12
+    source: specs/pr-pass/spec.md
+    text: "Проект в `projects.yaml` обязан назвать свой трекер ключом `tracker`
+      (`mock` или `jira`): одна и та же задача не живёт разом в файловом трекере
+      и в JIRA."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A13
+    source: specs/pr-pass/spec.md
+    text: Раннер работает только с проектами трекера, названного флагом `--tracker`.
+      Проекты другого трекера в обход не попадают и в логе не упоминаются.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A14
+    source: specs/pr-pass/spec.md
+    text: Подсказка флага `--tracker` называет оба доступных трекера; сообщение о
+      неизвестном трекере — тоже.
+    result: passed
+    reason:
+      text: "Проверено запуском: баннер «--tracker (mock или jira)», ошибка «доступны
+        mock, jira»."
+      truncated: false
+  - id: A15
+    source: specs/pr-pass/spec.md
+    text: Ключ `tracker`, как и `forge`, машинный по природе и переедет в
+      `projects.local.yaml` вместе с отложенным шагом «конфигурация по машинам».
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A16
+    source: specs/pr-pass/spec.md
+    text: "`Mergeable` в интерфейсе нет: конфликт считается локально, и второй forge
+      обойдётся дешевле."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A17
+    source: specs/pr-pass/spec.md
+    text: Первая реализация — GitHub через REST. Токен берётся из `GITHUB_TOKEN`,
+      того же, которым раннер пушит.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A18
+    source: specs/pr-pass/spec.md
+    text: "Какой forge у проекта, говорит ключ `forge` в `projects.yaml`. Ключ
+      временный: он машинный по природе и переедет в `projects.local.yaml`
+      вместе с отложенным шагом «конфигурация по машинам»."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A19
+    source: specs/pr-pass/spec.md
+    text: "Владелец и имя репозитория выводятся из `repo_url`, а не настраиваются
+      отдельно: два места для одного факта разошлись бы."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A20
+    source: specs/pr-pass/spec.md
+    text: "`git merge-tree --write-tree` по bare-клону: `origin/<ветка задачи>`
+      против `origin/<default_branch>`."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A21
+    source: specs/pr-pass/spec.md
+    text: Локальной ссылки на ветку задачи может не быть — берётся `origin/`, потому
+      что клон фетчится на каждом обращении.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A22
+    source: specs/pr-pass/spec.md
+    text: "Конфликт → задача в `pr.conflict`, запись `event:merge-conflict`,
+      `attempts` не тратится: разрешать конфликт — это работа, а не провал
+      прогона."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A23
+    source: specs/pr-pass/spec.md
+    text: Проверка идёт перед открытием PR и на каждом проходе по открытым.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A24
+    source: specs/pr-pass/spec.md
+    text: "Конфликт открытый PR не закрывает: задача уходит на доработку, а тот же
+      PR переиспользуется, когда она вернётся в `pr.from`."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A25
+    source: specs/pr-pass/spec.md
+    text: Про открытый pull request запись говорит, только когда он есть. Конфликт
+      бывает найден и до открытия — тогда обещание «PR подхватит задачу» было бы
+      враньём.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A26
+    source: specs/pr-pass/spec.md
+    text: Состояние берётся по **последней** записи роли `pr.role` из семейства
+      {`pr-opened`, `pr-closed`}.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A27
+    source: specs/pr-pass/spec.md
+    text: "Не по факту наличия `pr-opened` в истории: PR, закрытый руками, увёл бы
+      задачу в `Blocked`, ответ человека вернул бы её в `Approved`, и второй PR
+      не открылся бы никогда."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A28
+    source: specs/pr-pass/spec.md
+    text: "`merge-conflict` и `merged` в семейство не входят. После конфликта
+      последней остаётся `pr-opened`, и тот же PR переиспользуется."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A29
+    source: specs/pr-pass/spec.md
+    text: Проход идёт в `tick`, после разбора ответов человека, и не занимает роли.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A30
+    source: specs/pr-pass/spec.md
+    text: Задача в `pr.from` без записи семейства или с последней `pr-closed` →
+      проверка конфликта, затем `OpenPR`.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A31
+    source: specs/pr-pass/spec.md
+    text: "Тело PR — `brief.md` изменения плюс последний отчёт о прогоне. `brief.md`
+      читается из bare-клона (`git show origin/<ветка>:<путь>`), а не из
+      worktree: папки может не быть. Отчёт читается из переписки тикета — в git
+      его нет вовсе."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A32
+    source: specs/pr-pass/spec.md
+    text: "Имя роли у отчёта не спрашивается: задачу в очередь прохода привёл именно
+      последний отчёт, кто бы его ни писал."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A33
+    source: specs/pr-pass/spec.md
+    text: "Задача, пришедшая мимо аналитика (`Backlog → Ready`), каталога изменения
+      не имеет: тогда телом идут тема и описание тикета."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A34
+    source: specs/pr-pass/spec.md
+    text: Ссылка на PR — комментарий с маркером `event:pr-opened` и URL в теле.
+      Интерфейс трекера не меняется.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A35
+    source: specs/pr-pass/spec.md
+    text: "Маркер отчёта в тело pull request не идёт: маркер — разметка для раннера,
+      а pull request читают люди."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A36
+    source: specs/pr-pass/spec.md
+    text: Ветка без коммитов (GitHub откажет открыть PR) → `pr.closed` и записка
+      человеку. Это аномалия, а не падение тика.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A37
+    source: specs/pr-pass/spec.md
+    text: "Задача с открытым PR → `PRState`: `merged` → `pr.merged` и
+      `event:merged`; `closed` без слияния → `pr.closed`, `event:pr-closed` и
+      человек."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A38
+    source: specs/pr-pass/spec.md
+    text: Ответ человека на `pr-closed` возвращает задачу в `pr.from` штатным
+      механизмом, и PR открывается заново. Работу, которая не годится, человек
+      двигает в `Ready` руками — как с любой ролью.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A39
+    source: specs/pr-pass/spec.md
+    text: "Записи офиса не обрывают серий рабочих ролей: серии считаются по роли, а
+      роль у этих записей своя."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A40
+    source: specs/pr-pass/spec.md
+    text: "`merge-tree` и `git show` требуют заведённого и свежего bare-клона, а до
+      этого изменения его заводила только подготовка worktree."
+    result: passed
+    reason:
+      text: "По master сверено: единственный вызов repo() был из Ensure, то есть клон
+        и правда заводила только подготовка worktree."
+      truncated: false
+  - id: A41
+    source: specs/pr-pass/spec.md
+    text: "`Workspaces.Repo(имя проекта, его описание)` заводит и освежает клон без
+      worktree."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A42
+    source: specs/pr-pass/spec.md
+    text: Уборка переезжает из прогона в системный проход. Снос из `work()` уходит.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A43
+    source: specs/pr-pass/spec.md
+    text: "Идёт она **от папок, а не от задач**: `Workspaces.List()` — единицы
+      записей, просеянных списком проектов своего трекера. В
+      `${OFFICE_HOME}/repos` лежат клоны обоих полигонов, и проход `--tracker
+      jira` не вправе трогать папки mock-проектов."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A44
+    source: specs/pr-pass/spec.md
+    text: По каждой папке спрашивается статус её задачи; терминальный → `Remove` под
+      замком. Занятая папка пропускается.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A45
+    source: specs/pr-pass/spec.md
+    text: "Не `List(project, [Done])`: в живом проекте `Done` растёт вечно."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A46
+    source: specs/pr-pass/spec.md
+    text: "**Грязная папка не сносится**, а пропускается с записью в лог. Раньше
+      снос стоял сразу за успешным пушем и был его защитой; у системного прохода
+      такой защиты нет, а `Remove` — это `worktree remove --force`. Убирает
+      такую папку человек, `runner worktree rm --force`: без флага команда
+      откажется и объяснит, почему."
+    result: passed
+    reason:
+      text: Dirty>0 → лог и пропуск до взятия замка; runner worktree rm без --force на
+        грязной падает с объяснением.
+      truncated: false
+  - id: A47
+    source: specs/pr-pass/spec.md
+    text: Уборка покрывает и задачу, которую человек перевёл в терминальный статус
+      руками.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A48
+    source: specs/pr-pass/spec.md
+    text: "`Workspaces.TryLock(запись из List)` берёт замок, не создавая папки: путь
+      к ней уже известен из обхода, и выводить его заново из конфигурации
+      проекта хозяйству папок не по чему."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A49
+    source: specs/pr-pass/spec.md
+    text: Папка теперь живёт до слияния, то есть неделю человеческого времени. На
+      3–5 задачах это ничего не стоит.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A50
+    source: specs/pr-pass/spec.md
+    text: Контекст говорит роли, что задача вернулась с конфликтом.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A51
+    source: specs/pr-pass/spec.md
+    text: "Тогда роль сливает `origin/<default_branch>` в ветку — он уже принесён,
+      сеть не нужна, — разрешает конфликт, прогоняет тесты и завершает `done` с
+      `next_owner: reviewer`."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A52
+    source: specs/pr-pass/spec.md
+    text: "В allow добавляется `git merge`. `git fetch` не добавляется: у роли нет
+      ни сети к forge, ни токена, а фетчит раннер. `rebase` и `reset` не
+      добавляются: история ветки общая."
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A53
+    source: specs/pr-pass/spec.md
+    text: Ревьюер разбирает слияние как обычную работу.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A54
+    source: specs/pr-pass/spec.md
+    text: Статус `Done` заводит `scripts/jira-setup.sh`, а
+      `scripts/jira-workflow.sh` ставит под него шаг и добавляет переходы
+      `Approved → Done`, `Approved → Ready`, `Approved → Blocked` и `Blocked →
+      Approved`.
+    result: passed
+    reason:
+      text: Статус Done заводит jira-setup.sh, шаг и четыре перехода —
+        jira-workflow.sh; переходов пересчитано ровно 22.
+      truncated: false
+  - id: A55
+    source: specs/pr-pass/spec.md
+    text: Без последнего ответ человека на `pr-closed` через штатный unblock не
+      сработал бы.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A56
+    source: specs/pr-pass/spec.md
+    text: "Реализация forge проверена не только поддельной: пустой репозиторий на
+      GitHub, отдельный проект в `projects.yaml` с `forge: github`, и одна
+      задача, прошедшая `Ready → … → Approved →` PR открыт `→` слит человеком `→
+      Done` с убранной папкой."
+    result: passed
+    reason:
+      text: "gh: приватный kao73/office-pr-probe от 2026-08-19T22:36Z, четыре PR — #1
+        CLOSED, #2/#3/#4 MERGED с ветками PROBE-1/3/4."
+      truncated: false
+  - id: A57
+    source: specs/pr-pass/spec.md
+    text: Токен берётся из окружения на время прогона и в репозиторий не попадает.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+  - id: A58
+    source: specs/pr-pass/spec.md
+    text: Что вышло, записано в `docs/notes/stage-5-pr.md`.
+    result: passed
+    reason:
+      text: "Круг пятый: сверено командой — код, конфигурация, тесты, живой запуск
+        раннера и следы в GitHub."
+      truncated: false
+builder_handoff:
+  candidate_id: 85057450-1d86-4121-849e-f1a11c639898
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:f12aaba1-7435-49e6-bb0d-79b8051f9500
+  iteration: 1
+  summary:
+    text: "Круг пятый. A7 закрыт не по одному экземпляру, а сплошным поиском: то же
+      утверждение («Approved терминален», «папку сносит прогон») лежало в шести
+      местах, и прошлые круги чинили ровно те, что называл проверяющий. Теперь
+      выправлены все: pipeline/pipeline.go (маршрут по умолчанию у ревьюера
+      ведёт в очередь PR-прохода, а не в терминал), tracker/marker.go (то же в
+      doc EventRouteUnknown), pipeline/pipeline_test.go (два комментария),
+      tracker/config.go (doc IsTerminal), tracker/config_test.go (сообщение
+      теста перестало связывать терминальность с уборкой). Ранее в этом же круге
+      правок: README.md:16, комментарий над
+      TestReviewerApprovalMovesTaskToApproved и раздел «Конец жизни задачи» в
+      docs/contracts/tracker-protocol.md. Закрыты и остальные замечания
+      четвёртого круга: спека называет верный скрипт для статуса Done,
+      мотивировка клона переведена в прошедшее время, к ручной уборке грязной
+      папки добавлен --force (без него команда откажется), отчёт шага перестал
+      говорить «падает сборка раннера» — падает сборка офиса, и только если
+      forge задан у проекта выбранного трекера. Поведение не менялось ни разу:
+      все правки этого круга — в словах."
+    truncated: false
+  addressed_acceptance_ids:
+    - A7
+    - A40
+    - A46
+    - A54
+  checks:
+    - name:
+        text: gofmt -l .
+        truncated: false
+      result: passed
+      note:
+        text: пусто
+        truncated: false
+    - name:
+        text: go build ./...
+        truncated: false
+      result: passed
+      note: null
+    - name:
+        text: go vet ./...
+        truncated: false
+      result: passed
+      note: null
+    - name:
+        text: go test ./...
+        truncated: false
+      result: passed
+      note:
+        text: "тесты не менялись по существу: правки в комментариях и в одном сообщении
+          об ошибке"
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: docs/STAGE-3-reviewer-budgets.md и docs/STAGE-4-analyst-questions.md
+        по-прежнему называют Approved терминальным. Это исторические планы
+        прошедших этапов — они описывают, каким офис был тогда, и правке не
+        подлежат.
+      truncated: false
+    - text: "Спека говорит «имени office в коде раннера нет»: это про pr.role. Литерал
+        office в репозитории есть — учётка файлового трекера в tracker/mock, к
+        проходу отношения не имеет."
+      truncated: false
+    - text: "scripts/smoke.sh не прогонялся: он ходит живым агентом. Статически
+        проверено, что графа и терминальных статусов он не касается."
+      truncated: false
+    - text: Отказ GitHub на ветке без коммитов (422) и грязная рабочая папка живьём не
+        встречались — оба закрыты тестами и названы в отчёте шага.
+      truncated: false
+    - text: Список трекеров назван в трёх местах (tracker.Trackers, подсказка флага,
+        баннер main.go); сейчас совпадают, теста на совпадение нет.
+      truncated: false
+    - text: Контракты и DESIGN.md о PR-проходе целиком ещё не рассказывают — это шаг 3
+        плана; правились только места, ставшие ложными.
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-20T07:21:20.782Z
+blockers: []
+verification:
+  candidate_id: 85057450-1d86-4121-849e-f1a11c639898
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:722d19dd-4677-4cda-b4a7-3477bf0dae04
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: gofmt
+      name:
+        text: gofmt -l .
+        truncated: false
+      argv_display:
+        - text: -l
+          truncated: false
+        - text: .
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 67
+    - id: build
+      name:
+        text: go build ./...
+        truncated: false
+      argv_display:
+        - text: build
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 890
+    - id: vet
+      name:
+        text: go vet ./...
+        truncated: false
+      argv_display:
+        - text: vet
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 178
+    - id: test
+      name:
+        text: go test ./...
+        truncated: false
+      argv_display:
+        - text: test
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 960
+  summary:
+    text: Проверки Runtime перезапущены начисто с -count=1 — зелены. Все 58
+      утверждений сверены командой, а не чтением; живьём проверены подсказка
+      флага, сообщение о неизвестном трекере, поведение git worktree remove
+      --force и следы в GitHub. Сплошной поиск по классу (терминальность, кто
+      сносит папку, маршрут по умолчанию у ревьюера, числа статусов и переходов,
+      какой скрипт что заводит) нашёл один недоправленный близнец в отложенном в
+      шаг 3 контракте — он ушёл в риски. Провалов нет. Формулировки пунктов
+      приёмки в этом ответе сокращены против исходных без изменения смысла.
+    truncated: false
+  risks:
+    - text: "docs/contracts/tracker-protocol.md:435-436 — недоправленный близнец
+        переписанного раздела «Конец жизни задачи»: определение terminal
+        осталось в старой редакции («работа опубликована, дальше её ведёт
+        человек»), тогда как строка 611 того же файла уже говорит «работа
+        слита». От сплошного поиска ушло потому, что слово terminal там
+        латиницей. Правка контрактов отложена в шаг 3, поэтому риск, а не
+        провал."
+      truncated: false
+    - text: "Исторические планы этапов (docs/STAGE-3, docs/STAGE-4) по-прежнему
+        называют Approved терминальным: замороженные записи прошедших этапов,
+        вне объёма."
+      truncated: false
+    - text: "roles/reviewer/role.md у исхода done + next_owner: human говорит «дальше
+        её ведёт человек»; теперь первым за Approved работает PR-проход. Спека
+        роли ревьюера в объём изменения не входила."
+      truncated: false
+    - text: "Подсказка --tracker живёт в двух местах: баннер main.go держит строку
+        руками, описание флага и ошибка выведены из tracker.Trackers(). Сегодня
+        совпадают, но однажды уже разошлись."
+      truncated: false
+    - text: forgesOf собирает forge при сборке офиса, поэтому любая команда раннера
+        упадёт без GITHUB_TOKEN, если forge задан у проекта выбранного трекера.
+        На шаге 5 с постоянным проектом на forge токен станет обязательным для
+        всех команд.
+      truncated: false
+    - text: "scripts/jira-setup.sh идемпотентен только по имени статуса: новая
+        категория Approved применится лишь на свежем инстансе, а на настроенном
+        полигоне скрипт скажет «уже есть»."
+      truncated: false
+    - text: "Задача проекта без forge с пустой веткой уходит в Blocked, а не в
+        вырожденный Done: merge.Empty() проверяется раньше forge. Поведение
+        верное, но в спеке эта развилка не названа."
+      truncated: false
+    - text: "scripts/smoke.sh не запускался: он делает настоящие прогоны агента.
+        Проверено grep'ом, что он не читает ни workflow.yaml, ни projects.yaml,
+        ни трекер."
+      truncated: false
+    - text: Цифры расхода в отчёте шага сверить нечем — OFFICE_HOME полигона уже нет.
+        Всё, что осталось проверяемым (репозиторий, номера PR, состояния, ветки,
+        время слияния), сошлось.
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-20T07:36:59.963Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-19T22:43:52.889Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T06:25:40.119Z
+  - goal_cycle: 3
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A42
+    summary:
+      text: "Маршруты, конфигурация, тесты и живая проверка сходятся; проверки Runtime
+        перезапущены начисто и зелены; живой прогон подтверждён независимо через
+        gh (четыре PR, коммиты агента, суммы сходятся с заявленными $0.79). Обе
+        правки первого круга на месте. Дефект один и он в утверждении о коде:
+        doc-комментарий work() остался от прежнего устройства и противоречит и
+        новой сигнатуре, и хвосту той же функции. Формулировки пунктов приёмки в
+        этом ответе сокращены против исходных без изменения смысла."
+      truncated: false
+    completed_at: 2026-08-20T06:44:26.024Z
+  - goal_cycle: 3
+    iteration: 2
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A7
+    summary:
+      text: "Реализация сходится со спецификацией; проверки Runtime перезапущены
+        начисто и зелены; живая проверка сверена с источником через gh. Починка
+        A42 сделана и сама ложным утверждением не стала; три попутные правки
+        верны по существу. Провален один пункт — A7: шаг сделал ложными два
+        утверждения о терминальности Approved (комментарий теста и README:16,
+        противоречащий README:249). Формулировки пунктов приёмки в этом ответе
+        сокращены против исходных без изменения смысла."
+      truncated: false
+    completed_at: 2026-08-20T07:01:12.287Z
+  - goal_cycle: 3
+    iteration: 3
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T07:14:25.393Z
+  - goal_cycle: 4
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: Проверки Runtime перезапущены начисто с -count=1 — зелены. Все 58
+        утверждений сверены командой, а не чтением; живьём проверены подсказка
+        флага, сообщение о неизвестном трекере, поведение git worktree remove
+        --force и следы в GitHub. Сплошной поиск по классу (терминальность, кто
+        сносит папку, маршрут по умолчанию у ревьюера, числа статусов и
+        переходов, какой скрипт что заводит) нашёл один недоправленный близнец в
+        отложенном в шаг 3 контракте — он ушёл в риски. Провалов нет.
+        Формулировки пунктов приёмки в этом ответе сокращены против исходных без
+        изменения смысла.
+      truncated: false
+    completed_at: 2026-08-20T07:36:59.963Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: false
+created_at: 2026-08-19T22:02:14.287Z

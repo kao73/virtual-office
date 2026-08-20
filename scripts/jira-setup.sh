@@ -68,7 +68,8 @@ add_status Backlog 'Куча задач до триажа: территория 
 add_status Analysis 'Очередь роли analyst: сюда задачу переводит человек' 2
 add_status Ready 'Очередь роли implementer' 2
 add_status Review 'Очередь роли reviewer; рабочего статуса у неё нет' 4
-add_status Approved 'Ревью пройдено, дальше человек делает merge' 3
+add_status Approved 'Разбор пройден, pull request открыт: ждём merge от человека' 4
+add_status Done 'Работа слита: конец жизни задачи, рабочая папка убрана' 3
 add_status Blocked 'Задача ждёт человека' 2
 
 # --- кастомные поля аренды --------------------------------------------------

@@ -596,3 +596,23 @@ func TestReturnRoundsResetAfterHumanComment(t *testing.T) {
 		t.Errorf("кругов %d, ожидался ноль: человек сказал своё слово", got)
 	}
 }
+
+// Маркер — разметка для раннера, и в тело pull request он не идёт: читают его
+// люди. Поймано живой проверкой на GitHub.
+func TestWithoutMarker(t *testing.T) {
+	body := NoticeBody(Marker{RunID: "abcdef01", Role: "reviewer", Outcome: "done", ConfigSHA: "5bc6a3b0"},
+		"Разбор пройден, замечаний нет.")
+	got := WithoutMarker(body)
+	if strings.Contains(got, Prefix) {
+		t.Errorf("маркер остался: %q", got)
+	}
+	if !strings.Contains(got, "Разбор пройден") {
+		t.Errorf("проза потерялась: %q", got)
+	}
+
+	// Прозу без маркера трогать нечего: первая строка человека — это его слова.
+	human := "Открывай заново.\nPR закрыли по ошибке."
+	if got := WithoutMarker(human); got != human {
+		t.Errorf("слова человека обрезаны: %q", got)
+	}
+}

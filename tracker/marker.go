@@ -36,7 +36,8 @@ const (
 	EventReturnRoundsExhausted = "return-rounds-exhausted"
 	// EventRouteUnknown — агент назвал следующим владельцем роль графа, для которой
 	// у этого исхода маршрута нет. По умолчанию такую задачу везти нельзя: у ревьюера
-	// умолчание — терминал, и работа, которую вернули аналитику, была бы принята.
+	// умолчание ведёт в очередь PR-прохода, и работа, которую вернули аналитику,
+	// была бы принята и уехала бы открывать pull request.
 	EventRouteUnknown = "route-unknown"
 
 	// EventAgentUnavailable — прогон не начинался: агент не сделал ни шага
@@ -51,6 +52,24 @@ const (
 	// и это предел. Счётчик у agent-unavailable и run-truncated общий: следствие
 	// у них одно, а два раздельных счётчика чередование обошло бы.
 	EventIdleRunsExhausted = "idle-runs-exhausted"
+
+	// EventPROpened — офис открыл pull request; адрес лежит в теле записи.
+	//
+	// Это одно из двух событий, по которым выводится состояние PR: смотрится
+	// последнее из них, а не факт в истории.
+	EventPROpened = "pr-opened"
+	// EventPRClosed — pull request закрыт без слияния. Второе событие семейства.
+	EventPRClosed = "pr-closed"
+	// EventMerged — pull request слит человеком; задача уходит в терминальный
+	// статус. В семейство состояния не входит: после слияния открывать нечего.
+	EventMerged = "merged"
+	// EventPRSkipped — у проекта нет forge, и открывать PR негде. Задача уходит
+	// туда же, куда ушла бы после слияния, но событие своё: слияния не было.
+	EventPRSkipped = "pr-skipped"
+	// EventMergeConflict — ветка задачи не сливается с веткой по умолчанию.
+	// Это работа, а не провал: попытка не тратится. В семейство состояния
+	// не входит — открытый PR конфликт не закрывает.
+	EventMergeConflict = "merge-conflict"
 
 	// EventOutcomeOverridden — раннер переиграл исход прогона: ограждение роли
 	// не пропустило сделанное. Отчёт агента остаётся в переписке как есть,
@@ -219,6 +238,61 @@ func PushFailures(comments []Comment, role string) int {
 // прогоны стали прошлым.
 func IdleRuns(comments []Comment, role string) int {
 	return eventStreak(comments, role, EventAgentUnavailable, EventRunTruncated)
+}
+
+// WithoutMarker — тело записи офиса без её первой, машинной строки.
+//
+// Маркер — служебная разметка для раннера, и человеку, читающему pull request,
+// он не нужен: там от него остаётся строка вида `[office run:… role:…]`,
+// которая ничего не объясняет и мешает читать.
+func WithoutMarker(body string) string {
+	line, rest, found := strings.Cut(body, "\n")
+	if !found {
+		if _, ok := ParseMarker(strings.TrimSpace(line)); ok {
+			return ""
+		}
+		return body
+	}
+	if _, ok := ParseMarker(strings.TrimSpace(line)); !ok {
+		return body
+	}
+	return rest
+}
+
+// prEvents — записи, по которым выводится состояние pull request.
+//
+// Их ровно две, и это выбор, а не недосмотр. `merged` и `merge-conflict`
+// в семейство не входят: после слияния открывать нечего, а конфликт открытый PR
+// не закрывает — задача уходит на доработку, и тот же PR ждёт её возвращения.
+var prEvents = []string{EventPROpened, EventPRClosed}
+
+// PRState — последняя запись семейства и адрес PR из её тела.
+//
+// Состояние выводится по последней записи, а не по наличию `pr-opened`
+// в истории. Разница видна на живом случае: PR закрыли руками → задача ушла
+// в Blocked → человек ответил → задача вернулась. По факту в истории второй PR
+// не открылся бы никогда, потому что `pr-opened` там уже есть.
+func PRState(comments []Comment, role string) (event, url string, found bool) {
+	i := lastOfRole(comments, role, func(m Marker) bool {
+		return slices.Contains(prEvents, m.Event)
+	})
+	if i < 0 {
+		return "", "", false
+	}
+	m, _ := MarkerOf(comments[i].Body)
+	return m.Event, firstURL(comments[i].Body), true
+}
+
+// firstURL — первый http-адрес в теле записи. Адрес PR живёт в прозе, а не
+// в маркере: маркер — это набор коротких полей, и длинный URL сделал бы первую
+// строку тикета нечитаемой.
+func firstURL(body string) string {
+	for _, field := range strings.Fields(body) {
+		if strings.HasPrefix(field, "http://") || strings.HasPrefix(field, "https://") {
+			return field
+		}
+	}
+	return ""
 }
 
 // eventStreak — серия однородных записей роли с конца истории.

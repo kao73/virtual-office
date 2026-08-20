@@ -54,7 +54,7 @@ type fakeAgent struct {
 	seen Request // что конвейер отдал агенту
 	runs int
 	// context — контекст, собранный раннером, по ролям: он живёт в рабочей папке,
-	// а её у терминальной задачи к концу цикла уже нет.
+	// а её однажды сносит системный проход, дойдя до терминальной задачи.
 	context map[string]string
 }
 
@@ -170,7 +170,7 @@ func newOffice(t *testing.T) *office {
 			Ledger:     ledger.New(filepath.Join(home, ledger.FileName)),
 			Workflow:   wf,
 			Projects: tracker.Projects{"OFF": {
-				RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/",
+				RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "mock",
 			}},
 			Agent:      agent,
 			ConfigRoot: root,
@@ -939,8 +939,12 @@ func TestFinishWithoutHandoverKeepsAttempts(t *testing.T) {
 }
 
 // Сценарий этапа целиком, без --role: задача проходит Ready → Review → правки →
-// Review → Approved, каждую роль зовёт порядок обхода, а не тест.
-func TestConveyorCarriesTaskFromReadyToApproved(t *testing.T) {
+// Review → Approved → Done, каждую роль зовёт порядок обхода, а не тест.
+//
+// Последний шаг делает системный проход, а не роль: forge у полигона нет,
+// и PR-проход для него вырождается — задача уходит туда же, куда ушла бы слитая,
+// но записью `pr-skipped`, потому что слияния не было.
+func TestConveyorCarriesTaskFromReadyToDone(t *testing.T) {
 	o := newOffice(t)
 	o.agent.commit = "работа автора"
 	o.agent.byRole = map[string]runner.Result{
@@ -984,11 +988,26 @@ func TestConveyorCarriesTaskFromReadyToApproved(t *testing.T) {
 	if task.Attempts != 0 {
 		t.Errorf("счётчик попыток %d: провалов не было", task.Attempts)
 	}
-	if _, err := os.Stat(workdir); !os.IsNotExist(err) {
-		t.Errorf("рабочая папка законченной задачи осталась: %v", err)
+	// Approved — это «разбор прошёл», а не конец: задача ждёт PR-прохода,
+	// и рабочая папка ждёт вместе с ней.
+	if _, err := os.Stat(workdir); err != nil {
+		t.Errorf("рабочая папка одобренной задачи убрана раньше времени: %v", err)
 	}
 	if got := gitIn(o.origin, "log", "--oneline", "agent/OFF-1"); !strings.Contains(got, "работа автора") {
 		t.Errorf("работа не опубликована: %s", got)
+	}
+
+	// Заход четвёртый: работы ролям нет, задачу двигает системный проход.
+	o.tickAll(t)
+	task = o.get(t, "OFF-1")
+	if task.Status != "Done" {
+		t.Fatalf("после прохода статус %q, ожидался Done", task.Status)
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventPRSkipped) {
+		t.Error("проход не сказал, что forge у проекта нет")
+	}
+	if _, err := os.Stat(workdir); !os.IsNotExist(err) {
+		t.Errorf("рабочая папка законченной задачи осталась: %v", err)
 	}
 
 	// В переписке — обе роли и их маршруты, различимые машиной.
@@ -1128,7 +1147,9 @@ func TestTickAllWalksThreeRoles(t *testing.T) {
 	}
 }
 
-// Одобрение уводит задачу в терминальный статус: дальше её ведёт человек.
+// Одобрение уводит задачу в очередь PR-прохода: разбор пройден, дальше офис
+// откроет pull request, а сливает человек. Терминальным этот статус не является
+// — задача живёт до слияния, и рабочая папка живёт вместе с ней.
 func TestReviewerApprovalMovesTaskToApproved(t *testing.T) {
 	o := newOffice(t)
 	o.add("OFF-2", "Review")
@@ -1430,9 +1451,12 @@ func TestLedgerCarriesTermination(t *testing.T) {
 	}
 }
 
-// В терминальном статусе жизнь задачи кончается: работа опубликована, дальше её
-// ведёт человек, и рабочая папка больше не нужна. Не убирать её — копить худший
-// вид мусора: тот, который выглядит рабочим.
+// В терминальном статусе жизнь задачи кончается: работа слита, и рабочая папка
+// больше не нужна. Не убирать её — копить худший вид мусора: тот, который
+// выглядит рабочим.
+//
+// Убирает её системный проход, а не прогон: прогон доводит задачу до Approved,
+// а это ещё не конец — задача ждёт слияния.
 func TestTerminalColumnRemovesWorktree(t *testing.T) {
 	o := newOffice(t)
 	o.add("OFF-2", "Review")
@@ -1446,7 +1470,18 @@ func TestTerminalColumnRemovesWorktree(t *testing.T) {
 	if task := o.get(t, "OFF-2"); task.Status != "Approved" {
 		t.Fatalf("статус %q, ожидался Approved", task.Status)
 	}
-	if _, err := os.Stat(o.agent.seen.Workdir); !os.IsNotExist(err) {
+	workdir := o.agent.seen.Workdir
+	if _, err := os.Stat(workdir); err != nil {
+		t.Fatalf("рабочая папка одобренной задачи убрана раньше слияния: %v", err)
+	}
+
+	if err := o.PRPass(context.Background()); err != nil {
+		t.Fatalf("системный проход не прошёл: %v", err)
+	}
+	if task := o.get(t, "OFF-2"); task.Status != "Done" {
+		t.Fatalf("статус %q, ожидался Done", task.Status)
+	}
+	if _, err := os.Stat(workdir); !os.IsNotExist(err) {
 		t.Errorf("рабочая папка терминальной задачи осталась: %v", err)
 	}
 	// Ветка удаление переживает: worktree эфемерен, работа — нет.
@@ -2191,8 +2226,8 @@ human_reply:
 `
 
 // Роль графа, названную владельцем и не описанную в карте исхода, раннер
-// по умолчанию не везёт. Умолчание тут — терминал: работа была бы принята
-// и снесена вместе с рабочей папкой, хотя её как раз вернули на переделку.
+// по умолчанию не везёт. Умолчание уводит работу вперёд по конвейеру — здесь,
+// в графе этого теста, прямо в терминал, — хотя её как раз вернули на переделку.
 func TestUnknownRouteCallsHumanAndKeepsWork(t *testing.T) {
 	o := newOffice(t)
 	o.withWorkflow(t, strayRouteWorkflow)
