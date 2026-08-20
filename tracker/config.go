@@ -41,15 +41,53 @@ var outcomes = []string{
 // не знает ничего (DESIGN §1).
 type Workflow struct {
 	Statuses []string `yaml:"statuses"`
-	// Terminal — статусы, в которых жизнь задачи кончается: работа опубликована,
-	// рабочая папка больше не нужна.
+	// Terminal — статусы, в которых жизнь задачи кончается: работа слита,
+	// и рабочая папка больше не нужна. Убирает её системный проход, обходя
+	// папки, а не задачи.
 	Terminal []string `yaml:"terminal"`
 	// TickOrder — порядок обхода ролей. Задаётся явно: порядок YAML-карты
 	// не сохраняется, и «по алфавиту» вышло бы совпадением, а не правилом.
-	TickOrder  []string            `yaml:"tick_order"`
-	Roles      map[string]RoleFlow `yaml:"roles"`
-	Limits     Limits              `yaml:"limits"`
-	HumanReply HumanReplyRule      `yaml:"human_reply"`
+	TickOrder []string            `yaml:"tick_order"`
+	Roles     map[string]RoleFlow `yaml:"roles"`
+	// PR — проход pull request. Отдельным блоком, а не ролью в roles, и это
+	// не оформление: роль в roles валидатор потребует в tick_order, а обход
+	// полезет за roles/<имя>/role.yaml. Агента у прохода нет — работу делает
+	// раннер, — и файла роли не будет никогда.
+	PR         PRFlow         `yaml:"pr"`
+	Limits     Limits         `yaml:"limits"`
+	HumanReply HumanReplyRule `yaml:"human_reply"`
+}
+
+// PRFlow — маршрут pull request: откуда проход берёт задачи и куда уводит
+// по каждому исходу.
+//
+// Role — имя, которым подписаны записи прохода. Оно конфигурация, а не
+// константа кода: раннер знает его только отсюда.
+type PRFlow struct {
+	Role     string `yaml:"role"`
+	From     string `yaml:"from"`
+	Merged   string `yaml:"merged"`
+	Conflict string `yaml:"conflict"`
+	Closed   string `yaml:"closed"`
+}
+
+// Set — описан ли проход вовсе. Граф без блока pr — это офис, который PR
+// не открывает; такой граф законен.
+func (p PRFlow) Set() bool { return p.Role != "" }
+
+// Flow — проход глазами остального раннера: такой же поток, как у роли.
+//
+// Нужен там, где код спрашивает граф по имени из маркера и не знает, роль это
+// или проход: разбор ответа человека и записка в ожидание. Исход у прохода
+// ровно один — «спросить человека»; остальные маршруты он выбирает сам,
+// потому что у него нет агента, который назвал бы исход.
+func (p PRFlow) Flow() RoleFlow {
+	return RoleFlow{
+		ReadsFrom: p.From,
+		Outcomes: map[string]Outcome{
+			string(runner.OutcomeNeedsHuman): {To: p.Closed, Human: true},
+		},
+	}
 }
 
 // RoleFlow — место роли в графе.
@@ -173,8 +211,8 @@ func (w Workflow) Order() []string {
 	return slices.Sorted(maps.Keys(w.Roles))
 }
 
-// IsTerminal — кончается ли жизнь задачи в этом статусе. Дальше её ведёт
-// человек, а рабочая папка больше не нужна.
+// IsTerminal — кончается ли жизнь задачи в этом статусе: работа слита,
+// и рабочая папка больше не нужна. Убирает её системный проход.
 func (w Workflow) IsTerminal(status string) bool {
 	return slices.Contains(w.Terminal, status)
 }
@@ -188,8 +226,14 @@ func (w Workflow) IsTerminal(status string) bool {
 // исчерпав попытки или устав возвращать зависшую задачу, — и спрашивать «а чей
 // это статус» в такой момент не у кого.
 func (w Workflow) HumanStatuses() []string {
+	// Проход тоже отправляет задачу к человеку — закрытым без слияния PR.
+	flows := slices.Collect(maps.Values(w.Roles))
+	if w.PR.Set() {
+		flows = append(flows, w.PR.Flow())
+	}
+
 	var statuses []string
-	for _, role := range w.Roles {
+	for _, role := range flows {
 		for _, outcome := range role.Outcomes {
 			if outcome.Human && !slices.Contains(statuses, outcome.To) {
 				statuses = append(statuses, outcome.To)
@@ -201,7 +245,14 @@ func (w Workflow) HumanStatuses() []string {
 }
 
 // Role — описание роли в графе.
+//
+// Имя PR-прохода тоже отвечает: маркеры прохода подписаны им, и разбор ответа
+// человека спрашивает граф именно по имени из маркера. В roles и в tick_order
+// прохода при этом нет — см. PRFlow.
 func (w Workflow) Role(name string) (RoleFlow, error) {
+	if w.PR.Set() && name == w.PR.Role {
+		return w.PR.Flow(), nil
+	}
 	role, found := w.Roles[name]
 	if !found {
 		return RoleFlow{}, fmt.Errorf("роль %q не описана в %s", name, WorkflowFile)
@@ -279,6 +330,7 @@ func (w Workflow) validate() error {
 	}
 
 	errs = append(errs, w.checkOrder()...)
+	errs = append(errs, w.checkPR(known)...)
 
 	// Круги считаются там, где роль вправе вернуть задачу другой. Без предела
 	// задача ходила бы между ролями вечно.
@@ -305,6 +357,44 @@ func (w Workflow) validate() error {
 	known("human_reply.fallback", w.HumanReply.Fallback)
 
 	return errors.Join(errs...)
+}
+
+// checkPR проверяет блок PR-прохода.
+//
+// Проход необязателен: офис без него просто не открывает pull request. Но блок,
+// заполненный наполовину, — это не «без прохода», а опечатка, и молчать о ней
+// нельзя: задача застряла бы в статусе, из которого её никто не берёт.
+func (w Workflow) checkPR(known func(field, status string)) []error {
+	var errs []error
+	filled := w.PR.Role != "" || w.PR.From != "" || w.PR.Merged != "" ||
+		w.PR.Conflict != "" || w.PR.Closed != ""
+	if !filled {
+		return nil
+	}
+	if w.PR.Role == "" {
+		errs = append(errs, errors.New("pr.role не задан: записями прохода нечего подписывать"))
+	}
+	// Проход — не роль: у него нет агента и не будет файла роли. Совпадение имён
+	// увело бы задачи прохода в очередь роли и обратно.
+	if _, clash := w.Roles[w.PR.Role]; clash {
+		errs = append(errs, fmt.Errorf("pr.role=%q: такая роль есть в roles, а проход ролью не является", w.PR.Role))
+	}
+	known("pr.from", w.PR.From)
+	known("pr.merged", w.PR.Merged)
+	known("pr.conflict", w.PR.Conflict)
+	known("pr.closed", w.PR.Closed)
+
+	// Из pr.from проход задачи берёт — терминальным этот статус быть не может:
+	// уборка снесла бы рабочую папку прямо под открытым PR.
+	if slices.Contains(w.Terminal, w.PR.From) {
+		errs = append(errs, fmt.Errorf("pr.from=%q числится терминальным: из этого статуса проход берёт задачи", w.PR.From))
+	}
+	// А pr.merged обязан быть терминальным: слитый PR — это конец жизни задачи,
+	// и папку убирает уборка терминальных.
+	if w.PR.Merged != "" && !slices.Contains(w.Terminal, w.PR.Merged) {
+		errs = append(errs, fmt.Errorf("pr.merged=%q не числится терминальным: после слияния задача никуда больше не идёт", w.PR.Merged))
+	}
+	return errs
 }
 
 // checkOrder проверяет порядок обхода ролей: каждая роль ровно один раз.
@@ -336,13 +426,35 @@ func (w Workflow) checkOrder() []error {
 	return errs
 }
 
-// Project — проект-клиент: где его репозиторий и как раннер зовёт ветки задач.
+// Трекеры, которые офис умеет вести. Список живёт здесь, а не в точке входа:
+// его спрашивает разбор projects.yaml, и разъехаться этим двум местам нельзя.
+var trackers = []string{"mock", "jira"}
+
+// Trackers — имена трекеров для подсказок и сообщений об ошибке.
+func Trackers() []string { return slices.Clone(trackers) }
+
+// Project — проект-клиент: где его репозиторий, как раннер зовёт ветки задач,
+// в каком трекере лежат его задачи и куда офис открывает pull request.
 type Project struct {
 	RepoURL       string `yaml:"repo_url"`
 	DefaultBranch string `yaml:"default_branch"`
 	BranchPrefix  string `yaml:"branch_prefix"`
 	// WorktreeRoot необязателен: пусто — значит ${OFFICE_HOME}/worktrees/<project>.
 	WorktreeRoot string `yaml:"worktree_root"`
+	// Tracker — трекер проекта. Обязателен: одна и та же задача не живёт разом
+	// в файловом трекере и в JIRA, и раннер, запущенный с одним трекером,
+	// не должен видеть чужих проектов.
+	//
+	// Ключ, как и Forge, машинный по природе и переедет в projects.local.yaml
+	// вместе с разнесением конфигурации по машинам.
+	Tracker string `yaml:"tracker"`
+	// Forge — куда открывать pull request. Пусто — forge у проекта нет:
+	// PR-проход вырождается, но маршрут остаётся тем же (см. workflow.yaml: pr).
+	//
+	// Ключ здесь временно. Он машинный по природе, как repo_url и tracker,
+	// и переедет в projects.local.yaml вместе с разнесением конфигурации
+	// по машинам (этап 5, шаг «конфигурация по машинам»).
+	Forge string `yaml:"forge"`
 }
 
 // Projects — проекты по ключу трекера.
@@ -354,6 +466,22 @@ func (p Project) Branch(key string) string { return p.BranchPrefix + key }
 // Keys — ключи проектов по порядку. Порядок устойчивый: обход проектов не должен
 // зависеть от того, как в этот раз лёг хеш.
 func (p Projects) Keys() []string { return slices.Sorted(maps.Keys(p)) }
+
+// For — проекты одного трекера.
+//
+// Раннер запускается с одним трекером и работает только со своими проектами.
+// Чужие не просто бесполезны: спрашивать о них трекер — значит получать ошибку
+// «нет такого проекта» на каждом проходе, а сносить их рабочие папки уборкой
+// системного прохода — терять чужую работу.
+func (p Projects) For(tracker string) Projects {
+	mine := Projects{}
+	for key, project := range p {
+		if project.Tracker == tracker {
+			mine[key] = project
+		}
+	}
+	return mine
+}
 
 // Get отдаёт проект по ключу. Задачу неизвестного проекта раннер брать не вправе:
 // ему негде взять репозиторий и некуда пушить.
@@ -385,6 +513,9 @@ func LoadProjects(path string) (Projects, error) {
 		}
 		if root := project.WorktreeRoot; root != "" && !filepath.IsAbs(root) {
 			errs = append(errs, fmt.Errorf("%s: worktree_root=%q должен быть абсолютным", key, root))
+		}
+		if !slices.Contains(trackers, project.Tracker) {
+			errs = append(errs, fmt.Errorf("%s: tracker=%q, ожидается один из %v", key, project.Tracker, trackers))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {

@@ -116,6 +116,35 @@ func (m *Manager) Ensure(task tracker.TaskRef, project tracker.Project) (Workspa
 	return m.hold(ws)
 }
 
+// Repo заводит и освежает bare-клон проекта, не создавая рабочей папки.
+//
+// Системному проходу клон нужен без worktree: он читает из него файлы изменения
+// (`git show origin/<ветка>:…`) и считает слияемость, а рабочей папки у задачи
+// может не быть — её сносит уборка, а на другой машине её не было никогда.
+// До сих пор клон заводила только подготовка рабочей папки.
+func (m *Manager) Repo(name string, project tracker.Project) (string, error) {
+	return m.repo(name, project)
+}
+
+// Show читает файл из ветки в bare-клоне.
+//
+// Читается origin, а не локальная ветка: локальной на этой машине может не быть.
+// Отсутствующий файл — не ошибка обвязки: у задачи, пришедшей мимо аналитика,
+// каталога изменения нет вовсе.
+func (m *Manager) Show(repo, branch, path string) (string, bool, error) {
+	cmd := exec.Command("git", "-C", repo, "show", "origin/"+branch+":"+path)
+	cmd.Env = gitEnv()
+	out, err := cmd.CombinedOutput()
+	switch {
+	case err == nil:
+		return string(out), true, nil
+	case isExitCode(err, 128):
+		return "", false, nil // нет ни файла, ни ветки
+	default:
+		return "", false, fmt.Errorf("файл %s ветки %s не прочитан: %w\n%s", path, branch, err, out)
+	}
+}
+
 // Push публикует ветку задачи, если на ней есть неопубликованные коммиты.
 // Возвращает, состоялся ли пуш.
 //

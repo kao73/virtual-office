@@ -4,6 +4,12 @@
 #
 # Секретов здесь нет и не будет: токен пуша живёт в окружении.
 #
+# `tracker` обязателен: раннер запускается с одним трекером и работает только
+# со своими проектами. Чужие он не спрашивает и их рабочие папки не убирает.
+#
+# `forge` необязателен: пусто — офис pull request не открывает, и PR-проход
+# для такого проекта вырождается в переход сразу в терминальный статус.
+#
 # Значения ниже — полигонные: `OFFICE` читает файловый трекер (`--tracker mock`),
 # `VO` — проект на локальной JIRA. Оба указывают на один bare-репозиторий на этой
 # машине, и путь к нему у каждого свой: на другой машине его придётся заменить.
@@ -14,9 +20,12 @@ OFFICE:
   repo_url: /Users/aleksejkolesnikov/IdeaProjects/office-polygons/client.git
   default_branch: master
   branch_prefix: agent/
+  tracker: mock
   # worktree_root не задан — значит ${OFFICE_HOME}/worktrees/<проект>.
+  # forge не задан — локальный bare-репозиторий, открывать PR негде.
 
 VO:
   repo_url: /Users/aleksejkolesnikov/IdeaProjects/office-polygons/client.git
   default_branch: master
   branch_prefix: agent/
+  tracker: jira

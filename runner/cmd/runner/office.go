@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/kao73/virtual-office/budget"
+	"github.com/kao73/virtual-office/forge"
 	"github.com/kao73/virtual-office/ledger"
 	"github.com/kao73/virtual-office/pipeline"
 	"github.com/kao73/virtual-office/runagent"
@@ -27,7 +29,8 @@ import (
 // бэкенд ему достались, и именно поэтому его можно проверить целиком
 // на файловом трекере с поддельным агентом.
 func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, error) {
-	trackerName := fs.String("tracker", "mock", "трекер задач: пока только mock")
+	trackerName := fs.String("tracker", "mock",
+		"трекер задач: "+strings.Join(tracker.Trackers(), " или "))
 	backend := fs.String("backend", runagent.DefaultBackend, "бэкенд агента: sbx или local")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -91,10 +94,19 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 			return nil, err
 		}
 	default:
-		return nil, fmt.Errorf("неизвестный трекер %q: доступен mock", *trackerName)
+		return nil, fmt.Errorf("неизвестный трекер %q: доступны %s", *trackerName, strings.Join(tracker.Trackers(), ", "))
 	}
 
 	projects, err := tracker.LoadProjects(filepath.Join(configRoot, tracker.ProjectsFile))
+	if err != nil {
+		return nil, err
+	}
+	// Раннер запускается с одним трекером и работает только со своими проектами.
+	// Чужие не просто бесполезны: трекер отвечает на них «нет такого проекта»
+	// на каждом проходе, а уборка системного прохода снесла бы их рабочие папки.
+	projects = projects.For(*trackerName)
+
+	forges, err := forgesOf(projects)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +141,7 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 		Workspaces: workspaces,
 		Workflow:   workflow,
 		Projects:   projects,
+		Forges:     forges,
 		Agent:      pipeline.SandboxAgent{ConfigRoot: configRoot, Backend: *backend, Log: out},
 		Sandboxes:  sandboxes,
 		Ledger:     runs,
@@ -138,6 +151,36 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 		Accounts:   accounts,
 		Log:        out,
 	}, nil
+}
+
+// forgesOf собирает реализации forge, нужные названным проектам.
+//
+// Собираются они разом и заранее, как трекеры ролей: узнать об отсутствующем
+// токене в середине прохода, уже пообещав задаче pull request, было бы поздно.
+//
+// Проект без forge — законное состояние, а не недонастроенное: оба полигона
+// смотрят в локальный bare-репозиторий, и PR-проход для них вырождается.
+func forgesOf(projects tracker.Projects) (map[string]forge.Forge, error) {
+	github := map[string]string{}
+	for _, key := range projects.Keys() {
+		project := projects[key]
+		switch project.Forge {
+		case "":
+		case forge.Kind:
+			github[key] = project.RepoURL
+		default:
+			return nil, fmt.Errorf("проект %s: forge=%q, известен только %s", key, project.Forge, forge.Kind)
+		}
+	}
+	if len(github) == 0 {
+		return nil, nil
+	}
+
+	impl, err := forge.NewGitHub(github)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]forge.Forge{forge.Kind: impl}, nil
 }
 
 // tickCommand — один цикл: разобрать ответы человека, взять не больше одной

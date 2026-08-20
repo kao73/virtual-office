@@ -89,7 +89,7 @@ PY
 id_of() { awk -v n="$1" '$0 ~ "^" n " " {print $NF}' "$work/statuses.txt"; }
 
 echo "шаги:"
-for status in Analysis Ready Review Approved Blocked; do
+for status in Analysis Ready Review Approved Done Blocked; do
 	steps_page
 	if grep -q "id=\"step_link_[0-9]*\">$status</a>" "$work/steps.html"; then
 		echo "  $status — шаг уже есть"
@@ -105,12 +105,17 @@ for status in Analysis Ready Review Approved Blocked; do
 done
 
 # Переходы — ровно те, которыми ходит раннер (workflow.yaml): захват, исходы
-# трёх ролей, reap, ответ человека, остановка по бюджету — плюс человеческие:
-# триаж Backlog → Analysis и возврат родителя Blocked → Backlog после разбиения.
-# Больше в трекере не нужно ничего.
+# трёх ролей, PR-проход, reap, ответ человека, остановка по бюджету — плюс
+# человеческие: триаж Backlog → Analysis и возврат родителя Blocked → Backlog
+# после разбиения. Больше в трекере не нужно ничего.
 #
 # Backlog → Ready оставлен: задачу, которой план не нужен, человек кладёт
 # в очередь разработчика напрямую.
+#
+# Из Approved теперь три дороги — это PR-проход: слитый PR уводит задачу в Done,
+# конфликт возвращает в Ready, закрытый без слияния зовёт человека в Blocked.
+# `Blocked → Approved` нужен ответу человека на закрытый PR: без него штатный
+# unblock вернуть задачу в очередь прохода не смог бы.
 transitions="Backlog|Analysis|Plan
 Backlog|Ready|Triage
 Analysis|Ready|Handoff
@@ -128,7 +133,11 @@ Review|Blocked|Block
 Blocked|Analysis|Unblock to Analysis
 Blocked|Ready|Unblock to Ready
 Blocked|Review|Unblock to Review
-Blocked|Backlog|Back to Backlog"
+Blocked|Backlog|Back to Backlog
+Approved|Done|Merged
+Approved|Ready|Resolve conflict
+Approved|Blocked|Block
+Blocked|Approved|Unblock to Approved"
 
 echo "переходы:"
 while IFS='|' read -r src dst name; do
