@@ -590,3 +590,54 @@ func TestSetAttemptsAndHumanFlag(t *testing.T) {
 		t.Errorf("в кандидатах %+v, ожидались попытки 2", ready)
 	}
 }
+
+// Круг «записали — прочитали» на теле отчёта. У файлового трекера перевода
+// разметки нет вовсе — markdown в нём читают глазами, — и тело обязано доехать
+// целиком, не только его машинные куски.
+func TestReportSurvivesRoundTrip(t *testing.T) {
+	tr := fixture(t)
+	if err := claim(tr, "прогон-1"); err != nil {
+		t.Fatalf("задача не захвачена: %v", err)
+	}
+
+	marker := tracker.Marker{
+		RunID: "abc12345", Role: "reviewer", Outcome: "needs_human",
+		Next: "human", ConfigSHA: "9f2e1c",
+	}
+	res := runner.Result{
+		Outcome:   "needs_human",
+		Summary:   "Разбор упёрся в **вопрос** к человеку.",
+		DetailsMD: "## Что смотрел\n\n- `pipeline/prpass.go`\n",
+		Questions: []runner.Question{{
+			ID: "Q1", Text: "Идемпотентность или скорость?",
+			Options: []runner.Option{{ID: "a", Label: "идемпотентность"}, {ID: "b", Label: "скорость"}},
+		}},
+		Artifacts: []string{"https://github.com/kao73/office-pr-probe/pull/1"},
+		NextOwner: "human",
+	}
+	body := tracker.ReportBody(marker, res, "agent/OFF-1", runner.Usage{CostUSD: 0.21, DurationMS: 40000, Turns: 12})
+
+	if err := tr.Comment("OFF-1", tracker.ByRun("прогон-1"), body); err != nil {
+		t.Fatalf("комментарий не записан: %v", err)
+	}
+	task, err := tr.Get("OFF-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	stored := task.Comments[0].Body
+
+	if strings.TrimRight(stored, "\n") != strings.TrimRight(body, "\n") {
+		t.Errorf("тело изменилось в пути:\n%s\nотправляли:\n%s", stored, body)
+	}
+	back, ok := tracker.MarkerOf(stored)
+	if !ok || back != marker {
+		t.Errorf("маркер после круга: %+v (ok=%v), отправляли %+v", back, ok, marker)
+	}
+	questions := tracker.ParseQuestions(stored)
+	if len(questions) != 1 || questions[0].ID != "Q1" || len(questions[0].Options) != 2 {
+		t.Errorf("вопросы после круга: %+v", questions)
+	}
+	if !strings.Contains(stored, "https://github.com/kao73/office-pr-probe/pull/1") {
+		t.Errorf("адрес в артефактах изменился:\n%s", stored)
+	}
+}

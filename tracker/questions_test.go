@@ -299,3 +299,46 @@ func TestQuestionsRoundTripRealShape(t *testing.T) {
 		t.Errorf("свободный ответ искажён: %+v", answers[1])
 	}
 }
+
+// Якорем раздела служит текст заголовка, а не точная строка: между тем, как
+// раннер раздел напечатал, и тем, как он его прочитает, лежит трекер, который
+// вправе хранить тело в своей разметке.
+func TestQuestionsHeadingIsRecognisedInBothNotations(t *testing.T) {
+	for _, line := range []string{"## Вопросы", "h2. Вопросы", "  ## Вопросы  ", "H2. Вопросы"} {
+		if !IsQuestionsHeading(line) {
+			t.Errorf("%q не признана заголовком раздела", line)
+		}
+	}
+	// Четыре пробела слева — это блок кода, а не заголовок: правило markdown,
+	// и обе стороны — печать и разбор — держатся его одинаково.
+	for _, line := range []string{"## Вопросы к человеку", "Вопросы", "## Блокер", "h2. Артефакты", "#Вопросы", "    ## Вопросы"} {
+		if IsQuestionsHeading(line) {
+			t.Errorf("%q принята за заголовок раздела", line)
+		}
+	}
+}
+
+// Раздел, записанный в разметке трекера, разбирается так же, как записанный
+// в markdown, и кончается там же — на следующем заголовке.
+func TestParseQuestionsReadsWikiNotation(t *testing.T) {
+	body := strings.Join([]string{
+		"[office run:abc12345 role:analyst outcome:needs_human next:human config:9f2e1c]",
+		"h2. Вопросы",
+		"",
+		"Q1: Идемпотентность или скорость?",
+		"  a) идемпотентность",
+		"  b) скорость",
+		"",
+		"h2. Артефакты",
+		"",
+		"Q9: этот вопрос уже за разделом и в разбор не попадает",
+	}, "\n")
+
+	questions := ParseQuestions(body)
+	if len(questions) != 1 {
+		t.Fatalf("вопросов %d, ожидался 1: %+v", len(questions), questions)
+	}
+	if questions[0].ID != "Q1" || len(questions[0].Options) != 2 {
+		t.Errorf("вопрос разобран как %+v", questions[0])
+	}
+}
