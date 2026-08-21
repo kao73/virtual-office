@@ -1,0 +1,78 @@
+schema: comet.native.v4
+name: onboarding-doc
+language: en
+phase: shape
+status: active
+state_version: 8
+brief: brief.md
+spec_changes:
+  - capability: onboarding-doc
+    operation: create
+    source: specs/onboarding-doc/spec.md
+workspace:
+  isolation: branch
+  change_branch: comet/onboarding-doc
+  target_branch: master
+  finish: null
+loop:
+  stage: shape
+  goal_cycle: 2
+  iteration: 0
+  attempt: 0
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: confirm-shape
+acceptance: []
+builder_handoff: null
+blockers: []
+verification: null
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A1
+      - A2
+      - A4
+      - A6
+      - A13
+      - A29
+      - A35
+    summary:
+      text: "Семь пунктов отказали. Три отказа — обещания полноты, не выдержавшие
+        счёта («каждый шаг отсылает», «каждый симптом ведёт к разделу»,
+        «проверки трекер не трогают»). Два — непроходимость документа: пробная
+        задача не может уйти из Ready в Analysis, и исход четвёртого тика описан
+        только для проекта с forge. Один — дорожка «новая машина» без креда
+        forge. Один — рецепт, не дающий второго инстанса без правки
+        отслеживаемого файла. Раннтаймовые проверки (go test, go vet, ссылки,
+        serverInfo, синтаксис скрипта) прошли все пять."
+      truncated: false
+    completed_at: 2026-08-21T18:50:31.555Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-21T19:11:45.477Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-08-21T10:22:49.170Z
