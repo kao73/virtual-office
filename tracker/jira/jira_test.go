@@ -943,3 +943,26 @@ func TestLoadConfigNamesExampleWhenMissing(t *testing.T) {
 		t.Errorf("отказ не назвал образец: %v", err)
 	}
 }
+
+// Пустой файл на новой машине — обычный шаг («завёл, ещё не заполнил»), и отказ
+// обязан назвать недостающее, а не сказать «не разобран: EOF». Адрес инстанса
+// среди недостающего называется первым: без него идти некуда.
+func TestLoadConfigNamesWhatIsMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), TrackerFile)
+	if err := os.WriteFile(path, []byte("# сюда допишу позже\n"), 0o644); err != nil {
+		t.Fatalf("файл не записан: %v", err)
+	}
+
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal("пустая конфигурация принята за годную")
+	}
+	if strings.Contains(err.Error(), "EOF") {
+		t.Errorf("отказ говорит про EOF вместо причины: %v", err)
+	}
+	for _, want := range []string{"base_url", "accounts.default", "status_map", "human_flag_label"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не назвал %s: %v", want, err)
+		}
+	}
+}

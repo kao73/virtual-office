@@ -819,6 +819,11 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	var errs []error
+	// Без адреса инстанса конфигурация не конфигурация, а отказ без него называл бы
+	// всё недостающее, кроме самого главного.
+	if cfg.BaseURL == "" {
+		errs = append(errs, errors.New("base_url не задан: без адреса инстанса идти некуда"))
+	}
 	if cfg.Accounts.Default.UserEnv == "" || cfg.Accounts.Default.SecretEnv == "" {
 		errs = append(errs, errors.New("accounts.default не задана: под ней офис ходит в трекер по умолчанию, учётки ролей — опция поверх неё"))
 	}

@@ -598,9 +598,8 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 	}
 
 	for key, project := range projects {
-		where := machinePath
 		if project.RepoURL == "" {
-			errs = append(errs, fmt.Errorf("%s: repo_url не задан (%s)", key, where))
+			errs = append(errs, fmt.Errorf("%s: repo_url не задан (%s)", key, machinePath))
 		}
 		if project.DefaultBranch == "" {
 			errs = append(errs, fmt.Errorf("%s: default_branch не задан (%s)", key, officePath))
@@ -609,11 +608,11 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 			errs = append(errs, fmt.Errorf("%s: branch_prefix не задан (%s)", key, officePath))
 		}
 		if root := project.WorktreeRoot; root != "" && !filepath.IsAbs(root) {
-			errs = append(errs, fmt.Errorf("%s: worktree_root=%q должен быть абсолютным (%s)", key, root, where))
+			errs = append(errs, fmt.Errorf("%s: worktree_root=%q должен быть абсолютным (%s)", key, root, machinePath))
 		}
 		if !slices.Contains(trackers, project.Tracker) {
 			errs = append(errs, fmt.Errorf("%s: tracker=%q, ожидается один из %v (%s)",
-				key, project.Tracker, trackers, where))
+				key, project.Tracker, trackers, machinePath))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
