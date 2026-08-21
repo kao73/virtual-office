@@ -1,9 +1,9 @@
 schema: comet.native.v4
 name: onboarding-doc
 language: en
-phase: verify
+phase: build
 status: active
-state_version: 17
+state_version: 18
 brief: brief.md
 spec_changes:
   - capability: onboarding-doc
@@ -15,102 +15,132 @@ workspace:
   target_branch: master
   finish: null
 loop:
-  stage: verify-ready
+  stage: repairing
   goal_cycle: 2
-  iteration: 3
-  attempt: 1
+  iteration: 4
+  attempt: 0
   retry_epoch: 0
-  failed_iteration_count: 2
-  no_progress_count: 1
+  failed_iteration_count: 3
+  no_progress_count: 2
   execution_failure_count: 0
   previous_unresolved_ids:
-    - A5
-    - A21
-  next_action: await-verifier-result
+    - A2
+    - A43
+  next_action: repair-failed-acceptance
 acceptance:
   - id: A1
     source: specs/onboarding-doc/spec.md
     text: Полное поведение способности после архивации изменения.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A2
     source: specs/onboarding-doc/spec.md
     text: "`docs/ONBOARDING.md` ведёт от чистой машины и пустой JIRA до задачи,
       прошедшей все три роли и PR-проход. Он рассчитан на того, у кого нет
       ничего, кроме клона офиса."
-    result: pending
-    reason: null
+    result: failed
+    reason:
+      text: "Обоснование, почему пробная задача не годится в учебные, неверно дважды:
+        к Б7 она в Backlog (так велит квадратик самого документа), а ход Backlog
+        → Analysis есть; и даже из Ready в Analysis можно за два перехода через
+        Blocked — тот самый, которым документ её и уводит. Посылка верна, вывод
+        нет; дефект в двух местах."
+      truncated: false
   - id: A3
     source: specs/onboarding-doc/spec.md
     text: Каждый шаг — квадратик `- [ ]`. Документ проходят, отмечая сделанное, а не
       читают по диагонали.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A4
     source: specs/onboarding-doc/spec.md
     text: "Документ говорит, **что** делать; **почему** именно так — в заметках
       `docs/notes/`, и ONBOARDING отсылает к их разделам. Объяснения не
       дублируются: две копии одного объяснения расходятся при первой же правке."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A5
     source: specs/onboarding-doc/spec.md
     text: Каждый шаг называет, **чем проверить, что он удался**. Шаг без проверки
       читатель считает сделанным, узнавая обратное через два шага.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A6
     source: specs/onboarding-doc/spec.md
     text: "Дорожка **«новая машина»** проходится один раз на машину: инструменты,
       сеть песочниц, креды агента и forge, хозяйство `${OFFICE_HOME}`."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A7
     source: specs/onboarding-doc/spec.md
     text: "Дорожка **«новый проект»** проходится на каждый проект: инстанс трекера,
       репозиторий проекта-клиента, две половины конфигурации, проверка."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A8
     source: specs/onboarding-doc/spec.md
     text: Документ в начале говорит, какую дорожку читателю проходить. Второй проект
       на настроенной машине не заставляет перечитывать первую дорожку.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A9
     source: specs/onboarding-doc/spec.md
     text: "Контейнер Jira Software 8.13.19 на Atlassian Plugin SDK лежит в
       `bootstrap/jira/`: `Dockerfile`, `compose.yaml`, каталог `project/` с POM
       и дескриптором плагина, `.dockerignore` и `README.md`."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A10
     source: specs/onboarding-doc/spec.md
     text: "Место выбрано по назначению каталога: `bootstrap/` — обвязка машины
       вокруг офиса, там уже лежат задания планировщика. Инстанс трекера того же
       рода — офис его не содержит, он им пользуется."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A11
     source: specs/onboarding-doc/spec.md
     text: "Каталог SDK в git не едет: 88 МБ распакованных артефактов, а вместе с
       архивом, из которого их достают, около 165. Читатель качает и
       распаковывает его сам командой из `bootstrap/jira/README.md`, а
       `.gitignore` держит и каталог, и архив."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A12
     source: specs/onboarding-doc/spec.md
     text: Адрес, с которого качается SDK, **проверен запросом**, а не выписан по
       памяти.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A13
     source: specs/onboarding-doc/spec.md
     text: "Порт инстанса задаётся переменной `JIRA_PORT`, и второй инстанс рядом с
       первым — штатный случай: ради него рецепт и переносился."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A14
     source: specs/onboarding-doc/spec.md
     text: "В рецепте не остаётся знания об одной машине. Измеренное про память —
@@ -118,211 +148,276 @@ acceptance:
       контейнер при этом остаётся `healthy`, — знание об офисе и остаётся;
       соседний стек владельца и его свободные гигабайты названы как пример, а не
       как факт про читателя."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A15
     source: specs/onboarding-doc/spec.md
     text: Рецепт **собирается и поднимается** на этой машине из своего нового места
       — не переписан на глаз.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A16
     source: specs/onboarding-doc/spec.md
     text: "Порядок в документе тот, в котором шаги обязаны идти: инстанс, затем
       проект по Kanban-шаблону, затем `jira-setup.sh`, `jira-workflow.sh`,
       `jira-boards.sh`. Скрипт workflow правит workflow **проекта**, поэтому
       проект заводится раньше него."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A17
     source: specs/onboarding-doc/spec.md
     text: "Всем четырём скриптам передают `--url` и учётку: значения по умолчанию
       указывают на полигон, а заводят читатели свой инстанс."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A18
     source: specs/onboarding-doc/spec.md
     text: Идентификаторы полей аренды документ **не подставляет**. Их печатает
       `jira-setup.sh` в конце, и на каждом инстансе они свои; в документе стоит
       `customfield_NNNNN` и указание перенести напечатанное в
       `${OFFICE_HOME}/tracker.yaml`.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A19
     source: specs/onboarding-doc/spec.md
     text: "Учёток обязательно две: офисная и человеческая. Отдельные учётки ролей —
       опция, и документ говорит, как её не заводить."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A20
     source: specs/onboarding-doc/spec.md
     text: "Документ предупреждает про **срок девелоперской лицензии SDK** — трое
       суток с момента, когда ключ попал в инстанс, — и называет способ продлить:
       `down -v` и настройка заново. Читатель узнаёт об этом до того, как заведёт
       на полигоне живой проект."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A21
     source: specs/onboarding-doc/spec.md
     text: "Документ называет три требования к репозиторию: ветка по умолчанию
       совпадает с `default_branch` проекта, `.gitignore` закрывает мусор
       прогонов и тестов, а `GITHUB_TOKEN` даёт право писать в репозиторий и
       открывать в нём pull request."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A22
     source: specs/onboarding-doc/spec.md
     text: Токен один на оба действия — раннер пушит и открывает PR им же, — и
       документ говорит это прямо, чтобы читатель не заводил второй.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A23
     source: specs/onboarding-doc/spec.md
     text: "Проект без forge — законный случай: локальный bare-репозиторий, `forge`
       не задан, PR-проход вырождается. Документ называет его, потому что первый
       заход обычно такой."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A24
     source: specs/onboarding-doc/spec.md
     text: "Документ разводит половины по границе офиса и инстанса: имя проекта и
       свойства веток — в `projects.yaml` репозитория, `repo_url`,
       `worktree_root`, `tracker` и `forge` — в
       `${OFFICE_HOME}/projects.local.yaml`."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A25
     source: specs/onboarding-doc/spec.md
     text: "Документ предупреждает, что поставляемый `projects.yaml` описывает
       полигоны этого офиса, и заводящий свой проект их заменяет: раннер требует
       машинную половину каждому названному проекту."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A26
     source: specs/onboarding-doc/spec.md
     text: "`${OFFICE_HOME}/tracker.yaml` делается копированием
       `tracker.example.yaml`, и правятся в нём ровно пять значений: `base_url` и
       четыре `customfield_*`."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A27
     source: specs/onboarding-doc/spec.md
     text: "Бюджеты на первом заходе — `warn`: предел, поставленный до первого
       замера, останавливает работу вместо того, чтобы о ней рассказать."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A28
     source: specs/onboarding-doc/spec.md
     text: "Четыре проверки идут по возрастанию цены: раннер печатает, откуда взял
       каждый файл конфигурации; `run-agent --dry-run` каждой из трёх ролей;
       `runner tick` на пустой очереди; учебная задача через три роли и
       PR-проход."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A29
     source: specs/onboarding-doc/spec.md
     text: Первые три ничего не стоят и не трогают трекер — документ говорит это,
       чтобы их не пропускали.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A30
     source: specs/onboarding-doc/spec.md
     text: Документ называет, что именно смотреть в выводе каждой проверки, а не
       только команду.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A31
     source: specs/onboarding-doc/spec.md
     text: "Документ перечисляет ровно то, что не скриптуется, и у каждого пункта —
       причина: экран перехода и снятие глобального входа живут только в
       редакторе диаграмм; раскладка карточки и быстрый фильтр — настройка доски,
       до которой раннеру дела нет; память Docker задаётся на машине."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A32
     source: specs/onboarding-doc/spec.md
     text: "Экран перехода `Office: Claim` документ помечает как ненужный, пока
       раннер на проект один. Заводить его на первом заходе не надо."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A33
     source: specs/onboarding-doc/spec.md
     text: "Workflow **скриптуется**: `jira-workflow.sh` правит его через формы
       текстового редактора. План этапа числит этот шаг ручным, и расхождение
       записано в отчёт."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A34
     source: specs/onboarding-doc/spec.md
     text: "Документ заканчивается коротким списком «выглядит так — на самом деле вот
       что»: контейнер жив, а порт молчит; задача пропала с доски; трекер
       отвечает обрывом связи; `config:…-dirty` в метке прогона; раннер отказался
       стартовать."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A35
     source: specs/onboarding-doc/spec.md
     text: Список закрыт теми симптомами, которые ловились вживую, и каждый ведёт к
       разделу, где причина разобрана.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A36
     source: specs/onboarding-doc/spec.md
     text: Каждый файл, скрипт и флаг, названные в документе, существуют — проверено
       по самому документу, а не по памяти.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A37
     source: specs/onboarding-doc/spec.md
     text: "`run-agent --dry-run` тремя ролями и `runner tick` на пустой очереди
       прогнаны живьём; что они напечатали, лежит в отчёте."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A38
     source: specs/onboarding-doc/spec.md
     text: Рецепт из `bootstrap/jira/` собран и поднят на этой машине, и инстанс
       ответил на `serverInfo`.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A39
     source: specs/onboarding-doc/spec.md
     text: "`gofmt`, `go vet` и `go test ./...` остаются зелёными: кода шаг не
       трогает, и это тоже утверждение, которое проверяется."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A40
     source: specs/onboarding-doc/spec.md
     text: "README отсылает к ONBOARDING оттуда, где сегодня обрывается быстрый
       старт: файловый трекер отлаживает конвейер, настоящий заход описан
       документом."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A41
     source: specs/onboarding-doc/spec.md
     text: "`docs/notes/jira-setup.md` остаётся заметкой про «почему» и отсылает к
       ONBOARDING за порядком действий. Порядок из неё не исчезает молча."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A42
     source: specs/onboarding-doc/spec.md
     text: "Знание о контейнерном полигоне, жившее в памяти помощника, переезжает в
       репозиторий: `bootstrap/jira/README.md` и ONBOARDING. В памяти остаётся
       указатель на них."
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
   - id: A43
     source: specs/onboarding-doc/spec.md
     text: "`docs/notes/stage-5-onboarding.md` рассказывает, что вышло: чем оказалась
       дорожка «новая машина» против дорожки «новый проект», что пришлось
       проверить живьём, и что документ обещает читателю, но проверено будет
       только шагом 5."
-    result: pending
-    reason: null
+    result: failed
+    reason:
+      text: "Два числа не выдерживают пересчёта: «семнадцать имён разделов» — столько
+        печатал проверяющий скрипт, считая одно имя дважды (ссылок шестнадцать,
+        имён тринадцать); «кругов было три» — к моменту коммита их четыре, и
+        находка четвёртого описана тут же ниже."
+      truncated: false
   - id: A44
     source: specs/onboarding-doc/spec.md
     text: Отчёт называет расхождения с планом этапа — и то, где план оказался прав.
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
+      truncated: false
 builder_handoff:
   candidate_id: 5d02cbdc-4c58-4b8d-99b2-081eb9d8ec82
   identity_provider: skill-coordinated
@@ -410,8 +505,165 @@ builder_handoff:
       truncated: false
   known_limits_truncated: false
   submitted_at: 2026-08-21T20:18:02.255Z
-blockers: []
-verification: null
+blockers:
+  - owner: builder
+    reason:
+      text: Native verification has not made reliable progress twice; use a different
+        repair hypothesis before resubmitting.
+      truncated: false
+    acceptance_ids:
+      - A2
+      - A43
+    resolution_action: return-build
+verification:
+  candidate_id: 5d02cbdc-4c58-4b8d-99b2-081eb9d8ec82
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:54ef25fe-5bec-410c-aa7a-bf2a8d086e2c
+  iteration: 3
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: fail
+  checks:
+    - id: go-test-5
+      name:
+        text: go test ./...
+        truncated: false
+      argv_display:
+        - text: test
+          truncated: false
+        - text: -count=1
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 54125
+    - id: refs-5
+      name:
+        text: файлы, скрипты и флаги, названные в ONBOARDING, существуют
+        truncated: false
+      argv_display:
+        - text: /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/check-refs.sh
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 25
+    - id: sections-5
+      name:
+        text: каждое имя раздела в ссылках существует
+        truncated: false
+      argv_display:
+        - text: /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/checkrefs2.sh
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 65
+    - id: b4-recipe-5
+      name:
+        text: "рецепт Б4 целиком: .gitignore в дереве bare и в рабочей папке агента"
+        truncated: false
+      argv_display:
+        - text: /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/check-b4.sh
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 316
+    - id: b4-reverse-5
+      name:
+        text: "обратный ход: на прежнем рецепте проверка Б4 падает"
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: "!
+            /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-o\
+            ffice/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/check-b4-brok\
+            en.sh >/dev/null 2>&1 && echo 'падает, как и должна'"
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 299
+    - id: compose-p-5
+      name:
+        text: docker compose -p office-jira работает из корня офиса
+        truncated: false
+      argv_display:
+        - text: compose
+          truncated: false
+        - text: -p
+          truncated: false
+        - text: "[REDACTED]"
+          truncated: false
+        - text: ps
+          truncated: false
+        - text: --quiet
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 181
+    - id: server-info-5
+      name:
+        text: инстанс отвечает на serverInfo
+        truncated: false
+      argv_display:
+        - text: -fsS
+          truncated: false
+        - text: -m
+          truncated: false
+        - text: "10"
+          truncated: false
+        - text: http://localhost:2990/jira/rest/api/2/serverInfo
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 65
+  summary:
+    text: "Два отказа, и оба — ошибки рассуждения, а не реализации. Первый:
+      обоснование, почему пробная задача не годится в учебные, выведено неверно
+      из верной посылки, и стоит в двух местах. Второй: два числа в отчёте, оба
+      перенесённые из вывода собственного проверяющего скрипта и из счёта
+      кругов, устаревшего к моменту коммита. Семь машинных проверок прошли,
+      включая обратный ход на прежнем рецепте Б4."
+    truncated: false
+  risks:
+    - text: Блок «Сначала SDK» в README рецепта уводит cd bootstrap/jira и не
+        возвращает, а следующая проверка ждёт корень офиса.
+      truncated: false
+    - text: Проверка прав в Б3 обещает показать автора комментария, а curl идёт с -o
+        /dev/null.
+      truncated: false
+    - text: "Сумма размера SDK: спецификация «около 165», рецепт 88 МиБ плюс 73 МиБ —
+        161; 165 выходит только смешением единиц."
+      truncated: false
+    - text: "Арифметика в отчёте: 2.97 плюс 3.49 дают 6.46, а написано «около 5.7»."
+      truncated: false
+    - text: docker compose -p office-jira down -v живьём не проверялся, в отличие от
+        ps.
+      truncated: false
+    - text: "Порядок «проект → jira-setup.sh» по-прежнему не проверен живьём: на
+        инстансе ни одного проекта."
+      truncated: false
+    - text: Рецепт Б4 опирается на git 2.32+, берущий имя ветки с сервера.
+      truncated: false
+    - text: "«Три команды из семи» читается шире, чем сказано: worktree rm офис
+        собирает."
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-21T20:42:44.697Z
 history:
   - goal_cycle: 1
     iteration: 1
@@ -483,6 +735,22 @@ history:
         проходила добавленная машинная проверка."
       truncated: false
     completed_at: 2026-08-21T20:17:30.394Z
+  - goal_cycle: 2
+    iteration: 3
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+      - A43
+    summary:
+      text: "Два отказа, и оба — ошибки рассуждения, а не реализации. Первый:
+        обоснование, почему пробная задача не годится в учебные, выведено
+        неверно из верной посылки, и стоит в двух местах. Второй: два числа в
+        отчёте, оба перенесённые из вывода собственного проверяющего скрипта и
+        из счёта кругов, устаревшего к моменту коммита. Семь машинных проверок
+        прошли, включая обратный ход на прежнем рецепте Б4."
+      truncated: false
+    completed_at: 2026-08-21T20:42:44.697Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
@@ -493,7 +761,7 @@ history_overflow:
     blocked: 0
     execution-error: 0
     recovery: 0
-verification_result: pending
-verification_report: null
+verification_result: fail
+verification_report: verification.md
 archived: false
 created_at: 2026-08-21T10:22:49.170Z
