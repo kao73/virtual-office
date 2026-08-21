@@ -3,7 +3,7 @@ name: onboarding-doc
 language: en
 phase: verify
 status: active
-state_version: 14
+state_version: 17
 brief: brief.md
 spec_changes:
   - capability: onboarding-doc
@@ -17,19 +17,15 @@ workspace:
 loop:
   stage: verify-ready
   goal_cycle: 2
-  iteration: 2
+  iteration: 3
   attempt: 1
   retry_epoch: 0
-  failed_iteration_count: 1
-  no_progress_count: 0
+  failed_iteration_count: 2
+  no_progress_count: 1
   execution_failure_count: 0
   previous_unresolved_ids:
-    - A2
     - A5
-    - A16
-    - A24
-    - A41
-    - A43
+    - A21
   next_action: await-verifier-result
 acceptance:
   - id: A1
@@ -328,74 +324,68 @@ acceptance:
     result: pending
     reason: null
 builder_handoff:
-  candidate_id: 8425d005-0644-47fe-93c9-26ffe76d4106
+  candidate_id: 5d02cbdc-4c58-4b8d-99b2-081eb9d8ec82
   identity_provider: skill-coordinated
-  builder_execution_ref: skill-coordinated:builder:c247b8d0-f60d-45e3-820b-b82a92f0ee1c
-  iteration: 2
+  builder_execution_ref: skill-coordinated:builder:b8013da1-308b-428c-b068-e177b1697ee0
+  iteration: 3
   summary:
-    text: "Круг четвёртый, коммит 118a909. Починены все шесть отказов. A2: пустого
-      bare-репозитория не хватает — ветку задачи ответвляют от
-      origin/<default_branch>, и Б4 теперь заводит репозиторий с коммитом на ней
-      (клон, .gitignore, пустой коммит, push); та же дыра исправлена в быстром
-      старте README, где жила с этапа 2. A16: шапка и последняя строка вывода
-      scripts/jira-setup.sh переписаны под порядок «проект первым» — прежде они
-      велели завести проект, который читатель только что завёл. A41: раздел
-      заметки «Почему порядок настройки именно такой» переписан под тот же
-      порядок, с экранами как первой причиной и workflow проекта как второй.
-      A24: ${OFFICE_HOME} держит машинную половину конфигурации, офисная в
-      репозитории. A5: отложенные квадратики названы поимённо вместо
-      непосчитанного «три»; A2 говорит, что охват токена проверяется в Б4;
-      claude --version убран из обязательных; git check-ignore перенесён в
-      рабочий клон. A43: раздел отчёта о находках пересобран по трём кругам и по
-      родам, раздел о расхождениях со спецификацией убран — после её правки
-      расходиться стало нечему. Плюс шесть неблокирующих: сумма размеров SDK
-      заменена слагаемыми, ссылка на sbx.md названа с хвостом, стоимость down -v
-      названа честно (сносится и том с артефактами), проверка прав печатает код
-      ответа, config_sha считает и неотслеживаемые файлы, терпение healthcheck
-      отделено от замера старта."
+    text: "Круг пятый, коммит 5fd8632. A21: рецепт Б4 переписан — .gitignore
+      индексируется явно (`git add`), коммит без `-a` и без `--allow-empty`;
+      проверка второго требования смотрит на `ls-files --error-unmatch`
+      (отслеживается ли файл) и только потом на `check-ignore` (работает ли
+      правило), с прямым объяснением, почему одной второй мало. Сам шаг
+      переставлен: рецепт вперёд, проверки следом — прежде check-ignore называл
+      каталог, которого на тот момент не было. Машинная проверка bare-repo-4
+      заменена на check-b4.sh: она заводит клон тем же способом, что раннер
+      (init + remote add + fetch, а не clone --bare, иначе нет ссылок origin/*),
+      ответвляет от него ветку задачи и убеждается, что .gitignore есть и в
+      дереве bare, и в рабочей папке агента; проверена обратным ходом — на
+      прежнем рецепте падает и называет все три следствия. A5: во всех трёх
+      местах docker compose зовётся с -p office-jira (имя проекта задано в самом
+      compose-файле, поэтому находится из корня офиса — проверено); у квадратика
+      «проект есть, ключ выбран» появилась проверка через REST. Плюс восемь
+      неблокирующих: worktree rm отнесён к командам, собирающим офис; config_sha
+      объяснён один раз вместо двух разошедшихся копий; строка таблицы про
+      Office: Claim отвечает на вопрос колонки; у симптома с обрывом связи
+      назван пойманный вживую случай (localhost → ::1) и сказано, что на
+      нынешнем рецепте он закрыт — контейнер слушает обе, обе отвечают 200;
+      стоимость down -v дополнена тем, что идентификаторы полей заведутся новые
+      и Б5 придётся поправить; в отчёте названо, что тик на пустой очереди
+      гонялся под mock, а чек-лист велит jira, и почему на новом инстансе он бы
+      не дошёл; число ссылок пересчитано — семнадцать имён разделов в шести
+      файлах; ссылка на README сделана машиночитаемой."
     truncated: false
   addressed_acceptance_ids:
-    - A2
     - A5
-    - A16
-    - A24
-    - A41
-    - A43
+    - A21
   checks:
     - name:
-        text: go test ./..., go vet, gofmt
+        text: go test ./..., gofmt
         truncated: false
       result: passed
       note:
         text: кода шаг не трогает
         truncated: false
     - name:
-        text: существование файлов, скриптов, флагов
+        text: рецепт Б4 целиком, включая рабочую папку агента
         truncated: false
       result: passed
       note:
-        text: скриптом
+        text: check-b4.sh; проверен обратным ходом на прежнем рецепте
         truncated: false
     - name:
         text: ссылки «файл, раздел «имя»»
         truncated: false
       result: passed
       note:
-        text: шестнадцать ссылок в пять файлов
+        text: семнадцать имён, шесть файлов
         truncated: false
     - name:
-        text: docker compose config
+        text: docker compose -p office-jira из корня офиса
         truncated: false
       result: passed
       note:
-        text: bootstrap/jira
-        truncated: false
-    - name:
-        text: bash -n правленых скриптов
-        truncated: false
-      result: passed
-      note:
-        text: jira-setup.sh, jira-boards.sh
+        text: ps отвечает
         truncated: false
     - name:
         text: инстанс отвечает на serverInfo
@@ -406,20 +396,20 @@ builder_handoff:
         truncated: false
   checks_truncated: false
   known_limits:
-    - text: Порядок «проект → jira-setup.sh» выведен из кода скрипта (он перебирает
-        застигнутые экраны) и из рассуждения о том, что шаблон Kanban приносит
-        свои; живьём не проверен — на инстансе проектов нет. Записано в отчёт
-        отдельным пунктом «за границей шага» с указанием шагу 5 проверить это
-        первым делом.
+    - text: "Размер SDK в спецификации назван как «около 165», в README рецепта —
+        слагаемыми 88 и 73. Правку в спецификацию не несу: она подтверждена
+        владельцем, и её изменение вернуло бы изменение в фазу замысла ради
+        одного числа."
+      truncated: false
+    - text: "Порядок «проект → jira-setup.sh» выведен из кода и рассуждения про экраны
+        шаблона, живьём не проверен: на инстансе проектов нет. Записано в отчёт
+        с указанием шагу 5 проверить первым делом."
       truncated: false
     - text: Чек-лист не пройден подряд от первой команды до открытого pull request —
         шаг 5 по плану этапа.
       truncated: false
-    - text: "Команда заведения bare-репозитория в Б4 выведена из кода workspace, но
-        самим документом не прогонялась: репозиторий полигона давно не пуст."
-      truncated: false
   known_limits_truncated: false
-  submitted_at: 2026-08-21T19:54:34.299Z
+  submitted_at: 2026-08-21T20:18:02.255Z
 blockers: []
 verification: null
 history:
@@ -476,6 +466,23 @@ history:
         предыдущих кругах."
       truncated: false
     completed_at: 2026-08-21T19:54:00.597Z
+  - goal_cycle: 2
+    iteration: 2
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A5
+      - A21
+    summary:
+      text: "Два отказа, оба одного рода — «шаг верен сам по себе и ломает соседа», и
+        ни один из семи машинных прогонов их не ловит. Первый: проверка Б1
+        требует docker compose там, где документ только что увёл читателя в
+        корень офиса. Второй хуже: рецепт Б4 не клал .gitignore в репозиторий, а
+        проверка, написанная это доказать, проходила ложно — check-ignore читает
+        рабочее дерево независимо от отслеживания, и вместе с ним ложно
+        проходила добавленная машинная проверка."
+      truncated: false
+    completed_at: 2026-08-21T20:17:30.394Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null

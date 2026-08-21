@@ -19,6 +19,7 @@ cd bootstrap/jira
 curl -fsSLO https://maven.artifacts.atlassian.com/com/atlassian/amps/atlassian-plugin-sdk/8.2.10/atlassian-plugin-sdk-8.2.10.tar.gz
 mkdir -p sdk && tar xzf atlassian-plugin-sdk-8.2.10.tar.gz -C sdk
 ls sdk/atlassian-plugin-sdk-8.2.10       # bin repository apache-maven-3.9.5
+cd -                                     # обратно в корень офиса
 ```
 
 Файл — 76 758 884 байта, `sha256` начинается на `9cb3a00a`; проверено 2026-08-21.
