@@ -4,8 +4,10 @@
 # Повторяемость важнее краткости: H2 полигона сбрасывается удалением каталога,
 # и после сброса всё это надо завести заново. Поэтому скрипт, а не память о кликах.
 #
-# Что скриптом НЕ делается и остаётся человеку — workflow и схема workflow:
-# в REST API Jira Server 8.13 их нет вовсе. Инструкция — docs/notes/jira-setup.md.
+# Это первый из трёх скриптов настройки, и порядок между ними обязателен: здесь
+# заводится глобальное — статусы, поля, экраны, учётки; затем создаётся проект;
+# затем jira-workflow.sh правит workflow ЭТОГО проекта, а jira-boards.sh — доски.
+# Порядок и проверки к каждому шагу — docs/ONBOARDING.md, дорожка «новый проект».
 #
 #   scripts/jira-setup.sh [--url http://localhost:2990/jira] [--user admin] [--password admin]
 #
@@ -139,7 +141,7 @@ else
 fi
 
 echo
-echo "готово. Осталось руками — workflow и схема: docs/notes/jira-setup.md"
+echo "готово. Дальше — проект, затем jira-workflow.sh и jira-boards.sh: docs/ONBOARDING.md"
 echo "поля для \${OFFICE_HOME}/tracker.yaml (образец — tracker.example.yaml в репозитории):"
 echo "  agent_owner: $owner_id"
 echo "  run_id:      $run_id"

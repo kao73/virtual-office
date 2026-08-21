@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Полигон Jira Software на Atlassian Plugin SDK.
+     Плагина здесь нет и не нужно: проект существует ради <applications>.
+     Её нельзя передать флагом — у параметра нет maven-свойства, а
+     atlas-run-standalone работает без POM и про applications не знает вовсе. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>local.office</groupId>
+    <artifactId>polygon</artifactId>
+    <version>1.0</version>
+    <packaging>atlassian-plugin</packaging>
+    <name>polygon</name>
+    <organization>
+        <name>office</name>
+        <url>http://localhost/</url>
+    </organization>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>com.atlassian.maven.plugins</groupId>
+                <artifactId>jira-maven-plugin</artifactId>
+                <version>${amps.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <productVersion>${jira.version}</productVersion>
+                    <productDataVersion>${jira.version}</productDataVersion>
+                    <httpPort>2990</httpPort>
+                    <contextPath>/jira</contextPath>
+                    <!-- Имя хоста уходит в baseurl, который Jira запоминает в базе.
+                         Без него туда попал бы идентификатор контейнера, и ссылки
+                         в интерфейсе вели бы в никуда. -->
+                    <server>localhost</server>
+                    <!-- Ради этой строчки всё и затевалось: Core плюс приложение Software.
+                         Лицензию на него SDK выдаёт сам — проверено, unlimited seats. -->
+                    <applications>
+                        <application>
+                            <applicationKey>jira-software</applicationKey>
+                            <version>${jira.version}</version>
+                        </application>
+                    </applications>
+                    <instructions>
+                        <Atlassian-Plugin-Key>${atlassian.plugin.key}</Atlassian-Plugin-Key>
+                    </instructions>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <properties>
+        <jira.version>8.13.19</jira.version>
+        <amps.version>8.14.3</amps.version>
+        <atlassian.plugin.key>${project.groupId}.${project.artifactId}</atlassian.plugin.key>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+    </properties>
+</project>
