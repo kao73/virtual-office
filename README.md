@@ -56,7 +56,12 @@ git clone <repo> virtual-office && cd virtual-office
 export CLAUDE_CODE_OAUTH_TOKEN='...'      # или ANTHROPIC_API_KEY
 
 # 2. Репозиторий проекта-клиента. Годится любой; для пробы — локальный.
+#    Пустого мало: ветку задачи раннер ответвляет от origin/<default_branch>,
+#    и без единого коммита такой ссылки нет.
 git init --bare -b master /tmp/client.git
+git clone -q /tmp/client.git /tmp/client
+git -C /tmp/client -c user.name=you -c user.email=you@local commit -q --allow-empty -m init
+git -C /tmp/client push -q origin master
 
 # 3. Назвать проект офису — projects.yaml в репозитории. Поставляемый файл
 #    описывает полигоны ЭТОГО офиса (OFFICE и VO); заведя свой, замените их:

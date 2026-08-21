@@ -1,9 +1,9 @@
 schema: comet.native.v4
 name: onboarding-doc
 language: en
-phase: shape
+phase: verify
 status: active
-state_version: 8
+state_version: 11
 brief: brief.md
 spec_changes:
   - capability: onboarding-doc
@@ -15,18 +15,404 @@ workspace:
   target_branch: master
   finish: null
 loop:
-  stage: shape
+  stage: verify-ready
   goal_cycle: 2
-  iteration: 0
-  attempt: 0
+  iteration: 1
+  attempt: 1
   retry_epoch: 0
   failed_iteration_count: 0
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
-  next_action: confirm-shape
-acceptance: []
-builder_handoff: null
+  next_action: await-verifier-result
+acceptance:
+  - id: A1
+    source: specs/onboarding-doc/spec.md
+    text: Полное поведение способности после архивации изменения.
+    result: pending
+    reason: null
+  - id: A2
+    source: specs/onboarding-doc/spec.md
+    text: "`docs/ONBOARDING.md` ведёт от чистой машины и пустой JIRA до задачи,
+      прошедшей все три роли и PR-проход. Он рассчитан на того, у кого нет
+      ничего, кроме клона офиса."
+    result: pending
+    reason: null
+  - id: A3
+    source: specs/onboarding-doc/spec.md
+    text: Каждый шаг — квадратик `- [ ]`. Документ проходят, отмечая сделанное, а не
+      читают по диагонали.
+    result: pending
+    reason: null
+  - id: A4
+    source: specs/onboarding-doc/spec.md
+    text: "Документ говорит, **что** делать; **почему** именно так — в заметках
+      `docs/notes/`, и ONBOARDING отсылает к их разделам. Объяснения не
+      дублируются: две копии одного объяснения расходятся при первой же правке."
+    result: pending
+    reason: null
+  - id: A5
+    source: specs/onboarding-doc/spec.md
+    text: Каждый шаг называет, **чем проверить, что он удался**. Шаг без проверки
+      читатель считает сделанным, узнавая обратное через два шага.
+    result: pending
+    reason: null
+  - id: A6
+    source: specs/onboarding-doc/spec.md
+    text: "Дорожка **«новая машина»** проходится один раз на машину: инструменты,
+      сеть песочниц, креды агента и forge, хозяйство `${OFFICE_HOME}`."
+    result: pending
+    reason: null
+  - id: A7
+    source: specs/onboarding-doc/spec.md
+    text: "Дорожка **«новый проект»** проходится на каждый проект: инстанс трекера,
+      репозиторий проекта-клиента, две половины конфигурации, проверка."
+    result: pending
+    reason: null
+  - id: A8
+    source: specs/onboarding-doc/spec.md
+    text: Документ в начале говорит, какую дорожку читателю проходить. Второй проект
+      на настроенной машине не заставляет перечитывать первую дорожку.
+    result: pending
+    reason: null
+  - id: A9
+    source: specs/onboarding-doc/spec.md
+    text: "Контейнер Jira Software 8.13.19 на Atlassian Plugin SDK лежит в
+      `bootstrap/jira/`: `Dockerfile`, `compose.yaml`, каталог `project/` с POM
+      и дескриптором плагина, `.dockerignore` и `README.md`."
+    result: pending
+    reason: null
+  - id: A10
+    source: specs/onboarding-doc/spec.md
+    text: "Место выбрано по назначению каталога: `bootstrap/` — обвязка машины
+      вокруг офиса, там уже лежат задания планировщика. Инстанс трекера того же
+      рода — офис его не содержит, он им пользуется."
+    result: pending
+    reason: null
+  - id: A11
+    source: specs/onboarding-doc/spec.md
+    text: "Каталог SDK в git не едет: 88 МБ распакованных артефактов, а вместе с
+      архивом, из которого их достают, около 165. Читатель качает и
+      распаковывает его сам командой из `bootstrap/jira/README.md`, а
+      `.gitignore` держит и каталог, и архив."
+    result: pending
+    reason: null
+  - id: A12
+    source: specs/onboarding-doc/spec.md
+    text: Адрес, с которого качается SDK, **проверен запросом**, а не выписан по
+      памяти.
+    result: pending
+    reason: null
+  - id: A13
+    source: specs/onboarding-doc/spec.md
+    text: "Порт инстанса задаётся переменной `JIRA_PORT`, и второй инстанс рядом с
+      первым — штатный случай: ради него рецепт и переносился."
+    result: pending
+    reason: null
+  - id: A14
+    source: specs/onboarding-doc/spec.md
+    text: "В рецепте не остаётся знания об одной машине. Измеренное про память —
+      предел `mem_limit: 6g`, смерть по OOM на четырёх гигабайтах и то, что
+      контейнер при этом остаётся `healthy`, — знание об офисе и остаётся;
+      соседний стек владельца и его свободные гигабайты названы как пример, а не
+      как факт про читателя."
+    result: pending
+    reason: null
+  - id: A15
+    source: specs/onboarding-doc/spec.md
+    text: Рецепт **собирается и поднимается** на этой машине из своего нового места
+      — не переписан на глаз.
+    result: pending
+    reason: null
+  - id: A16
+    source: specs/onboarding-doc/spec.md
+    text: "Порядок в документе тот, в котором шаги обязаны идти: инстанс, затем
+      проект по Kanban-шаблону, затем `jira-setup.sh`, `jira-workflow.sh`,
+      `jira-boards.sh`. Скрипт workflow правит workflow **проекта**, поэтому
+      проект заводится раньше него."
+    result: pending
+    reason: null
+  - id: A17
+    source: specs/onboarding-doc/spec.md
+    text: "Всем четырём скриптам передают `--url` и учётку: значения по умолчанию
+      указывают на полигон, а заводят читатели свой инстанс."
+    result: pending
+    reason: null
+  - id: A18
+    source: specs/onboarding-doc/spec.md
+    text: Идентификаторы полей аренды документ **не подставляет**. Их печатает
+      `jira-setup.sh` в конце, и на каждом инстансе они свои; в документе стоит
+      `customfield_NNNNN` и указание перенести напечатанное в
+      `${OFFICE_HOME}/tracker.yaml`.
+    result: pending
+    reason: null
+  - id: A19
+    source: specs/onboarding-doc/spec.md
+    text: "Учёток обязательно две: офисная и человеческая. Отдельные учётки ролей —
+      опция, и документ говорит, как её не заводить."
+    result: pending
+    reason: null
+  - id: A20
+    source: specs/onboarding-doc/spec.md
+    text: "Документ предупреждает про **срок девелоперской лицензии SDK** — трое
+      суток с момента, когда ключ попал в инстанс, — и называет способ продлить:
+      `down -v` и настройка заново. Читатель узнаёт об этом до того, как заведёт
+      на полигоне живой проект."
+    result: pending
+    reason: null
+  - id: A21
+    source: specs/onboarding-doc/spec.md
+    text: "Документ называет три требования к репозиторию: ветка по умолчанию
+      совпадает с `default_branch` проекта, `.gitignore` закрывает мусор
+      прогонов и тестов, а `GITHUB_TOKEN` даёт право писать в репозиторий и
+      открывать в нём pull request."
+    result: pending
+    reason: null
+  - id: A22
+    source: specs/onboarding-doc/spec.md
+    text: Токен один на оба действия — раннер пушит и открывает PR им же, — и
+      документ говорит это прямо, чтобы читатель не заводил второй.
+    result: pending
+    reason: null
+  - id: A23
+    source: specs/onboarding-doc/spec.md
+    text: "Проект без forge — законный случай: локальный bare-репозиторий, `forge`
+      не задан, PR-проход вырождается. Документ называет его, потому что первый
+      заход обычно такой."
+    result: pending
+    reason: null
+  - id: A24
+    source: specs/onboarding-doc/spec.md
+    text: "Документ разводит половины по границе офиса и инстанса: имя проекта и
+      свойства веток — в `projects.yaml` репозитория, `repo_url`,
+      `worktree_root`, `tracker` и `forge` — в
+      `${OFFICE_HOME}/projects.local.yaml`."
+    result: pending
+    reason: null
+  - id: A25
+    source: specs/onboarding-doc/spec.md
+    text: "Документ предупреждает, что поставляемый `projects.yaml` описывает
+      полигоны этого офиса, и заводящий свой проект их заменяет: раннер требует
+      машинную половину каждому названному проекту."
+    result: pending
+    reason: null
+  - id: A26
+    source: specs/onboarding-doc/spec.md
+    text: "`${OFFICE_HOME}/tracker.yaml` делается копированием
+      `tracker.example.yaml`, и правятся в нём ровно пять значений: `base_url` и
+      четыре `customfield_*`."
+    result: pending
+    reason: null
+  - id: A27
+    source: specs/onboarding-doc/spec.md
+    text: "Бюджеты на первом заходе — `warn`: предел, поставленный до первого
+      замера, останавливает работу вместо того, чтобы о ней рассказать."
+    result: pending
+    reason: null
+  - id: A28
+    source: specs/onboarding-doc/spec.md
+    text: "Четыре проверки идут по возрастанию цены: раннер печатает, откуда взял
+      каждый файл конфигурации; `run-agent --dry-run` каждой из трёх ролей;
+      `runner tick` на пустой очереди; учебная задача через три роли и
+      PR-проход."
+    result: pending
+    reason: null
+  - id: A29
+    source: specs/onboarding-doc/spec.md
+    text: Первые три ничего не стоят и не трогают трекер — документ говорит это,
+      чтобы их не пропускали.
+    result: pending
+    reason: null
+  - id: A30
+    source: specs/onboarding-doc/spec.md
+    text: Документ называет, что именно смотреть в выводе каждой проверки, а не
+      только команду.
+    result: pending
+    reason: null
+  - id: A31
+    source: specs/onboarding-doc/spec.md
+    text: "Документ перечисляет ровно то, что не скриптуется, и у каждого пункта —
+      причина: экран перехода и снятие глобального входа живут только в
+      редакторе диаграмм; раскладка карточки и быстрый фильтр — настройка доски,
+      до которой раннеру дела нет; память Docker задаётся на машине."
+    result: pending
+    reason: null
+  - id: A32
+    source: specs/onboarding-doc/spec.md
+    text: "Экран перехода `Office: Claim` документ помечает как ненужный, пока
+      раннер на проект один. Заводить его на первом заходе не надо."
+    result: pending
+    reason: null
+  - id: A33
+    source: specs/onboarding-doc/spec.md
+    text: "Workflow **скриптуется**: `jira-workflow.sh` правит его через формы
+      текстового редактора. План этапа числит этот шаг ручным, и расхождение
+      записано в отчёт."
+    result: pending
+    reason: null
+  - id: A34
+    source: specs/onboarding-doc/spec.md
+    text: "Документ заканчивается коротким списком «выглядит так — на самом деле вот
+      что»: контейнер жив, а порт молчит; задача пропала с доски; трекер
+      отвечает обрывом связи; `config:…-dirty` в метке прогона; раннер отказался
+      стартовать."
+    result: pending
+    reason: null
+  - id: A35
+    source: specs/onboarding-doc/spec.md
+    text: Список закрыт теми симптомами, которые ловились вживую, и каждый ведёт к
+      разделу, где причина разобрана.
+    result: pending
+    reason: null
+  - id: A36
+    source: specs/onboarding-doc/spec.md
+    text: Каждый файл, скрипт и флаг, названные в документе, существуют — проверено
+      по самому документу, а не по памяти.
+    result: pending
+    reason: null
+  - id: A37
+    source: specs/onboarding-doc/spec.md
+    text: "`run-agent --dry-run` тремя ролями и `runner tick` на пустой очереди
+      прогнаны живьём; что они напечатали, лежит в отчёте."
+    result: pending
+    reason: null
+  - id: A38
+    source: specs/onboarding-doc/spec.md
+    text: Рецепт из `bootstrap/jira/` собран и поднят на этой машине, и инстанс
+      ответил на `serverInfo`.
+    result: pending
+    reason: null
+  - id: A39
+    source: specs/onboarding-doc/spec.md
+    text: "`gofmt`, `go vet` и `go test ./...` остаются зелёными: кода шаг не
+      трогает, и это тоже утверждение, которое проверяется."
+    result: pending
+    reason: null
+  - id: A40
+    source: specs/onboarding-doc/spec.md
+    text: "README отсылает к ONBOARDING оттуда, где сегодня обрывается быстрый
+      старт: файловый трекер отлаживает конвейер, настоящий заход описан
+      документом."
+    result: pending
+    reason: null
+  - id: A41
+    source: specs/onboarding-doc/spec.md
+    text: "`docs/notes/jira-setup.md` остаётся заметкой про «почему» и отсылает к
+      ONBOARDING за порядком действий. Порядок из неё не исчезает молча."
+    result: pending
+    reason: null
+  - id: A42
+    source: specs/onboarding-doc/spec.md
+    text: "Знание о контейнерном полигоне, жившее в памяти помощника, переезжает в
+      репозиторий: `bootstrap/jira/README.md` и ONBOARDING. В памяти остаётся
+      указатель на них."
+    result: pending
+    reason: null
+  - id: A43
+    source: specs/onboarding-doc/spec.md
+    text: "`docs/notes/stage-5-onboarding.md` рассказывает, что вышло: чем оказалась
+      дорожка «новая машина» против дорожки «новый проект», что пришлось
+      проверить живьём, и что документ обещает читателю, но проверено будет
+      только шагом 5."
+    result: pending
+    reason: null
+  - id: A44
+    source: specs/onboarding-doc/spec.md
+    text: Отчёт называет расхождения с планом этапа — и то, где план оказался прав.
+    result: pending
+    reason: null
+builder_handoff:
+  candidate_id: a382a0a0-e693-40f0-99b1-da7425932ad3
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:b45361fd-b45d-4700-bb14-cf24e5a8c829
+  iteration: 1
+  summary:
+    text: "Круг третий, коммит 946e74f. Починены девять отказов второго круга.
+      Главное: пробная задача из Б2 больше не остаётся в Ready — её уводят Ready
+      → Blocked → Backlog, потому что Ready это очередь разработчика и холостой
+      тик из Б7 захватил бы её. Порядок настройки развёрнут: проект заводится
+      первым, затем три скрипта — jira-setup.sh кладёт поля на застигнутые
+      экраны, а шаблон Kanban приносит свои, и настройка до проекта дала бы
+      «Field cannot be set» первым захватом. Убраны три дублирования вопреки
+      собственному правилу документа: канонический регистр имени, config_sha,
+      статус без колонки — теперь ссылки. В Б1 назван способ продлить лицензию
+      (down -v и настройка заново). У первого симптома дописано имя раздела.
+      Упомянут четвёртый скрипт семейства (jira-tasks.sh) с его флагами. Абсолют
+      «единственное отступление» пересчитан — отложенных проверок три. python3
+      отнесён к скриптам jira-*.sh, а не к каталогу целиком. Проверка прав в Б3
+      переписана на переменные учётки. У git, claude и uv появились проверки.
+      Пробный репозиторий коммитится с явной личностью. Размер SDK назван обоими
+      числами с их предметами. В памяти помощника 162 МБ заменены на 88.
+      Спецификация правлена владельцем в двух местах, где неправа была она
+      (размер SDK, состав списка симптомов), и подтверждена заново."
+    truncated: false
+  addressed_acceptance_ids:
+    - A2
+    - A4
+    - A11
+    - A16
+    - A17
+    - A20
+    - A29
+    - A34
+    - A35
+  checks:
+    - name:
+        text: go test ./..., go vet, gofmt
+        truncated: false
+      result: passed
+      note:
+        text: кода шаг не трогает
+        truncated: false
+    - name:
+        text: существование файлов, скриптов, флагов, разделов
+        truncated: false
+      result: passed
+      note:
+        text: отдельным скриптом
+        truncated: false
+    - name:
+        text: ссылки «файл, раздел «имя»»
+        truncated: false
+      result: passed
+      note:
+        text: шестнадцать ссылок, все разделы существуют
+        truncated: false
+    - name:
+        text: docker compose config
+        truncated: false
+      result: passed
+      note:
+        text: bootstrap/jira/compose.yaml
+        truncated: false
+    - name:
+        text: bash -n правленых скриптов
+        truncated: false
+      result: passed
+      note:
+        text: jira-setup.sh, jira-boards.sh
+        truncated: false
+    - name:
+        text: инстанс отвечает на serverInfo
+        truncated: false
+      result: passed
+      note:
+        text: 8.13.19
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: "Порядок «проект → jira-setup.sh» выведен из кода (скрипт раскладывает
+        поля по существующим экранам), но живьём не проверен: инстанс поднят и
+        пуст, а заводить на нём проект — работа шага 5. Это записано и в отчёт."
+      truncated: false
+    - text: Чек-лист не пройден подряд от первой команды до открытого pull request —
+        шаг 5 по плану этапа.
+      truncated: false
+    - text: "Три квадратика проверяются позже, чем стоят: Б5 и Б6 — первой проверкой
+        Б7, право токена forge из A2 — в Б4. Названо в каждом из трёх мест."
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-21T19:30:57.192Z
 blockers: []
 verification: null
 history:
