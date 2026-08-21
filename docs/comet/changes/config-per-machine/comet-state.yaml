@@ -3,7 +3,7 @@ name: config-per-machine
 language: en
 phase: archive
 status: active
-state_version: 42
+state_version: 43
 brief: brief.md
 spec_changes:
   - capability: config-per-machine
@@ -13,7 +13,7 @@ workspace:
   isolation: branch
   change_branch: comet/config-per-machine
   target_branch: master
-  finish: null
+  finish: merge
 loop:
   stage: archive-ready
   goal_cycle: 9
