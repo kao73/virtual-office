@@ -3,7 +3,7 @@ name: onboarding-doc
 language: en
 phase: build
 status: active
-state_version: 25
+state_version: 30
 brief: brief.md
 spec_changes:
   - capability: onboarding-doc
@@ -13,18 +13,17 @@ workspace:
   isolation: branch
   change_branch: comet/onboarding-doc
   target_branch: master
-  finish: null
+  finish: merge
 loop:
   stage: repairing
   goal_cycle: 2
-  iteration: 6
+  iteration: 7
   attempt: 0
   retry_epoch: 0
-  failed_iteration_count: 5
-  no_progress_count: 1
+  failed_iteration_count: 6
+  no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids:
-    - A5
     - A43
   next_action: submit-builder-candidate
 acceptance:
@@ -456,6 +455,32 @@ history:
         замечания. При успешном круге — архивация со слиянием в master."
       truncated: false
     completed_at: 2026-08-21T21:59:39.119Z
+  - goal_cycle: 2
+    iteration: 6
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A43
+    summary:
+      text: "Один отказ, и он целиком в отчёте о работе: два числа, устаревшие от
+        правок этого же круга. В документе, рецепте, скриптах и заметках
+        проверяющий не нашёл ничего — правки восьмого круга проверены против
+        кода и живого инстанса и держатся."
+      truncated: false
+    completed_at: 2026-08-21T22:23:14.485Z
+  - goal_cycle: 2
+    iteration: 6
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Владелец решил закрывать. Убираю из отчёта счётчики самого процесса
+        проверки — число ссылок и ряд отказов по кругам: оба меняются от каждого
+        круга и потому неверны в момент чтения. Отчёт будет ссылаться на историю
+        в comet-state.yaml и на вывод машинной проверки вместо копирования
+        чисел. Плюс три неблокирующих замечания."
+      truncated: false
+    completed_at: 2026-08-21T22:26:41.496Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
