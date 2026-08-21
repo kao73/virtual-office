@@ -29,11 +29,17 @@ func TestShippedConfigIsValid(t *testing.T) {
 		t.Errorf("max_attempts = %d", wf.Limits.MaxAttempts)
 	}
 
-	projects, err := LoadProjects(filepath.Join(root, ProjectsFile))
-	if err != nil {
-		t.Fatalf("%s не загружен: %v", ProjectsFile, err)
+	// Машинную половину репозиторий не хранит и хранить не должен, поэтому
+	// здесь проверяется только то, что его половина разбирается и границу
+	// не нарушает.
+	if err := checkOfficeHalf(filepath.Join(root, ProjectsFile)); err != nil {
+		t.Error(err)
 	}
-	if len(projects) == 0 {
+	var office map[string]officeProject
+	if err := decodeStrict(filepath.Join(root, ProjectsFile), &office); err != nil {
+		t.Fatalf("%s не разобран: %v", ProjectsFile, err)
+	}
+	if len(office) == 0 {
 		t.Error("список проектов пуст: раннеру нечего брать в работу")
 	}
 }
@@ -395,15 +401,27 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 	}
 }
 
-const validProjects = `OFF:
-  repo_url: https://example.test/office.git
+// Две половины одного проекта: офисная живёт в репозитории, машинная —
+// в ${OFFICE_HOME}.
+const (
+	validOffice = `OFF:
   default_branch: master
   branch_prefix: agent/
+`
+	validMachine = `OFF:
+  repo_url: https://example.test/office.git
   tracker: mock
 `
+)
+
+// loadHalves — проекты, собранные из двух временных файлов.
+func loadHalves(t *testing.T, office, machine string) (Projects, error) {
+	t.Helper()
+	return LoadProjects(writeTemp(t, ProjectsFile, office), writeTemp(t, ProjectsLocalFile, machine))
+}
 
 func TestLoadProjects(t *testing.T) {
-	projects, err := LoadProjects(writeTemp(t, ProjectsFile, validProjects))
+	projects, err := loadHalves(t, validOffice, validMachine)
 	if err != nil {
 		t.Fatalf("проекты не загружены: %v", err)
 	}
@@ -412,8 +430,16 @@ func TestLoadProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("проект OFF не найден: %v", err)
 	}
+	// Обе половины доехали: ветка собрана из офисной, репозиторий и трекер —
+	// из машинной. Иначе склейка могла бы терять половину молча.
 	if got := p.Branch("OFF-12"); got != "agent/OFF-12" {
 		t.Errorf("ветка %q, ожидалась agent/OFF-12", got)
+	}
+	if p.RepoURL != "https://example.test/office.git" {
+		t.Errorf("repo_url из машинной половины не доехал: %q", p.RepoURL)
+	}
+	if p.Tracker != "mock" {
+		t.Errorf("tracker из машинной половины не доехал: %q", p.Tracker)
 	}
 
 	// Задачу неизвестного проекта раннер брать не вправе: ему негде взять
@@ -446,22 +472,21 @@ func TestProjectsFor(t *testing.T) {
 
 func TestLoadProjectsRejectsIncomplete(t *testing.T) {
 	cases := []struct {
-		name string
-		yaml string
-		want string
+		name, office, machine, want string
 	}{
-		{"неизвестное поле", strings.Replace(validProjects, "repo_url:", "repo:", 1), "repo"},
-		{"нет репозитория", strings.Replace(validProjects, "  repo_url: https://example.test/office.git\n", "", 1), "repo_url"},
-		{"нет ветки по умолчанию", strings.Replace(validProjects, "  default_branch: master\n", "", 1), "default_branch"},
-		{"нет префикса веток", strings.Replace(validProjects, "  branch_prefix: agent/\n", "", 1), "branch_prefix"},
-		{"относительный worktree_root", validProjects + "  worktree_root: ../рядом\n", "worktree_root"},
-		{"нет трекера", strings.Replace(validProjects, "  tracker: mock\n", "", 1), "tracker"},
-		{"чужой трекер", strings.Replace(validProjects, "tracker: mock", "tracker: youtrack", 1), "youtrack"},
+		{"неизвестное поле офиса", strings.Replace(validOffice, "default_branch:", "branch:", 1), validMachine, "branch"},
+		{"неизвестное поле машины", validOffice, strings.Replace(validMachine, "repo_url:", "repo:", 1), "repo"},
+		{"нет репозитория", validOffice, strings.Replace(validMachine, "  repo_url: https://example.test/office.git\n", "", 1), "repo_url"},
+		{"нет ветки по умолчанию", strings.Replace(validOffice, "  default_branch: master\n", "", 1), validMachine, "default_branch"},
+		{"нет префикса веток", strings.Replace(validOffice, "  branch_prefix: agent/\n", "", 1), validMachine, "branch_prefix"},
+		{"относительный worktree_root", validOffice, validMachine + "  worktree_root: ../рядом\n", "worktree_root"},
+		{"нет трекера", validOffice, strings.Replace(validMachine, "  tracker: mock\n", "", 1), "tracker"},
+		{"чужой трекер", validOffice, strings.Replace(validMachine, "tracker: mock", "tracker: youtrack", 1), "youtrack"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := LoadProjects(writeTemp(t, ProjectsFile, tc.yaml))
+			_, err := loadHalves(t, tc.office, tc.machine)
 			if err == nil {
 				t.Fatal("неполный проект загружен без ошибки")
 			}
@@ -470,6 +495,62 @@ func TestLoadProjectsRejectsIncomplete(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Граница держится кодом, а не памятью того, кто через полгода будет править
+// файл. Машинный ключ в файле офиса — отказ, и отказ называет, куда ключ переехал:
+// строгий разбор сказал бы только «неизвестное поле», и человек пошёл бы искать
+// опечатку.
+func TestLoadProjectsRejectsMachineKeysInOfficeFile(t *testing.T) {
+	for _, key := range machineKeys {
+		t.Run(key, func(t *testing.T) {
+			office := validOffice + "  " + key + ": что-нибудь\n"
+			_, err := loadHalves(t, office, validMachine)
+			if err == nil {
+				t.Fatal("машинный ключ пропущен в файл офиса")
+			}
+			if !strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), ProjectsLocalFile) {
+				t.Errorf("отказ не назвал ключ или файл, куда он переехал: %v", err)
+			}
+		})
+	}
+}
+
+// Половины сверяются друг с другом по списку ключей, и обе стороны — отказ.
+// Проект, названный офисом и не заведённый на машине, пропущенный молча,
+// выглядел бы как проект, по которому просто нет задач. Проект, заведённый
+// на машине и не названный офисом, — почти всегда опечатка в имени.
+func TestLoadProjectsRequiresBothHalves(t *testing.T) {
+	t.Run("нет машинной половины", func(t *testing.T) {
+		_, err := loadHalves(t, validOffice+"VO:\n  default_branch: main\n  branch_prefix: a/\n", validMachine)
+		if err == nil {
+			t.Fatal("проект без машинных ключей загружен")
+		}
+		if !strings.Contains(err.Error(), "VO") {
+			t.Errorf("отказ не назвал проект: %v", err)
+		}
+	})
+
+	t.Run("нет офисной половины", func(t *testing.T) {
+		_, err := loadHalves(t, validOffice, validMachine+"OFICE:\n  repo_url: https://example.test/x.git\n  tracker: mock\n")
+		if err == nil {
+			t.Fatal("проект, не названный офисом, загружен")
+		}
+		if !strings.Contains(err.Error(), "OFICE") {
+			t.Errorf("отказ не назвал проект: %v", err)
+		}
+	})
+
+	t.Run("машинного файла нет вовсе", func(t *testing.T) {
+		_, err := LoadProjects(writeTemp(t, ProjectsFile, validOffice),
+			filepath.Join(t.TempDir(), ProjectsLocalFile))
+		if err == nil {
+			t.Fatal("проекты загружены без машинной половины")
+		}
+		if !strings.Contains(err.Error(), ProjectsLocalFile) {
+			t.Errorf("отказ не назвал недостающий файл: %v", err)
+		}
+	})
 }
 
 // Граф с PR-проходом: блок `pr` описывает маршрут pull request, а роли `office`
@@ -568,5 +649,39 @@ func TestWorkflowWithoutPRPass(t *testing.T) {
 	}
 	if _, err := w.Role("office"); err == nil {
 		t.Error("граф без блока pr отвечает про роль office")
+	}
+}
+
+// «Завёл файл, ещё не заполнил» — обычное состояние на новой машине, и отказ
+// должен назвать, чего не хватает, а не сказать «не разобран: EOF».
+func TestLoadProjectsExplainsEmptyMachineHalf(t *testing.T) {
+	for name, body := range map[string]string{
+		"пустой":         "",
+		"из комментария": "# сюда допишу позже\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadHalves(t, validOffice, body)
+			if err == nil {
+				t.Fatal("пустая машинная половина принята за годную")
+			}
+			if strings.Contains(err.Error(), "EOF") {
+				t.Errorf("отказ говорит про EOF вместо причины: %v", err)
+			}
+			if !strings.Contains(err.Error(), "OFF") {
+				t.Errorf("отказ не назвал проект: %v", err)
+			}
+		})
+	}
+}
+
+// «Ни одного проекта» — тоже отказ. Прочие беды склейки говорят вслух, и промолчать
+// здесь значило бы оставить раннер крутить пустые тики без объяснений.
+func TestLoadProjectsRejectsEmptyOffice(t *testing.T) {
+	_, err := loadHalves(t, "", validMachine)
+	if err == nil {
+		t.Fatal("офис без проектов принят за годный")
+	}
+	if !strings.Contains(err.Error(), ProjectsFile) {
+		t.Errorf("отказ не назвал файл офиса: %v", err)
 	}
 }

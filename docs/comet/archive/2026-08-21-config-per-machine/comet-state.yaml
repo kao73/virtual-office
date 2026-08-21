@@ -1,0 +1,744 @@
+schema: comet.native.v4
+name: config-per-machine
+language: en
+phase: archive
+status: done
+state_version: 44
+brief: brief.md
+spec_changes:
+  - capability: config-per-machine
+    operation: create
+    source: specs/config-per-machine/spec.md
+workspace:
+  isolation: branch
+  change_branch: comet/config-per-machine
+  target_branch: master
+  finish: merge
+loop:
+  stage: done
+  goal_cycle: 9
+  iteration: 3
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 2
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: specs/config-per-machine/spec.md
+    text: Полное поведение способности после архивации изменения.
+    result: passed
+    reason:
+      text: Спецификация описывает способность целиком.
+      truncated: false
+  - id: A2
+    source: specs/config-per-machine/spec.md
+    text: "**Репозиторий описывает офис. `${OFFICE_HOME}` описывает инстанс.**"
+    result: passed
+    reason:
+      text: Формулировка границы проведена сквозь код и документы.
+      truncated: false
+  - id: A3
+    source: specs/config-per-machine/spec.md
+    text: "В репозитории остаётся то, что одинаково у любого, кто поднимет этот
+      офис: роли, граф переходов, хуки, скиллы, имена проектов и их неизменные
+      свойства, дефолтные бюджеты. В `${OFFICE_HOME}` уезжает всё, что правят,
+      заводя новую машину или второй инстанс: пути, адреса, учётки,
+      идентификаторы полей JIRA."
+    result: passed
+    reason:
+      text: В репозитории машинных значений не осталось; они в ~/.office.
+      truncated: false
+  - id: A4
+    source: specs/config-per-machine/spec.md
+    text: "Граница держится не памятью того, кто правит файл, а кодом: загрузчик
+      отвергает машинный ключ, встреченный в репозитории."
+    result: passed
+    reason:
+      text: checkOfficeHalf зовётся первым в LoadProjects; плюс тест по файлам офиса.
+      truncated: false
+  - id: A5
+    source: specs/config-per-machine/spec.md
+    text: "`projects.yaml` в репозитории называет проекты и их неизменные свойства —
+      `default_branch` и `branch_prefix`. Больше в нём ничего нет."
+    result: passed
+    reason:
+      text: projects.yaml — только default_branch и branch_prefix; officeProject
+        больше ничего не примет.
+      truncated: false
+  - id: A6
+    source: specs/config-per-machine/spec.md
+    text: "`${OFFICE_HOME}/projects.local.yaml` даёт машинные ключи каждому проекту:
+      `repo_url`, `worktree_root`, `tracker`, `forge`."
+    result: passed
+    reason:
+      text: machineProject даёт ровно repo_url, worktree_root, tracker, forge; живые
+        спецификации приведены в соответствие — будущего времени и «отложенного
+        шага» в них не осталось.
+      truncated: false
+  - id: A7
+    source: specs/config-per-machine/spec.md
+    text: "**Слияние поверхностное и по ключу проекта.** Ключ из накладки, которого
+      нет в репозитории, — ошибка, а не новый проект: офис описан в репозитории,
+      и завести проект правкой на одной машине нельзя. Так же ловится и опечатка
+      в имени."
+    result: passed
+    reason:
+      text: Ключ машины без пары в офисе даёт отказ; тест есть.
+      truncated: false
+  - id: A8
+    source: specs/config-per-machine/spec.md
+    text: "**Проект без машинных ключей — ошибка при старте**, названная поимённо:
+      репозиторий обещает проект, а взять его репозиторий и трекер неоткуда.
+      Раннер не начинает цикл с половиной конфигурации, потому что тихо
+      пропущенный проект выглядит как проект, по которому просто нет задач."
+    result: passed
+    reason:
+      text: Проект без машинной половины даёт отказ с именем и обоими файлами; не
+        пропускается.
+      truncated: false
+  - id: A9
+    source: specs/config-per-machine/spec.md
+    text: "**Загрузчик падает, увидев машинный ключ в `projects.yaml`** —
+      `repo_url`, `worktree_root`, `tracker` или `forge`. Отказ называет проект,
+      ключ и файл, куда ключ переехал."
+    result: passed
+    reason:
+      text: Отказ называет проект, ключ и projects.local.yaml; перебираются все четыре
+        machineKeys.
+      truncated: false
+  - id: A10
+    source: specs/config-per-machine/spec.md
+    text: "**Машинного файла нет вовсе** — свой отказ, со своим текстом: он называет
+      путь и ключи, которых там ждут. На новой машине это первое, обо что
+      спотыкаются, и общей фразой «проект не заведён» тут не обойтись — заводить
+      нечего, файла нет."
+    result: passed
+    reason:
+      text: "tracker/jira/jira.go: старая строка доккомментария «TrackerFile — имя
+        файла конфигурации в корне конфиг-репозитория» не удалена и стоит
+        вплотную над новой, утверждающей обратное: файл живёт в ${OFFICE_HOME}.
+        Две взаимоисключающие фразы в одном доккомментарии одной константы."
+      truncated: false
+  - id: A11
+    source: specs/config-per-machine/spec.md
+    text: "**Офис не называет ни одного проекта** — тоже отказ. Прочие беды склейки
+      говорят вслух, и промолчать здесь значило бы оставить раннер крутить
+      пустые тики, ничего не объясняя."
+    result: passed
+    reason:
+      text: "Утверждение «ни одна из этих строк tracker.yaml не одинакова у двух
+        инстансов» неверно: mode: basic (сам файл говорит «Режим один» для
+        8.13), имена переменных с учётками, also_agents, human_flag_label и
+        тождественные записи status_map совпадут у любых двух инстансов.
+        Инстансными остаются base_url и четыре customfield_*. Файл стоит унести
+        целиком, но написанное обоснование ложно."
+      truncated: false
+  - id: A12
+    source: specs/config-per-machine/spec.md
+    text: "`tracker.yaml` уезжает в `${OFFICE_HOME}` **целиком**: адрес, режим
+      авторизации, имена переменных с учётками, `customfield_*`, сопоставление
+      статусов, метка ожидания человека, чужие боты."
+    result: passed
+    reason:
+      text: "Семья поправлена наполовину внутри одного файла: изменение правит
+        tracker/tracker.go:56 («accounts и also_agents в
+        ${OFFICE_HOME}/tracker.yaml»), а на строке 229 того же файла осталось
+        «не другими учётками из agent_accounts» — такого ключа в конфигурации
+        нет. Отчёт сборщика при этом называет замечание закрытым, а контрольную
+        сверку чистой."
+      truncated: false
+  - id: A13
+    source: specs/config-per-machine/spec.md
+    text: "Целиком — потому что делить его не на что и незачем. Инстансных значений
+      в файле **пять**: `base_url` и четыре `customfield_*`. Прочее — режим
+      авторизации (у 8.13 он один), имена переменных с учётками, почти вся карта
+      статусов (кроме `InProgress: In Progress`, и то имя стандартное для Jira),
+      метка ожидания человека — совпадёт у двух инстансов и без всякого
+      переноса. Но именно инстансная часть коммиту не подлежит, а делить файл в
+      тридцать строк ради пяти значений значит завести вторую склейку там, где
+      хватает копирования образца."
+    result: passed
+    reason:
+      text: Load складывает дефолты и накладку; overlay заменяет предел целиком и по
+        названности.
+      truncated: false
+  - id: A14
+    source: specs/config-per-machine/spec.md
+    text: В репозитории остаётся `tracker.example.yaml` — тот же файл с полигонными
+      значениями и комментариями, по которому новый инстанс собирают
+      копированием. Раннер его не читает никогда.
+    result: passed
+    reason:
+      text: Оба загрузчика возвращают пустое на ErrNotExist; тест зовёт Load с двумя
+        отсутствующими путями.
+      truncated: false
+  - id: A15
+    source: specs/config-per-machine/spec.md
+    text: Запуск с `--tracker jira` без `${OFFICE_HOME}/tracker.yaml` — отказ при
+      старте, называющий и путь, которого не хватает, и образец, из которого
+      файл делают.
+    result: passed
+    reason:
+      text: configSources регистрирует каждый путь с пометками и печатает строкой на
+        файл.
+      truncated: false
+  - id: A16
+    source: specs/config-per-machine/spec.md
+    text: "`budgets.yaml` в репозитории — дефолты офиса.
+      `${OFFICE_HOME}/budgets.yaml` перекрывает их поверхностно, по имени
+      предела: названный в накладке предел заменяется целиком, не названный
+      остаётся дефолтным."
+    result: passed
+    reason:
+      text: runner/configsha.go в диффе не тронут.
+      truncated: false
+  - id: A17
+    source: specs/config-per-machine/spec.md
+    text: "Обоих файлов может не быть: пределы необязательны, и офис без них —
+      нормальное состояние, а не недонастроенное."
+    result: passed
+    reason:
+      text: Поведение верное, но «нет файла бюджетов — нет лимитов» в единственном
+        числе осталось в runner/cmd/runner/office.go тремя строками выше вызова
+        budget.Load, переписанного этим же изменением на два пути, и в README.md
+        — строке, которую изменение правило и не дочитало; та же формулировка в
+        README и budget_test.go. DESIGN.md, доккомментарий budget и контракт в
+        этом же круге к двум файлам приведены, а отчёт объявляет семью закрытой.
+      truncated: false
+  - id: A18
+    source: specs/config-per-machine/spec.md
+    text: "При старте раннер печатает по строке на каждый файл конфигурации, путь к
+      которому разрешает, — включая те, которых нет. Под `--tracker mock` строки
+      про `tracker.yaml` нет вовсе: файл не открывается, и рассказывать не о
+      чем."
+    result: passed
+    reason:
+      text: Четыре проверки загрузчика на месте.
+      truncated: false
+  - id: A19
+    source: specs/config-per-machine/spec.md
+    text: "Строка выводится **сразу, как путь разрешён**, а не в конце сборки. Это
+      по существу: самый нужный случай — отказ загрузчика, и печать в конце при
+      отказе не вышла бы вовсе. Человек увидел бы «tracker.yaml не заведён» и
+      пошёл искать, где раннер его ждал, — а строка про путь как раз и не
+      напечаталась."
+    result: passed
+    reason:
+      text: "Правка третьего круга прошла по DESIGN.md, контракту, спецификации и
+        отчёту, но бриф не тронула: он по-прежнему говорит «метка стоит почти
+        всегда», при 45 чистых SHA из 112 и при том, что отчёт шага называет
+        ровно эту формулировку ложью первой редакции."
+      truncated: false
+  - id: A20
+    source: specs/config-per-machine/spec.md
+    text: "Механизм `ConfigSHA` не меняется: это по-прежнему HEAD конфиг-репозитория
+      плюс суффикс `-dirty` на грязное рабочее дерево. Меняется то, что в это
+      дерево попадает."
+    result: passed
+    reason:
+      text: Тест проверяет и замену суммы, и приход режима из накладки, и нетронутый
+        неназванный предел.
+      truncated: false
+  - id: A21
+    source: specs/config-per-machine/spec.md
+    text: "Полигонные значения — абсолютный путь, `localhost:2990`,
+      `customfield_101xx` — закоммичены в репозиторий, и на **той** машине, чьи
+      они, дерево остаётся чистым: по реестру 45 прогонов из 112 имели чистый
+      SHA. Беда с другой стороны: любой другой обязан переписать эти файлы,
+      чтобы запуститься, и его дерево грязно уже навсегда — метка перестаёт
+      отвечать на вопрос, ради которого заведена. Долг, как и сказано в плане
+      этапа, не в метке, а в том, где лежат значения."
+    result: passed
+    reason:
+      text: TestNoFileMeansNoLimits передаёт два отсутствующих пути.
+      truncated: false
+  - id: A22
+    source: specs/config-per-machine/spec.md
+    text: "После разнесения правка машинных файлов дерева не касается ни у кого, и
+      `-dirty` снова означает то, что должен: агенту достался не тот конфиг,
+      который описан коммитом."
+    result: passed
+    reason:
+      text: "DESIGN §2.5 переписан: абзац о границе и пять пунктов."
+      truncated: false
+  - id: A23
+    source: specs/config-per-machine/spec.md
+    text: "Тест загрузчика: машинный ключ в `projects.yaml` — отказ с именем ключа;
+      ключ накладки без пары в репозитории — отказ; проект без машинных ключей —
+      отказ; слияние двух файлов даёт ожидаемый проект."
+    result: passed
+    reason:
+      text: "Быстрый старт README расходится с загрузчиком: он учит добавить свой
+        проект, но поставляемый projects.yaml называет OFFICE и VO, машинных
+        половин у которых на чужой машине нет, — и первый же tick упирается в
+        отказ ещё до цикла. Про поставляемые проекты README молчит."
+      truncated: false
+  - id: A24
+    source: specs/config-per-machine/spec.md
+    text: "Тест по репозиторию, идущий по его файлам: ни абсолютных путей, ни
+      `customfield_*`. Он проверяет не метку, а причину, по которой метка
+      пачкалась."
+    result: passed
+    reason:
+      text: tracker/boundary_test.go объявляет bin/ «единственными исполняемыми
+        файлами поставки», хотя hooks/*.sh и все пять scripts/*.sh исполняемые;
+        тот же комментарий четырьмя строками выше сам говорит, что хуки
+        исполняются на машине. Файл спорит сам с собой — та же форма ложного
+        «единственного», что чинили кругом раньше в этом же файле.
+      truncated: false
+  - id: A25
+    source: specs/config-per-machine/spec.md
+    text: "Тест на перекрытие бюджетов: названный предел заменён, не названный
+      остался."
+    result: passed
+    reason:
+      text: В свежий §2.5 DESIGN.md попало новое неизмеренное число — «у половины
+        офисов ответом быть переставала». Офис существует один, доля не
+        измерена, и утверждение спорит с предыдущим предложением того же абзаца.
+      truncated: false
+  - id: A26
+    source: specs/config-per-machine/spec.md
+    text: Отсутствие обоих файлов бюджетов по-прежнему означает «пределов нет».
+    result: passed
+    reason:
+      text: stage-5-config.md записывает зачем, что где лежит, отказы, бюджеты, вывод
+        источников и что осталось за границей.
+      truncated: false
+  - id: A27
+    source: specs/config-per-machine/spec.md
+    text: "`DESIGN.md` §2.5 назывался «Конфигурация как код (**один репозиторий**)»,
+      и после этого шага скобка стала бы ложной: репозиториев по-прежнему один,
+      но конфигурация живёт в двух местах. Раздел говорит о границе прямо — что
+      описывает офис, что описывает инстанс и почему их нельзя смешивать."
+    result: passed
+    reason:
+      text: stage-3-retro.md, пункт 4 — дописка «Закрыто на этапе 5».
+      truncated: false
+  - id: A28
+    source: specs/config-per-machine/spec.md
+    text: "`README.md` перестаёт учить прописывать проект в `projects.yaml` целиком,
+      называет верное место для `tracker.yaml` и показывает в дереве файлов обе
+      половины."
+    result: passed
+    reason:
+      text: "Число отказов не сходится с кодом: контракт, спецификация и отчёт говорят
+        «четыре», а это же изменение добавило в загрузчик пятый отказ при старте
+        — «projects.yaml не называет ни одного проекта» — с собственным тестом.
+        Комментарий в самом коде считает семью ещё третьим способом."
+      truncated: false
+  - id: A29
+    source: specs/config-per-machine/spec.md
+    text: "`tracker-protocol.md` описывает две половины `projects.yaml`, правило
+      склейки и пять отказов загрузчика; раздел `budgets.yaml` — перекрытие по
+      имени предела."
+    result: passed
+    reason:
+      text: сверено с кодом и воспроизведено живьём, расхождений нет
+      truncated: false
+  - id: A30
+    source: specs/config-per-machine/spec.md
+    text: Заголовок `tracker.example.yaml` говорит, что это образец, а не рабочий
+      файл, и куда его копировать.
+    result: passed
+    reason:
+      text: сверено с кодом и воспроизведено живьём, расхождений нет
+      truncated: false
+  - id: A31
+    source: specs/config-per-machine/spec.md
+    text: "`docs/notes/stage-5-config.md` записывает, что переехало и что осталось,
+      какие грабли встретились при переносе и как выглядит инстанс после него."
+    result: passed
+    reason:
+      text: Долг дописан в stage-3-retro.md как безоговорочно закрытый («правка
+        конфигурации под себя больше не пачкает рабочее дерево»), тогда как бриф
+        и отчёт того же изменения прямо говорят, что чужой клон всё ещё правит
+        закоммиченный projects.yaml и получает -dirty первым же прогоном.
+        Оговорка не доехала ровно туда, где долг числится.
+      truncated: false
+  - id: A32
+    source: specs/config-per-machine/spec.md
+    text: "Долг закрывается там, где он записан, — в `stage-3-retro.md`, пункт 4:
+      именно там сказано, что `projects.yaml` в репозитории описывает полигон
+      этой машины и маркер каждого прогона помечен `-dirty`. Дописано, что и
+      когда это сняло."
+    result: passed
+    reason:
+      text: сверено с кодом и воспроизведено живьём, расхождений нет
+      truncated: false
+builder_handoff:
+  candidate_id: 327d3c79-eda1-45a7-9f69-ae6d1e019881
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:954d674c-1d4c-4967-a2fc-b4bf8076c448
+  iteration: 3
+  summary:
+    text: "Десятый круг сборки. Девятый провалил один пункт — вдвое меньше прежнего,
+      и находка той же формы: в живой спецификации pr-pass я правил две строки и
+      не прочитал третью, а одна из правок породила предложение, спорящее само с
+      собой («переехал шагом… и переедет вместе с отложенным шагом», имя шага
+      трижды подряд). На этот раз названные строки я не правил. Прочитал файл
+      целиком и переписал раздел; затем тем же способом проверил две другие
+      живые спецификации — в cleanup-for-live нашлось третье место, которого
+      проверяющий не называл. Из шести замечаний три содержательных. Комментарий
+      моего же office_test.go врал о том, что сломает поведение: печать
+      источников сломает не вынос путей в переменные, а подъём вызовов sources.*
+      в начало функции — тогда строка про tracker.yaml выйдет и под mock.
+      «Инстансных значений пять» верно для поставляемого образца, но не по
+      природе ключей: шестым был бы also_agents, просто на полигоне он пуст, —
+      оговорено в обоих местах. И главное: DESIGN.md и README говорили про
+      -dirty так, будто долг закрыт целиком, тогда как бриф, отчёт и
+      stage-3-retro честно называли остаток; теперь и они говорят прямо, что
+      список проектов офиса поставляется, шаг 3 быстрого старта — правка
+      закоммиченного файла, и первый же прогон нового человека будет помечен.
+      Заодно поправлена тяжёлая фраза в контракте и сделано нестареющим число в
+      отчёте: оно описывало прежний просчёт и после коммита разошлось бы."
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+  checks:
+    - name:
+        text: gofmt -l .
+        truncated: false
+      result: passed
+      note:
+        text: чисто
+        truncated: false
+    - name:
+        text: go vet ./...
+        truncated: false
+      result: passed
+      note: null
+    - name:
+        text: go test -count=1 ./...
+        truncated: false
+      result: passed
+      note:
+        text: "новые тесты: три отказа загрузчика, перекрытие бюджетов по названности,
+          снятие предела накладкой, граница по файлам офиса"
+        truncated: false
+    - name:
+        text: живой запуск обоих трекеров
+        truncated: false
+      result: passed
+      note:
+        text: "runner ls --tracker mock и --tracker jira: конфигурация читается из двух
+          мест, печать источников показывает по строке на файл"
+        truncated: false
+    - name:
+        text: тест границы проверен обратным ходом
+        truncated: false
+      result: passed
+      note:
+        text: "с дописанным repo_url: /Users/... в projects.yaml падает и называет файл,
+          строку и причину"
+        truncated: false
+    - name:
+        text: живой отказ на новой машине
+        truncated: false
+      result: passed
+      note:
+        text: "OFFICE_HOME=/tmp/пусто-нет runner ls --tracker jira: сначала печатаются
+          источники, затем отказ называет путь и образец"
+        truncated: false
+    - name:
+        text: пересчёт метки по реестру
+        truncated: false
+      result: passed
+      note:
+        text: 112 прогонов, 67 с -dirty, 45 с чистым SHA — утверждение в документах
+          приведено к этому
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: "Многомашинность не делалась: отложена владельцем до того, как всё
+        заработает на одной машине. Здесь только граница."
+      truncated: false
+    - text: "Проверка «правка машинной конфигурации не пачкает дерево» на живом дереве
+        не показана: пока изменение не закоммичено, дерево грязное от него
+        самого. Доказывается тем, что ${OFFICE_HOME} лежит вне репозитория."
+      truncated: false
+    - text: "projects.local.example.yaml не заводился: шаблон понесёт ONBOARDING.md
+        (шаг 4). Отказ загрузчика при отсутствии файла называет и путь, и нужные
+        ключи."
+      truncated: false
+    - text: "Спецификация правилась дважды по ходу сборки: добавлен раздел про
+        документы (его не было вовсе) и исправлено имя файла, в котором
+        закрывается долг — им оказался stage-3-retro.md, а не budgets.md."
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-21T09:34:17.251Z
+blockers: []
+verification:
+  candidate_id: 327d3c79-eda1-45a7-9f69-ae6d1e019881
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:f59b8ef0-f934-48b9-acd7-c8dae42d4e8e
+  iteration: 3
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: cfg10-gofmt
+      name:
+        text: gofmt -l .
+        truncated: false
+      argv_display:
+        - text: -l
+          truncated: false
+        - text: .
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 80
+    - id: cfg10-vet
+      name:
+        text: go vet ./...
+        truncated: false
+      argv_display:
+        - text: vet
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 570
+    - id: cfg10-test
+      name:
+        text: go test -count=1 ./...
+        truncated: false
+      argv_display:
+        - text: test
+          truncated: false
+        - text: -count=1
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 55408
+  summary:
+    text: "Десятый круг: дефектов не нашёл, все 32 пункта пройдены. Проверял
+      пересчётом, а не чтением. Числа сошлись: 112 записей реестра и 45 чистых
+      SHA; пять инстансных значений в образце и одна нетождественная запись
+      карты статусов; тест границы обходит 17 файлов; исполняемых в поставке
+      девять, и лежат они только в bin/, hooks/ и scripts/. Поведение проверено
+      живыми запусками: под mock печатаются пять строк источников без
+      tracker.yaml, под jira — шесть; при обоих отказах строки уже выведены, а
+      отказ называет путь и образец. Сплошной поиск подтвердил, что образец не
+      читает никто, кроме теста, и что оговорка про неполное закрытие долга
+      звучит одинаково в пяти документах. Быстрый старт README сходится с
+      загрузчиком. Девять замечаний в risks."
+    truncated: false
+  risks:
+    - text: "Контракт, раздел budgets.yaml: два соседних абзаца начинаются одинаково,
+        и в первом остался рваный перенос — след правки строкой, а не файлом."
+      truncated: false
+    - text: Абсолют «отказов пять» считает только отказы склейки; загрузчик отказывает
+        при старте и по другим причинам — пустой repo_url, пустые default_branch
+        и branch_prefix, относительный worktree_root, неизвестный tracker.
+      truncated: false
+    - text: Перечень «чего здесь нет и почему» в boundary_test называет adapters/,
+        backends/ и scripts/, но молчит о прочих Go-пакетах, где customfield_ и
+        живёт.
+      truncated: false
+    - text: "runner/cmd/runner/office.go: «и нет ни одного значит нет лимитов» —
+        пропущено тире."
+      truncated: false
+    - text: "README: дерево ${OFFICE_HOME} открывается тремя файлами конфигурации, а
+        вводит его прежняя фраза про bare-клон и worktree — соседняя строка
+        правку не пережила."
+      truncated: false
+    - text: "stage-5-config.md: «их было вдвое больше» — по названному же способу 41
+        против 22, то есть 1.86×; округление намеренное, но собственное правило
+        отчёта требует числа и способа."
+      truncated: false
+    - text: "jira.LoadConfig не проверяет base_url: пустой tracker.yaml даст отказ, не
+        назвав адрес среди недостающего. Предсуществует шагу."
+      truncated: false
+    - text: docs/STAGE-5-first-live.md всё ещё числит заголовок §2.5 среди правимого
+        шагом 3 — он поправлен шагом 1, и раздел отчёта про расхождения с планом
+        этого не называет.
+      truncated: false
+    - text: "tracker/config.go: where := machinePath объявлено внутри цикла и никогда
+        не меняется — остаток прежней редакции."
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-21T09:50:33.995Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T19:35:19.405Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T19:57:35.598Z
+  - goal_cycle: 3
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T20:14:33.410Z
+  - goal_cycle: 4
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T20:47:06.633Z
+  - goal_cycle: 5
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T21:07:24.710Z
+  - goal_cycle: 6
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-20T21:23:12.198Z
+  - goal_cycle: 7
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-21T05:57:38.832Z
+  - goal_cycle: 8
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-21T06:20:38.160Z
+  - goal_cycle: 9
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A17
+      - A24
+    summary:
+      text: "Восьмой круг. Поведение сделано и проверено живыми запусками: все пять
+        отказов загрузчика, отказ с указанием образца, печать источников по
+        строке на файл и до отказа, пустые файлы всех трёх загрузчиков ведут
+        себя как описано. Числа реестра сошлись. Провалено два пункта, и оба —
+        ложные утверждения внутри файлов, правленных этим же изменением: «нет
+        файла бюджетов» в единственном числе и «bin/ — единственные исполняемые
+        файлы поставки»."
+      truncated: false
+    completed_at: 2026-08-21T07:27:53.077Z
+  - goal_cycle: 9
+    iteration: 2
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A6
+    summary:
+      text: "Девятый круг. Поведение сделано и проверено: пять отказов воспроизведены
+        тестами и живыми запусками, печать источников выходит сразу и в нужном
+        порядке, бюджеты перекрываются по названности, тест границы обходит
+        семнадцать файлов и его регулярное выражение воспроизведено отдельно.
+        Числа пересчитаны и сходятся: 45 чистых SHA из 112, пять инстансных
+        значений, одна нетождественная запись карты, 41 упоминание tracker.yaml.
+        Один дефект, и он снова текстовый и снова той формы, которую отчёт
+        назвал своей: правлена строка, а не файл."
+      truncated: false
+    completed_at: 2026-08-21T09:33:50.132Z
+  - goal_cycle: 9
+    iteration: 3
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Десятый круг: дефектов не нашёл, все 32 пункта пройдены. Проверял
+        пересчётом, а не чтением. Числа сошлись: 112 записей реестра и 45 чистых
+        SHA; пять инстансных значений в образце и одна нетождественная запись
+        карты статусов; тест границы обходит 17 файлов; исполняемых в поставке
+        девять, и лежат они только в bin/, hooks/ и scripts/. Поведение
+        проверено живыми запусками: под mock печатаются пять строк источников
+        без tracker.yaml, под jira — шесть; при обоих отказах строки уже
+        выведены, а отказ называет путь и образец. Сплошной поиск подтвердил,
+        что образец не читает никто, кроме теста, и что оговорка про неполное
+        закрытие долга звучит одинаково в пяти документах. Быстрый старт README
+        сходится с загрузчиком. Девять замечаний в risks."
+      truncated: false
+    completed_at: 2026-08-21T09:50:33.995Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-20T18:50:37.912Z

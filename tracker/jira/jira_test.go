@@ -690,14 +690,15 @@ func TestListBuildsJQLForStatuses(t *testing.T) {
 	}
 }
 
-// tracker.yaml едет в прод как есть, и битый обнаружился бы первым же циклом
-// против JIRA — то есть на живой доске.
+// tracker.example.yaml — то, из чего собирают конфигурацию нового инстанса,
+// и битый образец обнаружился бы первым же циклом против JIRA, то есть на живой
+// доске. Сам tracker.yaml проверить нечем: он машинный и в репозитории его нет.
 func TestShippedTrackerConfigIsValid(t *testing.T) {
 	root := filepath.Join("..", "..")
 
-	cfg, err := LoadConfig(filepath.Join(root, TrackerFile))
+	cfg, err := LoadConfig(filepath.Join(root, ExampleFile))
 	if err != nil {
-		t.Fatalf("%s не загружен: %v", TrackerFile, err)
+		t.Fatalf("%s не загружен: %v", ExampleFile, err)
 	}
 
 	// Учётка роли, которой нет в графе, — опечатка: ходить под ней некому,
@@ -921,5 +922,24 @@ func TestListReadyKeepsOtherSearchFailures(t *testing.T) {
 	}
 	if errors.Is(err, tracker.ErrNoProject) {
 		t.Errorf("обычный отказ поиска выдан за незнакомый проект: %v", err)
+	}
+}
+
+// Отсутствие tracker.yaml — самый частый отказ на новой машине: подключение
+// к JIRA свойство инстанса, и в репозитории его нет. Отказ обязан назвать
+// и путь, которого не хватает, и образец, из которого файл делают, — иначе
+// человек пойдёт искать его в репозитории и не найдёт.
+func TestLoadConfigNamesExampleWhenMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), TrackerFile)
+
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal("отсутствие файла принято за годную конфигурацию")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("отказ не назвал путь: %v", err)
+	}
+	if !strings.Contains(err.Error(), ExampleFile) {
+		t.Errorf("отказ не назвал образец: %v", err)
 	}
 }

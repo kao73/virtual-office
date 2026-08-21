@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Kind — имя реализации в projects.yaml: `forge: github`.
+// Kind — имя реализации в projects.local.yaml: `forge: github`.
 const Kind = "github"
 
 // TokenEnv — переменная с токеном. Тот же, которым раннер пушит: право писать

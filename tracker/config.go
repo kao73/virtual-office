@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -15,12 +16,22 @@ import (
 	"github.com/kao73/virtual-office/runner"
 )
 
-// Файлы конфигурации в корне конфиг-репозитория.
+// Файлы конфигурации. Одни описывают офис и живут в конфиг-репозитории, другие
+// описывают инстанс и живут в хозяйстве раннера. Граница между ними — не вкус
+// раскладки: всё, что правят, заводя новую машину, обязано лежать вне репозитория,
+// иначе правка под себя пачкает рабочее дерево и метка config:…-dirty перестаёт
+// что-либо значить.
 const (
 	// WorkflowFile — граф переходов. Его читает раннер; агент его не видит.
+	// Описывает офис: одинаков у всех, кто его поднимет.
 	WorkflowFile = "workflow.yaml"
-	// ProjectsFile — проекты-клиенты: где их репозитории и как звать ветки.
+	// ProjectsFile — проекты-клиенты офиса: имена и неизменные свойства.
+	// Описывает офис.
 	ProjectsFile = "projects.yaml"
+	// ProjectsLocalFile — те же проекты на этой машине: где лежат репозитории,
+	// в каком трекере задачи, куда открывать pull request. Описывает инстанс
+	// и живёт в ${OFFICE_HOME}.
+	ProjectsLocalFile = "projects.local.yaml"
 )
 
 // outcomes — исходы, для которых граф обязан задать переход. Список берётся
@@ -427,7 +438,8 @@ func (w Workflow) checkOrder() []error {
 }
 
 // Трекеры, которые офис умеет вести. Список живёт здесь, а не в точке входа:
-// его спрашивает разбор projects.yaml, и разъехаться этим двум местам нельзя.
+// его спрашивает разбор машинной половины проектов, и разъехаться этим двум
+// местам нельзя.
 var trackers = []string{"mock", "jira"}
 
 // Trackers — имена трекеров для подсказок и сообщений об ошибке.
@@ -444,18 +456,35 @@ type Project struct {
 	// Tracker — трекер проекта. Обязателен: одна и та же задача не живёт разом
 	// в файловом трекере и в JIRA, и раннер, запущенный с одним трекером,
 	// не должен видеть чужих проектов.
-	//
-	// Ключ, как и Forge, машинный по природе и переедет в projects.local.yaml
-	// вместе с разнесением конфигурации по машинам.
 	Tracker string `yaml:"tracker"`
 	// Forge — куда открывать pull request. Пусто — forge у проекта нет:
 	// PR-проход вырождается, но маршрут остаётся тем же (см. workflow.yaml: pr).
-	//
-	// Ключ здесь временно. Он машинный по природе, как repo_url и tracker,
-	// и переедет в projects.local.yaml вместе с разнесением конфигурации
-	// по машинам (этап 5, шаг «конфигурация по машинам»).
 	Forge string `yaml:"forge"`
 }
+
+// Половины проекта, разложенные по двум файлам. Раздельные типы нужны разбору:
+// строгое чтение отвергает поле, которого в типе нет, и потому само по себе
+// не пускает машинный ключ в файл офиса, а свойство офиса — в файл машины.
+type (
+	// officeProject — то, что одинаково у всех, кто поднимет этот офис.
+	officeProject struct {
+		DefaultBranch string `yaml:"default_branch"`
+		BranchPrefix  string `yaml:"branch_prefix"`
+	}
+
+	// machineProject — то, что правят, заводя новую машину или второй инстанс.
+	machineProject struct {
+		RepoURL      string `yaml:"repo_url"`
+		WorktreeRoot string `yaml:"worktree_root"`
+		Tracker      string `yaml:"tracker"`
+		Forge        string `yaml:"forge"`
+	}
+)
+
+// machineKeys — ключи, описывающие машину. Список нужен ради сообщения об ошибке:
+// строгий разбор и без него отвергнет их в файле офиса, но скажет «неизвестное
+// поле», а человеку нужно знать, куда ключ переехал и почему.
+var machineKeys = []string{"repo_url", "worktree_root", "tracker", "forge"}
 
 // Projects — проекты по ключу трекера.
 type Projects map[string]Project
@@ -485,54 +514,168 @@ func (p Projects) For(tracker string) Projects {
 
 // Get отдаёт проект по ключу. Задачу неизвестного проекта раннер брать не вправе:
 // ему негде взять репозиторий и некуда пушить.
+//
+// Причин у «неизвестного» теперь две, и сообщение называет обе: проекта может
+// не быть в конфигурации вовсе, а может он быть чужого трекера — карта к этому
+// моменту уже просеяна `For`. Назвать одну значило бы отправить искать не туда.
 func (p Projects) Get(key string) (Project, error) {
 	project, found := p[key]
 	if !found {
-		return Project{}, fmt.Errorf("проект %q не описан в %s: задача не может быть взята в работу", key, ProjectsFile)
+		return Project{}, fmt.Errorf("проект %q не описан в %s и %s либо заведён под другой трекер: "+
+			"задача не может быть взята в работу", key, ProjectsFile, ProjectsLocalFile)
 	}
 	return project, nil
 }
 
-// LoadProjects читает и проверяет список проектов.
-func LoadProjects(path string) (Projects, error) {
-	var p Projects
-	if err := decodeStrict(path, &p); err != nil {
+// LoadProjects собирает проекты из двух половин: офисной и машинной.
+//
+// officePath лежит в конфиг-репозитории и называет проекты офиса, machinePath —
+// в ${OFFICE_HOME} и говорит, где всё это на этой машине. Склейка поверхностная
+// и по ключу проекта: половины не пересекаются, поэтому спорить им не о чем.
+//
+// Оба файла обязательны, и оба сверяются друг с другом по списку ключей.
+// Проект, названный офисом и не заведённый на машине, — отказ, а не пропуск:
+// пропущенный молча, он выглядел бы как проект, по которому просто нет задач,
+// и искать причину пришлось бы неделю. Проект, заведённый на машине и не названный
+// офисом, — тоже отказ: офис описан в репозитории, а так ловится опечатка в имени.
+func LoadProjects(officePath, machinePath string) (Projects, error) {
+	if err := checkOfficeHalf(officePath); err != nil {
+		return nil, err
+	}
+
+	var office map[string]officeProject
+	if err := decodeStrict(officePath, &office); err != nil {
+		return nil, err
+	}
+
+	// Офис без единого проекта — тоже отказ, и это не педантизм: прочие беды
+	// склейки говорят вслух, а «ни одного проекта» промолчало бы, и раннер крутил бы
+	// пустые тики, ничего не объясняя.
+	//
+	// Проверка стоит раньше машинной половины намеренно: иначе отказ советовал бы
+	// «дать каждому проекту из projects.yaml ключи», когда проектов там ни одного.
+	if len(office) == 0 {
+		return nil, fmt.Errorf("%s не называет ни одного проекта: офису нечего вести", officePath)
+	}
+
+	if _, err := os.Stat(machinePath); errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("%s не заведён: офис описан репозиторием, а где его проекты "+
+			"на этой машине — узнать неоткуда. Заведите файл, дав каждому проекту из %s "+
+			"ключи repo_url и tracker; worktree_root и forge необязательны",
+			machinePath, officePath)
+	}
+	var machine map[string]machineProject
+	if err := decodeStrict(machinePath, &machine); err != nil {
 		return nil, err
 	}
 
 	var errs []error
-	for key, project := range p {
+	for key := range machine {
+		if _, named := office[key]; !named {
+			errs = append(errs, fmt.Errorf("%s: проект не назван в %s — офис описан репозиторием, "+
+				"а на машине его только заводят; если это опечатка в имени, она здесь и видна",
+				key, officePath))
+		}
+	}
+
+	projects := Projects{}
+	for key, half := range office {
+		local, found := machine[key]
+		if !found {
+			errs = append(errs, fmt.Errorf("%s: проект назван в %s, но не заведён в %s — "+
+				"неоткуда взять ни репозиторий, ни трекер",
+				key, officePath, machinePath))
+			continue
+		}
+		projects[key] = Project{
+			RepoURL:       local.RepoURL,
+			DefaultBranch: half.DefaultBranch,
+			BranchPrefix:  half.BranchPrefix,
+			WorktreeRoot:  local.WorktreeRoot,
+			Tracker:       local.Tracker,
+			Forge:         local.Forge,
+		}
+	}
+
+	for key, project := range projects {
+		where := machinePath
 		if project.RepoURL == "" {
-			errs = append(errs, fmt.Errorf("%s: repo_url не задан", key))
+			errs = append(errs, fmt.Errorf("%s: repo_url не задан (%s)", key, where))
 		}
 		if project.DefaultBranch == "" {
-			errs = append(errs, fmt.Errorf("%s: default_branch не задан", key))
+			errs = append(errs, fmt.Errorf("%s: default_branch не задан (%s)", key, officePath))
 		}
 		if project.BranchPrefix == "" {
-			errs = append(errs, fmt.Errorf("%s: branch_prefix не задан", key))
+			errs = append(errs, fmt.Errorf("%s: branch_prefix не задан (%s)", key, officePath))
 		}
 		if root := project.WorktreeRoot; root != "" && !filepath.IsAbs(root) {
-			errs = append(errs, fmt.Errorf("%s: worktree_root=%q должен быть абсолютным", key, root))
+			errs = append(errs, fmt.Errorf("%s: worktree_root=%q должен быть абсолютным (%s)", key, root, where))
 		}
 		if !slices.Contains(trackers, project.Tracker) {
-			errs = append(errs, fmt.Errorf("%s: tracker=%q, ожидается один из %v", key, project.Tracker, trackers))
+			errs = append(errs, fmt.Errorf("%s: tracker=%q, ожидается один из %v (%s)",
+				key, project.Tracker, trackers, where))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
-		return nil, fmt.Errorf("%s нарушает контракт: %w", path, err)
+		return nil, fmt.Errorf("проекты нарушают контракт: %w", err)
 	}
-	return p, nil
+	return projects, nil
+}
+
+// checkOfficeHalf ловит машинный ключ, забредший в файл офиса, и объясняет,
+// куда он переехал.
+//
+// Строгий разбор отверг бы его и сам — поля в officeProject нет, — но сказал бы
+// «неизвестное поле repo_url», и человек пошёл бы искать опечатку. Здесь ошибка
+// называет причину: ключ описывает машину, а не офис.
+func checkOfficeHalf(path string) error {
+	var raw map[string]map[string]any
+	if err := decodeLoose(path, &raw); err != nil {
+		return err
+	}
+	var errs []error
+	for _, key := range slices.Sorted(maps.Keys(raw)) {
+		for _, field := range machineKeys {
+			if _, found := raw[key][field]; found {
+				errs = append(errs, fmt.Errorf("%s: ключ %s описывает машину, а не офис — "+
+					"его место в %s", key, field, ProjectsLocalFile))
+			}
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("%s нарушает границу конфигурации: %w", path, err)
+	}
+	return nil
+}
+
+// decodeLoose читает YAML как есть, ничего не проверяя. Нужен там, где отказ
+// должен объяснить причину сам, а строгий разбор сказал бы только «неизвестное
+// поле».
+func decodeLoose(path string, into any) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("%s не прочитан: %w", path, err)
+	}
+	if err := yaml.Unmarshal(raw, into); err != nil {
+		return fmt.Errorf("%s не разобран: %w", path, err)
+	}
+	return nil
 }
 
 // decodeStrict читает YAML, отвергая неизвестные поля.
 func decodeStrict(path string, into any) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("%s не прочитан: %w", filepath.Base(path), err)
+		return fmt.Errorf("%s не прочитан: %w", path, err)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
-	if err := dec.Decode(into); err != nil {
+	// Пустой документ — это io.EOF, и жаловаться на него здесь нечем: «не разобран:
+	// EOF» человеку не говорит ничего. Пусть цель останется нулевой, а объяснит
+	// проверка выше — она назовёт, чего именно не хватает. Файл из одних
+	// комментариев и файл, заведённый и ещё не заполненный, — обычные состояния
+	// на новой машине.
+	if err := dec.Decode(into); err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("%s не разобран: %w", path, err)
 	}
 	return nil

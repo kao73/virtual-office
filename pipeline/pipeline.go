@@ -84,7 +84,7 @@ type Office struct {
 	Agent      Agent
 	Sandboxes  Sandboxes
 
-	// Forges — реализации forge по имени из projects.yaml. Проект без forge
+	// Forges — реализации forge по имени из projects.local.yaml. Проект без forge
 	// живёт по тому же графу: PR-проход для него вырождается. Пустая карта
 	// означает офис, который pull request не открывает вовсе.
 	Forges map[string]forge.Forge

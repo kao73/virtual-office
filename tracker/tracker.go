@@ -53,7 +53,8 @@ func SkipUnknownProject(project string, err error) (string, bool) {
 }
 
 // Comment — комментарий к задаче. Агентские отличаются от человеческих учёткой
-// автора, а не текстом: см. Whoami и agent_accounts в tracker.yaml.
+// автора, а не текстом: см. Whoami, accounts и also_agents
+// в ${OFFICE_HOME}/tracker.yaml.
 type Comment struct {
 	ID      string
 	Author  string
@@ -225,7 +226,8 @@ type ClaimRequest struct {
 // CheckOwner. Метод, ничего не меняющий, актора не требует.
 type Tracker interface {
 	// Whoami — учётка, под которой ходит сам раннер. Всё, написанное не ею
-	// и не другими учётками из agent_accounts, считается словами человека.
+	// и не другими агентскими учётками (accounts и also_agents
+	// в ${OFFICE_HOME}/tracker.yaml), считается словами человека.
 	Whoami() (string, error)
 
 	// ListReady — кандидаты в статусе проекта: без живой аренды, отсортированы

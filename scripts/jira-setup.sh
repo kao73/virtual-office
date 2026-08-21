@@ -140,7 +140,7 @@ fi
 
 echo
 echo "готово. Осталось руками — workflow и схема: docs/notes/jira-setup.md"
-echo "поля для tracker.yaml:"
+echo "поля для \${OFFICE_HOME}/tracker.yaml (образец — tracker.example.yaml в репозитории):"
 echo "  agent_owner: $owner_id"
 echo "  run_id:      $run_id"
 echo "  lease_until: $lease_id"
