@@ -15,7 +15,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
 
-# SDK в git не едет: это 162 МБ артефактов. Читатель распаковывает его в sdk/ сам —
+# SDK в git не едет: это 88 МБ распакованных артефактов. Распаковывает его в sdk/
+# читатель сам —
 # как, сказано в README.md рядом.
 #
 # Кладётся он целиком: скрипты atlas-* вычисляют свой ATLAS_HOME сами, поэтому

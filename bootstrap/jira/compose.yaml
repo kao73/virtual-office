@@ -18,7 +18,9 @@ services:
       context: .
       dockerfile: Dockerfile
     image: office-jira-software:8.13.19
-    container_name: office-jira-software
+    # Имя переменной по той же причине, что и порт: два инстанса рядом — штатный
+    # случай, а имя контейнера в демоне уникально.
+    container_name: ${JIRA_NAME:-office-jira-software}
     ports:
       - "${JIRA_PORT:-2990}:2990"
     volumes:

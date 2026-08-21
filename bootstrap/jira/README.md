@@ -30,7 +30,7 @@ ls sdk/atlassian-plugin-sdk-8.2.10       # bin repository apache-maven-3.9.5
 ## Поднять
 
 ```sh
-docker compose up -d --build     # первый запуск ~15 минут: качается Jira (замер: 887 с)
+docker compose up -d --build     # первый запуск: качается Jira, замер — 887 секунд
 docker compose logs -f           # ждать «jira started successfully»
 curl -fsS http://localhost:2990/jira/rest/api/2/serverInfo
 ```
@@ -48,15 +48,15 @@ docker compose down -v           # снести вместе с данными
 Порт задаётся переменной, имя проекта compose — флагом:
 
 ```sh
-JIRA_PORT=2991 docker compose -p office-jira-live up -d
+JIRA_PORT=2991 JIRA_NAME=office-jira-live docker compose -p office-jira-live up -d
 ```
+
+Три вещи, которые обязаны разойтись, задаются окружением и флагом: порт, имя
+контейнера и имя проекта compose. Файл править не надо — он отслеживаемый,
+и правка под себя пометила бы каждый ваш прогон как `config:…-dirty`.
 
 Тома у другого проекта compose свои, поэтому второй инстанс поднимается пустым —
 это и нужно, когда полигон отлажен, а вести надо чистый проект.
-
-Имя контейнера задано явно и потому у двух инстансов совпало бы: второму его
-переопределяют (`--scale` тут не поможет, контейнер один). Проще всего — снять
-`container_name` в своей копии compose, если инстансы нужны одновременно.
 
 ## Три вещи, о которых лучше знать заранее
 
