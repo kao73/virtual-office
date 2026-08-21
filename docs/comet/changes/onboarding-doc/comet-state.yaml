@@ -3,7 +3,7 @@ name: onboarding-doc
 language: en
 phase: verify
 status: active
-state_version: 11
+state_version: 14
 brief: brief.md
 spec_changes:
   - capability: onboarding-doc
@@ -17,13 +17,19 @@ workspace:
 loop:
   stage: verify-ready
   goal_cycle: 2
-  iteration: 1
+  iteration: 2
   attempt: 1
   retry_epoch: 0
-  failed_iteration_count: 0
+  failed_iteration_count: 1
   no_progress_count: 0
   execution_failure_count: 0
-  previous_unresolved_ids: []
+  previous_unresolved_ids:
+    - A2
+    - A5
+    - A16
+    - A24
+    - A41
+    - A43
   next_action: await-verifier-result
 acceptance:
   - id: A1
@@ -322,40 +328,39 @@ acceptance:
     result: pending
     reason: null
 builder_handoff:
-  candidate_id: a382a0a0-e693-40f0-99b1-da7425932ad3
+  candidate_id: 8425d005-0644-47fe-93c9-26ffe76d4106
   identity_provider: skill-coordinated
-  builder_execution_ref: skill-coordinated:builder:b45361fd-b45d-4700-bb14-cf24e5a8c829
-  iteration: 1
+  builder_execution_ref: skill-coordinated:builder:c247b8d0-f60d-45e3-820b-b82a92f0ee1c
+  iteration: 2
   summary:
-    text: "Круг третий, коммит 946e74f. Починены девять отказов второго круга.
-      Главное: пробная задача из Б2 больше не остаётся в Ready — её уводят Ready
-      → Blocked → Backlog, потому что Ready это очередь разработчика и холостой
-      тик из Б7 захватил бы её. Порядок настройки развёрнут: проект заводится
-      первым, затем три скрипта — jira-setup.sh кладёт поля на застигнутые
-      экраны, а шаблон Kanban приносит свои, и настройка до проекта дала бы
-      «Field cannot be set» первым захватом. Убраны три дублирования вопреки
-      собственному правилу документа: канонический регистр имени, config_sha,
-      статус без колонки — теперь ссылки. В Б1 назван способ продлить лицензию
-      (down -v и настройка заново). У первого симптома дописано имя раздела.
-      Упомянут четвёртый скрипт семейства (jira-tasks.sh) с его флагами. Абсолют
-      «единственное отступление» пересчитан — отложенных проверок три. python3
-      отнесён к скриптам jira-*.sh, а не к каталогу целиком. Проверка прав в Б3
-      переписана на переменные учётки. У git, claude и uv появились проверки.
-      Пробный репозиторий коммитится с явной личностью. Размер SDK назван обоими
-      числами с их предметами. В памяти помощника 162 МБ заменены на 88.
-      Спецификация правлена владельцем в двух местах, где неправа была она
-      (размер SDK, состав списка симптомов), и подтверждена заново."
+    text: "Круг четвёртый, коммит 118a909. Починены все шесть отказов. A2: пустого
+      bare-репозитория не хватает — ветку задачи ответвляют от
+      origin/<default_branch>, и Б4 теперь заводит репозиторий с коммитом на ней
+      (клон, .gitignore, пустой коммит, push); та же дыра исправлена в быстром
+      старте README, где жила с этапа 2. A16: шапка и последняя строка вывода
+      scripts/jira-setup.sh переписаны под порядок «проект первым» — прежде они
+      велели завести проект, который читатель только что завёл. A41: раздел
+      заметки «Почему порядок настройки именно такой» переписан под тот же
+      порядок, с экранами как первой причиной и workflow проекта как второй.
+      A24: ${OFFICE_HOME} держит машинную половину конфигурации, офисная в
+      репозитории. A5: отложенные квадратики названы поимённо вместо
+      непосчитанного «три»; A2 говорит, что охват токена проверяется в Б4;
+      claude --version убран из обязательных; git check-ignore перенесён в
+      рабочий клон. A43: раздел отчёта о находках пересобран по трём кругам и по
+      родам, раздел о расхождениях со спецификацией убран — после её правки
+      расходиться стало нечему. Плюс шесть неблокирующих: сумма размеров SDK
+      заменена слагаемыми, ссылка на sbx.md названа с хвостом, стоимость down -v
+      названа честно (сносится и том с артефактами), проверка прав печатает код
+      ответа, config_sha считает и неотслеживаемые файлы, терпение healthcheck
+      отделено от замера старта."
     truncated: false
   addressed_acceptance_ids:
     - A2
-    - A4
-    - A11
+    - A5
     - A16
-    - A17
-    - A20
-    - A29
-    - A34
-    - A35
+    - A24
+    - A41
+    - A43
   checks:
     - name:
         text: go test ./..., go vet, gofmt
@@ -365,25 +370,25 @@ builder_handoff:
         text: кода шаг не трогает
         truncated: false
     - name:
-        text: существование файлов, скриптов, флагов, разделов
+        text: существование файлов, скриптов, флагов
         truncated: false
       result: passed
       note:
-        text: отдельным скриптом
+        text: скриптом
         truncated: false
     - name:
         text: ссылки «файл, раздел «имя»»
         truncated: false
       result: passed
       note:
-        text: шестнадцать ссылок, все разделы существуют
+        text: шестнадцать ссылок в пять файлов
         truncated: false
     - name:
         text: docker compose config
         truncated: false
       result: passed
       note:
-        text: bootstrap/jira/compose.yaml
+        text: bootstrap/jira
         truncated: false
     - name:
         text: bash -n правленых скриптов
@@ -401,18 +406,20 @@ builder_handoff:
         truncated: false
   checks_truncated: false
   known_limits:
-    - text: "Порядок «проект → jira-setup.sh» выведен из кода (скрипт раскладывает
-        поля по существующим экранам), но живьём не проверен: инстанс поднят и
-        пуст, а заводить на нём проект — работа шага 5. Это записано и в отчёт."
+    - text: Порядок «проект → jira-setup.sh» выведен из кода скрипта (он перебирает
+        застигнутые экраны) и из рассуждения о том, что шаблон Kanban приносит
+        свои; живьём не проверен — на инстансе проектов нет. Записано в отчёт
+        отдельным пунктом «за границей шага» с указанием шагу 5 проверить это
+        первым делом.
       truncated: false
     - text: Чек-лист не пройден подряд от первой команды до открытого pull request —
         шаг 5 по плану этапа.
       truncated: false
-    - text: "Три квадратика проверяются позже, чем стоят: Б5 и Б6 — первой проверкой
-        Б7, право токена forge из A2 — в Б4. Названо в каждом из трёх мест."
+    - text: "Команда заведения bare-репозитория в Б4 выведена из кода workspace, но
+        самим документом не прогонялась: репозиторий полигона давно не пуст."
       truncated: false
   known_limits_truncated: false
-  submitted_at: 2026-08-21T19:30:57.192Z
+  submitted_at: 2026-08-21T19:54:34.299Z
 blockers: []
 verification: null
 history:
@@ -448,6 +455,27 @@ history:
       text: Native confirmed acceptance criteria changed
       truncated: false
     completed_at: 2026-08-21T19:11:45.477Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+      - A5
+      - A16
+      - A24
+      - A41
+      - A43
+    summary:
+      text: "Шесть отказов. Один — новая дыра проходимости: пустой bare-репозиторий,
+        из которого нечего ответвить. Два — след разворота порядка настройки:
+        скрипт и заметка остались говорить отменённое, причём обе строки скрипта
+        правил я же кругом раньше. Один — противоречие документа самому себе про
+        содержимое ${OFFICE_HOME}. Один — четыре мелких дефекта в проверках.
+        Один — устаревший отчёт. Семь машинных проверок прошли, как и в
+        предыдущих кругах."
+      truncated: false
+    completed_at: 2026-08-21T19:54:00.597Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
