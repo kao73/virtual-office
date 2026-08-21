@@ -1,0 +1,835 @@
+schema: comet.native.v4
+name: onboarding-doc
+language: en
+phase: archive
+status: done
+state_version: 37
+brief: brief.md
+spec_changes:
+  - capability: onboarding-doc
+    operation: create
+    source: specs/onboarding-doc/spec.md
+workspace:
+  isolation: branch
+  change_branch: comet/onboarding-doc
+  target_branch: master
+  finish: merge
+loop:
+  stage: done
+  goal_cycle: 2
+  iteration: 7
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 6
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: specs/onboarding-doc/spec.md
+    text: Полное поведение способности после архивации изменения.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A2
+    source: specs/onboarding-doc/spec.md
+    text: "`docs/ONBOARDING.md` ведёт от чистой машины и пустой JIRA до задачи,
+      прошедшей все три роли и PR-проход. Он рассчитан на того, у кого нет
+      ничего, кроме клона офиса."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A3
+    source: specs/onboarding-doc/spec.md
+    text: Каждый шаг — квадратик `- [ ]`. Документ проходят, отмечая сделанное, а не
+      читают по диагонали.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A4
+    source: specs/onboarding-doc/spec.md
+    text: "Документ говорит, **что** делать; **почему** именно так — в заметках
+      `docs/notes/`, и ONBOARDING отсылает к их разделам. Объяснения не
+      дублируются: две копии одного объяснения расходятся при первой же правке."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A5
+    source: specs/onboarding-doc/spec.md
+    text: Каждый шаг называет, **чем проверить, что он удался**. Шаг без проверки
+      читатель считает сделанным, узнавая обратное через два шага.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A6
+    source: specs/onboarding-doc/spec.md
+    text: "Дорожка **«новая машина»** проходится один раз на машину: инструменты,
+      сеть песочниц, креды агента и forge, хозяйство `${OFFICE_HOME}`."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A7
+    source: specs/onboarding-doc/spec.md
+    text: "Дорожка **«новый проект»** проходится на каждый проект: инстанс трекера,
+      репозиторий проекта-клиента, две половины конфигурации, проверка."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A8
+    source: specs/onboarding-doc/spec.md
+    text: Документ в начале говорит, какую дорожку читателю проходить. Второй проект
+      на настроенной машине не заставляет перечитывать первую дорожку.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A9
+    source: specs/onboarding-doc/spec.md
+    text: "Контейнер Jira Software 8.13.19 на Atlassian Plugin SDK лежит в
+      `bootstrap/jira/`: `Dockerfile`, `compose.yaml`, каталог `project/` с POM
+      и дескриптором плагина, `.dockerignore` и `README.md`."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A10
+    source: specs/onboarding-doc/spec.md
+    text: "Место выбрано по назначению каталога: `bootstrap/` — обвязка машины
+      вокруг офиса, там уже лежат задания планировщика. Инстанс трекера того же
+      рода — офис его не содержит, он им пользуется."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A11
+    source: specs/onboarding-doc/spec.md
+    text: "Каталог SDK в git не едет: 88 МБ распакованных артефактов, а вместе с
+      архивом, из которого их достают, около 165. Читатель качает и
+      распаковывает его сам командой из `bootstrap/jira/README.md`, а
+      `.gitignore` держит и каталог, и архив."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A12
+    source: specs/onboarding-doc/spec.md
+    text: Адрес, с которого качается SDK, **проверен запросом**, а не выписан по
+      памяти.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A13
+    source: specs/onboarding-doc/spec.md
+    text: "Порт инстанса задаётся переменной `JIRA_PORT`, и второй инстанс рядом с
+      первым — штатный случай: ради него рецепт и переносился."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A14
+    source: specs/onboarding-doc/spec.md
+    text: "В рецепте не остаётся знания об одной машине. Измеренное про память —
+      предел `mem_limit: 6g`, смерть по OOM на четырёх гигабайтах и то, что
+      контейнер при этом остаётся `healthy`, — знание об офисе и остаётся;
+      соседний стек владельца и его свободные гигабайты названы как пример, а не
+      как факт про читателя."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A15
+    source: specs/onboarding-doc/spec.md
+    text: Рецепт **собирается и поднимается** на этой машине из своего нового места
+      — не переписан на глаз.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A16
+    source: specs/onboarding-doc/spec.md
+    text: "Порядок в документе тот, в котором шаги обязаны идти: инстанс, затем
+      проект по Kanban-шаблону, затем `jira-setup.sh`, `jira-workflow.sh`,
+      `jira-boards.sh`. Скрипт workflow правит workflow **проекта**, поэтому
+      проект заводится раньше него."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A17
+    source: specs/onboarding-doc/spec.md
+    text: "Всем четырём скриптам передают `--url` и учётку: значения по умолчанию
+      указывают на полигон, а заводят читатели свой инстанс."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A18
+    source: specs/onboarding-doc/spec.md
+    text: Идентификаторы полей аренды документ **не подставляет**. Их печатает
+      `jira-setup.sh` в конце, и на каждом инстансе они свои; в документе стоит
+      `customfield_NNNNN` и указание перенести напечатанное в
+      `${OFFICE_HOME}/tracker.yaml`.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A19
+    source: specs/onboarding-doc/spec.md
+    text: "Учёток обязательно две: офисная и человеческая. Отдельные учётки ролей —
+      опция, и документ говорит, как её не заводить."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A20
+    source: specs/onboarding-doc/spec.md
+    text: "Документ предупреждает про **срок девелоперской лицензии SDK** — трое
+      суток с момента, когда ключ попал в инстанс, — и называет способ продлить:
+      `down -v` и настройка заново. Читатель узнаёт об этом до того, как заведёт
+      на полигоне живой проект."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A21
+    source: specs/onboarding-doc/spec.md
+    text: "Документ называет три требования к репозиторию: ветка по умолчанию
+      совпадает с `default_branch` проекта, `.gitignore` закрывает мусор
+      прогонов и тестов, а `GITHUB_TOKEN` даёт право писать в репозиторий и
+      открывать в нём pull request."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A22
+    source: specs/onboarding-doc/spec.md
+    text: Токен один на оба действия — раннер пушит и открывает PR им же, — и
+      документ говорит это прямо, чтобы читатель не заводил второй.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A23
+    source: specs/onboarding-doc/spec.md
+    text: "Проект без forge — законный случай: локальный bare-репозиторий, `forge`
+      не задан, PR-проход вырождается. Документ называет его, потому что первый
+      заход обычно такой."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A24
+    source: specs/onboarding-doc/spec.md
+    text: "Документ разводит половины по границе офиса и инстанса: имя проекта и
+      свойства веток — в `projects.yaml` репозитория, `repo_url`,
+      `worktree_root`, `tracker` и `forge` — в
+      `${OFFICE_HOME}/projects.local.yaml`."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A25
+    source: specs/onboarding-doc/spec.md
+    text: "Документ предупреждает, что поставляемый `projects.yaml` описывает
+      полигоны этого офиса, и заводящий свой проект их заменяет: раннер требует
+      машинную половину каждому названному проекту."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A26
+    source: specs/onboarding-doc/spec.md
+    text: "`${OFFICE_HOME}/tracker.yaml` делается копированием
+      `tracker.example.yaml`, и правятся в нём ровно пять значений: `base_url` и
+      четыре `customfield_*`."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A27
+    source: specs/onboarding-doc/spec.md
+    text: "Бюджеты на первом заходе — `warn`: предел, поставленный до первого
+      замера, останавливает работу вместо того, чтобы о ней рассказать."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A28
+    source: specs/onboarding-doc/spec.md
+    text: "Четыре проверки идут по возрастанию цены: раннер печатает, откуда взял
+      каждый файл конфигурации; `run-agent --dry-run` каждой из трёх ролей;
+      `runner tick` на пустой очереди; учебная задача через три роли и
+      PR-проход."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A29
+    source: specs/onboarding-doc/spec.md
+    text: Первые три ничего не стоят и не трогают трекер — документ говорит это,
+      чтобы их не пропускали.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A30
+    source: specs/onboarding-doc/spec.md
+    text: Документ называет, что именно смотреть в выводе каждой проверки, а не
+      только команду.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A31
+    source: specs/onboarding-doc/spec.md
+    text: "Документ перечисляет ровно то, что не скриптуется, и у каждого пункта —
+      причина: экран перехода и снятие глобального входа живут только в
+      редакторе диаграмм; раскладка карточки и быстрый фильтр — настройка доски,
+      до которой раннеру дела нет; память Docker задаётся на машине."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A32
+    source: specs/onboarding-doc/spec.md
+    text: "Экран перехода `Office: Claim` документ помечает как ненужный, пока
+      раннер на проект один. Заводить его на первом заходе не надо."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A33
+    source: specs/onboarding-doc/spec.md
+    text: "Workflow **скриптуется**: `jira-workflow.sh` правит его через формы
+      текстового редактора. План этапа числит этот шаг ручным, и расхождение
+      записано в отчёт."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A34
+    source: specs/onboarding-doc/spec.md
+    text: "Документ заканчивается коротким списком «выглядит так — на самом деле вот
+      что»: контейнер жив, а порт молчит; задача пропала с доски; трекер
+      отвечает обрывом связи; `config:…-dirty` в метке прогона; раннер отказался
+      стартовать."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A35
+    source: specs/onboarding-doc/spec.md
+    text: Список закрыт теми симптомами, которые ловились вживую, и каждый ведёт к
+      разделу, где причина разобрана.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A36
+    source: specs/onboarding-doc/spec.md
+    text: Каждый файл, скрипт и флаг, названные в документе, существуют — проверено
+      по самому документу, а не по памяти.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A37
+    source: specs/onboarding-doc/spec.md
+    text: "`run-agent --dry-run` тремя ролями и `runner tick` на пустой очереди
+      прогнаны живьём; что они напечатали, лежит в отчёте."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A38
+    source: specs/onboarding-doc/spec.md
+    text: Рецепт из `bootstrap/jira/` собран и поднят на этой машине, и инстанс
+      ответил на `serverInfo`.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A39
+    source: specs/onboarding-doc/spec.md
+    text: "`gofmt`, `go vet` и `go test ./...` остаются зелёными: кода шаг не
+      трогает, и это тоже утверждение, которое проверяется."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A40
+    source: specs/onboarding-doc/spec.md
+    text: "README отсылает к ONBOARDING оттуда, где сегодня обрывается быстрый
+      старт: файловый трекер отлаживает конвейер, настоящий заход описан
+      документом."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A41
+    source: specs/onboarding-doc/spec.md
+    text: "`docs/notes/jira-setup.md` остаётся заметкой про «почему» и отсылает к
+      ONBOARDING за порядком действий. Порядок из неё не исчезает молча."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A42
+    source: specs/onboarding-doc/spec.md
+    text: "Знание о контейнерном полигоне, жившее в памяти помощника, переезжает в
+      репозиторий: `bootstrap/jira/README.md` и ONBOARDING. В памяти остаётся
+      указатель на них."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A43
+    source: specs/onboarding-doc/spec.md
+    text: "`docs/notes/stage-5-onboarding.md` рассказывает, что вышло: чем оказалась
+      дорожка «новая машина» против дорожки «новый проект», что пришлось
+      проверить живьём, и что документ обещает читателю, но проверено будет
+      только шагом 5."
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+  - id: A44
+    source: specs/onboarding-doc/spec.md
+    text: Отчёт называет расхождения с планом этапа — и то, где план оказался прав.
+    result: passed
+    reason:
+      text: Проверено независимым проверяющим по файлам, коду и живым системам.
+      truncated: false
+builder_handoff:
+  candidate_id: a951edd9-0ac4-4732-91e1-203353892658
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:b0d31127-dd34-4849-a89b-241394a4c863
+  iteration: 7
+  summary:
+    text: "Круг девятый, коммит 42e9c08. A43 чинится не пересчётом, а снятием
+      источника. Три круга подряд отказ приходился на числа в отчёте, устаревшие
+      от правок того самого круга, который их проверял: число ссылок меняется от
+      любой правки документа, ряд отказов по кругам — от каждого круга. Оба
+      счётчика убраны. Сколько ссылок — печатает машинная проверка, и в отчёте
+      этого числа нет намеренно, о чём там прямо сказано. Историю кругов ведёт
+      раннтайм полем history в comet-state.yaml; отчёт на неё ссылается и
+      оговаривает, что полной картины и там нет — круг, после которого правилась
+      спецификация, поглощён записью о возврате (проверено: 10 записей, из них 7
+      с исходом fail). Перечень проверенного при этом остался и приведён к
+      документу. Плюс четыре неблокирующих замечания восьмого круга: проверка
+      токена forge смотрит permissions.push, а не только успешный ответ —
+      проверено на живом API GitHub, ответ содержит permissions с push, а
+      репозиторий приватный, что подтверждает и оговорку про 404; Б3 больше не
+      велит править ${OFFICE_HOME}/tracker.yaml, который заводится только в Б5,
+      а называет решение и отсылает правку туда; у квадратика про уборку пробной
+      задачи появилась проверка через REST; третий квадратик Б7 различает два
+      рода отказа — загрузчика и JIRA про cf[NNNNN] — со ссылкой на Б5; назван
+      --backend local для машины, не подходящей под требования sbx."
+    truncated: false
+  addressed_acceptance_ids:
+    - A43
+  checks:
+    - name:
+        text: go test ./..., gofmt
+        truncated: false
+      result: passed
+      note:
+        text: Go-кода изменение не трогает
+        truncated: false
+    - name:
+        text: существование файлов, скриптов и флагов
+        truncated: false
+      result: passed
+      note:
+        text: check-refs.sh
+        truncated: false
+    - name:
+        text: ссылки на разделы
+        truncated: false
+      result: passed
+      note:
+        text: скрипт печатает счёт сам; в отчёте числа нет
+        truncated: false
+    - name:
+        text: рецепт Б4 целиком плюс обратный ход
+        truncated: false
+      result: passed
+      note:
+        text: check-b4.sh
+        truncated: false
+    - name:
+        text: "неизвестное поле: fields= проходит, JQL отвергается"
+        truncated: false
+      result: passed
+      note:
+        text: на живом инстансе
+        truncated: false
+    - name:
+        text: permissions.push в ответе GitHub
+        truncated: false
+      result: passed
+      note:
+        text: проверено gh api на настоящем репозитории
+        truncated: false
+    - name:
+        text: ширина прозаических строк
+        truncated: false
+      result: passed
+      note:
+        text: длинными остались только код и таблица
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: "Размер SDK в спецификации назван «около 165», в рецепте — слагаемыми 88
+        МиБ и 73 МиБ (161). Правку в спецификацию не несу: возвращать изменение
+        в фазу замысла ради округления дороже, чем оставить расхождение
+        названным."
+      truncated: false
+    - text: Порядок «проект → jira-setup.sh» выведен из кода скрипта и рассуждения про
+        экраны шаблона; живьём не проверен — на инстансе проектов нет.
+      truncated: false
+    - text: runner tick под --tracker jira вживую не гонялся, только под mock.
+      truncated: false
+    - text: docs/notes/stage-5-cleanup.md всё ещё советует подменять localhost на
+        127.0.0.1; это отчёт другого шага, и правка его вне рамок этого
+        изменения. ONBOARDING говорит про нынешний рецепт верно.
+      truncated: false
+    - text: Чек-лист не пройден подряд от первой команды до открытого pull request —
+        это шаг 5, он же и есть проверка документа.
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-21T22:29:05.642Z
+blockers: []
+verification:
+  candidate_id: a951edd9-0ac4-4732-91e1-203353892658
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:bf0c58a4-7572-4ec9-bd43-73a58806a1fe
+  iteration: 7
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: go-test-9
+      name:
+        text: go test ./...
+        truncated: false
+      argv_display:
+        - text: test
+          truncated: false
+        - text: -count=1
+          truncated: false
+        - text: ./...
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 75181
+    - id: refs-9
+      name:
+        text: файлы, скрипты и флаги существуют
+        truncated: false
+      argv_display:
+        - text: /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/check-refs.sh
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 28
+    - id: sections-9
+      name:
+        text: ссылки на разделы ведут в существующие заголовки
+        truncated: false
+      argv_display:
+        - text: /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/checkrefs2.sh
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 63
+    - id: b4-recipe-9
+      name:
+        text: рецепт Б4 целиком
+        truncated: false
+      argv_display:
+        - text: /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/check-b4.sh
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 348
+    - id: b4-reverse-9
+      name:
+        text: "обратный ход: на прежнем рецепте проверка падает"
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: "!
+            /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-o\
+            ffice/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/check-b4-brok\
+            en.sh >/dev/null 2>&1 && echo ok"
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 351
+    - id: no-counters-9
+      name:
+        text: в отчёте не осталось счётчиков процесса проверки
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: "! grep -qE 'шестнадцать ссылок|семнадцать ссылок|7, 9, 6'
+            docs/notes/stage-5-onboarding.md && echo 'счётчиков нет'"
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 17
+    - id: server-info-9
+      name:
+        text: инстанс отвечает на serverInfo
+        truncated: false
+      argv_display:
+        - text: -fsS
+          truncated: false
+        - text: -m
+          truncated: false
+        - text: "10"
+          truncated: false
+        - text: http://localhost:2990/jira/rest/api/2/serverInfo
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 28
+  summary:
+    text: "Все 44 пункта прошли. Снятие счётчиков процесса признано законным:
+      содержание, которого требует пункт про отчёт, осталось на месте, а на
+      место чисел встало проверяемое — утверждение без числа плюс ссылка на
+      history раннтайма, и обе проверены независимо. Правки девятого круга
+      сверены с кодом и живыми системами, новых поломок нет. Семь машинных
+      проверок прошли."
+    truncated: false
+  risks:
+    - text: "Указатель из Б3 в Б5 не подхвачен: в Б5 про снятие accounts.roles не
+        сказано."
+      truncated: false
+    - text: "permissions.push закрывает половину квадратика: право открывать PR у
+        fine-grained токена отдельное."
+      truncated: false
+    - text: Литерал permissions в Б4 не совпадёт с настоящим ответом дословно.
+      truncated: false
+    - text: Скрипты проверок живут в каталоге сессии, а не в репозитории.
+      truncated: false
+    - text: «Около трёх десятков» неблокирующих замечаний — непроверяемое число.
+      truncated: false
+    - text: docs/STAGE-5-first-live.md не отслеживается git и держит дерево грязным.
+      truncated: false
+    - text: Побочные строки run-agent про сетевую политику в квадратике не названы.
+      truncated: false
+    - text: "Замер памяти инстанса дрейфует: отчёт 2.5 ГиБ, сейчас 2.18."
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-21T22:44:18.319Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A1
+      - A2
+      - A4
+      - A6
+      - A13
+      - A29
+      - A35
+    summary:
+      text: "Семь пунктов отказали. Три отказа — обещания полноты, не выдержавшие
+        счёта («каждый шаг отсылает», «каждый симптом ведёт к разделу»,
+        «проверки трекер не трогают»). Два — непроходимость документа: пробная
+        задача не может уйти из Ready в Analysis, и исход четвёртого тика описан
+        только для проекта с forge. Один — дорожка «новая машина» без креда
+        forge. Один — рецепт, не дающий второго инстанса без правки
+        отслеживаемого файла. Раннтаймовые проверки (go test, go vet, ссылки,
+        serverInfo, синтаксис скрипта) прошли все пять."
+      truncated: false
+    completed_at: 2026-08-21T18:50:31.555Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native confirmed acceptance criteria changed
+      truncated: false
+    completed_at: 2026-08-21T19:11:45.477Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+      - A5
+      - A16
+      - A24
+      - A41
+      - A43
+    summary:
+      text: "Шесть отказов. Один — новая дыра проходимости: пустой bare-репозиторий,
+        из которого нечего ответвить. Два — след разворота порядка настройки:
+        скрипт и заметка остались говорить отменённое, причём обе строки скрипта
+        правил я же кругом раньше. Один — противоречие документа самому себе про
+        содержимое ${OFFICE_HOME}. Один — четыре мелких дефекта в проверках.
+        Один — устаревший отчёт. Семь машинных проверок прошли, как и в
+        предыдущих кругах."
+      truncated: false
+    completed_at: 2026-08-21T19:54:00.597Z
+  - goal_cycle: 2
+    iteration: 2
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A5
+      - A21
+    summary:
+      text: "Два отказа, оба одного рода — «шаг верен сам по себе и ломает соседа», и
+        ни один из семи машинных прогонов их не ловит. Первый: проверка Б1
+        требует docker compose там, где документ только что увёл читателя в
+        корень офиса. Второй хуже: рецепт Б4 не клал .gitignore в репозиторий, а
+        проверка, написанная это доказать, проходила ложно — check-ignore читает
+        рабочее дерево независимо от отслеживания, и вместе с ним ложно
+        проходила добавленная машинная проверка."
+      truncated: false
+    completed_at: 2026-08-21T20:17:30.394Z
+  - goal_cycle: 2
+    iteration: 3
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A2
+      - A43
+    summary:
+      text: "Два отказа, и оба — ошибки рассуждения, а не реализации. Первый:
+        обоснование, почему пробная задача не годится в учебные, выведено
+        неверно из верной посылки, и стоит в двух местах. Второй: два числа в
+        отчёте, оба перенесённые из вывода собственного проверяющего скрипта и
+        из счёта кругов, устаревшего к моменту коммита. Семь машинных проверок
+        прошли, включая обратный ход на прежнем рецепте Б4."
+      truncated: false
+    completed_at: 2026-08-21T20:42:44.697Z
+  - goal_cycle: 2
+    iteration: 4
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A43
+    summary:
+      text: "Один отказ. В самом документе, которым будут пользоваться, проверяющий не
+        нашёл ничего: все пункты про ONBOARDING, рецепт, README и заметки
+        прошли. Отказал только отчёт о работе — четыре счётных утверждения, два
+        из которых поставлены правками этого же круга. Шесть машинных проверок
+        прошли."
+      truncated: false
+    completed_at: 2026-08-21T21:30:53.553Z
+  - goal_cycle: 2
+    iteration: 5
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A5
+      - A43
+    summary:
+      text: "Два отказа. Первый настоящий и найден против живого инстанса: квадратик
+        про номера полей аренды отмечался по проверке, которая его не
+        устанавливает, — ls не трогает поля аренды в JQL, а Jira молча глотает
+        неизвестный customfield. Второй — перечень проверенного в отчёте,
+        отставший от документа после правки того же круга. Шесть машинных
+        проверок прошли; в самом документе других дефектов проверяющий не
+        нашёл."
+      truncated: false
+    completed_at: 2026-08-21T21:53:16.316Z
+  - goal_cycle: 2
+    iteration: 5
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Владелец решил дать ещё круг: правки по A5 (квадратик про номера полей
+        аренды отмечался по проверке, которая их не устанавливает) и A43
+        (перечень проверенного отстал от документа), плюс неблокирующие
+        замечания. При успешном круге — архивация со слиянием в master."
+      truncated: false
+    completed_at: 2026-08-21T21:59:39.119Z
+  - goal_cycle: 2
+    iteration: 6
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A43
+    summary:
+      text: "Один отказ, и он целиком в отчёте о работе: два числа, устаревшие от
+        правок этого же круга. В документе, рецепте, скриптах и заметках
+        проверяющий не нашёл ничего — правки восьмого круга проверены против
+        кода и живого инстанса и держатся."
+      truncated: false
+    completed_at: 2026-08-21T22:23:14.485Z
+  - goal_cycle: 2
+    iteration: 6
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Владелец решил закрывать. Убираю из отчёта счётчики самого процесса
+        проверки — число ссылок и ряд отказов по кругам: оба меняются от каждого
+        круга и потому неверны в момент чтения. Отчёт будет ссылаться на историю
+        в comet-state.yaml и на вывод машинной проверки вместо копирования
+        чисел. Плюс три неблокирующих замечания."
+      truncated: false
+    completed_at: 2026-08-21T22:26:41.496Z
+  - goal_cycle: 2
+    iteration: 7
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: "Все 44 пункта прошли. Снятие счётчиков процесса признано законным:
+        содержание, которого требует пункт про отчёт, осталось на месте, а на
+        место чисел встало проверяемое — утверждение без числа плюс ссылка на
+        history раннтайма, и обе проверены независимо. Правки девятого круга
+        сверены с кодом и живыми системами, новых поломок нет. Семь машинных
+        проверок прошли."
+      truncated: false
+    completed_at: 2026-08-21T22:44:18.319Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-21T10:22:49.170Z

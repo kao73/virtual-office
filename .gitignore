@@ -6,3 +6,7 @@
 /.comet/*
 !/.comet/config.yaml
 # <<< Comet managed project state <<<
+# Локальная JIRA: распакованный SDK, 88 МБ артефактов. Как получить —
+# bootstrap/jira/README.md.
+bootstrap/jira/sdk/
+bootstrap/jira/*.tar.gz

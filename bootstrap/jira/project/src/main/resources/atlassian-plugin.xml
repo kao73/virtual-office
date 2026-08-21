@@ -1,0 +1,8 @@
+<atlassian-plugin key="${atlassian.plugin.key}" name="${project.name}" plugins-version="2">
+    <plugin-info>
+        <description>Пустой плагин. Проект нужен только затем, чтобы у AMPS был POM,
+        в котором можно задать applications — иначе SDK поднимает Jira Core.</description>
+        <version>${project.version}</version>
+        <vendor name="${project.organization.name}" url="${project.organization.url}"/>
+    </plugin-info>
+</atlassian-plugin>
