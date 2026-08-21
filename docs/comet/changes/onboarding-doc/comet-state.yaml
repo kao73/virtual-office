@@ -3,7 +3,7 @@ name: onboarding-doc
 language: en
 phase: build
 status: active
-state_version: 18
+state_version: 21
 brief: brief.md
 spec_changes:
   - capability: onboarding-doc
@@ -17,14 +17,13 @@ workspace:
 loop:
   stage: repairing
   goal_cycle: 2
-  iteration: 4
+  iteration: 5
   attempt: 0
   retry_epoch: 0
-  failed_iteration_count: 3
-  no_progress_count: 2
+  failed_iteration_count: 4
+  no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids:
-    - A2
     - A43
   next_action: repair-failed-acceptance
 acceptance:
@@ -40,13 +39,9 @@ acceptance:
     text: "`docs/ONBOARDING.md` ведёт от чистой машины и пустой JIRA до задачи,
       прошедшей все три роли и PR-проход. Он рассчитан на того, у кого нет
       ничего, кроме клона офиса."
-    result: failed
+    result: passed
     reason:
-      text: "Обоснование, почему пробная задача не годится в учебные, неверно дважды:
-        к Б7 она в Backlog (так велит квадратик самого документа), а ход Backlog
-        → Analysis есть; и даже из Ready в Analysis можно за два перехода через
-        Blocked — тот самый, которым документ её и уводит. Посылка верна, вывод
-        нет; дефект в двух местах."
+      text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
       truncated: false
   - id: A3
     source: specs/onboarding-doc/spec.md
@@ -406,10 +401,14 @@ acceptance:
       только шагом 5."
     result: failed
     reason:
-      text: "Два числа не выдерживают пересчёта: «семнадцать имён разделов» — столько
-        печатал проверяющий скрипт, считая одно имя дважды (ссылок шестнадцать,
-        имён тринадцать); «кругов было три» — к моменту коммита их четыре, и
-        находка четвёртого описана тут же ниже."
+      text: "Четыре счётных утверждения в отчёте не переживают пересчёта, и два из них
+        — правки этого же круга: «семь команд» в быстром старте README (там семь
+        шагов, а команд больше, и шаг 2 вырос от этого же изменения); «ни одна
+        машинная проверка не поймала бы» противоречит соседнему абзацу, где
+        сказано, что исправленная проверка Б4 ловит три пункта перечисления;
+        счёт упоминаний «руками» сделан по разметке и прозе, а назван как счёт
+        по репозиторию — в коде есть ещё два; «кругов вышло пять» подано итогом,
+        но написано в шестом круге."
       truncated: false
   - id: A44
     source: specs/onboarding-doc/spec.md
@@ -419,40 +418,36 @@ acceptance:
       text: Проверено независимым проверяющим по файлам, коду и живому инстансу.
       truncated: false
 builder_handoff:
-  candidate_id: 5d02cbdc-4c58-4b8d-99b2-081eb9d8ec82
+  candidate_id: 13d40fb6-6623-4c4b-bd94-b93705b49d11
   identity_provider: skill-coordinated
-  builder_execution_ref: skill-coordinated:builder:b8013da1-308b-428c-b068-e177b1697ee0
-  iteration: 3
+  builder_execution_ref: skill-coordinated:builder:3852f225-4f18-403d-9b02-3c2e39d8d55a
+  iteration: 4
   summary:
-    text: "Круг пятый, коммит 5fd8632. A21: рецепт Б4 переписан — .gitignore
-      индексируется явно (`git add`), коммит без `-a` и без `--allow-empty`;
-      проверка второго требования смотрит на `ls-files --error-unmatch`
-      (отслеживается ли файл) и только потом на `check-ignore` (работает ли
-      правило), с прямым объяснением, почему одной второй мало. Сам шаг
-      переставлен: рецепт вперёд, проверки следом — прежде check-ignore называл
-      каталог, которого на тот момент не было. Машинная проверка bare-repo-4
-      заменена на check-b4.sh: она заводит клон тем же способом, что раннер
-      (init + remote add + fetch, а не clone --bare, иначе нет ссылок origin/*),
-      ответвляет от него ветку задачи и убеждается, что .gitignore есть и в
-      дереве bare, и в рабочей папке агента; проверена обратным ходом — на
-      прежнем рецепте падает и называет все три следствия. A5: во всех трёх
-      местах docker compose зовётся с -p office-jira (имя проекта задано в самом
-      compose-файле, поэтому находится из корня офиса — проверено); у квадратика
-      «проект есть, ключ выбран» появилась проверка через REST. Плюс восемь
-      неблокирующих: worktree rm отнесён к командам, собирающим офис; config_sha
-      объяснён один раз вместо двух разошедшихся копий; строка таблицы про
-      Office: Claim отвечает на вопрос колонки; у симптома с обрывом связи
-      назван пойманный вживую случай (localhost → ::1) и сказано, что на
-      нынешнем рецепте он закрыт — контейнер слушает обе, обе отвечают 200;
-      стоимость down -v дополнена тем, что идентификаторы полей заведутся новые
-      и Б5 придётся поправить; в отчёте названо, что тик на пустой очереди
-      гонялся под mock, а чек-лист велит jira, и почему на новом инстансе он бы
-      не дошёл; число ссылок пересчитано — семнадцать имён разделов в шести
-      файлах; ссылка на README сделана машиночитаемой."
+    text: "Круг шестой, коммит a649cfa. A2: обоснование «пробная задача не годится в
+      учебные» было выведено неверно из верной посылки и стояло в двух местах. К
+      шагу Б7 она лежит в Backlog — так велит квадратик самого документа, — и
+      ход Backlog → Analysis есть; даже из Ready в Analysis можно за два
+      перехода через Blocked. Оба места переписаны: переиспользовать можно, но
+      не стоит, потому что у пробной нет постановки — только комментарий
+      «проверка прав». A43: оба числа пересчитаны. «Семнадцать имён разделов»
+      пришло из вывода моего же скрипта, который считал одно имя дважды; скрипт
+      исправлен, в отчёте теперь «шестнадцать ссылок на тринадцать имён разделов
+      в шести файлах», и сказано, что скрипт соврал. «Кругов было три» заменено
+      формулировкой, которой пересчёт не нужен, плюс итоговый счёт в конце
+      раздела. Заодно исправлены две мои неточности, найденные при самопроверке:
+      абзац «чего проверки не нашли» хвалил машинные проверки, тогда как одна из
+      них проходила ложно, а другая подсунула неверное число — теперь это
+      сказано прямо; и число «девять мест, где документ вёл в тупик» заменено
+      перечислением, потому что оно тоже было поставлено раньше счёта. Плюс
+      неблокирующие пятого круга: блок «Сначала SDK» возвращает в корень офиса;
+      Б3 больше не обещает показать автора при заглушённом теле; у git названа
+      версия 2.32+ и проверка её смотрит; арифметика памяти в отчёте перемерена
+      (2.5 и 3.5 из 7.75); «три команды из семи» переписано так, чтобы worktree
+      rm не читался как работающий без конфигурации."
     truncated: false
   addressed_acceptance_ids:
-    - A5
-    - A21
+    - A2
+    - A43
   checks:
     - name:
         text: go test ./..., gofmt
@@ -462,25 +457,25 @@ builder_handoff:
         text: кода шаг не трогает
         truncated: false
     - name:
-        text: рецепт Б4 целиком, включая рабочую папку агента
+        text: рецепт Б4 целиком плюс обратный ход
         truncated: false
       result: passed
       note:
-        text: check-b4.sh; проверен обратным ходом на прежнем рецепте
+        text: check-b4.sh и check-b4-broken.sh
         truncated: false
     - name:
-        text: ссылки «файл, раздел «имя»»
+        text: ссылки на разделы
         truncated: false
       result: passed
       note:
-        text: семнадцать имён, шесть файлов
+        text: 16 ссылок, 13 имён, 6 файлов — скрипт исправлен от двойного счёта
         truncated: false
     - name:
-        text: docker compose -p office-jira из корня офиса
+        text: существование файлов, скриптов, флагов
         truncated: false
       result: passed
       note:
-        text: ps отвечает
+        text: check-refs.sh
         truncated: false
     - name:
         text: инстанс отвечает на serverInfo
@@ -491,40 +486,35 @@ builder_handoff:
         truncated: false
   checks_truncated: false
   known_limits:
-    - text: "Размер SDK в спецификации назван как «около 165», в README рецепта —
-        слагаемыми 88 и 73. Правку в спецификацию не несу: она подтверждена
-        владельцем, и её изменение вернуло бы изменение в фазу замысла ради
-        одного числа."
+    - text: "Размер SDK в спецификации назван «около 165», в рецепте — слагаемыми 88
+        МиБ и 73 МиБ. Правку в спецификацию не несу: ради одного числа
+        возвращать изменение в фазу замысла дороже, чем оставить расхождение
+        названным."
       truncated: false
-    - text: "Порядок «проект → jira-setup.sh» выведен из кода и рассуждения про экраны
-        шаблона, живьём не проверен: на инстансе проектов нет. Записано в отчёт
-        с указанием шагу 5 проверить первым делом."
+    - text: Порядок «проект → jira-setup.sh» выведен из кода и рассуждения про экраны
+        шаблона; живьём не проверен — на инстансе ни одного проекта. Записано в
+        отчёт с указанием шагу 5 проверить первым делом.
+      truncated: false
+    - text: "`docker compose -p office-jira down -v` живьём не проверялся, в отличие
+        от `ps`: сносить рабочий инстанс ради проверки флага дороже, чем
+        оставить это названным."
       truncated: false
     - text: Чек-лист не пройден подряд от первой команды до открытого pull request —
         шаг 5 по плану этапа.
       truncated: false
   known_limits_truncated: false
-  submitted_at: 2026-08-21T20:18:02.255Z
-blockers:
-  - owner: builder
-    reason:
-      text: Native verification has not made reliable progress twice; use a different
-        repair hypothesis before resubmitting.
-      truncated: false
-    acceptance_ids:
-      - A2
-      - A43
-    resolution_action: return-build
+  submitted_at: 2026-08-21T20:45:38.560Z
+blockers: []
 verification:
-  candidate_id: 5d02cbdc-4c58-4b8d-99b2-081eb9d8ec82
+  candidate_id: 13d40fb6-6623-4c4b-bd94-b93705b49d11
   identity_provider: skill-coordinated
-  verifier_execution_ref: skill-coordinated:verifier:54ef25fe-5bec-410c-aa7a-bf2a8d086e2c
-  iteration: 3
+  verifier_execution_ref: skill-coordinated:verifier:8f56142b-6639-44a1-b3ab-0e0dc19a37be
+  iteration: 4
   attempt: 1
   assurance: skill-coordinated
   verdict: fail
   checks:
-    - id: go-test-5
+    - id: go-test-6
       name:
         text: go test ./...
         truncated: false
@@ -539,8 +529,8 @@ verification:
       cwd_ref: .
       status: passed
       exit_code: 0
-      duration_ms: 54125
-    - id: refs-5
+      duration_ms: 60471
+    - id: refs-6
       name:
         text: файлы, скрипты и флаги, названные в ONBOARDING, существуют
         truncated: false
@@ -551,10 +541,10 @@ verification:
       cwd_ref: .
       status: passed
       exit_code: 0
-      duration_ms: 25
-    - id: sections-5
+      duration_ms: 26
+    - id: sections-6
       name:
-        text: каждое имя раздела в ссылках существует
+        text: "ссылки на разделы: имена существуют, счёт без двойников"
         truncated: false
       argv_display:
         - text: /private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/ea1404d7-777d-4aba-bd93-1f1cb681dcb4/scratchpad/checkrefs2.sh
@@ -563,8 +553,8 @@ verification:
       cwd_ref: .
       status: passed
       exit_code: 0
-      duration_ms: 65
-    - id: b4-recipe-5
+      duration_ms: 60
+    - id: b4-recipe-6
       name:
         text: "рецепт Б4 целиком: .gitignore в дереве bare и в рабочей папке агента"
         truncated: false
@@ -575,8 +565,8 @@ verification:
       cwd_ref: .
       status: passed
       exit_code: 0
-      duration_ms: 316
-    - id: b4-reverse-5
+      duration_ms: 349
+    - id: b4-reverse-6
       name:
         text: "обратный ход: на прежнем рецепте проверка Б4 падает"
         truncated: false
@@ -592,28 +582,8 @@ verification:
       cwd_ref: .
       status: passed
       exit_code: 0
-      duration_ms: 299
-    - id: compose-p-5
-      name:
-        text: docker compose -p office-jira работает из корня офиса
-        truncated: false
-      argv_display:
-        - text: compose
-          truncated: false
-        - text: -p
-          truncated: false
-        - text: "[REDACTED]"
-          truncated: false
-        - text: ps
-          truncated: false
-        - text: --quiet
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 181
-    - id: server-info-5
+      duration_ms: 340
+    - id: server-info-6
       name:
         text: инстанс отвечает на serverInfo
         truncated: false
@@ -630,40 +600,39 @@ verification:
       cwd_ref: .
       status: passed
       exit_code: 0
-      duration_ms: 65
+      duration_ms: 38
   summary:
-    text: "Два отказа, и оба — ошибки рассуждения, а не реализации. Первый:
-      обоснование, почему пробная задача не годится в учебные, выведено неверно
-      из верной посылки, и стоит в двух местах. Второй: два числа в отчёте, оба
-      перенесённые из вывода собственного проверяющего скрипта и из счёта
-      кругов, устаревшего к моменту коммита. Семь машинных проверок прошли,
-      включая обратный ход на прежнем рецепте Б4."
+    text: "Один отказ. В самом документе, которым будут пользоваться, проверяющий не
+      нашёл ничего: все пункты про ONBOARDING, рецепт, README и заметки прошли.
+      Отказал только отчёт о работе — четыре счётных утверждения, два из которых
+      поставлены правками этого же круга. Шесть машинных проверок прошли."
     truncated: false
   risks:
-    - text: Блок «Сначала SDK» в README рецепта уводит cd bootstrap/jira и не
-        возвращает, а следующая проверка ждёт корень офиса.
+    - text: Б3 велит править ${OFFICE_HOME}/tracker.yaml, а файл появляется только в
+        Б5 — читатель по порядку пойдёт искать несуществующее.
       truncated: false
-    - text: Проверка прав в Б3 обещает показать автора комментария, а curl идёт с -o
-        /dev/null.
+    - text: Б6 говорит «нет у обеих — законное состояние», но офисный budgets.yaml
+        поставляется, и читатель всегда увидит «есть».
       truncated: false
-    - text: "Сумма размера SDK: спецификация «около 165», рецепт 88 МиБ плюс 73 МиБ —
-        161; 165 выходит только смешением единиц."
+    - text: "Проверка .gitignore смотрит индекс клона, а не дерево bare: провалившийся
+        push она пропустит."
       truncated: false
-    - text: "Арифметика в отчёте: 2.97 плюс 3.49 дают 6.46, а написано «около 5.7»."
+    - text: jira-workflow.sh выбирает workflow как «первый непошаблонный»; для второго
+        проекта на том же инстансе нужен --workflow, и в Б2 он не назван.
       truncated: false
-    - text: docker compose -p office-jira down -v живьём не проверялся, в отличие от
-        ps.
+    - text: Заметка памяти говорит «вдвоём не помещаются», отчёт — «около 6 из 7.75,
+        помещаются». Расхождение.
       truncated: false
-    - text: "Порядок «проект → jira-setup.sh» по-прежнему не проверен живьём: на
-        инстансе ни одного проекта."
+    - text: Порог git 2.32 проверить read-only нельзя; если он завышен, документ зря
+        отсекает рабочие машины.
       truncated: false
-    - text: Рецепт Б4 опирается на git 2.32+, берущий имя ветки с сервера.
+    - text: Две строки документа выпадают из принятой ширины ~80 знаков.
       truncated: false
-    - text: "«Три команды из семи» читается шире, чем сказано: worktree rm офис
-        собирает."
+    - text: Размер SDK в спецификации «около 165» против 88+73 в рецепте; brief
+        сохранил старые «162 МБ».
       truncated: false
   risks_truncated: false
-  completed_at: 2026-08-21T20:42:44.697Z
+  completed_at: 2026-08-21T21:30:53.553Z
 history:
   - goal_cycle: 1
     iteration: 1
@@ -751,6 +720,20 @@ history:
         прошли, включая обратный ход на прежнем рецепте Б4."
       truncated: false
     completed_at: 2026-08-21T20:42:44.697Z
+  - goal_cycle: 2
+    iteration: 4
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A43
+    summary:
+      text: "Один отказ. В самом документе, которым будут пользоваться, проверяющий не
+        нашёл ничего: все пункты про ONBOARDING, рецепт, README и заметки
+        прошли. Отказал только отчёт о работе — четыре счётных утверждения, два
+        из которых поставлены правками этого же круга. Шесть машинных проверок
+        прошли."
+      truncated: false
+    completed_at: 2026-08-21T21:30:53.553Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
