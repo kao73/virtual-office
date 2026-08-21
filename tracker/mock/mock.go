@@ -79,7 +79,7 @@ func Default() (*Tracker, error) {
 func (t *Tracker) Root() string { return t.root }
 
 // RoleAccount — учётка роли. Конфигурации у файлового трекера нет, поэтому имя —
-// соглашение: в JIRA то же самое задаётся в tracker.yaml.
+// соглашение: в JIRA то же самое задаётся в ${OFFICE_HOME}/tracker.yaml.
 func RoleAccount(role string) string { return Account + "-" + role }
 
 // As — тот же трекер под другой учёткой. Хранилище общее: учётка меняет только

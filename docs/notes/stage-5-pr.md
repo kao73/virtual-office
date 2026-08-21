@@ -81,6 +81,8 @@ Approved` двумя прогонами ($0.1454 и $0.1347), PR #4, слиян�
 - **Ключи `tracker` и `forge`** остались в `projects.yaml`, хотя оба машинные
   по природе. Шаг «конфигурация по машинам» отложен владельцем до момента перед
   шагом 5, и перенос обоих ключей войдёт в него.
+  **Закрыто там же:** оба ключа уехали в `${OFFICE_HOME}/projects.local.yaml`
+  вместе с `repo_url` и `worktree_root`, см. `stage-5-config.md`.
 - **Грязная рабочая папка** живьём не встречалась: обе задачи закончились
   чистыми. Пропуск грязной папки проверен тестом конвейера.
 
@@ -90,7 +92,9 @@ Approved` двумя прогонами ($0.1454 и $0.1347), PR #4, слиян�
 eval "$(grep -hE '^ *export +CLAUDE_CODE_OAUTH_TOKEN=' ~/.zshrc)"   # кред агента
 export GITHUB_TOKEN=$(gh auth token)                                 # forge
 export OFFICE_HOME=/tmp/probe-home                                   # своё хозяйство
-# в projects.yaml — проект с forge: github и tracker: mock
+# в projects.yaml — имя проекта и ветки; в ${OFFICE_HOME}/projects.local.yaml —
+# его repo_url, tracker: mock и forge: github (раскладка появилась шагом позже,
+# см. stage-5-config.md)
 ./bin/runner mock add PROBE-1 --status Ready --summary "…" --description "…"
 ./bin/runner tick --tracker mock --role implementer
 ./bin/runner tick --tracker mock --role reviewer

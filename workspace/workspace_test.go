@@ -436,8 +436,8 @@ func TestRemoveKeepsBranch(t *testing.T) {
 	}
 }
 
-// worktree_root из projects.yaml важнее умолчания: проекты могут жить на разных
-// дисках, и раннер обязан слушаться конфигурации.
+// worktree_root из projects.local.yaml важнее умолчания: проекты могут жить
+// на разных дисках, и раннер обязан слушаться конфигурации.
 func TestWorktreeRootFromProject(t *testing.T) {
 	m, project, task := setup(t)
 	project.WorktreeRoot = filepath.Join(t.TempDir(), "особое-место")

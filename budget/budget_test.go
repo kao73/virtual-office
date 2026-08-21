@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+// missing — путь к накладке, которой нет: у большинства проверок машинного
+// перекрытия нет вовсе, и это законное состояние.
+func missing(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), File)
+}
+
 func writeFile(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), File)
@@ -17,10 +24,10 @@ func writeFile(t *testing.T, body string) string {
 }
 
 // Естественное состояние офиса — учёт без ограничений: прогоны считаются,
-// задачи берутся. Отсутствие файла поэтому не ошибка и не повод не запуститься,
-// в отличие от workflow.yaml, без которого раннеру нечем решать.
+// задачи берутся. Отсутствие обоих файлов поэтому не ошибка и не повод
+// не запуститься, в отличие от workflow.yaml, без которого раннеру нечем решать.
 func TestNoFileMeansNoLimits(t *testing.T) {
-	budgets, err := Load(filepath.Join(t.TempDir(), File))
+	budgets, err := Load(missing(t), missing(t))
 	if err != nil {
 		t.Fatalf("отсутствие файла принято за беду: %v", err)
 	}
@@ -37,7 +44,7 @@ func TestEmptyFileMeansNoLimits(t *testing.T) {
 		"одни комментарии": "# пределы сняты на время отладки\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			budgets, err := Load(writeFile(t, body))
+			budgets, err := Load(writeFile(t, body), missing(t))
 			if err != nil {
 				t.Fatalf("пустой файл принят за беду: %v", err)
 			}
@@ -51,7 +58,7 @@ func TestEmptyFileMeansNoLimits(t *testing.T) {
 // Режим по умолчанию — предупреждение. Тот, кто вписал одно число, не должен
 // обнаружить, что раннер перестал брать задачи.
 func TestModeDefaultsToWarn(t *testing.T) {
-	budgets, err := Load(writeFile(t, "per_task: { usd: 5 }\n"))
+	budgets, err := Load(writeFile(t, "per_task: { usd: 5 }\n"), missing(t))
 	if err != nil {
 		t.Fatalf("бюджеты не прочитаны: %v", err)
 	}
@@ -65,7 +72,7 @@ func TestLoadReadsAllThreeLimits(t *testing.T) {
 per_task:       { usd: 5, on_exceed: stop }
 per_role_daily: { usd: 20, on_exceed: warn }
 per_run:        { usd: 1 }
-`))
+`), missing(t))
 	if err != nil {
 		t.Fatalf("бюджеты не прочитаны: %v", err)
 	}
@@ -93,7 +100,7 @@ func TestLoadRejectsNonsense(t *testing.T) {
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Load(writeFile(t, body)); err == nil {
+			if _, err := Load(writeFile(t, body), missing(t)); err == nil {
 				t.Error("файл принят молча")
 			}
 		})
@@ -104,7 +111,7 @@ func TestLoadRejectsNonsense(t *testing.T) {
 // и оплачена. Жёсткая граница у прогона своя — max_turns в роли, — и объяснить
 // это надо там, где человек написал stop.
 func TestPerRunStopExplainsItself(t *testing.T) {
-	_, err := Load(writeFile(t, "per_run: { usd: 1, on_exceed: stop }\n"))
+	_, err := Load(writeFile(t, "per_run: { usd: 1, on_exceed: stop }\n"), missing(t))
 	if err == nil {
 		t.Fatal("per_run со stop принят молча")
 	}
@@ -125,5 +132,54 @@ func TestExceededCountsEqualityAsExhausted(t *testing.T) {
 	// Ненастроенный лимит не срабатывает никогда, сколько бы ни потратили.
 	if (Limit{}).Exceeded(1000) {
 		t.Error("сработал лимит, которого нет")
+	}
+}
+
+// Накладка машины перекрывает дефолты офиса по имени предела и целиком:
+// названный в ней предел заменяет дефолтный вместе с режимом, не названный
+// остаётся как был.
+func TestMachineOverlayReplacesNamedLimits(t *testing.T) {
+	office := writeFile(t, `
+per_task:       { usd: 5, on_exceed: stop }
+per_role_daily: { usd: 20, on_exceed: warn }
+`)
+	machine := filepath.Join(t.TempDir(), File)
+	if err := os.WriteFile(machine, []byte("per_task: { usd: 50 }\n"), 0o644); err != nil {
+		t.Fatalf("накладка не записана: %v", err)
+	}
+
+	budgets, err := Load(office, machine)
+	if err != nil {
+		t.Fatalf("бюджеты не прочитаны: %v", err)
+	}
+	if budgets.PerTask.USD != 50 {
+		t.Errorf("названный предел не перекрыт: %+v", budgets.PerTask)
+	}
+	// Режим тоже пришёл из накладки, а не остался от дефолта: предел заменяется
+	// целиком, иначе вышла бы политика, которой не писал никто.
+	if budgets.PerTask.Stops() {
+		t.Errorf("режим остался от дефолта: %+v", budgets.PerTask)
+	}
+	if budgets.PerRoleDaily.USD != 20 || budgets.PerRoleDaily.Stops() {
+		t.Errorf("неназванный предел тронут: %+v", budgets.PerRoleDaily)
+	}
+}
+
+// Накладка вправе и снять предел. Решает названность в файле, а не значение:
+// `usd: 0` означает «предела нет», и по ненулевой сумме такую накладку было бы
+// не отличить от её отсутствия.
+func TestMachineOverlayCanRemoveLimit(t *testing.T) {
+	office := writeFile(t, "per_run: { usd: 1, on_exceed: warn }\n")
+	machine := filepath.Join(t.TempDir(), File)
+	if err := os.WriteFile(machine, []byte("per_run: { usd: 0 }\n"), 0o644); err != nil {
+		t.Fatalf("накладка не записана: %v", err)
+	}
+
+	budgets, err := Load(office, machine)
+	if err != nil {
+		t.Fatalf("бюджеты не прочитаны: %v", err)
+	}
+	if budgets.PerRun.Set() {
+		t.Errorf("предел не снят накладкой: %+v", budgets.PerRun)
 	}
 }

@@ -42,7 +42,7 @@ const pageSize = 100
 // годного, поэтому предел один на все очереди.
 const searchPage = 50
 
-// Config — подключение и раскладка полей. Живёт в tracker.yaml.
+// Config — подключение и раскладка полей. Живёт в ${OFFICE_HOME}/tracker.yaml.
 type Config struct {
 	BaseURL string `yaml:"base_url"`
 	Auth    Auth   `yaml:"auth"`
@@ -753,7 +753,8 @@ func statusError(method, path string, code int, body []byte) error {
 	case http.StatusConflict:
 		return fmt.Errorf("%w: %s %s: %s", tracker.ErrClaimLost, method, path, snippet(body))
 	case http.StatusUnauthorized:
-		return fmt.Errorf("%s %s: кред не принят (401), проверь auth в tracker.yaml: %s", method, path, snippet(body))
+		return fmt.Errorf("%s %s: кред не принят (401), проверь auth в ${OFFICE_HOME}/%s: %s",
+			method, path, TrackerFile, snippet(body))
 	case http.StatusForbidden:
 		return fmt.Errorf("%s %s: доступ запрещён (403), учётке не хватает прав: %s", method, path, snippet(body))
 	default:
@@ -776,21 +777,44 @@ func text(v any) string {
 	return s
 }
 
-// TrackerFile — имя файла конфигурации в корне конфиг-репозитория.
+// TrackerFile — подключение к инстансу; живёт в ${OFFICE_HOME}, а не в репозитории.
+//
+// Инстансных значений в поставляемом образце пять: base_url и четыре customfield_*
+// (also_agents тоже свойство инстанса, но на полигоне он пуст). Прочее —
+// режим авторизации (у 8.13 он один), имена переменных с учётками, метка ожидания
+// человека и почти вся карта статусов — совпадёт у любых двух инстансов;
+// нетождественна в ней одна запись, InProgress: In Progress, и та стандартна. Файл уносится целиком
+// не потому, что каждая строка своя, а потому, что делить тридцать строк ради пяти
+// значений значит завести вторую склейку там, где хватает копирования образца.
 const TrackerFile = "tracker.yaml"
+
+// ExampleFile — тот же файл с полигонными значениями и объяснениями, лежащий
+// в репозитории. Из него делают tracker.yaml нового инстанса; раннер его
+// не читает никогда.
+const ExampleFile = "tracker.example.yaml"
 
 // LoadConfig читает tracker.yaml. Разбор строгий, как у роли и графа:
 // неизвестное поле — ошибка, а не молча забытая настройка.
 func LoadConfig(path string) (Config, error) {
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("%s не прочитан: %w", TrackerFile, err)
+	switch {
+	// Файла нет — самый частый отказ на новой машине, и он обязан сказать
+	// не только чего не хватает, но и откуда это берут: сам по себе tracker.yaml
+	// не пишут, его копируют из образца.
+	case errors.Is(err, os.ErrNotExist):
+		return Config{}, fmt.Errorf("%s не заведён: подключение к JIRA — свойство инстанса, "+
+			"а не офиса. Сделайте файл из образца %s, лежащего в конфиг-репозитории", path, ExampleFile)
+	case err != nil:
+		return Config{}, fmt.Errorf("%s не прочитан: %w", path, err)
 	}
 
 	var cfg Config
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
-	if err := dec.Decode(&cfg); err != nil {
+	// Пустой документ — это io.EOF, и жаловаться на него нечем: «не разобран: EOF»
+	// человеку не говорит ничего. Пусть объяснит проверка ниже — она назовёт, чего
+	// не хватает. «Завёл файл, ещё не заполнил» на новой машине — обычный шаг.
+	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
 		return Config{}, fmt.Errorf("%s не разобран: %w", path, err)
 	}
 

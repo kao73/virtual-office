@@ -1,8 +1,9 @@
 // Package budget — политика расхода поверх реестра прогонов.
 //
 // Учёт и ограничение разведены намеренно. Реестр (пакет ledger) ведётся всегда
-// и ничего не решает; бюджеты — необязательная политика над ним. Нет файла —
-// нет лимитов, и это естественное состояние офиса, а не недонастроенное:
+// и ничего не решает; бюджеты — необязательная политика над ним. Файлов у неё два —
+// дефолты офиса и накладка машины, — и оба необязательны: нет ни одного — нет
+// лимитов, и это естественное состояние офиса, а не недонастроенное:
 // раннер считает прогоны и берёт задачи. Тем и отличается от workflow.yaml,
 // без которого раннеру нечем решать вовсе.
 package budget
@@ -13,13 +14,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 
 	"gopkg.in/yaml.v3"
 )
 
-// File — имя файла бюджетов в корне конфиг-репозитория.
+// File — имя файла бюджетов. Имя одно, а файлов два: дефолты офиса лежат
+// в конфиг-репозитории, перекрытие этой машины — в ${OFFICE_HOME}. Оба
+// необязательны.
 const File = "budgets.yaml"
 
 // Режимы срабатывания лимита.
@@ -67,20 +69,92 @@ func (b Budgets) Any() bool {
 	return b.PerTask.Set() || b.PerRoleDaily.Set() || b.PerRun.Set()
 }
 
-// Load читает бюджеты. Отсутствие файла — не ошибка: пределы необязательны.
+// Load читает бюджеты из дефолтов офиса и накладки этой машины.
+//
+// Файлов два и оба необязательны: пределы — политика поверх учёта, и офис без них
+// не «недонастроен», а настроен так. Накладка перекрывает дефолт **по имени
+// предела и целиком**: названный в ней предел заменяет дефолтный вместе с режимом,
+// не названный остаётся как был. Половинчатое слияние (сумма отсюда, режим оттуда)
+// давало бы предел, которого не писал никто.
 //
 // Разбор строгий, как у графа, и по той же причине: опечатка в имени лимита
 // или режима молча снимает ограничение, а узнать об этом человек может только
 // по счёту. Умолчание здесь одно — режим warn.
-func Load(path string) (Budgets, error) {
+func Load(officePath, machinePath string) (Budgets, error) {
+	office, err := loadFile(officePath)
+	if err != nil {
+		return Budgets{}, err
+	}
+	machine, named, err := loadOverlay(machinePath)
+	if err != nil {
+		return Budgets{}, err
+	}
+	return office.overlay(machine, named), nil
+}
+
+// overlay накладывает пределы машины на дефолты офиса.
+//
+// Решает **названность в файле, а не значение**. Разница не теоретическая:
+// `usd: 0` означает «предела нет», и если бы накладка узнавалась по ненулевой
+// сумме, снять дефолтный предел на этой машине было бы нечем — накладка молча
+// не сработала бы.
+func (b Budgets) overlay(with Budgets, named map[string]bool) Budgets {
+	if named["per_task"] {
+		b.PerTask = with.PerTask
+	}
+	if named["per_role_daily"] {
+		b.PerRoleDaily = with.PerRoleDaily
+	}
+	if named["per_run"] {
+		b.PerRun = with.PerRun
+	}
+	return b
+}
+
+// loadOverlay читает накладку и заодно говорит, какие пределы она называет.
+//
+// Файл читается один раз и разбирается дважды: строгим декодером — ради значений
+// и проверок, картой узлов — ради самих имён. Два чтения одного файла в одном
+// вызове могли бы разойтись, а строгий разбор имён не отдаёт: он их проглатывает
+// в поля структуры, где «названо» уже неотличимо от «оставлено нулём».
+func loadOverlay(path string) (Budgets, map[string]bool, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return Budgets{}, nil, nil
+	}
+	if err != nil {
+		return Budgets{}, nil, fmt.Errorf("%s не прочитан: %w", path, err)
+	}
+
+	b, err := decode(path, raw)
+	if err != nil {
+		return Budgets{}, nil, err
+	}
+
+	var keys map[string]yaml.Node
+	if err := yaml.Unmarshal(raw, &keys); err != nil {
+		return Budgets{}, nil, fmt.Errorf("%s не разобран: %w", path, err)
+	}
+	named := make(map[string]bool, len(keys))
+	for key := range keys {
+		named[key] = true
+	}
+	return b, named, nil
+}
+
+func loadFile(path string) (Budgets, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Budgets{}, nil
 	}
 	if err != nil {
-		return Budgets{}, fmt.Errorf("%s не прочитан: %w", filepath.Base(path), err)
+		return Budgets{}, fmt.Errorf("%s не прочитан: %w", path, err)
 	}
+	return decode(path, raw)
+}
 
+// decode разбирает прочитанное тело: строго, с проверкой и умолчанием режима.
+func decode(path string, raw []byte) (Budgets, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	var b Budgets

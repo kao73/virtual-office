@@ -40,8 +40,15 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 	if err != nil {
 		return nil, err
 	}
+	// Хозяйство раннера — вторая половина конфигурации. Репозиторий описывает
+	// офис, ${OFFICE_HOME} — этот инстанс: пути, адреса, учётки, номера полей.
+	home, err := runner.Home()
+	if err != nil {
+		return nil, err
+	}
+	sources := configSources{out: out}
 
-	workflow, err := tracker.LoadWorkflow(filepath.Join(configRoot, tracker.WorkflowFile))
+	workflow, err := tracker.LoadWorkflow(sources.office(configRoot, tracker.WorkflowFile))
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +71,7 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 			accounts = append(accounts, mock.RoleAccount(role))
 		}
 	case "jira":
-		cfg, err := jira.LoadConfig(filepath.Join(configRoot, jira.TrackerFile))
+		cfg, err := jira.LoadConfig(sources.machine(home, jira.TrackerFile))
 		if err != nil {
 			return nil, err
 		}
@@ -97,7 +104,10 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 		return nil, fmt.Errorf("неизвестный трекер %q: доступны %s", *trackerName, strings.Join(tracker.Trackers(), ", "))
 	}
 
-	projects, err := tracker.LoadProjects(filepath.Join(configRoot, tracker.ProjectsFile))
+	projects, err := tracker.LoadProjects(
+		sources.office(configRoot, tracker.ProjectsFile),
+		sources.machine(home, tracker.ProjectsLocalFile),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +124,17 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 	if err != nil {
 		return nil, err
 	}
-	// Реестр прогонов ведётся всегда, бюджеты — необязательны. Нет файла бюджетов —
-	// нет лимитов, и это нормальное состояние офиса: учёт от него не зависит.
+	// Реестр прогонов ведётся всегда, бюджеты — необязательны. Файлов у них два —
+	// дефолты офиса и накладка машины, — и нет ни одного значит нет лимитов;
+	// это нормальное состояние офиса: учёт от него не зависит.
 	runs, err := ledger.Default()
 	if err != nil {
 		return nil, err
 	}
-	budgets, err := budget.Load(filepath.Join(configRoot, budget.File))
+	budgets, err := budget.Load(
+		sources.office(configRoot, budget.File),
+		sources.machine(home, budget.File),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -249,4 +263,43 @@ func configRoot() (string, error) {
 		return "", fmt.Errorf("корень конфигурации не определён: %w", err)
 	}
 	return cwd, nil
+}
+
+// configSources — откуда раннер взял каждый файл конфигурации.
+//
+// Конфигурация лежит в двух местах: репозиторий описывает офис, ${OFFICE_HOME} —
+// этот инстанс. Без строки о каждом файле разбираться, почему офис ведёт себя
+// не так, приходится догадками о том, какой из двух он открыл. Файлы, которых нет,
+// называются тоже: «нет» — такой же ответ, как путь, и для необязательных
+// бюджетов он законный.
+type configSources struct {
+	out    io.Writer
+	header bool
+}
+
+// office — файл, описывающий офис: он в конфиг-репозитории.
+func (c *configSources) office(root, name string) string { return c.add("офис", root, name) }
+
+// machine — файл, описывающий инстанс: он в хозяйстве раннера.
+func (c *configSources) machine(root, name string) string { return c.add("машина", root, name) }
+
+// add печатает строку **сразу**, а не копит её до конца сборки. Это по существу:
+// самый нужный случай — отказ загрузчика, и если печатать в конце, то при отказе
+// не напечатается ничего. Человек увидит «tracker.yaml не заведён» и пойдёт искать,
+// где раннер его ждал, — а строка про путь как раз и не вышла.
+func (c *configSources) add(kind, root, name string) string {
+	path := filepath.Join(root, name)
+	if c.out == nil {
+		return path
+	}
+	if !c.header {
+		fmt.Fprintln(c.out, "конфигурация:")
+		c.header = true
+	}
+	state := "есть"
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		state = "нет"
+	}
+	fmt.Fprintf(c.out, "  %-22s %s (%s, %s)\n", name, path, kind, state)
+	return path
 }
