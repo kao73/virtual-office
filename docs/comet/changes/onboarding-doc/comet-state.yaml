@@ -3,7 +3,7 @@ name: onboarding-doc
 language: en
 phase: archive
 status: active
-state_version: 34
+state_version: 36
 brief: brief.md
 spec_changes:
   - capability: onboarding-doc
