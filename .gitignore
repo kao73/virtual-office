@@ -1,12 +1,12 @@
 # Артефакты инструментов, не проект
 .idea/
 .claude/worktrees/
+# Локальная JIRA: распакованный SDK, 88 МБ артефактов. Как получить —
+# bootstrap/jira/README.md.
+bootstrap/jira/sdk/
+bootstrap/jira/*.tar.gz
 # >>> Comet managed project state >>>
 !/.comet/
 /.comet/*
 !/.comet/config.yaml
 # <<< Comet managed project state <<<
-# Локальная JIRA: распакованный SDK, 88 МБ артефактов. Как получить —
-# bootstrap/jira/README.md.
-bootstrap/jira/sdk/
-bootstrap/jira/*.tar.gz
