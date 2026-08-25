@@ -20,3 +20,7 @@ OFFICE:
 VO:
   default_branch: master
   branch_prefix: agent/
+
+EXP:
+  default_branch: main
+  branch_prefix: agent/
