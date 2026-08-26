@@ -838,3 +838,36 @@ func TestUnionStringsDedupsAndSorts(t *testing.T) {
 		t.Errorf("unionStrings() без слоёв = %v, ожидался nil", got)
 	}
 }
+
+// Реальный projects.yaml после переноса общих deny обязан отдавать их
+// каждому проекту через defaults, даже когда у проекта нет собственной
+// специфики: EXP/VO/OFFICE не описывают tools вовсе.
+func TestShippedDefaultsCarrySevenCommonDenyRules(t *testing.T) {
+	root := filepath.Join("..")
+	// Синтетическая машинная половина: у реального projects.local.yaml нет
+	// коммита в репозитории (он инстанс-специфичен), поэтому тест собирает
+	// минимальную сам — она нужна только чтобы LoadProjects прошёл парность.
+	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n" +
+		"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n" +
+		"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"
+
+	projects, err := LoadProjects(filepath.Join(root, ProjectsFile), writeTemp(t, ProjectsLocalFile, machine))
+	if err != nil {
+		t.Fatalf("реальные проекты не загружены: %v", err)
+	}
+	want := []string{
+		"Bash(git *branch*)", "Bash(git *checkout*)", "Bash(git *config*)",
+		"Bash(git *push*)", "Bash(git *remote*)", "Bash(git *switch*)", "Bash(git *worktree*)",
+	}
+	for _, key := range []string{"OFFICE", "VO", "EXP"} {
+		p, err := projects.Get(key)
+		if err != nil {
+			t.Fatalf("%s не найден: %v", key, err)
+		}
+		for _, rule := range want {
+			if !slices.Contains(p.Tools.Deny, rule) {
+				t.Errorf("%s.tools.deny не содержит %q (defaults не доехал)", key, rule)
+			}
+		}
+	}
+}

@@ -25,17 +25,14 @@ tools:
     - Glob
     - "Bash(*)"
 
-  # Ничего к allow не добавляет: незнакомой формы там и так нет. Список ловит
-  # правку самого allow.
+  # Общие для всех ролей (запись в origin, переключение веток, личность
+  # коммитов) — в defaults.tools.deny (projects.yaml), не здесь: это
+  # решение раннера для всех ролей и всех проектов разом, а не аналитика.
+  # Здесь остаётся то, что специфично аналитику: `reset` откатывает чужие
+  # коммиты (круг implementer → analyst оставляет их в ветке), а аналитику
+  # откатывать чужое нечем и незачем — для своей ошибки есть `revert`.
   deny:
-    - "Bash(git reset*)"
-    - "Bash(git push*)"
-    - "Bash(git remote*)"
-    - "Bash(git checkout*)"
-    - "Bash(git switch*)"
-    - "Bash(git branch*)"
-    - "Bash(git worktree*)"
-    - "Bash(git config*)"
+    - "Bash(git *reset*)"
 
 hooks:
   stop:

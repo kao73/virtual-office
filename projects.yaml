@@ -57,6 +57,20 @@ defaults:
     # *.golang.org в policy log не всплыл, не добавлен.
     - proxy.golang.org
     - sum.golang.org
+  tools:
+    deny:
+      # Общие для всех ролей: работу с origin, переключение веток и
+      # подмену личности коммитов ведёт раннер, а не агент. Форма со
+      # звёздочкой МЕЖДУ "git" и подкомандой (не по краям) — единственная,
+      # что ловит и флаговую форму: проверено эмпирически 2026-08-27,
+      # docs/contracts/role-sandbox-permissions.md.
+      - "Bash(git *push*)"
+      - "Bash(git *remote*)"
+      - "Bash(git *checkout*)"
+      - "Bash(git *switch*)"
+      - "Bash(git *branch*)"
+      - "Bash(git *worktree*)"
+      - "Bash(git *config*)"
 
 OFFICE:
   default_branch: master

@@ -289,6 +289,16 @@ func TestReviewerRoleCannotWrite(t *testing.T) {
 			t.Errorf("reviewer лишён %q — ему нечем читать и запускать проверки", want)
 		}
 	}
+
+	// Роль-специфичный deny (add/commit/restore) остаётся в role.yaml
+	// и после переноса общих семи строк в defaults.tools.deny — это то,
+	// что защищает reviewer'а от правки, раз tools.allow не защищает
+	// ничего технически.
+	for _, want := range []string{"Bash(git *add*)", "Bash(git *commit*)", "Bash(git *restore*)"} {
+		if !slices.Contains(role.Tools.Deny, want) {
+			t.Errorf("reviewer лишён роль-специфичного deny %q", want)
+		}
+	}
 }
 
 // shippedRoles — имена ролей репозитория. Каталоги с подчёркиванием ролью
