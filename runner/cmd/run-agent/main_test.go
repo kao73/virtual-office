@@ -142,29 +142,55 @@ func TestDryRunNamesBranches(t *testing.T) {
 func TestRunAgentWarnsThatLocalIgnoresNetworkPolicy(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
+
+	// Создадим свежий git-репозиторий для конфига (требуется для ConfigSHA).
+	// Используем тот же паттерн, что и gitRepo.
 	configRoot := t.TempDir()
-
-	// Скопируем всё из репозитория в temp config root
-	if err := copyDir(repoRoot(t), configRoot); err != nil {
-		t.Fatalf("не скопирован репозиторий: %v", err)
+	for _, args := range [][]string{{"init", "-q"}, {"commit", "-q", "--allow-empty", "-m", "начало"}} {
+		cmd := exec.Command("git", append([]string{"-C", configRoot}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=тест", "GIT_AUTHOR_EMAIL=test@office.local",
+			"GIT_COMMITTER_NAME=тест", "GIT_COMMITTER_EMAIL=test@office.local")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("конфиг-репозиторий не создан: %v: %s", err, out)
+		}
 	}
 
-	// Прочитаем роль implementer и добавим network блок
-	implRole := filepath.Join(configRoot, "roles", "implementer", "role.yaml")
-	roleData, err := os.ReadFile(implRole)
-	if err != nil {
-		t.Fatalf("не прочитана роль: %v", err)
+	// Создадим синтетическую роль test-role с минимальным содержимым.
+	// Роль должна иметь сетевую политику для проверки сообщения о её неприменённости.
+	roleDir := filepath.Join(configRoot, "roles", "test-role")
+	if err := os.MkdirAll(roleDir, 0o755); err != nil {
+		t.Fatalf("каталог роли не создан: %v", err)
 	}
-	roleStr := string(roleData)
-	// Добавим network блок перед result_file
-	roleStr = strings.Replace(roleStr, "result_file: .agent/result.json", "network:\n  allow:\n    - example.com\n\nresult_file: .agent/result.json", 1)
-	if err := os.WriteFile(implRole, []byte(roleStr), 0o644); err != nil {
-		t.Fatalf("не написана роль: %v", err)
+
+	// Пустой промпт-файл (требуется валидацией).
+	if err := os.WriteFile(filepath.Join(roleDir, "role.md"), []byte("# Тестовая роль\n"), 0o644); err != nil {
+		t.Fatalf("промпт не написан: %v", err)
+	}
+
+	// Минимальный role.yaml с сетевой политикой.
+	roleYAML := `name: test-role
+prompt: role.md
+includes: []
+skills: []
+tools:
+  allow:
+    - Read
+limits:
+  max_turns: 10
+  timeout_sec: 300
+network:
+  allow:
+    - example.com
+result_file: .agent/result.json
+`
+	if err := os.WriteFile(filepath.Join(roleDir, "role.yaml"), []byte(roleYAML), 0o644); err != nil {
+		t.Fatalf("role.yaml не написан: %v", err)
 	}
 
 	_, out := runAgent(t, bin,
 		[]string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
-		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t),
+		"--role", "test-role", "--workdir", workdir, "--task", taskFile(t),
 		"--backend", "local", "--dry-run")
 
 	if !strings.Contains(out, "сетевой политики не применяет") {
@@ -174,29 +200,10 @@ func TestRunAgentWarnsThatLocalIgnoresNetworkPolicy(t *testing.T) {
 	// В песочнице список работает, и говорить нечего.
 	_, sandboxed := runAgent(t, bin,
 		[]string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
-		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--dry-run")
+		"--role", "test-role", "--workdir", workdir, "--task", taskFile(t), "--dry-run")
 	if strings.Contains(sandboxed, "сетевой политики не применяет") {
 		t.Errorf("предупреждение выдано там, где политика применяется:\n%s", sandboxed)
 	}
-}
-
-// copyDir рекурсивно копирует каталог
-func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, _ := filepath.Rel(src, path)
-		dstPath := filepath.Join(dst, relPath)
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(dstPath, data, info.Mode())
-	})
 }
 
 func taskFile(t *testing.T) string {
