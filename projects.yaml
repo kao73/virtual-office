@@ -33,6 +33,30 @@ defaults:
     - "*.docker.io"
     - production.cloudfront.docker.com   # CDN раздачи blob'ов, не cloudflare.docker.com
     - "*.cloudfront.docker.com"
+    # GitHub — проверено эмпирически 2026-08-27, тем же способом (throwaway
+    # sbx-песочница + голая попытка + добавление хостов по факту ошибки).
+    # `git clone` по HTTPS упёрся только в github.com; `sbx policy log`
+    # после успешного клона не показал ни одного обращения к api.github.com,
+    # codeload.github.com, raw.githubusercontent.com, objects.githubusercontent.com
+    # или *.githubusercontent.com — эти хосты сюда не добавлены как
+    # непроверенные (см. followup-network-and-permissions.md).
+    - github.com
+    # npm — проверено эмпирически 2026-08-27. `npm view left-pad` (резолв
+    # метаданных и tarball-ссылки) целиком уложился в registry.npmjs.org;
+    # *.npmjs.org в policy log не всплыл, не добавлен как непроверенный.
+    - registry.npmjs.org
+    # PyPI — проверено эмпирически 2026-08-27; закрывает и нужду ролей
+    # analyst/implementer/reviewer (их собственный network.allow с этими
+    # же хостами убирается из role.yaml задачей 9, если она подтвердит это
+    # здесь актуальным). `uv run --with pytest` потребовал ровно эти два
+    # хоста; *.pythonhosted.org в policy log не всплыл, не добавлен.
+    - pypi.org
+    - files.pythonhosted.org
+    # Go modules — проверено эмпирически 2026-08-27. `go get` потребовал
+    # module-proxy и sumdb-хосты порознь (разные попытки, разные ошибки);
+    # *.golang.org в policy log не всплыл, не добавлен.
+    - proxy.golang.org
+    - sum.golang.org
 
 OFFICE:
   default_branch: master
