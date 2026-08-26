@@ -177,7 +177,13 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		// включая сетевые и порождающие процессы: permissions.allow управляет
 		// автоодобрением, а не составом.
 		"--tools", strings.Join(tools, ","),
-		// Запрещает всё, чего нет в permissions.allow: диалогов в headless всё равно никто не увидит.
+		// headless-режим: диалогов подтверждения всё равно никто не увидит.
+		// Не путать с ограничением состава команд — permissions.allow не
+		// запрещает ничего технически (агент решает сам, что не описано
+		// ни в allow, ни в deny); реальная граница — только
+		// permissions.deny. Измерено 2026-08-27,
+		// docs/notes/followup-network-and-permissions.md,
+		// docs/contracts/role-sandbox-permissions.md.
 		"--permission-mode", "dontAsk",
 		"--max-turns", strconv.Itoa(role.Limits.MaxTurns),
 	}

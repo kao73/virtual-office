@@ -20,6 +20,7 @@ import (
 	"github.com/kao73/virtual-office/ledger"
 	"github.com/kao73/virtual-office/runagent"
 	"github.com/kao73/virtual-office/runner"
+	"github.com/kao73/virtual-office/tracker"
 )
 
 // Коды возврата — внешний контракт команды.
@@ -65,6 +66,9 @@ func execute() (int, error) {
 	workdirFlag := flag.String("workdir", "", "рабочая папка агента: git-репозиторий")
 	backend := flag.String("backend", runagent.DefaultBackend, "бэкенд запуска: sbx (песочница) или local (без изоляции)")
 	taskFlag := flag.String("task", "", "файл с постановкой; без него берётся уже лежащий .agent/task.md")
+	projectFlag := flag.String("project", "", "проект из projects.yaml/projects.local.yaml: подмешивает "+
+		"repo-wide, project- и machine-слои network/tools поверх роли, как это делает конвейер; "+
+		"без флага роль остаётся в изоляции — только то, что названо в её собственном role.yaml")
 	baseFlag := flag.String("base", "", "базовая ветка: от неё считается разница по задаче (нужна reviewer'у)")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
 	flag.Parse()
@@ -99,6 +103,29 @@ func execute() (int, error) {
 	role, err := runner.LoadRole(configRoot, *roleName)
 	if err != nil {
 		return 0, err
+	}
+	// Ручное воспроизведение прогона не должно расходиться с тем, что видит
+	// реальный конвейер (pipeline.tickRole сливает те же слои после claim()) —
+	// иначе повторится ситуация исходной находки: 403 в живом прогоне
+	// не воспроизводился одинаково без понимания, откуда на самом деле
+	// берётся сеть (docs/notes/followup-network-and-permissions.md).
+	if *projectFlag != "" {
+		home, err := runner.Home()
+		if err != nil {
+			return 0, err
+		}
+		projects, err := tracker.LoadProjects(
+			filepath.Join(configRoot, tracker.ProjectsFile),
+			filepath.Join(home, tracker.ProjectsLocalFile),
+		)
+		if err != nil {
+			return 0, err
+		}
+		project, err := projects.Get(*projectFlag)
+		if err != nil {
+			return 0, err
+		}
+		role = tracker.MergeProjectRules(project, role)
 	}
 	// До --dry-run: увидеть, что сеть роли на этом бэкенде не работает, человек
 	// должен там же, где смотрит остальное, — и не потратив токенов.

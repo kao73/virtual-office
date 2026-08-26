@@ -206,6 +206,63 @@ result_file: .agent/result.json
 	}
 }
 
+// Без --project роль остаётся в изоляции: implementer лишился собственного
+// network.allow (задача 9 плана) и без флага не просит сети вовсе. С флагом
+// --project OFFICE (реальный projects.yaml с defaults.network из задач 4/5)
+// сеть и tools.deny роли пополняются repo-wide слоем — сравнение двух
+// прогонов и есть тест механизма.
+func TestDryRunProjectFlagMergesRepoWideRules(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	home := t.TempDir()
+	// Машинная половина обязана назвать все три проекта офиса (парность
+	// office/machine) — значения репозиториев здесь не важны, --dry-run
+	// ничего не клонирует.
+	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n" +
+		"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n" +
+		"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"
+	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(machine), 0o644); err != nil {
+		t.Fatalf("projects.local.yaml не записан: %v", err)
+	}
+	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
+
+	_, withoutFlag := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--dry-run")
+	if strings.Contains(withoutFlag, "registry-1.docker.io") {
+		t.Errorf("без --project роль уже видит repo-wide сеть:\n%s", withoutFlag)
+	}
+
+	code, withFlag := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--project", "OFFICE", "--dry-run")
+	if code != 0 {
+		t.Fatalf("код %d, ожидался 0; вывод: %s", code, withFlag)
+	}
+	if !strings.Contains(withFlag, "registry-1.docker.io") {
+		t.Errorf("с --project OFFICE в сети нет repo-wide Docker Hub:\n%s", withFlag)
+	}
+	if !strings.Contains(withFlag, "Bash(git *push*)") {
+		t.Errorf("с --project OFFICE в settings.json нет repo-wide deny:\n%s", withFlag)
+	}
+}
+
+// Опечатка в имени проекта не должна тихо проигнорироваться — Projects.Get
+// уже даёт содержательную ошибку, используется как есть.
+func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(
+		"OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
+			"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n"+
+			"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"), 0o644); err != nil {
+		t.Fatalf("projects.local.yaml не записан: %v", err)
+	}
+	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
+
+	code, out := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--project", "НЕТ-ТАКОГО", "--dry-run")
+	if code != 2 {
+		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+	}
+}
+
 func taskFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "task.md")
