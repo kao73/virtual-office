@@ -685,3 +685,23 @@ func TestLoadProjectsRejectsEmptyOffice(t *testing.T) {
 		t.Errorf("отказ не назвал файл офиса: %v", err)
 	}
 }
+
+// Поля network/tools встраиваются в officeProject через yaml:",inline" —
+// строгий разбор (KnownFields(true)) обязан принимать их на том же уровне
+// вложенности, что и default_branch. Проверено вручную на gopkg.in/yaml.v3
+// v3.0.1 перед тем, как класть embedding в прод; тест фиксирует это как
+// регресс, а не как разовую проверку.
+func TestOfficeProjectAcceptsInlineNetworkAndTools(t *testing.T) {
+	office := validOffice + "  network: [a.test]\n  tools:\n    allow: [Read]\n    deny: [\"Bash(rm*)\"]\n"
+	var m map[string]officeProject
+	if err := decodeStrict(writeTemp(t, ProjectsFile, office), &m); err != nil {
+		t.Fatalf("network/tools на уровне проекта не разобраны: %v", err)
+	}
+	off := m["OFF"]
+	if !slices.Equal(off.Network, []string{"a.test"}) {
+		t.Errorf("network = %v, ожидалось [a.test]", off.Network)
+	}
+	if !slices.Equal(off.Tools.Allow, []string{"Read"}) || !slices.Equal(off.Tools.Deny, []string{"Bash(rm*)"}) {
+		t.Errorf("tools = %+v, ожидалось allow:[Read] deny:[Bash(rm*)]", off.Tools)
+	}
+}

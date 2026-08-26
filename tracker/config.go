@@ -445,6 +445,16 @@ var trackers = []string{"mock", "jira"}
 // Trackers — имена трекеров для подсказок и сообщений об ошибке.
 func Trackers() []string { return slices.Clone(trackers) }
 
+// Rules — сетевой и инструментальный слой, который может назвать любой
+// уровень слоистой модели (repo-wide умолчания, конкретный проект, машина).
+// Роль (уровень 4) сюда не входит: она использует собственные Network/Tools
+// из runner.Role, и сливается с этим слоем отдельным шагом —
+// см. MergeProjectRules (tracker/rules.go), а не здесь.
+type Rules struct {
+	Network []string     `yaml:"network"`
+	Tools   runner.Tools `yaml:"tools"`
+}
+
 // Project — проект-клиент: где его репозиторий, как раннер зовёт ветки задач,
 // в каком трекере лежат его задачи и куда офис открывает pull request.
 type Project struct {
@@ -460,6 +470,12 @@ type Project struct {
 	// Forge — куда открывать pull request. Пусто — forge у проекта нет:
 	// PR-проход вырождается, но маршрут остаётся тем же (см. workflow.yaml: pr).
 	Forge string `yaml:"forge"`
+	// Network — уровни 1–3 слоистой модели (repo-wide + проект + машина),
+	// уже объединённые LoadProjects. Уровень 4 (роль) сюда не входит —
+	// его добавляет MergeProjectRules ближе к месту запуска.
+	Network []string
+	// Tools — то же самое для tools.allow/tools.deny.
+	Tools runner.Tools
 }
 
 // Половины проекта, разложенные по двум файлам. Раздельные типы нужны разбору:
@@ -470,6 +486,7 @@ type (
 	officeProject struct {
 		DefaultBranch string `yaml:"default_branch"`
 		BranchPrefix  string `yaml:"branch_prefix"`
+		Rules         `yaml:",inline"`
 	}
 
 	// machineProject — то, что правят, заводя новую машину или второй инстанс.
@@ -478,6 +495,7 @@ type (
 		WorktreeRoot string `yaml:"worktree_root"`
 		Tracker      string `yaml:"tracker"`
 		Forge        string `yaml:"forge"`
+		Rules        `yaml:",inline"`
 	}
 )
 
