@@ -418,7 +418,7 @@ git commit -m "feat(tracker): зарезервированный ключ defaul
   `Project.Network`/`Project.Tools` теперь населены по факту вызова
   `LoadProjects`.
 
-- [ ] **Шаг 1: Написать падающие тесты**
+- [x] **Шаг 1: Написать падающие тесты**
 
 Добавить в `tracker/config_test.go`:
 
@@ -492,13 +492,13 @@ func TestUnionStringsDedupsAndSorts(t *testing.T) {
 }
 ```
 
-- [ ] **Шаг 2: Убедиться, что тесты падают**
+- [x] **Шаг 2: Убедиться, что тесты падают**
 
 Запустить: `go test ./tracker/... -run 'TestLoadProjectsProjectInheritsOnlyDefaults|TestLoadProjectsProjectSpecificsAreIsolated|TestUnionStringsDedupsAndSorts' -v`
 Ожидается: FAIL — `unionStrings` не существует, `Project.Network`/`Tools`
 не населены.
 
-- [ ] **Шаг 3: Реализовать `unionStrings` и подключить слияние**
+- [x] **Шаг 3: Реализовать `unionStrings` и подключить слияние**
 
 В `tracker/config.go`, рядом с `extractDefaultsMachine`, добавить:
 
@@ -551,16 +551,16 @@ func unionStrings(layers ...[]string) []string {
 промотированные embedding'ом `Rules` из Task 1; обращение напрямую, без
 `half.Rules.Network`, работает благодаря анонимному встраиванию.)
 
-- [ ] **Шаг 4: Прогнать тесты**
+- [x] **Шаг 4: Прогнать тесты**
 
 Запустить: `go test ./tracker/... -v`
 Ожидается: PASS весь пакет.
 
-- [ ] **Шаг 5: Собрать весь репозиторий**
+- [x] **Шаг 5: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 
-- [ ] **Шаг 6: Commit**
+- [x] **Шаг 6: Commit**
 
 ```bash
 git add tracker/config.go tracker/config_test.go
