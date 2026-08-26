@@ -71,6 +71,19 @@ defaults:
       - "Bash(git *branch*)"
       - "Bash(git *worktree*)"
       - "Bash(git *config*)"
+      # Переписывание истории — та же природа, что у общих семи строк
+      # выше: чужая, уже опубликованная работа не должна переписываться
+      # ни одной ролью.
+      - "Bash(git *filter-branch*)"
+      - "Bash(git *filter-repo*)"
+      # Рекурсивное/принудительное удаление — тем же приёмом: звёздочка
+      # вокруг флага, а не по краям, чтобы не зависеть от его формы
+      # (короткая -rf/-fr или длинная --recursive/--force) и места
+      # (до или после пути).
+      - "Bash(rm *-r*)"
+      - "Bash(rm *-f*)"
+      - "Bash(rm *--recursive*)"
+      - "Bash(rm *--force*)"
 
 OFFICE:
   default_branch: master

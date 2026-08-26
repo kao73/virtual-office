@@ -871,3 +871,26 @@ func TestShippedDefaultsCarrySevenCommonDenyRules(t *testing.T) {
 		}
 	}
 }
+
+// Новые опасные команды (переписывание истории, rm -rf) доезжают до
+// каждого проекта тем же способом, что и семь общих строк.
+func TestShippedDefaultsCarryDangerousCommandDenyRules(t *testing.T) {
+	root := filepath.Join("..")
+	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n" +
+		"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n" +
+		"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"
+
+	projects, err := LoadProjects(filepath.Join(root, ProjectsFile), writeTemp(t, ProjectsLocalFile, machine))
+	if err != nil {
+		t.Fatalf("реальные проекты не загружены: %v", err)
+	}
+	p, err := projects.Get("EXP")
+	if err != nil {
+		t.Fatalf("EXP не найден: %v", err)
+	}
+	for _, rule := range []string{"Bash(git *filter-branch*)", "Bash(rm *-r*)", "Bash(rm *-f*)"} {
+		if !slices.Contains(p.Tools.Deny, rule) {
+			t.Errorf("EXP.tools.deny не содержит %q", rule)
+		}
+	}
+}
