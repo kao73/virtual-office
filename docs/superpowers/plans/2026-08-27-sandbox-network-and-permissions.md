@@ -92,7 +92,7 @@ base-ref: e8c3aca1906ac27d1385856cf105f5d9b4f09d5e
 design-doc («явные поля без embedding») не нужен — используем embedding
 как и предполагал design doc.
 
-- [ ] **Шаг 1: Написать падающий тест на новые поля**
+- [x] **Шаг 1: Написать падающий тест на новые поля**
 
 Добавить в `tracker/config_test.go` (после `TestLoadProjectsRejectsMachineKeysInOfficeFile`):
 
@@ -118,12 +118,12 @@ func TestOfficeProjectAcceptsInlineNetworkAndTools(t *testing.T) {
 }
 ```
 
-- [ ] **Шаг 2: Убедиться, что тест падает**
+- [x] **Шаг 2: Убедиться, что тест падает**
 
 Запустить: `go test ./tracker/... -run TestOfficeProjectAcceptsInlineNetworkAndTools -v`
 Ожидается: FAIL — `officeProject` не имеет полей `Network`/`Tools` (compile error).
 
-- [ ] **Шаг 3: Добавить тип `Rules` и embedding**
+- [x] **Шаг 3: Добавить тип `Rules` и embedding**
 
 В `tracker/config.go`, сразу после блока `Project` (после строки, закрывающей
 `type Project struct { ... }`, перед комментарием `// Половины проекта,
@@ -194,7 +194,7 @@ type (
 )
 ```
 
-- [ ] **Шаг 4: Прогнать тесты пакета**
+- [x] **Шаг 4: Прогнать тесты пакета**
 
 Запустить: `go test ./tracker/... -v`
 Ожидается: PASS весь пакет, включая новый тест и весь существующий набор
@@ -204,13 +204,13 @@ type (
 добавление полей аддитивно и не меняет поведение `LoadProjects`, который
 их пока не читает.
 
-- [ ] **Шаг 5: Собрать весь репозиторий**
+- [x] **Шаг 5: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 Ожидается: успешная сборка (embedding `runner.Tools` компилируется, других
 пакетов правка не касается).
 
-- [ ] **Шаг 6: Commit**
+- [x] **Шаг 6: Commit**
 
 ```bash
 git add tracker/config.go tracker/config_test.go

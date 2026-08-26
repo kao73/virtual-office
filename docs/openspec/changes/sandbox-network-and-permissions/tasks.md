@@ -1,6 +1,6 @@
 ## 1. Слой правил в конфиге проектов
 
-- [ ] 1.1 Добавить в `tracker/config.go` поля `Network []string` и
+- [x] 1.1 Добавить в `tracker/config.go` поля `Network []string` и
       `Tools{Allow, Deny []string}` в `Project`, `officeProject`,
       `machineProject`
 - [ ] 1.2 Научить `LoadProjects` зарезервированному ключу `defaults`:
