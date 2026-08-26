@@ -19,7 +19,7 @@
 
 ## 2. Repo-wide базовый список доменов
 
-- [ ] 2.1 Добавить в `projects.yaml` под `defaults.network` проверенный
+- [x] 2.1 Добавить в `projects.yaml` под `defaults.network` проверенный
       список Docker Hub: `registry-1.docker.io`, `auth.docker.io`,
       `*.docker.io`, `production.cloudfront.docker.com`,
       `*.cloudfront.docker.com`
