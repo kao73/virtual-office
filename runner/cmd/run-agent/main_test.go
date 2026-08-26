@@ -142,9 +142,28 @@ func TestDryRunNamesBranches(t *testing.T) {
 func TestRunAgentWarnsThatLocalIgnoresNetworkPolicy(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
+	configRoot := t.TempDir()
+
+	// Скопируем всё из репозитория в temp config root
+	if err := copyDir(repoRoot(t), configRoot); err != nil {
+		t.Fatalf("не скопирован репозиторий: %v", err)
+	}
+
+	// Прочитаем роль implementer и добавим network блок
+	implRole := filepath.Join(configRoot, "roles", "implementer", "role.yaml")
+	roleData, err := os.ReadFile(implRole)
+	if err != nil {
+		t.Fatalf("не прочитана роль: %v", err)
+	}
+	roleStr := string(roleData)
+	// Добавим network блок перед result_file
+	roleStr = strings.Replace(roleStr, "result_file: .agent/result.json", "network:\n  allow:\n    - example.com\n\nresult_file: .agent/result.json", 1)
+	if err := os.WriteFile(implRole, []byte(roleStr), 0o644); err != nil {
+		t.Fatalf("не написана роль: %v", err)
+	}
 
 	_, out := runAgent(t, bin,
-		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		[]string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
 		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t),
 		"--backend", "local", "--dry-run")
 
@@ -154,11 +173,30 @@ func TestRunAgentWarnsThatLocalIgnoresNetworkPolicy(t *testing.T) {
 
 	// В песочнице список работает, и говорить нечего.
 	_, sandboxed := runAgent(t, bin,
-		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		[]string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
 		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--dry-run")
 	if strings.Contains(sandboxed, "сетевой политики не применяет") {
 		t.Errorf("предупреждение выдано там, где политика применяется:\n%s", sandboxed)
 	}
+}
+
+// copyDir рекурсивно копирует каталог
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, _ := filepath.Rel(src, path)
+		dstPath := filepath.Join(dst, relPath)
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dstPath, data, info.Mode())
+	})
 }
 
 func taskFile(t *testing.T) string {
