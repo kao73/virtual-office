@@ -124,11 +124,15 @@ func (o *Office) openPR(task tracker.Task) error {
 	if err != nil {
 		return err
 	}
-	return o.record(task.Key, tracker.BySystem(), tracker.Marker{
+	if err := o.record(task.Key, tracker.BySystem(), tracker.Marker{
 		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPROpened, ConfigSHA: o.ConfigSHA,
 	}, fmt.Sprintf("Pull request открыт: %s\n\nСливает человек — офис за него этого не делает. "+
 		"Слияние он увидит сам и переведёт задачу в %s; закрытый без слияния PR вернётся разговором.",
-		url, o.Workflow.PR.Merged))
+		url, o.Workflow.PR.Merged)); err != nil {
+		return err
+	}
+	o.logf("%s: pull request открыт: %s", task.Key, url)
+	return nil
 }
 
 // followPR смотрит, что стало с уже открытым pull request.
