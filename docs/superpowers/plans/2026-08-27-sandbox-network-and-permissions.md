@@ -683,7 +683,7 @@ git commit -m "feat(config): добавить проверенный Docker Hub 
 использовать для всех пяти экосистем по очереди: пока хосты экосистемы N
 ещё не разрешены, попытка для неё — «голая», это не портит методику.
 
-- [ ] **Шаг 1: Поднять одну throwaway-песочницу на весь таск**
+- [x] **Шаг 1: Поднять одну throwaway-песочницу на весь таск**
 
 ```bash
 sbx create --name net-probe claude /tmp
@@ -692,7 +692,7 @@ sbx create --name net-probe claude /tmp
 (Рабочее пространство здесь не важно — песочница нужна только для сетевых
 попыток, не для настоящего прогона роли.)
 
-- [ ] **Шаг 2: GitHub — голая попытка**
+- [x] **Шаг 2: GitHub — голая попытка**
 
 ```bash
 sbx exec net-probe -- git clone --depth=1 https://github.com/octocat/Hello-World.git /tmp/probe-github
@@ -702,7 +702,7 @@ sbx exec net-probe -- git clone --depth=1 https://github.com/octocat/Hello-World
 net-probe` покажет заблокированные хосты с правилом и причиной, если
 попытка не даёт явного сообщения в stdout/stderr).
 
-- [ ] **Шаг 3: GitHub — добавить хосты по факту ошибки, повторить**
+- [x] **Шаг 3: GitHub — добавить хосты по факту ошибки, повторить**
 
 ```bash
 sbx policy allow network --sandbox net-probe github.com,api.github.com,codeload.github.com,objects.githubusercontent.com,raw.githubusercontent.com,*.githubusercontent.com
@@ -716,7 +716,7 @@ sbx exec net-probe -- git clone --depth=1 https://github.com/octocat/Hello-World
 или пока не станет ясно, что доступ этим методом не даётся (тогда — не
 записывать GitHub в `defaults.network`, зафиксировать причину в п. «Шаг 8»).
 
-- [ ] **Шаг 4: npm — тем же приёмом**
+- [x] **Шаг 4: npm — тем же приёмом**
 
 ```bash
 sbx exec net-probe -- sh -c 'cd /tmp && npm view left-pad'
@@ -725,7 +725,7 @@ sbx policy allow network --sandbox net-probe registry.npmjs.org,*.npmjs.org
 sbx exec net-probe -- sh -c 'cd /tmp && npm view left-pad'
 ```
 
-- [ ] **Шаг 5: PyPI — тем же приёмом**
+- [x] **Шаг 5: PyPI — тем же приёмом**
 
 Эта экосистема закрывает и нужду `implementer`/`reviewer`/`analyst` —
 именно её загрузку с PyPI сегодня открывает `network.allow` в трёх
@@ -739,7 +739,7 @@ sbx policy allow network --sandbox net-probe pypi.org,files.pythonhosted.org,*.p
 sbx exec net-probe -- sh -c 'uv run --with pytest -- python -c "import pytest; print(pytest.__version__)"'
 ```
 
-- [ ] **Шаг 6: Go modules — тем же приёмом**
+- [x] **Шаг 6: Go modules — тем же приёмом**
 
 ```bash
 sbx exec net-probe -- sh -c 'cd /tmp && GOPATH=/tmp/gopath go get github.com/google/uuid@latest'
@@ -748,7 +748,7 @@ sbx policy allow network --sandbox net-probe proxy.golang.org,sum.golang.org,*.g
 sbx exec net-probe -- sh -c 'cd /tmp && GOPATH=/tmp/gopath go get github.com/google/uuid@latest'
 ```
 
-- [ ] **Шаг 7: apt/deb — решить нужность, затем проверить или явно отказаться**
+- [x] **Шаг 7: apt/deb — решить нужность, затем проверить или явно отказаться**
 
 Пакеты внутрь ОС песочницы (а не внутрь проекта) нужны реже, чем перечисленные
 выше. Решить по факту существующих ролей: ни `analyst`, ни `implementer`,
@@ -760,13 +760,13 @@ sbx exec net-probe -- sh -c 'cd /tmp && GOPATH=/tmp/gopath go get github.com/goo
 → по факту ошибки → `deb.debian.org`/`archive.ubuntu.com`/`security.ubuntu.com`)
 отдельным заходом, не в рамках этого плана.
 
-- [ ] **Шаг 8: Снести throwaway-песочницу**
+- [x] **Шаг 8: Снести throwaway-песочницу**
 
 ```bash
 sbx rm --force net-probe
 ```
 
-- [ ] **Шаг 9: Записать результат в `projects.yaml`**
+- [x] **Шаг 9: Записать результат в `projects.yaml`**
 
 В `defaults.network` (блок, заведённый Task 4) добавить только те строки,
 которые реально прошли Шаги 2–6 (и, если решено проверять, Шаг 7), каждую —
@@ -813,7 +813,7 @@ defaults:
 в примечании (см. Шаг 10) с пометкой «не проверено/не подтверждено», а не
 молчаливым пропуском.
 
-- [ ] **Шаг 10: Обновить журнал проверки**
+- [x] **Шаг 10: Обновить журнал проверки**
 
 В `docs/notes/followup-network-and-permissions.md`, в таблице «Черновой
 базовый список доменов», проставить дату проверки и фактический список
@@ -822,14 +822,14 @@ defaults:
 записать решение Шага 7, даже если это «нет, не нужно на этом этапе,
 причина: …».
 
-- [ ] **Шаг 11: Прогнать регресс**
+- [x] **Шаг 11: Прогнать регресс**
 
 Запустить: `go test ./tracker/... -v`
 Ожидается: PASS (правка `projects.yaml` — только новые строки в списке,
 структура не менялась, `TestShippedConfigIsValid` не спрашивает конкретный
 состав `defaults.network`).
 
-- [ ] **Шаг 12: Commit**
+- [x] **Шаг 12: Commit**
 
 ```bash
 git add projects.yaml docs/notes/followup-network-and-permissions.md
