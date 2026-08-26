@@ -262,25 +262,28 @@ func TestShippedRolesAreValid(t *testing.T) {
 	}
 }
 
-// Право на запись — единственное, что отличает reviewer'а от implementer'а.
-// Потерять это различие правкой role.yaml легко, и заметить её было бы нечем:
-// роль с Write просто начала бы чинить чужую работу вместо разбора.
+// Право на запись — единственное, что отличает reviewer'а от implementer'а,
+// и держится оно составом --tools (adapters/claude/adapter.go: toolNames
+// собирает --tools из имён allow-правил), а не запретом Bash(git add/commit) —
+// tools.allow не технически ограничивает Bash (измерено 2026-08-27,
+// docs/notes/followup-network-and-permissions.md), поэтому его отсутствие
+// в allow ничего не доказывает. Реальная защита от add/commit/restore —
+// в tools.deny, и её проверяет отдельный тест после задачи 7 плана
+// (роль-специфичные deny остаются в role.yaml).
 func TestReviewerRoleCannotWrite(t *testing.T) {
 	role, err := LoadRole("..", "reviewer")
 	if err != nil {
 		t.Fatalf("roles/reviewer не прочитана: %v", err)
 	}
 
-	for _, rule := range role.Tools.Allow {
-		for _, writing := range []string{"Edit", "Write", "NotebookEdit", "Bash(git add", "Bash(git commit"} {
-			if strings.HasPrefix(rule, writing) {
-				t.Errorf("reviewer разрешает править: %q", rule)
-			}
+	for _, writing := range []string{"Edit", "Write", "NotebookEdit"} {
+		if slices.Contains(role.Tools.Allow, writing) {
+			t.Errorf("reviewer разрешает править: %q", writing)
 		}
 	}
-	for _, want := range []string{"Read", "Bash(git diff*)"} {
+	for _, want := range []string{"Read", "Bash(*)"} {
 		if !slices.Contains(role.Tools.Allow, want) {
-			t.Errorf("reviewer лишён %q — ему нечем читать работу", want)
+			t.Errorf("reviewer лишён %q — ему нечем читать и запускать проверки", want)
 		}
 	}
 }
