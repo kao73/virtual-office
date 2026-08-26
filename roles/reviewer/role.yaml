@@ -14,10 +14,12 @@ tools:
   # tools.allow не защищает (измерено 2026-08-27, «Находка 2»,
   # docs/notes/followup-network-and-permissions.md) — единственная реальная
   # граница ниже, в tools.deny, и в defaults.tools.deny (projects.yaml).
-  # Инструментов записи здесь по-прежнему нет: Write/Edit/NotebookEdit
-  # отсутствуют в allow, а это не «пожелание промпта» — состав --tools
-  # адаптер собирает из имён allow-правил (adapters/claude/adapter.go:
-  # toolNames), и без имени в allow инструмента у ревьюера нет физически.
+  # Широкого, ничем не ограниченного Write или Edit в allow по-прежнему нет:
+  # состав --tools для них адаптер собирает из имён allow-правил
+  # (adapters/claude/adapter.go: toolNames). Write в --tools ревьюера всё же
+  # попадает — адаптер добавляет его любой роли всегда, — но не как общий
+  # инструмент записи, а ограниченным ровно файлом результата
+  # (.agent/result.json, см. комментарий к deny ниже).
   allow:
     - Read
     - Grep
