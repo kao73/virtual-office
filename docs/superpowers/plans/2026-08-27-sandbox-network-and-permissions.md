@@ -233,7 +233,7 @@ git commit -m "feat(tracker): добавить тип Rules и network/tools в 
   Обе вызываются из `LoadProjects`, но сами по себе не сливают `defaults`
   в проекты — это Task 3.
 
-- [ ] **Шаг 1: Написать падающие тесты**
+- [x] **Шаг 1: Написать падающие тесты**
 
 Добавить в `tracker/config_test.go`:
 
@@ -298,13 +298,13 @@ func TestLoadProjectsDefaultsSkipsParityCheck(t *testing.T) {
 }
 ```
 
-- [ ] **Шаг 2: Убедиться, что тесты падают**
+- [x] **Шаг 2: Убедиться, что тесты падают**
 
 Запустить: `go test ./tracker/... -run TestLoadProjectsAllowsDefaultsInEitherOrBothFiles -v`
 Ожидается: FAIL — `defaults` пока разбирается как обычный проект и валится
 на отсутствующих `repo_url`/`tracker` (или требует пары в другом файле).
 
-- [ ] **Шаг 3: Реализовать `extractDefaultsOffice`/`extractDefaultsMachine`**
+- [x] **Шаг 3: Реализовать `extractDefaultsOffice`/`extractDefaultsMachine`**
 
 В `tracker/config.go`, перед функцией `LoadProjects`, добавить:
 
@@ -352,7 +352,7 @@ func extractDefaultsMachine(m map[string]machineProject) (Rules, error) {
 }
 ```
 
-- [ ] **Шаг 4: Вызвать обе функции из `LoadProjects`**
+- [x] **Шаг 4: Вызвать обе функции из `LoadProjects`**
 
 В `LoadProjects`, сразу после декодирования `office` (после блока
 `if err := decodeStrict(officePath, &office); err != nil { return nil, err }`)
@@ -386,16 +386,16 @@ func extractDefaultsMachine(m map[string]machineProject) (Rules, error) {
 их `_ = officeDefaults; _ = machineDefaults` сразу после объявления —
 Task 3 эту строку уберёт вместе с реальным использованием.
 
-- [ ] **Шаг 5: Прогнать тесты**
+- [x] **Шаг 5: Прогнать тесты**
 
 Запустить: `go test ./tracker/... -v`
 Ожидается: PASS — новые тесты и весь существующий набор.
 
-- [ ] **Шаг 6: Собрать весь репозиторий**
+- [x] **Шаг 6: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 
-- [ ] **Шаг 7: Commit**
+- [x] **Шаг 7: Commit**
 
 ```bash
 git add tracker/config.go tracker/config_test.go

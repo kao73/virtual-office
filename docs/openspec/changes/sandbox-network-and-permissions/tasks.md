@@ -3,7 +3,7 @@
 - [x] 1.1 Добавить в `tracker/config.go` поля `Network []string` и
       `Tools{Allow, Deny []string}` в `Project`, `officeProject`,
       `machineProject`
-- [ ] 1.2 Научить `LoadProjects` зарезервированному ключу `defaults`:
+- [x] 1.2 Научить `LoadProjects` зарезервированному ключу `defaults`:
       разобрать его отдельно от `map[string]officeProject`/
       `map[string]machineProject`, исключить из обязательной парности
       ключей office/machine и из проверок `repo_url`/`tracker`/
