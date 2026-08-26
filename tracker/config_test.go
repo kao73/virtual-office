@@ -705,3 +705,62 @@ func TestOfficeProjectAcceptsInlineNetworkAndTools(t *testing.T) {
 		t.Errorf("tools = %+v, ожидалось allow:[Read] deny:[Bash(rm*)]", off.Tools)
 	}
 }
+
+// defaults — не проект: отсутствие в одном из двух файлов не ошибка,
+// а «на этом уровне добавок нет». Наличие в обоих — оба вклада учтены
+// (это проверяет Task 3, здесь — что сам разбор ключа не падает).
+func TestLoadProjectsAllowsDefaultsInEitherOrBothFiles(t *testing.T) {
+	withDefaults := "defaults:\n  network: [a.test]\n"
+
+	cases := []struct {
+		name, office, machine string
+	}{
+		{"только в офисном файле", validOffice + withDefaults, validMachine},
+		{"только в машинном файле", validOffice, validMachine + withDefaults},
+		{"в обоих файлах", validOffice + withDefaults, validMachine + withDefaults},
+		{"ни в одном", validOffice, validMachine},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := loadHalves(t, tc.office, tc.machine); err != nil {
+				t.Fatalf("defaults не должен быть ошибкой: %v", err)
+			}
+		})
+	}
+}
+
+// defaults — зарезервированное имя для repo-wide/машинного слоя, а не
+// проект: default_branch/branch_prefix ему не положены, и загрузчик обязан
+// сказать об этом явно, а не молча принять их как проект по имени "defaults".
+func TestLoadProjectsRejectsDefaultBranchUnderDefaultsKey(t *testing.T) {
+	office := validOffice + "defaults:\n  default_branch: master\n"
+	_, err := loadHalves(t, office, validMachine)
+	if err == nil {
+		t.Fatal("default_branch под defaults принят без ошибки")
+	}
+	if !strings.Contains(err.Error(), "defaults") || !strings.Contains(err.Error(), "default_branch") {
+		t.Errorf("ошибка не называет причину: %v", err)
+	}
+}
+
+// Зеркально — машинные поля под defaults в machine-файле.
+func TestLoadProjectsRejectsRepoURLUnderDefaultsKeyInMachineFile(t *testing.T) {
+	machine := validMachine + "defaults:\n  repo_url: https://example.test/x.git\n"
+	_, err := loadHalves(t, validOffice, machine)
+	if err == nil {
+		t.Fatal("repo_url под defaults принят без ошибки")
+	}
+	if !strings.Contains(err.Error(), "defaults") || !strings.Contains(err.Error(), "repo_url") {
+		t.Errorf("ошибка не называет причину: %v", err)
+	}
+}
+
+// defaults не участвует в проверке парности ключей office/machine: он не
+// проект, и требовать для него пару в другом файле значило бы обязать
+// заводить пустой машинный (или офисный) слой ради синтаксиса.
+func TestLoadProjectsDefaultsSkipsParityCheck(t *testing.T) {
+	office := validOffice + "defaults:\n  network: [a.test]\n"
+	if _, err := loadHalves(t, office, validMachine); err != nil {
+		t.Fatalf("defaults только в офисном файле не должен требовать пары в машинном: %v", err)
+	}
+}

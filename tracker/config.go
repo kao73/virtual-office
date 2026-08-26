@@ -545,6 +545,48 @@ func (p Projects) Get(key string) (Project, error) {
 	return project, nil
 }
 
+// reservedRulesKey — имя, под которым в обоих файлах проектов живёт
+// repo-wide (в ProjectsFile) или машинный (в ProjectsLocalFile) слой
+// умолчаний network/tools. Не проект: не подчиняется требованиям
+// к обычным записям и не участвует в проверке парности ключей office/machine.
+const reservedRulesKey = "defaults"
+
+// extractDefaultsOffice вынимает ключ "defaults" из карты офисной половины
+// до того, как остальной код увидит её как список проектов. defaults — не
+// проект: default_branch/branch_prefix ему не положены, а отсутствие ключа
+// вовсе — не ошибка, а «repo-wide слоя добавок нет».
+func extractDefaultsOffice(m map[string]officeProject) (Rules, error) {
+	d, ok := m[reservedRulesKey]
+	if !ok {
+		return Rules{}, nil
+	}
+	delete(m, reservedRulesKey)
+	if d.DefaultBranch != "" || d.BranchPrefix != "" {
+		return Rules{}, fmt.Errorf(
+			"%s: %q — зарезервированное имя для repo-wide умолчаний network/tools, "+
+				"default_branch/branch_prefix ему не положены (это не проект)",
+			ProjectsFile, reservedRulesKey)
+	}
+	return d.Rules, nil
+}
+
+// extractDefaultsMachine — зеркально extractDefaultsOffice, для машинного
+// слоя в ProjectsLocalFile.
+func extractDefaultsMachine(m map[string]machineProject) (Rules, error) {
+	d, ok := m[reservedRulesKey]
+	if !ok {
+		return Rules{}, nil
+	}
+	delete(m, reservedRulesKey)
+	if d.RepoURL != "" || d.WorktreeRoot != "" || d.Tracker != "" || d.Forge != "" {
+		return Rules{}, fmt.Errorf(
+			"%s: %q — зарезервированное имя для машинного слоя умолчаний network/tools, "+
+				"repo_url/worktree_root/tracker/forge ему не положены (это не проект)",
+			ProjectsLocalFile, reservedRulesKey)
+	}
+	return d.Rules, nil
+}
+
 // LoadProjects собирает проекты из двух половин: офисной и машинной.
 //
 // officePath лежит в конфиг-репозитории и называет проекты офиса, machinePath —
@@ -563,6 +605,11 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 
 	var office map[string]officeProject
 	if err := decodeStrict(officePath, &office); err != nil {
+		return nil, err
+	}
+
+	officeDefaults, err := extractDefaultsOffice(office)
+	if err != nil {
 		return nil, err
 	}
 
@@ -586,6 +633,13 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 	if err := decodeStrict(machinePath, &machine); err != nil {
 		return nil, err
 	}
+
+	machineDefaults, err := extractDefaultsMachine(machine)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = officeDefaults; _ = machineDefaults
 
 	var errs []error
 	for key := range machine {
