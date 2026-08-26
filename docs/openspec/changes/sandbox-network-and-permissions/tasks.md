@@ -38,7 +38,7 @@
 
 ## 3. tools.allow / tools.deny ролей
 
-- [ ] 3.1 Расширить `tools.allow` во всех трёх `role.yaml`
+- [x] 3.1 Расширить `tools.allow` во всех трёх `role.yaml`
       (`analyst`, `implementer`, `reviewer`) до широких правил
       (`Bash(*)` и подобные) вместо перечисления подкоманд
 - [ ] 3.2 Вынести семь общих строк `tools.deny`

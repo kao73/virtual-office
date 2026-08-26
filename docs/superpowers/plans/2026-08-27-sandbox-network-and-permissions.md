@@ -858,7 +858,7 @@ throwaway git-репозиторий + `claude -p --permission-mode dontAsk`):
 `docs/notes/stage-5-cleanup.md`). Реальная граница — только `tools.deny`
 (Task 7/8).
 
-- [ ] **Шаг 1: Обнаружить тест, который сломается, и понять, почему**
+- [x] **Шаг 1: Обнаружить тест, который сломается, и понять, почему**
 
 Запустить: `go test ./runner/... -run TestReviewerRoleCannotWrite -v`
 
@@ -873,7 +873,7 @@ commit"`; (б) `role.Tools.Allow` содержит буквально `"Bash(git
 Этот шаг — не код, а понимание: следующий шаг переписывает тест под новую
 семантику, а не удаляет проверку молча.
 
-- [ ] **Шаг 2: Переписать `TestReviewerRoleCannotWrite` под новую семантику**
+- [x] **Шаг 2: Переписать `TestReviewerRoleCannotWrite` под новую семантику**
 
 В `runner/role_test.go` заменить тело функции:
 
@@ -908,12 +908,12 @@ func TestReviewerRoleCannotWrite(t *testing.T) {
 (Эта версия ещё не проверяет `Tools.Deny` — эта часть добавляется в
 Task 7, Шаг 6, когда роль-специфичные deny приведены к финальной форме.)
 
-- [ ] **Шаг 3: Убедиться, что переписанный тест падает на текущем `role.yaml`**
+- [x] **Шаг 3: Убедиться, что переписанный тест падает на текущем `role.yaml`**
 
 Запустить: `go test ./runner/... -run TestReviewerRoleCannotWrite -v`
 Ожидается: FAIL — `role.Tools.Allow` пока не содержит `"Bash(*)"`.
 
-- [ ] **Шаг 4: Расширить `tools.allow` в `roles/analyst/role.yaml`**
+- [x] **Шаг 4: Расширить `tools.allow` в `roles/analyst/role.yaml`**
 
 Заменить блок `tools:` (комментарий и `allow:`, до `deny:` включительно —
 `deny:` в этом шаге не трогается, правится в Task 7):
@@ -945,7 +945,7 @@ tools:
     - "Bash(git config*)"
 ```
 
-- [ ] **Шаг 5: Расширить `tools.allow` в `roles/implementer/role.yaml`**
+- [x] **Шаг 5: Расширить `tools.allow` в `roles/implementer/role.yaml`**
 
 Заменить блок `tools:` (`allow:` до `deny:`, `deny:` не трогается):
 
@@ -977,7 +977,7 @@ tools:
     - "Bash(git config*)"
 ```
 
-- [ ] **Шаг 6: Расширить `tools.allow` в `roles/reviewer/role.yaml`**
+- [x] **Шаг 6: Расширить `tools.allow` в `roles/reviewer/role.yaml`**
 
 Заменить блок `tools:` (`allow:` до `deny:`, `deny:` не трогается):
 
@@ -1009,18 +1009,18 @@ tools:
     - "Bash(git config*)"
 ```
 
-- [ ] **Шаг 7: Прогнать тесты**
+- [x] **Шаг 7: Прогнать тесты**
 
 Запустить: `go test ./runner/... -v` и `go test ./adapters/... -v`
 Ожидается: PASS. `TestShippedRolesAreValid` проходит (проверяет только
 `LoadRole`/`SystemPrompt`, не конкретный состав allow — не задет).
 `TestReviewerRoleCannotWrite` проходит с новым телом.
 
-- [ ] **Шаг 8: Собрать весь репозиторий**
+- [x] **Шаг 8: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 
-- [ ] **Шаг 9: Commit**
+- [x] **Шаг 9: Commit**
 
 ```bash
 git add roles/analyst/role.yaml roles/implementer/role.yaml roles/reviewer/role.yaml runner/role_test.go
