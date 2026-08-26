@@ -39,6 +39,12 @@ func TestShippedConfigIsValid(t *testing.T) {
 	if err := decodeStrict(filepath.Join(root, ProjectsFile), &office); err != nil {
 		t.Fatalf("%s не разобран: %v", ProjectsFile, err)
 	}
+	// Ключ defaults в реальном файле обязан пройти те же проверки, что
+	// и синтетический: не содержать default_branch/branch_prefix,
+	// не участвовать в парности office/machine.
+	if _, err := extractDefaultsOffice(office); err != nil {
+		t.Errorf("defaults в %s не проходит проверку: %v", ProjectsFile, err)
+	}
 	if len(office) == 0 {
 		t.Error("список проектов пуст: раннеру нечего брать в работу")
 	}

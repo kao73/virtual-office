@@ -13,6 +13,27 @@
 # Задачу проекта, которого здесь нет, раннер в работу не берёт: ему негде взять
 # репозиторий и некуда пушить.
 
+# defaults — зарезервированное имя, не проект. Слой repo-wide умолчаний
+# network/tools (уровень 1 слоистой модели, docs/contracts/role-sandbox-permissions.md):
+# применяется к прогону любой роли на любом проекте объединением (union),
+# а не переопределением — ни один более специфичный слой (проект, машина,
+# роль) не может убрать то, что здесь названо. Оттого сюда не кладят
+# default_branch/branch_prefix — это не проект, и загрузчик отдельно
+# проверяет, что их здесь нет.
+#
+# Симметрично, ${OFFICE_HOME}/projects.local.yaml вправе иметь свой ключ
+# defaults — машинный слой (уровень 3), тем же принципом.
+defaults:
+  network:
+    # Docker Hub — проверено эмпирически 2026-08-27 (пустая одноразовая
+    # песочница sbx → голая попытка → добавление хостов по факту ошибки),
+    # docs/notes/followup-network-and-permissions.md, «Находка 1».
+    - registry-1.docker.io
+    - auth.docker.io
+    - "*.docker.io"
+    - production.cloudfront.docker.com   # CDN раздачи blob'ов, не cloudflare.docker.com
+    - "*.cloudfront.docker.com"
+
 OFFICE:
   default_branch: master
   branch_prefix: agent/
