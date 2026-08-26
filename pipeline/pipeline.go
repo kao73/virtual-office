@@ -191,6 +191,11 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	if err != nil || task.ref.Key == "" {
 		return false, err
 	}
+	// Слои repo-wide/проектных/машинных правил сливаются в роль здесь, а не
+	// сразу после LoadRole: до claim() проект задачи не известен — LoadRole
+	// не знает, чей это прогон.
+	role = tracker.MergeProjectRules(task.project, role)
+
 	// Захват только что положил задачу в рабочий статус — есть на чём спросить
 	// трекер о его workflow. Без работы этот вопрос не задаётся вовсе.
 	o.checkWorkflow(task.ref.Project, flow)

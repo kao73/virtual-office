@@ -653,6 +653,35 @@ func TestTickFeedsAgentTaskAndContext(t *testing.T) {
 	}
 }
 
+// Роль, дошедшая до агента, обязана нести уже смёрженные с проектом
+// network/tools — слияние происходит после claim(), не сразу при загрузке
+// роли, потому что до захвата задачи проект не известен.
+func TestTickMergesProjectRulesBeforeAgentRun(t *testing.T) {
+	o := newOffice(t)
+	proj := o.Office.Projects["OFF"]
+	proj.Network = []string{"project.test"}
+	proj.Tools = runner.Tools{
+		Allow: []string{"Bash(project-tool)"},
+		Deny:  []string{"Bash(git *dangerous*)"},
+	}
+	o.Office.Projects["OFF"] = proj
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу")
+	}
+
+	got := o.agent.seen.Role
+	if !slices.Contains(got.Network.Allow, "project.test") {
+		t.Errorf("network.allow агента %v не содержит project.test", got.Network.Allow)
+	}
+	if !slices.Contains(got.Tools.Allow, "Bash(project-tool)") {
+		t.Errorf("tools.allow агента %v не содержит Bash(project-tool)", got.Tools.Allow)
+	}
+	if !slices.Contains(got.Tools.Deny, "Bash(git *dangerous*)") {
+		t.Errorf("tools.deny агента %v не содержит Bash(git *dangerous*)", got.Tools.Deny)
+	}
+}
+
 // Вопрос человеку: задача уходит в Blocked с атрибутом ожидания, вопросы видны
 // в комментарии, работа всё равно опубликована.
 func TestTickNeedsHumanBlocksAndFlags(t *testing.T) {
