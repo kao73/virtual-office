@@ -1293,7 +1293,7 @@ git commit -m "feat(config): добавить в defaults.tools.deny переп�
 задача откладывается до тех пор, пока PyPI не окажется в `defaults.network`
 по факту, а не по ожиданию.
 
-- [ ] **Шаг 1: Убрать блок `network:` из `roles/analyst/role.yaml`**
+- [x] **Шаг 1: Убрать блок `network:` из `roles/analyst/role.yaml`**
 
 Удалить целиком (комментарий и `allow:`):
 
@@ -1312,7 +1312,7 @@ network:
 остаётся вовсе, и это нормально: слой необязателен (design.md,
 «Migration Plan», п. 3).
 
-- [ ] **Шаг 2: Убрать блок `network:` из `roles/implementer/role.yaml`**
+- [x] **Шаг 2: Убрать блок `network:` из `roles/implementer/role.yaml`**
 
 Удалить целиком:
 
@@ -1329,7 +1329,7 @@ network:
     - files.pythonhosted.org
 ```
 
-- [ ] **Шаг 3: Убрать блок `network:` из `roles/reviewer/role.yaml`**
+- [x] **Шаг 3: Убрать блок `network:` из `roles/reviewer/role.yaml`**
 
 Удалить целиком:
 
@@ -1348,7 +1348,7 @@ network:
     - files.pythonhosted.org
 ```
 
-- [ ] **Шаг 4: Прогнать тесты**
+- [x] **Шаг 4: Прогнать тесты**
 
 Запустить: `go test ./runner/... ./adapters/... -v`
 Ожидается: PASS — `runner.Role.Network` для этих ролей теперь пустой,
@@ -1356,11 +1356,11 @@ network:
 означает „ничего“»), проверок содержимого сети шипованных ролей на конкретных
 доменах нет (только на структуру, см. разведку перед Task 6).
 
-- [ ] **Шаг 5: Собрать весь репозиторий**
+- [x] **Шаг 5: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 
-- [ ] **Шаг 6: Commit**
+- [x] **Шаг 6: Commit**
 
 ```bash
 git add roles/analyst/role.yaml roles/implementer/role.yaml roles/reviewer/role.yaml
