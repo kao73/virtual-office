@@ -1526,7 +1526,7 @@ git commit -m "feat(tracker): MergeProjectRules — слияние ролево�
   успешного `claim()`, когда `task.project` (поле `claimed.project`,
   заполняется в `take()`) уже есть.
 
-- [ ] **Шаг 1: Написать падающий тест**
+- [x] **Шаг 1: Написать падающий тест**
 
 Добавить в `pipeline/pipeline_test.go` (рядом с `TestTickFeedsAgentTaskAndContext`):
 
@@ -1561,13 +1561,13 @@ func TestTickMergesProjectRulesBeforeAgentRun(t *testing.T) {
 }
 ```
 
-- [ ] **Шаг 2: Убедиться, что тест падает**
+- [x] **Шаг 2: Убедиться, что тест падает**
 
 Запустить: `go test ./pipeline/... -run TestTickMergesProjectRulesBeforeAgentRun -v`
 Ожидается: FAIL — агент видит роль без слияния (`Network.Allow`/`Tools.*`
 из `role.yaml` как есть).
 
-- [ ] **Шаг 3: Вставить слияние в `tickRole`**
+- [x] **Шаг 3: Вставить слияние в `tickRole`**
 
 В `pipeline/pipeline.go`, в функции `tickRole`, заменить:
 
@@ -1602,12 +1602,12 @@ func TestTickMergesProjectRulesBeforeAgentRun(t *testing.T) {
 новый импорт не нужен. Переменная `role` уже объявлена через `:=` парой
 строк выше — здесь простое переприсваивание `=`, тип не меняется.)
 
-- [ ] **Шаг 4: Прогнать тест**
+- [x] **Шаг 4: Прогнать тест**
 
 Запустить: `go test ./pipeline/... -run TestTickMergesProjectRulesBeforeAgentRun -v`
 Ожидается: PASS.
 
-- [ ] **Шаг 5: Прогнать весь пакет `pipeline`**
+- [x] **Шаг 5: Прогнать весь пакет `pipeline`**
 
 Запустить: `go test ./pipeline/... -v`
 Ожидается: PASS — вставка происходит после успешного `claim()` и не
@@ -1615,11 +1615,11 @@ func TestTickMergesProjectRulesBeforeAgentRun(t *testing.T) {
 раньше), так что весь остальной набор (порядка 40 тестов) не должен
 измениться.
 
-- [ ] **Шаг 6: Собрать весь репозиторий**
+- [x] **Шаг 6: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 
-- [ ] **Шаг 7: Commit**
+- [x] **Шаг 7: Commit**
 
 ```bash
 git add pipeline/pipeline.go pipeline/pipeline_test.go
