@@ -1,0 +1,14 @@
+{
+  "change": "sandbox-network-and-permissions",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "8f6fbbefa6dc170f668667c8ed6ce4bea3e7b95420faa1fec074863f1fe736ee",
+  "files": [
+    { "path": "docs/openspec/changes/sandbox-network-and-permissions/proposal.md", "sha256": "e79ad04a34311e9fd61bc1de2de062ab49247beacdc88f088c000623772af7e8" },
+    { "path": "docs/openspec/changes/sandbox-network-and-permissions/design.md", "sha256": "ec9d99f47c28c9629d4ca103f2e5ad21b2b015959ce9c3cc2156d5330e62b7d5" },
+    { "path": "docs/openspec/changes/sandbox-network-and-permissions/tasks.md", "sha256": "1f1355d592f71b5bbe493030cfd6b5100223b8af07c0bcad2df515e441577a15" },
+    { "path": "docs/openspec/changes/sandbox-network-and-permissions/specs/role-sandbox-permissions/spec.md", "sha256": "8f6104603bb28e214d46058bfbf998eca1925e12fc47643a1855c9590d8c50b6" }
+  ]
+}
