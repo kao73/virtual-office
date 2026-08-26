@@ -1386,7 +1386,7 @@ git commit -m "feat(roles): убрать дублирующийся network.allo
 См. «Глобальные ограничения» выше про отклонение от пседокода design-doc:
 функция лежит в пакете `tracker`, не `runner`, во избежание цикла импорта.
 
-- [ ] **Шаг 1: Написать падающие тесты**
+- [x] **Шаг 1: Написать падающие тесты**
 
 Создать `tracker/rules_test.go`:
 
@@ -1461,12 +1461,12 @@ func TestMergeProjectRulesDoesNotMutateInputs(t *testing.T) {
 }
 ```
 
-- [ ] **Шаг 2: Убедиться, что тесты падают**
+- [x] **Шаг 2: Убедиться, что тесты падают**
 
 Запустить: `go test ./tracker/... -run TestMergeProjectRules -v`
 Ожидается: FAIL — `MergeProjectRules` не существует (ошибка компиляции).
 
-- [ ] **Шаг 3: Реализовать `MergeProjectRules`**
+- [x] **Шаг 3: Реализовать `MergeProjectRules`**
 
 Создать `tracker/rules.go`:
 
@@ -1495,16 +1495,16 @@ func MergeProjectRules(project Project, role runner.Role) runner.Role {
 }
 ```
 
-- [ ] **Шаг 4: Прогнать тесты**
+- [x] **Шаг 4: Прогнать тесты**
 
 Запустить: `go test ./tracker/... -v`
 Ожидается: PASS весь пакет.
 
-- [ ] **Шаг 5: Собрать весь репозиторий**
+- [x] **Шаг 5: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 
-- [ ] **Шаг 6: Commit**
+- [x] **Шаг 6: Commit**
 
 ```bash
 git add tracker/rules.go tracker/rules_test.go
