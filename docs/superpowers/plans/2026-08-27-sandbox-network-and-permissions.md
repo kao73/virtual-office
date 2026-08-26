@@ -1832,7 +1832,7 @@ git commit -m "feat(run-agent): флаг -project подмешивает сло�
   комментариях Task 4–9: убедиться, что путь совпадает с реальным именем
   файла, созданным этим таском)
 
-- [ ] **Шаг 1: Добавить пункт в `docs/DESIGN.md` §2.6**
+- [x] **Шаг 1: Добавить пункт в `docs/DESIGN.md` §2.6**
 
 В `docs/DESIGN.md`, в разделе `### 2.6 Изоляция выполнения`, после
 пункта, начинающегося с «**Сеть роли — `network.allow` в `role.yaml`**,
@@ -1855,7 +1855,7 @@ git commit -m "feat(run-agent): флаг -project подмешивает сло�
   `docs/contracts/role-sandbox-permissions.md`.
 ```
 
-- [ ] **Шаг 2: Создать `docs/contracts/role-sandbox-permissions.md`**
+- [x] **Шаг 2: Создать `docs/contracts/role-sandbox-permissions.md`**
 
 ```markdown
 # Контракт «слоистые network/tools прогона роли»
@@ -1984,12 +1984,12 @@ bare remote, `claude -p --permission-mode dontAsk`):
   расширение этого контракта задним числом.
 ```
 
-- [ ] **Шаг 3: Прогнать регресс**
+- [x] **Шаг 3: Прогнать регресс**
 
 Запустить: `go test ./...`
 Ожидается: PASS — документация не влияет на код.
 
-- [ ] **Шаг 4: Commit**
+- [x] **Шаг 4: Commit**
 
 ```bash
 git add docs/DESIGN.md docs/contracts/role-sandbox-permissions.md
