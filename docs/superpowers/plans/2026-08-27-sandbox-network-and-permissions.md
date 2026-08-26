@@ -1051,7 +1051,7 @@ restore*)`), и оставлять уже диагностированную д�
 Это расширение сферы относительно буквального текста `tasks.md`, явно
 отмечено здесь для ревью.
 
-- [ ] **Шаг 1: Добавить `defaults.tools.deny` в `projects.yaml`**
+- [x] **Шаг 1: Добавить `defaults.tools.deny` в `projects.yaml`**
 
 В `projects.yaml`, в блок `defaults:` (заведён Task 4/5), добавить `tools:`
 рядом с `network:`:
@@ -1076,7 +1076,7 @@ defaults:
       - "Bash(git *config*)"
 ```
 
-- [ ] **Шаг 2: Убрать дублирующиеся семь строк из `roles/analyst/role.yaml`, исправить оставшуюся**
+- [x] **Шаг 2: Убрать дублирующиеся семь строк из `roles/analyst/role.yaml`, исправить оставшуюся**
 
 Заменить блок `deny:` (`tools.allow` от Task 6 не трогается):
 
@@ -1091,7 +1091,7 @@ defaults:
     - "Bash(git *reset*)"
 ```
 
-- [ ] **Шаг 3: Убрать дублирующиеся семь строк из `roles/implementer/role.yaml`, исправить оставшиеся**
+- [x] **Шаг 3: Убрать дублирующиеся семь строк из `roles/implementer/role.yaml`, исправить оставшиеся**
 
 Заменить блок `deny:`:
 
@@ -1104,7 +1104,7 @@ defaults:
     - "Bash(git *reset*)"
 ```
 
-- [ ] **Шаг 4: Убрать дублирующиеся семь строк из `roles/reviewer/role.yaml`, исправить оставшиеся**
+- [x] **Шаг 4: Убрать дублирующиеся семь строк из `roles/reviewer/role.yaml`, исправить оставшиеся**
 
 Заменить блок `deny:`:
 
@@ -1120,7 +1120,7 @@ defaults:
     - "Bash(git *restore*)"
 ```
 
-- [ ] **Шаг 5: Написать тест на смёрженный набор для реального `projects.yaml`**
+- [x] **Шаг 5: Написать тест на смёрженный набор для реального `projects.yaml`**
 
 Добавить в `tracker/config_test.go`:
 
@@ -1159,7 +1159,7 @@ func TestShippedDefaultsCarrySevenCommonDenyRules(t *testing.T) {
 }
 ```
 
-- [ ] **Шаг 6: Дополнить `TestReviewerRoleCannotWrite` проверкой роль-специфичного deny**
+- [x] **Шаг 6: Дополнить `TestReviewerRoleCannotWrite` проверкой роль-специфичного deny**
 
 В `runner/role_test.go`, в теле `TestReviewerRoleCannotWrite` (переписано
 в Task 6), добавить после существующих проверок:
@@ -1176,16 +1176,16 @@ func TestShippedDefaultsCarrySevenCommonDenyRules(t *testing.T) {
 	}
 ```
 
-- [ ] **Шаг 7: Прогнать тесты**
+- [x] **Шаг 7: Прогнать тесты**
 
 Запустить: `go test ./tracker/... ./runner/... -v`
 Ожидается: PASS.
 
-- [ ] **Шаг 8: Собрать весь репозиторий**
+- [x] **Шаг 8: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 
-- [ ] **Шаг 9: Commit**
+- [x] **Шаг 9: Commit**
 
 ```bash
 git add projects.yaml roles/analyst/role.yaml roles/implementer/role.yaml roles/reviewer/role.yaml tracker/config_test.go runner/role_test.go

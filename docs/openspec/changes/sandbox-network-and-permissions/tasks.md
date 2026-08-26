@@ -41,7 +41,7 @@
 - [x] 3.1 Расширить `tools.allow` во всех трёх `role.yaml`
       (`analyst`, `implementer`, `reviewer`) до широких правил
       (`Bash(*)` и подобные) вместо перечисления подкоманд
-- [ ] 3.2 Вынести семь общих строк `tools.deny`
+- [x] 3.2 Вынести семь общих строк `tools.deny`
       (`push`/`remote`/`checkout`/`switch`/`branch`/`worktree`/`config`)
       в `defaults.tools.deny` в `projects.yaml`; убрать дублирование из
       всех трёх `role.yaml`, оставить в них только роль-специфичные deny
