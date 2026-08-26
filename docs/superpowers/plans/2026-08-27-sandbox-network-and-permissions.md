@@ -1642,7 +1642,7 @@ git commit -m "feat(pipeline): сливать project-правила в роль
   изоляции» — только то, что названо в её собственном `role.yaml», явный
   debug-режим, а не тихий пробел (design doc, «Точки интеграции»).
 
-- [ ] **Шаг 1: Написать падающий тест на флаг**
+- [x] **Шаг 1: Написать падающий тест на флаг**
 
 Добавить в `runner/cmd/run-agent/main_test.go` (рядом с
 `TestRunAgentWarnsThatLocalIgnoresNetworkPolicy`):
@@ -1711,14 +1711,14 @@ func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 `defaults.network`, а Task 7 — `Bash(git *push*)` в `defaults.tools.deny`;
 план исполняется по порядку, так что на Task 12 это уже так.)
 
-- [ ] **Шаг 2: Убедиться, что тесты падают**
+- [x] **Шаг 2: Убедиться, что тесты падают**
 
 Запустить: `go test ./runner/cmd/run-agent/... -run TestDryRunProjectFlag -v`
 Ожидается: FAIL (compile error — флага `--project` не существует) или,
 после добавления флага без реализации, обе проверки не находят ожидаемых
 строк.
 
-- [ ] **Шаг 3: Добавить флаг и слияние в `execute()`**
+- [x] **Шаг 3: Добавить флаг и слияние в `execute()`**
 
 В `runner/cmd/run-agent/main.go`, добавить импорт:
 
@@ -1774,7 +1774,7 @@ func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 (Вставка — ДО блока `NetworkNotice`/`NetworkAudit`, который уже стоит
 следом: диагностика обязана видеть уже смёрженную роль, не роль-как-есть.)
 
-- [ ] **Шаг 4: Поправить комментарий `adapters/claude/adapter.go:180`**
+- [x] **Шаг 4: Поправить комментарий `adapters/claude/adapter.go:180`**
 
 Заменить:
 
@@ -1796,21 +1796,21 @@ func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 		"--permission-mode", "dontAsk",
 ```
 
-- [ ] **Шаг 5: Прогнать тесты**
+- [x] **Шаг 5: Прогнать тесты**
 
 Запустить: `go test ./runner/cmd/run-agent/... -v`
 Ожидается: PASS весь пакет, включая новые тесты.
 
-- [ ] **Шаг 6: Прогнать пакет адаптера**
+- [x] **Шаг 6: Прогнать пакет адаптера**
 
 Запустить: `go test ./adapters/... -v`
 Ожидается: PASS — комментарий не влияет на поведение.
 
-- [ ] **Шаг 7: Собрать весь репозиторий**
+- [x] **Шаг 7: Собрать весь репозиторий**
 
 Запустить: `go build ./...`
 
-- [ ] **Шаг 8: Commit**
+- [x] **Шаг 8: Commit**
 
 ```bash
 git add runner/cmd/run-agent/main.go runner/cmd/run-agent/main_test.go adapters/claude/adapter.go

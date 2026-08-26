@@ -61,11 +61,23 @@
       результата `LoadProjects` (слои 1–3) с ролевым слоем
       (`Role.Network.Allow`, `Role.Tools.Allow`/`Deny`) по тому же
       правилу union
-- [ ] 4.2 Передать объединённый результат в `adapters/claude/adapter.go`:
+- [x] 4.2 Передать объединённый результат в `adapters/claude/adapter.go`:
       `networkAllow` перестаёт быть единственным источником
       `NetworkAllow`; `buildSettings`/`--tools` используют объединённые
       `tools.allow`/`tools.deny`, а не только `role.Tools.*`
-- [ ] 4.3 Поправить комментарий `adapters/claude/adapter.go:180`
+
+      **Отклонение от буквального текста, зафиксированное явно (design doc,
+      Global Constraints):** `adapter.go` не меняется в части логики слияния
+      вовсе — слияние происходит ДО вызова `Build`, в вызывающем коде
+      (`pipeline.tickRole`, Task 11; `run-agent/main.go` через флаг
+      `-project`, Task 12), а не внутри адаптера. `networkAllow`/
+      `buildSettings` и так уже читают `role.Network.Allow`/
+      `role.Tools.Allow`/`role.Tools.Deny` — к моменту вызова эти поля уже
+      несут объединённый результат, потому что вызывающий код передаёт уже
+      смёрженную роль. Функциональное намерение пункта выполнено (итоговые
+      network/tools достигают адаптера объединёнными), буквальная правка
+      `adapter.go`'s `networkAllow`/`buildSettings` — нет, и не нужна.
+- [x] 4.3 Поправить комментарий `adapters/claude/adapter.go:180`
       (`// Запрещает всё, чего нет в permissions.allow: ...`) — убрать
       утверждение, что `permissions.allow` ограничивает Bash
 
