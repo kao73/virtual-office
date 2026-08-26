@@ -764,3 +764,71 @@ func TestLoadProjectsDefaultsSkipsParityCheck(t *testing.T) {
 		t.Fatalf("defaults только в офисном файле не должен требовать пары в машинном: %v", err)
 	}
 }
+
+// Проект без собственных network/tools наследует только defaults —
+// не пусто, но и не выдумывает ничего сверх repo-wide слоя.
+func TestLoadProjectsProjectInheritsOnlyDefaults(t *testing.T) {
+	office := validOffice + "defaults:\n  network: [a.test]\n  tools:\n    deny: [\"Bash(git *push*)\"]\n"
+	projects, err := loadHalves(t, office, validMachine)
+	if err != nil {
+		t.Fatalf("проекты не загружены: %v", err)
+	}
+	p, err := projects.Get("OFF")
+	if err != nil {
+		t.Fatalf("проект OFF не найден: %v", err)
+	}
+	if !slices.Equal(p.Network, []string{"a.test"}) {
+		t.Errorf("network = %v, ожидалось [a.test] (только из defaults)", p.Network)
+	}
+	if !slices.Equal(p.Tools.Deny, []string{"Bash(git *push*)"}) {
+		t.Errorf("tools.deny = %v, ожидалось [Bash(git *push*)] (только из defaults)", p.Tools.Deny)
+	}
+}
+
+// Специфика одного проекта не видна другому — иначе слой перестал бы
+// быть per-project и превратился в ещё один repo-wide список.
+func TestLoadProjectsProjectSpecificsAreIsolated(t *testing.T) {
+	office := validOffice + "defaults:\n  network: [common.test]\n" +
+		"VO:\n  default_branch: main\n  branch_prefix: a/\n  network: [vo-only.test]\n"
+	machine := validMachine + "VO:\n  repo_url: https://example.test/vo.git\n  tracker: mock\n"
+
+	projects, err := loadHalves(t, office, machine)
+	if err != nil {
+		t.Fatalf("проекты не загружены: %v", err)
+	}
+	off, _ := projects.Get("OFF")
+	vo, _ := projects.Get("VO")
+
+	if !slices.Equal(off.Network, []string{"common.test"}) {
+		t.Errorf("OFF.network = %v, ожидалось [common.test] без утечки VO", off.Network)
+	}
+	if !slices.Equal(vo.Network, []string{"common.test", "vo-only.test"}) {
+		t.Errorf("VO.network = %v, ожидалось [common.test vo-only.test]", vo.Network)
+	}
+}
+
+// Проект без defaults вообще — сегодняшнее поведение не должно измениться:
+// Network/Tools остаются пустыми, а не паникой на nil-слиянии.
+func TestLoadProjectsWithoutDefaultsAtAllIsUnaffected(t *testing.T) {
+	projects, err := loadHalves(t, validOffice, validMachine)
+	if err != nil {
+		t.Fatalf("проекты не загружены: %v", err)
+	}
+	p, _ := projects.Get("OFF")
+	if len(p.Network) != 0 || len(p.Tools.Allow) != 0 || len(p.Tools.Deny) != 0 {
+		t.Errorf("проект без единого defaults получил правила из ниоткуда: %+v", p)
+	}
+}
+
+// unionStrings — дедуп и сортировка через все слои разом, тот же приём,
+// что уже применяет adapters/claude/adapter.go:networkAllow, обобщённый
+// на произвольное число слоёв.
+func TestUnionStringsDedupsAndSorts(t *testing.T) {
+	got := unionStrings([]string{"b", "a"}, nil, []string{"a", "c"})
+	if want := []string{"a", "b", "c"}; !slices.Equal(got, want) {
+		t.Errorf("unionStrings = %v, ожидалось %v", got, want)
+	}
+	if got := unionStrings(); got != nil {
+		t.Errorf("unionStrings() без слоёв = %v, ожидался nil", got)
+	}
+}
