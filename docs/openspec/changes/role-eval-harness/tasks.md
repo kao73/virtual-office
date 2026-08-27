@@ -1,7 +1,7 @@
 ## 1. Ledger and budget plumbing
 
 - [ ] 1.1 Add an `--eval` bool flag to `cmd/run-agent`; thread it through to the accounting step. Verify: invoking `run-agent --eval ...` writes a ledger entry with `eval: true` in `ledger.jsonl`.
-- [ ] 1.2 Add `Eval bool \`json:"eval,omitempty"\`` to `ledger.Entry` (`internal/ledger/ledger.go`). Verify: `go test ./internal/ledger/...` passes; an entry with `Eval: true` round-trips through JSON marshal/unmarshal correctly.
+- [x] 1.2 Add `Eval bool \`json:"eval,omitempty"\`` to `ledger.Entry` (`internal/ledger/ledger.go`). Verify: `go test ./internal/ledger/...` passes; an entry with `Eval: true` round-trips through JSON marshal/unmarshal correctly.
 - [ ] 1.3 Extend `ledger.Filter` with an eval-exclusion option and wire it into `internal/pipeline/budget.go`'s `per_role_daily` daily-spend query. Verify: a unit test with both eval and non-eval ledger entries for a role on the same day shows `per_role_daily` spend counting only the non-eval entries.
 
 ## 2. Harness core (`cmd/eval-roles`)

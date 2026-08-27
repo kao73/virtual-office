@@ -51,7 +51,7 @@ All Go code below was written into the real repo at the stated paths, compiled w
 **Interfaces:**
 - Produces: `ledger.Entry.Eval bool` (json tag `eval,omitempty`) — consumed by Task 2 (`cmd/run-agent`'s `account`) and Task 3 (`ledger.Filter.ExcludeEval`, `internal/pipeline/budget.go`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `internal/ledger/ledger_test.go`:
 
@@ -87,12 +87,12 @@ func TestEntryEvalRoundTripsThroughJSON(t *testing.T) {
 
 `json` is already imported in this file; check `strings` is too (it is, per existing `TestLedgerReportsBrokenLines` etc. — verify with `go vet` in Step 2 if unsure).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/ledger/... -run TestEntryEvalRoundTripsThroughJSON -v`
 Expected: FAIL — `e.Eval` / `got.Eval` / `historical.Eval` undefined (no such field on `Entry` yet).
 
-- [ ] **Step 3: Add the field**
+- [x] **Step 3: Add the field**
 
 In `internal/ledger/ledger.go`, extend `Entry` (after the existing `Overrides` field):
 
@@ -107,17 +107,17 @@ In `internal/ledger/ledger.go`, extend `Entry` (after the existing `Overrides` f
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/ledger/... -run TestEntryEvalRoundTripsThroughJSON -v`
 Expected: PASS
 
-- [ ] **Step 5: Run the full package test suite (tasks.md 1.2's own verify)**
+- [x] **Step 5: Run the full package test suite (tasks.md 1.2's own verify)**
 
 Run: `go test ./internal/ledger/...`
 Expected: PASS — all existing ledger tests unaffected (the new field is `omitempty` and additive).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/ledger/ledger.go internal/ledger/ledger_test.go
