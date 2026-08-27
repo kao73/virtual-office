@@ -130,3 +130,122 @@ GitHub — общие для почти любого клиентского пр
 5. Если прогон пройдёт — вернуться к незакрытым пунктам `tasks.md`
    ветки `role-companions` (5.2–5.4, 6.1–6.3) уже с рабочим сетевым
    доступом.
+
+## Находки живого прогона OFFICE-16 (2026-08-27, задача 16 плана `sandbox-network-and-permissions`)
+
+Контекст: план `sandbox-network-and-permissions` (ветка того же имени,
+задачи 1–15 уже слиты) реализовал ровно ту модель, которую наметил план
+на возврат выше — слоистую `network`/`tools` (repo-wide `defaults` →
+проект → машина → роль, `docs/contracts/role-sandbox-permissions.md`).
+Задача 15 плана уже подтвердила модель живьём на `EXP` — проекте, у
+которого есть/была какая-то собственная специфика. Задача 16 —
+зеркальная проверка: живой прогон на проекте, у которого в
+`projects.yaml` нет собственного `network`/`tools` вовсе (`OFFICE`,
+только `default_branch`/`branch_prefix`), чтобы подтвердить, что такой
+проект реально получает ровно repo-wide `defaults` и ничего сверх
+этого.
+
+**Постановка.** `${OFFICE_HOME}/mock` для `OFFICE` не существовал
+вовсе (`runner mock ls --project OFFICE` → «задач нет»). Заведена
+вручную через `runner mock add`: `OFFICE-16` — «Добавить тесты для
+textkit.stats.count_words», маленькая механическая задача на учебной
+библиотеке `textkit` (`office-polygons/client.git`, тот же bare-репозиторий,
+что у `VO`): в `textkit/stats.py` есть `count_words`, но ни одного
+теста на неё нет; попросили добавить `tests/test_stats.py` (обычный
+текст, пустая строка, дефис не разделяет слово) и строку в
+`CHANGELOG.md` по правилу 3 `CONTRIBUTING.md`, саму функцию не трогать.
+Ключ `OFFICE-16` выбран выше всех уже занятых веток `agent/OFFICE-1..15`
+в этом bare-репозитории (следы прежних экспериментов на этом полигоне),
+чтобы не столкнуться с существующей веткой.
+
+**Прогон.** Пересобран `runner`/`run-agent` из HEAD
+`3d9eb842bbb8d9bb375fa02b9e4ec98da823ce82` (та же ветка, дерево чистое
+кроме известного untracked `.comet/subagent-progress.md`):
+
+```
+source ~/.zshrc
+export OFFICE_HOME=/Users/aleksejkolesnikov/.office
+export OFFICE_CONFIG_ROOT=/Users/aleksejkolesnikov/IdeaProjects/virtual-office
+runner tick --role implementer --tracker mock --backend sbx
+```
+
+Вопреки ожиданию, перенесённому из опыта задачи 15 (там `--tracker
+jira` требовал `JIRA_REVIEWER_USER`/`PASSWORD` для любой роли): для
+`--tracker mock` `office()` (`runner/cmd/runner/office.go:62-72`)
+вообще не открывает JIRA — ни общую учётку, ни по ролям, — так что
+никаких `JIRA_*` переменных не понадобилось. `GITHUB_TOKEN` тоже не
+понадобился: `forge` у `OFFICE` не задан, `forgesOf` возвращает пустую
+карту. Единственный обязательный секрет — `CLAUDE_CODE_OAUTH_TOKEN`.
+
+Итог: `run_id 61c65b33-5d4b-4cb0-8689-0644086186e6`, `config_sha
+3d9eb842...-dirty`. Терминальное состояние — **`completed`** (не
+`truncated`, в отличие от EXP-2 в задаче 15): 18 из 50 `max_turns`,
+43.9 с API-времени (~56 с по стенным часам), `$0.1571`. `outcome:
+done`, задача ушла в `Review` (`implementer.done → Review`,
+`workflow.yaml`), ветка `agent/OFFICE-16` реально запушена в
+`office-polygons/client.git` — коммит `b7d2495` (`tests/test_stats.py`
+с тремя тестами + строка в `CHANGELOG.md`, ровно по постановке,
+`count_words` не тронута). `permission_denials: []` в SDK-результате —
+задаче не понадобилось ни одной команды, которую ловит
+`defaults.tools.deny`/implementer-специфичный `deny`.
+
+**Разбор сети** (`sbx policy log office-61c65b33`, имя песочницы —
+`office-` + первые 8 символов run_id, `backends/sbx/sbx.go:sandboxName`):
+
+```
+Allowed requests:
+office-61c65b33   network   api.anthropic.com:443        forward          count=11
+office-61c65b33   network   files.pythonhosted.org:443   forward-bypass   count=1
+office-61c65b33   network   pypi.org:443                 forward-bypass   count=1
+
+Blocked requests (default-deny — ничего из этого не помешало задаче):
+office-61c65b33   http-intake.logs.us5.datadoghq.com:443   count=3   (Docker CLI телеметрия)
+office-61c65b33   api.anthropic.com:443                    count=2   (переходные хиты до применения политики сессии, затем 11 ALLOW)
+office-61c65b33   ports.ubuntu.com:80                      count=4   (apt-зеркало — задача 5 сознательно не тестировала, роли apt не используют)
+office-61c65b33   download.docker.com:443                  count=1   (Docker CLI update-check, другой хост, чем registry-1.docker.io)
+```
+
+Разрешённая сеть — строгое подмножество `defaults.network`: только
+`pypi.org`/`files.pythonhosted.org` (PyPI-строки задач 4/8) плюс
+`api.anthropic.com` — служебный домен самого адаптера Claude Code, не
+хост проекта. Docker Hub, GitHub, npm, Go modules вообще не
+потребовались — задача не трогала Docker, а `git push` в `client.git`
+идёт из `workspace.Manager.Push` на хосте раннера, не из песочницы (как
+и в задаче 15). **Ни одного хоста, специфичного только `EXP`, в логе
+нет** — ожидаемо, поскольку у `EXP` в `projects.yaml` собственного
+`network` тоже нет (задача 9 перенесла PyPI в `defaults`), так что
+утечке специфики `EXP` на этом этапе плана неоткуда взяться. Но сам
+факт живой: `OFFICE` — проект без единой строки `network`/`tools` в
+своём собственном разделе `projects.yaml` — получил рабочий доступ к
+PyPI и ничего сверх этого, не имея ни одной специфичной для себя
+настройки. Это прямое живое подтверждение, что union repo-wide
+`defaults` работает сам по себе, не полагаясь на проектный слой.
+
+Механически интересная деталь: агенту в образе песочницы не хватало
+`pytest`, и он сам поставил его через `pip install
+--break-system-packages pytest` — это единственный сетевой запрос,
+понадобившийся задаче помимо трафика самого Claude Code. Ни `sbx
+policy log`, ни текст `run.log` не показывают ни одной попытки,
+упавшей на `403`/«Blocked by network policy»: `pip install` прошёл с
+первой попытки, потому что `pypi.org`/`files.pythonhosted.org` уже
+были в `defaults.network` до начала прогона — в отличие от чернового
+периода задач 4/5, когда список собирался эмпирически хостом за
+хостом на голых одноразовых песочницах.
+
+**Побочные эффекты (реальные).** Мок-тикет `OFFICE-16`: `Ready →
+Review`, `owner: implementer`, автоматический комментарий
+(`comments/0001.md`) с итогом ($0.1571, 43 с, 18 шагов) — той же
+логикой, что и Jira-комментарии в задаче 15, только файловым
+трекером. `office-polygons/client.git`: новая ветка `agent/OFFICE-16`
+(`b7d24959352dd94990c9062e89db01ab24145f94`) поверх реального тогдашнего
+`master` (`3c1b746`); чужая незавершённая работа `OFFICE-15` не
+тронута. `EXP`/`VO` не затронуты.
+
+**Вывод.** Задача 16 плана `sandbox-network-and-permissions`
+подтверждена живьём: проект без собственного `network`/`tools`
+(`OFFICE`) реально получает ровно repo-wide `defaults` и этого
+достаточно для типовой (пусть и маленькой) работы конвейера — ни
+инфраструктурного сетевого отказа, ни утечки чужой специфики, ни
+одного случайного срабатывания `tools.deny`. Симметрично задаче 15:
+там подтверждали «специфика `EXP` не течёт лишнего», здесь — «проект
+без специфики всё равно работает на одних умолчаниях».
