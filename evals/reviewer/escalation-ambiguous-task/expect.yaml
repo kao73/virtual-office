@@ -1,0 +1,7 @@
+role: reviewer
+checks:
+  - kind: outcome
+    expect: needs_human
+    questions_not_empty: true
+  - kind: diff_scope
+    allow: []
