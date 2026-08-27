@@ -243,6 +243,22 @@ func TestLedgerOverrideWithoutItsRun(t *testing.T) {
 	}
 }
 
+func TestFilterExcludesEvalEntries(t *testing.T) {
+	l := newLedger(t)
+	prod := entry("OFF-1", "implementer", 0.20, day)
+	evalRun := entry("OFF-1", "implementer", 100, day)
+	evalRun.Eval = true
+	write(t, l, prod, evalRun)
+
+	total, err := l.Sum(Filter{Role: "implementer", ExcludeEval: true})
+	if err != nil {
+		t.Fatalf("сводка не собрана: %v", err)
+	}
+	if total.Runs != 1 || !closeEnough(total.CostUSD, 0.20) {
+		t.Errorf("сводка %+v, ожидался один прогон на $0.20 без eval-прогона на $100", total)
+	}
+}
+
 func TestEntryEvalRoundTripsThroughJSON(t *testing.T) {
 	e := Entry{RunID: "r1", Role: "implementer", Outcome: "done", Eval: true}
 	raw, err := json.Marshal(e)

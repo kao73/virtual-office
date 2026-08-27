@@ -113,6 +113,9 @@ type Filter struct {
 	Task  string
 	Role  string
 	Since time.Time
+	// ExcludeEval отбрасывает строки eval-harness'а — их ставит запрос
+	// per_role_daily, который считает только прод.
+	ExcludeEval bool
 }
 
 func (f Filter) match(e Entry) bool {
@@ -120,6 +123,8 @@ func (f Filter) match(e Entry) bool {
 	case f.Task != "" && e.Task != f.Task:
 		return false
 	case f.Role != "" && e.Role != f.Role:
+		return false
+	case f.ExcludeEval && e.Eval:
 		return false
 	case !f.Since.IsZero() && e.Started.Before(f.Since):
 		return false
