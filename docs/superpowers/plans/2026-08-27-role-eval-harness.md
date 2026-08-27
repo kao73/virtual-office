@@ -2165,7 +2165,7 @@ Every case below bundles a `diff_scope` check (proposal.md: "Bundle a free `diff
 - Create: `evals/analyst/capability-basic-plan/task.md`
 - Create: `evals/analyst/capability-basic-plan/expect.yaml`
 
-- [ ] **Step 1: Write the fixture**
+- [x] **Step 1: Write the fixture**
 
 `evals/analyst/capability-basic-plan/fixture/go.mod`:
 
@@ -2202,7 +2202,7 @@ func TestGreet(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Write the task**
+- [x] **Step 2: Write the task**
 
 `evals/analyst/capability-basic-plan/task.md`:
 
@@ -2215,7 +2215,7 @@ Write the implementation plan for a developer to pick up: what to change, and a 
 that pins the new behavior down.
 ```
 
-- [ ] **Step 3: Write the expectation**
+- [x] **Step 3: Write the expectation**
 
 `evals/analyst/capability-basic-plan/expect.yaml`:
 
@@ -2236,12 +2236,12 @@ checks:
 
 (The `fixture_tests` command stands in for "required plan sections present" — there is no dedicated content-inspection check kind in this MVP; `fixture_tests` runs an arbitrary shell command inside the fixture, which is exactly what's needed to assert non-empty plan files plus at least one unchecked task-list item. `docs/changes/_manual/` is `run-agent`'s own manual-invocation change directory — see `internal/runner.ManualChange`/`ChangeDirRel` — since `analyst` writes into `write_scope.dir: change_dir` and the eval harness never passes a task key.)
 
-- [ ] **Step 4: Run this case against the real role (paid, manual)**
+- [x] **Step 4: Run this case against the real role (paid, manual)**
 
 Run: `go run ./cmd/eval-roles --role analyst --case capability-basic-plan`
 Expected: `1 cases: 1 passed, 0 failed, 0 errored`, exit code 0. If it fails, adjust the task/expect.yaml (not the harness code) until it passes — this is tasks.md 4.1's own verify criterion.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/analyst/capability-basic-plan/

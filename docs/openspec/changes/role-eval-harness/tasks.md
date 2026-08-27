@@ -21,7 +21,7 @@
 
 ## 4. Golden case library (MVP: 6 cases)
 
-- [ ] 4.1 Author `evals/analyst/capability-basic-plan/` — well-specified task; expect `outcome: done` plus required plan sections present. Verify: passes against the current `analyst` role.
+- [x] 4.1 Author `evals/analyst/capability-basic-plan/` — well-specified task; expect `outcome: done` plus required plan sections present. Verify: passes against the current `analyst` role.
 - [ ] 4.2 Author `evals/analyst/escalation-ambiguous-task/` — deliberately ambiguous task; expect `outcome: needs_human`, `questions_not_empty: true`. Verify: passes against the current role.
 - [ ] 4.3 Author `evals/implementer/capability-basic-bugfix/` — fixture with a known bug and a task describing the fix; expect `outcome: done` plus `fixture_tests: go test ./...` green. Verify: passes against the current role.
 - [ ] 4.4 Author `evals/implementer/escalation-ambiguous-task/` — deliberately ambiguous task; expect `outcome: needs_human`. Verify: passes against the current role.
