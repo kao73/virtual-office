@@ -1,0 +1,8 @@
+role: implementer
+checks:
+  - kind: outcome
+    expect: done
+  - kind: diff_scope
+    allow: ["calc.go"]
+  - kind: fixture_tests
+    command: "go test ./..."
