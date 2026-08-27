@@ -1525,7 +1525,7 @@ git commit -m "eval-roles: implement the diff_scope checker (tracked + untracked
 **Interfaces:**
 - Produces: `fixtureTestsChecker{timeout time.Duration}` implementing `Checker`. `checkers["fixture_tests"]` added, constructed with a 5-minute timeout (design doc: "generous relative to real agent run durations already observed"). The `timeout` field is exported to the test file only via same-package access — tests construct their own `fixtureTestsChecker{timeout: ...}` literal with a short timeout so the timeout test doesn't take 5 real minutes.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `cmd/eval-roles/checkers_test.go`:
 
@@ -1572,12 +1572,12 @@ func TestFixtureTestsCheckerTimesOut(t *testing.T) {
 
 Add `"time"` to this test file's imports.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run TestFixtureTestsChecker -v`
 Expected: FAIL to compile — `fixtureTestsChecker` undefined.
 
-- [ ] **Step 3: Implement `fixtureTestsChecker` and register it**
+- [x] **Step 3: Implement `fixtureTestsChecker` and register it**
 
 In `cmd/eval-roles/checkers.go`, change the `checkers` map literal to:
 
@@ -1617,17 +1617,17 @@ func (f fixtureTestsChecker) Run(ctx CheckContext) CheckResult {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run TestFixtureTestsChecker -v`
 Expected: PASS (all three)
 
-- [ ] **Step 5: Run the whole `checkers_test.go`/`glob_test.go` set together**
+- [x] **Step 5: Run the whole `checkers_test.go`/`glob_test.go` set together**
 
 Run: `go test ./cmd/eval-roles/... -v`
 Expected: PASS across every test written so far (discover, fixture, invoke, loadcase, checkers, glob).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cmd/eval-roles/checkers.go cmd/eval-roles/checkers_test.go
