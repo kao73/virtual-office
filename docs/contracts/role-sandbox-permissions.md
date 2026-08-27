@@ -85,20 +85,20 @@ bare remote, `claude -p --permission-mode dontAsk`):
 
 ## Точки интеграции
 
-- `tracker.LoadProjects` (`tracker/config.go`) — сливает уровни 1–3 в
+- `tracker.LoadProjects` (`internal/tracker/config.go`) — сливает уровни 1–3 в
   `Project.Network`/`Project.Tools` на этапе загрузки конфигурации.
-- `tracker.MergeProjectRules` (`tracker/rules.go`) — сливает уровень 4
+- `tracker.MergeProjectRules` (`internal/tracker/rules.go`) — сливает уровень 4
   (роль) поверх уже смёрженного `Project`. В конвейере
   (`pipeline.Office.tickRole`) вызывается после успешного `claim()`, когда
   проект задачи уже известен — `LoadRole` вызывается раньше и своего
   проекта ещё не знает. В `run-agent` (ручной/debug CLI) — по флагу
   `-project`; без флага роль остаётся в изоляции, что является явным
   debug-режимом, а не тихим пробелом.
-- `adapters/claude/adapter.go` не меняется в части логики: `Build` и
+- `internal/adapters/claude/adapter.go` не меняется в части логики: `Build` и
   `networkAllow` читают `role.Network.Allow`/`role.Tools.Allow`/
   `role.Tools.Deny` как есть — к моменту вызова эти поля уже несут
   объединённый результат всех четырёх уровней.
-- `backends/sbx/sbx.go` не меняется вовсе: он применяет `l.NetworkAllow`
+- `internal/backends/sbx/sbx.go` не меняется вовсе: он применяет `l.NetworkAllow`
   так же, как и раньше (`sbx policy allow network --sandbox`), не зная
   о слоях, из которых список собран.
 
@@ -137,7 +137,7 @@ bare remote, `claude -p --permission-mode dontAsk`):
   `tools.allow` конкретного проекта) — не только документация, а реальное
   расширение набора ИНСТРУМЕНТОВ, доступных роли, а не только описание
   Bash-команд. `--tools` запуска собирается адаптером из имён allow-правил
-  (`adapters/claude/adapter.go`, `toolNames`), и это настоящая техническая
+  (`internal/adapters/claude/adapter.go`, `toolNames`), и это настоящая техническая
   граница: каких инструментов (Read/Write/Edit/WebFetch/...) агент вообще
   может коснуться. Поэтому если `defaults.tools.allow` или `tools.allow`
   проекта/машины когда-нибудь назовёт новый инструмент — эта запись реально
