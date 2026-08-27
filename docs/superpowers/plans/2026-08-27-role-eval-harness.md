@@ -2475,7 +2475,7 @@ git commit -m "evals: add implementer escalation-ambiguous-task golden case"
 - Create: `evals/reviewer/capability-spot-defect/task.md`
 - Create: `evals/reviewer/capability-spot-defect/expect.yaml`
 
-- [ ] **Step 1: Write the fixture (verified during planning: `go test ./...` passes despite the bug — the existing test suite never exercises the `b > a` branch, which is exactly why a reviewer must read the code, not just run the tests)**
+- [x] **Step 1: Write the fixture (verified during planning: `go test ./...` passes despite the bug — the existing test suite never exercises the `b > a` branch, which is exactly why a reviewer must read the code, not just run the tests)**
 
 `evals/reviewer/capability-spot-defect/fixture/go.mod`:
 
@@ -2516,7 +2516,7 @@ func TestMax(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Write the task**
+- [x] **Step 2: Write the task**
 
 `evals/reviewer/capability-spot-defect/task.md`:
 
@@ -2528,7 +2528,7 @@ what's wrong and where.
 
 (No `--base` is used for reviewer cases — see the ordering/ambiguity note at the top of this plan. The fixture is a single-commit "work as delivered" snapshot; `task.md` itself supplies the stand-in "colleague's report" so the role has something to check against.)
 
-- [ ] **Step 3: Write the expectation**
+- [x] **Step 3: Write the expectation**
 
 `evals/reviewer/capability-spot-defect/expect.yaml`:
 
@@ -2545,12 +2545,12 @@ checks:
 
 (This is a deliberate MVP proxy, not a real judgment mechanism: `fixture_tests` runs an arbitrary shell command inside the fixture, and `.agent/result.json` — the harness's own result file — physically exists inside the fixture directory tree even though it's git-excluded, so grepping it for defect-indicating language is a legitimate, if crude, stand-in for the not-yet-implemented `llm_judge` kind. The pattern deliberately does not require "Max" to appear near the keyword — `grep` matches per physical line, and a JSON string value can legitimately be pretty-printed with the defect description on a different structural line than the function name — so this only checks that *some* defect-indicating word appears somewhere in the result. If this grep proves too brittle against real model phrasing during Step 4, loosen the pattern further — the specific keywords are not load-bearing, only the mechanism is.)
 
-- [ ] **Step 4: Run this case against the real role (paid, manual)**
+- [x] **Step 4: Run this case against the real role (paid, manual)**
 
 Run: `go run ./cmd/eval-roles --role reviewer --case capability-spot-defect`
 Expected: `1 cases: 1 passed, 0 failed, 0 errored`, exit code 0. If the `fixture_tests` grep check fails while the case's `outcome` and `diff_scope` checks pass and the printed `result.json` summary clearly does identify the defect in different words, this is the expected brittleness called out above — adjust the grep pattern in `expect.yaml`, not the role or the harness.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/reviewer/capability-spot-defect/

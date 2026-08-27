@@ -25,7 +25,7 @@
 - [x] 4.2 Author `evals/analyst/escalation-ambiguous-task/` — deliberately ambiguous task; expect `outcome: needs_human`, `questions_not_empty: true`. Verify: passes against the current role.
 - [x] 4.3 Author `evals/implementer/capability-basic-bugfix/` — fixture with a known bug and a task describing the fix; expect `outcome: done` plus `fixture_tests: go test ./...` green. Verify: passes against the current role.
 - [x] 4.4 Author `evals/implementer/escalation-ambiguous-task/` — deliberately ambiguous task; expect `outcome: needs_human`. Verify: passes against the current role.
-- [ ] 4.5 Author `evals/reviewer/capability-spot-defect/` — fixture with a deliberately planted defect; expect the review to identify it. Verify: passes against the current role.
+- [x] 4.5 Author `evals/reviewer/capability-spot-defect/` — fixture with a deliberately planted defect; expect the review to identify it. Verify: passes against the current role.
 - [ ] 4.6 Author `evals/reviewer/escalation-ambiguous-task/` — deliberately ambiguous task; expect `outcome: needs_human`. Verify: passes against the current role.
 
 ## 5. End-to-end verification
