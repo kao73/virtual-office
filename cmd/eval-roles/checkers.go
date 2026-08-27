@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/kao73/virtual-office/internal/runner"
 )
@@ -12,8 +15,9 @@ import (
 // deliberately absent: a dispatch miss is how the spec's "Unimplemented
 // check kind" requirement is satisfied (see dispatchCheck in run.go, Task 11).
 var checkers = map[string]Checker{
-	"outcome":    outcomeChecker{},
-	"diff_scope": diffScopeChecker{},
+	"outcome":       outcomeChecker{},
+	"diff_scope":    diffScopeChecker{},
+	"fixture_tests": fixtureTestsChecker{timeout: 5 * time.Minute},
 }
 
 // outcomeChecker asserts Result.Outcome against spec.Expect, and — when
@@ -92,4 +96,28 @@ func matchesAny(path string, allow []string) bool {
 		}
 	}
 	return false
+}
+
+// fixtureTestsChecker runs spec.Command inside FixtureDir via `sh -c` and
+// passes iff it exits 0 within timeout. A timeout is a normal failed check
+// ("timed out after ..."), not an infra Err.
+type fixtureTestsChecker struct {
+	timeout time.Duration
+}
+
+func (f fixtureTestsChecker) Run(ctx CheckContext) CheckResult {
+	cmdCtx, cancel := context.WithTimeout(context.Background(), f.timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", ctx.Spec.Command)
+	cmd.Dir = ctx.FixtureDir
+	out, err := cmd.CombinedOutput()
+
+	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
+		return CheckResult{Pass: false, Detail: fmt.Sprintf("timed out after %s", f.timeout)}
+	}
+	if err != nil {
+		return CheckResult{Pass: false, Detail: fmt.Sprintf("command %q failed: %v\n%s", ctx.Spec.Command, err, out)}
+	}
+	return CheckResult{Pass: true, Detail: fmt.Sprintf("command %q passed", ctx.Spec.Command)}
 }

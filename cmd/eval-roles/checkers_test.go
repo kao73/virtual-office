@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kao73/virtual-office/internal/runner"
 )
@@ -115,5 +116,44 @@ func TestDiffScopeCheckerPassesEmptyDiffAgainstEmptyAllow(t *testing.T) {
 	result := diffScopeChecker{}.Run(CheckContext{FixtureDir: dir, InitialCommit: initial, Spec: CheckSpec{Allow: nil}})
 	if !result.Pass {
 		t.Errorf("no changes at all must pass even against an empty allow list: %+v", result)
+	}
+}
+
+func TestFixtureTestsCheckerPassesOnZeroExit(t *testing.T) {
+	dir := t.TempDir()
+	checker := fixtureTestsChecker{timeout: 5 * time.Second}
+	result := checker.Run(CheckContext{FixtureDir: dir, Spec: CheckSpec{Command: "true"}})
+	if !result.Pass {
+		t.Errorf("успешная команда не пройдена: %+v", result)
+	}
+	if result.Err != nil {
+		t.Errorf("успех не должен нести Err: %v", result.Err)
+	}
+}
+
+func TestFixtureTestsCheckerFailsOnNonZeroExit(t *testing.T) {
+	dir := t.TempDir()
+	checker := fixtureTestsChecker{timeout: 5 * time.Second}
+	result := checker.Run(CheckContext{FixtureDir: dir, Spec: CheckSpec{Command: "false"}})
+	if result.Pass {
+		t.Error("неуспешная команда сочтена пройденной")
+	}
+	if result.Err != nil {
+		t.Errorf("провал команды — обычный Pass=false, не Err: %v", result.Err)
+	}
+}
+
+func TestFixtureTestsCheckerTimesOut(t *testing.T) {
+	dir := t.TempDir()
+	checker := fixtureTestsChecker{timeout: 50 * time.Millisecond}
+	result := checker.Run(CheckContext{FixtureDir: dir, Spec: CheckSpec{Command: "sleep 5"}})
+	if result.Pass {
+		t.Error("зависшая команда сочтена успехом")
+	}
+	if !strings.Contains(result.Detail, "timed out") {
+		t.Errorf("детали не говорят о таймауте: %q", result.Detail)
+	}
+	if result.Err != nil {
+		t.Errorf("таймаут — обычный провал проверки, не инфраструктурная беда: %v", result.Err)
 	}
 }
