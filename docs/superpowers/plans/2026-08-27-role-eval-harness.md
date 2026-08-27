@@ -1150,7 +1150,7 @@ git commit -m "eval-roles: parse expect.yaml into typed Case/CheckSpec"
 - Consumes: `Case`/`CheckSpec`/`Checker`/`CheckContext`/`CheckResult` (Task 7).
 - Produces: `outcomeChecker{}` implementing `Checker`; the package-level `checkers map[string]Checker` (starts with just `"outcome"`; Tasks 9 and 10 add the other two entries in place).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `cmd/eval-roles/checkers_test.go`:
 
@@ -1197,12 +1197,12 @@ func TestCheckersMapHasOutcome(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run 'TestOutcomeChecker|TestCheckersMapHasOutcome' -v`
 Expected: FAIL to compile — `outcomeChecker`/`checkers` undefined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `cmd/eval-roles/checkers.go`:
 
@@ -1240,12 +1240,12 @@ func (outcomeChecker) Run(ctx CheckContext) CheckResult {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run 'TestOutcomeChecker|TestCheckersMapHasOutcome' -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cmd/eval-roles/checkers.go cmd/eval-roles/checkers_test.go
