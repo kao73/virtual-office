@@ -256,7 +256,7 @@ git commit -m "run-agent: add --eval flag, tag ledger entries for the eval harne
 - Consumes: `ledger.Entry.Eval` (Task 1).
 - Produces: `ledger.Filter.ExcludeEval bool` — consumed by `internal/pipeline/budget.go`'s `roleOverspent`; no other caller of `ledger.Filter` needs to change (zero value `false` preserves every existing filter's behavior).
 
-- [ ] **Step 1: Write the failing ledger-level test**
+- [x] **Step 1: Write the failing ledger-level test**
 
 Add to `internal/ledger/ledger_test.go`:
 
@@ -280,12 +280,12 @@ func TestFilterExcludesEvalEntries(t *testing.T) {
 
 (`entry`, `newLedger`, `write`, `closeEnough`, `day` are existing test helpers in this file — see `TestLedgerFiltersByTaskRoleAndTime` for the same pattern.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/ledger/... -run TestFilterExcludesEvalEntries -v`
 Expected: FAIL to compile — `Filter` has no field `ExcludeEval`.
 
-- [ ] **Step 3: Add `ExcludeEval` to `Filter` and wire it into `match`**
+- [x] **Step 3: Add `ExcludeEval` to `Filter` and wire it into `match`**
 
 In `internal/ledger/ledger.go`:
 
@@ -317,12 +317,12 @@ func (f Filter) match(e Entry) bool {
 
 (Only the struct's field list and the `switch` inside `match` change; nothing else in the file moves.)
 
-- [ ] **Step 4: Run the ledger-level test to verify it passes**
+- [x] **Step 4: Run the ledger-level test to verify it passes**
 
 Run: `go test ./internal/ledger/... -run TestFilterExcludesEvalEntries -v`
 Expected: PASS
 
-- [ ] **Step 5: Write the failing pipeline-level test — this is tasks.md 1.3's own stated verification**
+- [x] **Step 5: Write the failing pipeline-level test — this is tasks.md 1.3's own stated verification**
 
 Add to `internal/pipeline/pipeline_test.go`:
 
@@ -356,12 +356,12 @@ func TestPerRoleDailySpendExcludesEvalEntries(t *testing.T) {
 
 `newOffice`, `now`, `ledger`, `runner` are already used throughout this file (see `TestPerRoleDailyBudgetStopsRoleOnly` for the same `office` wrapper and `startOfDay` helper). Note `o.Office.spent(...)`, not `o.spent(...)`: the test wrapper type `office` (defined in this file) has its own `spent(t *testing.T, ...)` helper method that shadows the embedded `*Office.spent(ledger.Filter) (float64, error)` — go through `o.Office.spent(...)` explicitly to reach the production method under test.
 
-- [ ] **Step 6: Run test to verify it fails**
+- [x] **Step 6: Run test to verify it fails**
 
 Run: `go test ./internal/pipeline/... -run TestPerRoleDailySpendExcludesEvalEntries -v`
 Expected: FAIL — `spent` is `$105.00` (both entries counted), not `$5.00`, because `roleOverspent`'s query doesn't set `ExcludeEval` yet.
 
-- [ ] **Step 7: Wire `ExcludeEval: true` into `roleOverspent`'s query**
+- [x] **Step 7: Wire `ExcludeEval: true` into `roleOverspent`'s query**
 
 In `internal/pipeline/budget.go`, in `roleOverspent`:
 
@@ -372,17 +372,17 @@ In `internal/pipeline/budget.go`, in `roleOverspent`:
 
 (Only this one line changes — add `, ExcludeEval: true` to the existing `ledger.Filter{...}` literal. `taskOverspent`'s per-task filter and `warnRunCost` are untouched: per proposal.md/spec.md, only `per_role_daily` is required to exclude eval runs.)
 
-- [ ] **Step 8: Run test to verify it passes**
+- [x] **Step 8: Run test to verify it passes**
 
 Run: `go test ./internal/pipeline/... -run TestPerRoleDailySpendExcludesEvalEntries -v`
 Expected: PASS
 
-- [ ] **Step 9: Run both full package suites**
+- [x] **Step 9: Run both full package suites**
 
 Run: `go test ./internal/ledger/... ./internal/pipeline/...`
 Expected: PASS — no other test in either package references `Filter` or `roleOverspent` in a way this changes (every existing literal omits `ExcludeEval`, defaulting to `false`, which preserves prior behavior exactly).
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add internal/ledger/ledger.go internal/ledger/ledger_test.go internal/pipeline/budget.go internal/pipeline/pipeline_test.go
