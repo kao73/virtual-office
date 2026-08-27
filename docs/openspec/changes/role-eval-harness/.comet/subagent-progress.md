@@ -3,12 +3,16 @@
 review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
 
 ## Current
-- Plan task: Task 19 (tasks.md 5.1): full 6-case sweep
-- OpenSpec task: 5.1
+- Plan task: Task 21 (tasks.md 5.3): confirm eval-sweep runs don't move per_role_daily
+- OpenSpec task: 5.3
 - Stage: implementing
 - Model: sonnet
-- Group 4 complete. Group 5 (Tasks 19-21) is real, paid, manual e2e
-  verification per Global Constraints — no unit tests, shell commands only.
+- Task 20 / tasks.md 5.2 NOT checked off: confirmed reproducible finding (2/2
+  real runs) that removing base.md's escalation section does not make
+  implementer/escalation-ambiguous-task fail. Restoration verified 4x, no
+  destructive residue. This is a plan/spec-level finding to surface to the
+  user, not a code defect for this task to fix. See progress.md for full
+  ruling. Task 21 is independent of this and proceeds normally.
 - Calibration (from Task 9 review): don't risk-flag "git shellout on fixture
   temp dir, fixed args" or "adds entry to unexported checkers map" alone.
 - Credential note still applies (see progress.md operational note) for any
@@ -77,3 +81,9 @@ review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
   f28617e. Real invocation: 2 attempts (+1 benign tool-timeout, non-billing-
   relevant). Risk signals: none. Checkoff: plan steps 1-5 -> [x], tasks.md
   4.6 -> PASS. Group 4 complete.
+- Task 19 (tasks.md 5.1, full 6-case sweep): DONE. 6/6 passed, exit 0, repo
+  untouched. Checkoff: plan steps 1-4 -> [x], tasks.md 5.1 -> PASS.
+- Task 20 (tasks.md 5.2, demonstrate regression signal): EXECUTED, NOT
+  checked off. Confirmed 2/2: case did not fail with guidance removed.
+  Restoration verified 4x (safe). tasks.md 5.2 left UNCHECKED — finding
+  surfaced to user, not silently passed.

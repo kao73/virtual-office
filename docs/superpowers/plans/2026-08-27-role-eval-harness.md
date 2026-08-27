@@ -2691,11 +2691,11 @@ This task is a demonstration, not a code change — nothing here should land in 
 
 ### Task 21 (tasks.md 5.3): confirm eval-sweep runs don't move `per_role_daily`
 
-- [ ] **Step 1: Locate the real ledger**
+- [x] **Step 1: Locate the real ledger**
 
 Run: `LEDGER="${OFFICE_HOME:-$HOME/.office}/ledger.jsonl"; echo "$LEDGER"`
 
-- [ ] **Step 2: Capture non-eval implementer spend before**
+- [x] **Step 2: Capture non-eval implementer spend before**
 
 Run:
 
@@ -2706,16 +2706,16 @@ jq -c 'select(.role=="implementer" and ((.eval // false)==false))' "$LEDGER" \
 
 Note this value as A.
 
-- [ ] **Step 3: Run (or reuse) the implementer eval cases**
+- [x] **Step 3: Run (or reuse) the implementer eval cases**
 
 If Task 19's full sweep already ran, its two implementer cases (`capability-basic-bugfix`, `escalation-ambiguous-task`) already wrote to the ledger — skip straight to Step 4. Otherwise run: `go run ./cmd/eval-roles --role implementer`.
 
-- [ ] **Step 4: Capture non-eval implementer spend after**
+- [x] **Step 4: Capture non-eval implementer spend after**
 
 Run the same query as Step 2.
 Expected: identical to A — unaffected by the eval runs, confirming `per_role_daily`'s query (Task 3) is what's actually used here, since `runner ledger --role implementer` alone (the existing CLI, which does not exclude eval entries) would show the total *rising*.
 
-- [ ] **Step 5: Confirm the eval entries themselves were recorded (accounting still works, only the budget query excludes them)**
+- [x] **Step 5: Confirm the eval entries themselves were recorded (accounting still works, only the budget query excludes them)**
 
 Run:
 
@@ -2725,7 +2725,7 @@ jq -c 'select(.role=="implementer" and .eval==true)' "$LEDGER" | wc -l
 
 Expected: at least 2 (one per implementer case run since this ledger was created), confirming `--eval` (Task 2) is being set and `ExcludeEval` (Task 3) is filtering, not that nothing was ever written.
 
-- [ ] **Step 6: No commit for this task**
+- [x] **Step 6: No commit for this task**
 
 This task only reads the ledger; nothing in the repository changes.
 
