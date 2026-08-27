@@ -402,7 +402,7 @@ git commit -m "budget: exclude eval-harness runs from per_role_daily"
 **Interfaces:**
 - Produces: `discoverCases(evalsRoot, roleFilter, caseFilter string) ([]string, error)` — returns sorted case directory paths (not yet parsed `Case` values); consumed by Task 12's `main.go`/`run()`.
 
-- [ ] **Step 1: Initialize the module directory and write the failing test**
+- [x] **Step 1: Initialize the module directory and write the failing test**
 
 Create `cmd/eval-roles/discover_test.go`:
 
@@ -459,12 +459,12 @@ func TestDiscoverCasesEmptyTreeIsNotAnError(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -v`
 Expected: FAIL to compile — `discoverCases` doesn't exist yet (package `main` with no non-test files also fails to build as a test binary without at least one `.go` file, but the test file alone is enough for `go test` to report the missing function).
 
-- [ ] **Step 3: Implement `discoverCases`**
+- [x] **Step 3: Implement `discoverCases`**
 
 Create `cmd/eval-roles/discover.go`:
 
@@ -509,12 +509,12 @@ func discoverCases(evalsRoot, roleFilter, caseFilter string) ([]string, error) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -v`
 Expected: PASS (all three tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cmd/eval-roles/discover.go cmd/eval-roles/discover_test.go
