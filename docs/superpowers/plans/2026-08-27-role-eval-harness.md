@@ -1264,7 +1264,7 @@ git commit -m "eval-roles: implement the outcome checker"
 **Interfaces:**
 - Produces: `globMatch(pattern, path string) bool`, `diffScopeChecker{}` implementing `Checker`, `changedPaths(fixtureDir, initialCommit string) ([]string, error)`, `matchesAny(path string, allow []string) bool`. `checkers["diff_scope"]` added.
 
-- [ ] **Step 1: Write the failing glob test**
+- [x] **Step 1: Write the failing glob test**
 
 Create `cmd/eval-roles/glob_test.go`:
 
@@ -1294,12 +1294,12 @@ func TestGlobMatch(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./cmd/eval-roles/... -run TestGlobMatch -v`
 Expected: FAIL to compile — `globMatch` undefined.
 
-- [ ] **Step 3: Implement `globMatch`**
+- [x] **Step 3: Implement `globMatch`**
 
 Create `cmd/eval-roles/glob.go`:
 
@@ -1342,12 +1342,12 @@ func matchSegments(pat, name []string) bool {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `go test ./cmd/eval-roles/... -run TestGlobMatch -v`
 Expected: PASS
 
-- [ ] **Step 5: Write the failing `diffScopeChecker` test**
+- [x] **Step 5: Write the failing `diffScopeChecker` test**
 
 Append to `cmd/eval-roles/checkers_test.go`:
 
@@ -1430,12 +1430,12 @@ func TestDiffScopeCheckerPassesEmptyDiffAgainstEmptyAllow(t *testing.T) {
 
 Add `"os/exec"`, `"strings"` to this test file's imports alongside the existing `"os"`, `"path/filepath"`, `"testing"`.
 
-- [ ] **Step 6: Run tests to verify they fail**
+- [x] **Step 6: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run TestDiffScopeChecker -v`
 Expected: FAIL to compile — `diffScopeChecker` undefined.
 
-- [ ] **Step 7: Implement `diffScopeChecker` and register it**
+- [x] **Step 7: Implement `diffScopeChecker` and register it**
 
 In `cmd/eval-roles/checkers.go`, add `"diff_scope": diffScopeChecker{}` to the `checkers` map literal, add `"os/exec"` and `"strings"` to the imports, and append:
 
@@ -1502,12 +1502,12 @@ func matchesAny(path string, allow []string) bool {
 }
 ```
 
-- [ ] **Step 8: Run tests to verify they pass**
+- [x] **Step 8: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run 'TestDiffScopeChecker|TestGlobMatch' -v`
 Expected: PASS (all four)
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add cmd/eval-roles/glob.go cmd/eval-roles/glob_test.go cmd/eval-roles/checkers.go cmd/eval-roles/checkers_test.go
