@@ -2,6 +2,7 @@
 change: sandbox-network-and-permissions
 design-doc: docs/superpowers/specs/2026-08-27-sandbox-network-and-permissions-design.md
 base-ref: e8c3aca1906ac27d1385856cf105f5d9b4f09d5e
+archived-with: 2026-08-27-sandbox-network-and-permissions
 ---
 
 # Слоистое разрешение network/tools — план реализации

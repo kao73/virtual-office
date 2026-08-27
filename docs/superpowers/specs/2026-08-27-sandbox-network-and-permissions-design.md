@@ -2,6 +2,8 @@
 comet_change: sandbox-network-and-permissions
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-08-27-sandbox-network-and-permissions
+status: final
 ---
 
 # Слоистое разрешение network/tools для прогона роли — технический дизайн
