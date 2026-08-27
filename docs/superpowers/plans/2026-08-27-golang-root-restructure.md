@@ -67,7 +67,7 @@ POSIX shell (`bin/runner`, `bin/run-agent`).
 red/green на новом тесте, а «весь набор тестов зелёный до и после» — шаги
 ниже задают его явно, а не оставляют результатом go test как сюрприз.
 
-- [ ] **Шаг 1: Зафиксировать базовую линию**
+- [x] **Шаг 1: Зафиксировать базовую линию**
 
 ```sh
 go build ./... && go vet ./... && go test ./...
@@ -77,13 +77,13 @@ go build ./... && go vet ./... && go test ./...
 падает или пропущен на `master` — запомните это сейчас, чтобы не приписать
 рефакторингу чужую поломку.
 
-- [ ] **Шаг 2: Создать целевые каталоги**
+- [x] **Шаг 2: Создать целевые каталоги**
 
 ```sh
 mkdir -p internal cmd
 ```
 
-- [ ] **Шаг 3: Перенести пакеты (git mv, сохраняет историю файлов)**
+- [x] **Шаг 3: Перенести пакеты (git mv, сохраняет историю файлов)**
 
 ```sh
 git mv adapters internal/adapters
@@ -99,7 +99,7 @@ git mv tracker internal/tracker
 git mv workspace internal/workspace
 ```
 
-- [ ] **Шаг 4: Вынести точки входа из internal/runner/cmd/ в cmd/ верхнего уровня**
+- [x] **Шаг 4: Вынести точки входа из internal/runner/cmd/ в cmd/ верхнего уровня**
 
 ```sh
 git mv internal/runner/cmd/runner cmd/runner
@@ -111,7 +111,7 @@ rmdir internal/runner/cmd
 Проверка: `find internal/runner -maxdepth 1 -type d` не должен показывать
 `cmd`.
 
-- [ ] **Шаг 5: Массовая правка import-путей**
+- [x] **Шаг 5: Массовая правка import-путей**
 
 ```sh
 grep -rl 'github\.com/kao73/virtual-office/' --include='*.go' . | \
@@ -122,7 +122,7 @@ grep -rl 'github\.com/kao73/virtual-office/' --include='*.go' . | \
 хвост пути после module root, — чтобы правка была предсказуемой и её можно
 было прочитать в diff'е, а не гадать, что именно она задела.
 
-- [ ] **Шаг 6: Поправить хардкод пути сборки ограждения**
+- [x] **Шаг 6: Поправить хардкод пути сборки ограждения**
 
 Файл: `internal/runner/validator.go`, строка с `validatorPkg`.
 
@@ -140,7 +140,7 @@ const validatorPkg = "./cmd/validate-result"
 при сборке бинарника ограждения для песочницы — правка импортов (шаг 5) её
 не касается.
 
-- [ ] **Шаг 7: Поправить относительные `..`-пути в тестах, зависящие от глубины пакета**
+- [x] **Шаг 7: Поправить относительные `..`-пути в тестах, зависящие от глубины пакета**
 
 Перенос `runner` → `internal/runner`, `pipeline` → `internal/pipeline`,
 `tracker` → `internal/tracker` и т.д. добавляет один уровень вложенности —
@@ -234,7 +234,7 @@ root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 root, err := filepath.Abs(filepath.Join("..", ".."))
 ```
 
-- [ ] **Шаг 8: Собрать и проверить статически**
+- [x] **Шаг 8: Собрать и проверить статически**
 
 ```sh
 go build ./... && go vet ./...
@@ -244,7 +244,7 @@ go build ./... && go vet ./...
 значит шаг 5 пропустил файл; найдите его через `grep -rn 'virtual-office/'
 --include='*.go' .` и добавьте `internal/` вручную.
 
-- [ ] **Шаг 9: Прогнать полный набор тестов**
+- [x] **Шаг 9: Прогнать полный набор тестов**
 
 ```sh
 go test ./...
@@ -255,7 +255,7 @@ go test ./...
 пересобирают `cmd/validate-result` и упадут, если шаг 6 или 7 сделаны не
 до конца).
 
-- [ ] **Шаг 10: Проверить, что старых import-путей не осталось**
+- [x] **Шаг 10: Проверить, что старых import-путей не осталось**
 
 ```sh
 grep -rn 'virtual-office/\(adapters\|backends\|budget\|forge\|guard\|ledger\|pipeline\|runagent\|runner\|tracker\|workspace\)' --include='*.go' . | grep -v 'virtual-office/internal/'
@@ -263,7 +263,7 @@ grep -rn 'virtual-office/\(adapters\|backends\|budget\|forge\|guard\|ledger\|pip
 
 Ожидается: пустой вывод.
 
-- [ ] **Шаг 11: Закоммитить**
+- [x] **Шаг 11: Закоммитить**
 
 ```sh
 git add -A
@@ -294,7 +294,7 @@ EOF
   собирающие бинарники из новых путей — на них рассчитывает README (раздел
   «От нуля до первой задачи») и `docs/ONBOARDING.md`.
 
-- [ ] **Шаг 1: Поправить build-цель в bin/runner**
+- [x] **Шаг 1: Поправить build-цель в bin/runner**
 
 Было:
 ```sh
@@ -306,7 +306,7 @@ go build -o "$bin/runner" ./runner/cmd/runner
 go build -o "$bin/runner" ./cmd/runner
 ```
 
-- [ ] **Шаг 2: Проверить, что runner собирается и исполняется с новой цели**
+- [x] **Шаг 2: Проверить, что runner собирается и исполняется с новой цели**
 
 ```sh
 ./bin/runner
@@ -317,7 +317,7 @@ echo "exit: $?"
 usage. Это доказывает, что бинарник собрался именно из `./cmd/runner` и
 дошёл до реальной логики, а не упал на «package not found».
 
-- [ ] **Шаг 3: Поправить build-цель в bin/run-agent**
+- [x] **Шаг 3: Поправить build-цель в bin/run-agent**
 
 Было:
 ```sh
@@ -329,7 +329,7 @@ go build -o "$bin/run-agent" ./runner/cmd/run-agent
 go build -o "$bin/run-agent" ./cmd/run-agent
 ```
 
-- [ ] **Шаг 4: Проверить, что run-agent собирается и исполняется с новой цели**
+- [x] **Шаг 4: Проверить, что run-agent собирается и исполняется с новой цели**
 
 ```sh
 ./bin/run-agent
@@ -338,7 +338,7 @@ echo "exit: $?"
 
 Ожидается: код выхода `2`, в stderr — `run-agent: нужны --role и --workdir`.
 
-- [ ] **Шаг 5: Закоммитить**
+- [x] **Шаг 5: Закоммитить**
 
 ```sh
 git add bin/runner bin/run-agent
@@ -373,7 +373,7 @@ EOF
 подтверждает, что во ВСЕХ живых доках (не архивных) путь `tracker/config.go`
 и подобные заменены, а не пропущены.
 
-- [ ] **Шаг 1: Обновить README.md, раздел «Где что лежит»**
+- [x] **Шаг 1: Обновить README.md, раздел «Где что лежит»**
 
 Найдите блок между заголовком `## Где что лежит` и следующим заголовком
 (тройной code fence со списком директорий). Замените содержимое fence на:
@@ -408,7 +408,7 @@ budgets.yaml           дефолтные пределы расхода; нео�
 Порядок пунктов сохранён как в оригинале (только `cmd/` добавлен после
 `hooks/`, а Go-пакеты получили префикс `internal/`).
 
-- [ ] **Шаг 2: Обновить docs/DESIGN.md, строка 55**
+- [x] **Шаг 2: Обновить docs/DESIGN.md, строка 55**
 
 Было:
 ```
@@ -424,7 +424,7 @@ budgets.yaml           дефолтные пределы расхода; нео�
 runner/, bootstrap/, docs/)...`) **не трогать** — это исторический план MVP
 этапа 1, а не описание текущего состояния.
 
-- [ ] **Шаг 3: Обновить docs/contracts/role-sandbox-permissions.md**
+- [x] **Шаг 3: Обновить docs/contracts/role-sandbox-permissions.md**
 
 Строка 88, было:
 ```
@@ -475,7 +475,7 @@ runner/, bootstrap/, docs/)...`) **не трогать** — это истори
 или ключей конфига, не файловых путей) **не трогать** — имя пакета не
 меняется, меняется только import-путь.
 
-- [ ] **Шаг 4: Обновить docs/contracts/tracker-protocol.md**
+- [x] **Шаг 4: Обновить docs/contracts/tracker-protocol.md**
 
 Строка 7, было:
 ```
@@ -507,7 +507,7 @@ runner/, bootstrap/, docs/)...`) **не трогать** — это истори
 Строки 815, 820, 828, 835 (`tracker`/`forge` как ключи `projects.local.yaml`)
 **не трогать** — это имена конфигурационных полей, не пути.
 
-- [ ] **Шаг 5: Проверить, что живые доки не содержат устаревших путей**
+- [x] **Шаг 5: Проверить, что живые доки не содержат устаревших путей**
 
 ```sh
 grep -n 'tracker/config\.go\|tracker/rules\.go\|adapters/claude/adapter\.go\|backends/sbx/sbx\.go' \
@@ -518,7 +518,7 @@ grep -n 'adapters/claude`, позже `adapters/codex' docs/DESIGN.md | grep -v 
 
 Ожидается: пустой вывод от всех трёх команд.
 
-- [ ] **Шаг 6: Закоммитить**
+- [x] **Шаг 6: Закоммитить**
 
 ```sh
 git add README.md docs/DESIGN.md docs/contracts/role-sandbox-permissions.md docs/contracts/tracker-protocol.md
