@@ -11,7 +11,7 @@ import "github.com/kao73/virtual-office/internal/runner"
 //
 // Возвращает новую Role — копия, Role и так передаётся по значению везде
 // в существующем коде. Дальше по коду ничего не отличает «роль после
-// слияния» от «роль как есть»: adapters/claude/adapter.go не меняется
+// слияния» от «роль как есть»: internal/adapters/claude/adapter.go не меняется
 // в части типов, только получает уже смёрженную роль.
 func MergeProjectRules(project Project, role runner.Role) runner.Role {
 	role.Network.Allow = unionStrings(project.Network, role.Network.Allow)

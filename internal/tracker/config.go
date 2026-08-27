@@ -591,7 +591,7 @@ func extractDefaultsMachine(m map[string]machineProject) (Rules, error) {
 // назвал любой слой, остаётся в итоге. Один и тот же приём — и для
 // network.allow, и для каждого из tools.allow/tools.deny по отдельности,
 // вместо трёх разных механизмов. Обобщает приём, уже применённый
-// в adapters/claude/adapter.go (networkAllow), на большее число слоёв.
+// в internal/adapters/claude/adapter.go (networkAllow), на большее число слоёв.
 func unionStrings(layers ...[]string) []string {
 	var all []string
 	for _, l := range layers {

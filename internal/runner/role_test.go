@@ -265,7 +265,7 @@ func TestShippedRolesAreValid(t *testing.T) {
 // Право на запись — единственное, что отличает reviewer'а от implementer'а,
 // и держится оно тем, что в allow у ревьюера нет широкого, ничем не
 // ограниченного Write или Edit — Write в --tools всё равно попадает (адаптер
-// добавляет его любой роли всегда, adapters/claude/adapter.go: WriteTool),
+// добавляет его любой роли всегда, internal/adapters/claude/adapter.go: WriteTool),
 // но ограниченным ровно файлом результата (.agent/result.json), а не общим
 // правом записи. Запрет Bash(git add/commit) тут ни при чём: tools.allow не
 // технически ограничивает Bash (измерено 2026-08-27,

@@ -827,7 +827,7 @@ func TestLoadProjectsWithoutDefaultsAtAllIsUnaffected(t *testing.T) {
 }
 
 // unionStrings — дедуп и сортировка через все слои разом, тот же приём,
-// что уже применяет adapters/claude/adapter.go:networkAllow, обобщённый
+// что уже применяет internal/adapters/claude/adapter.go:networkAllow, обобщённый
 // на произвольное число слоёв.
 func TestUnionStringsDedupsAndSorts(t *testing.T) {
 	got := unionStrings([]string{"b", "a"}, nil, []string{"a", "c"})
