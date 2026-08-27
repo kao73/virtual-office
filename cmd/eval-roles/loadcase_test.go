@@ -1,0 +1,70 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestLoadCaseParsesAllCheckKinds(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	expect := `role: implementer
+checks:
+  - kind: outcome
+    expect: done
+  - kind: diff_scope
+    allow: ["src/**"]
+  - kind: fixture_tests
+    command: "go test ./..."
+  - kind: llm_judge
+    criteria: "разбор глубокий"
+    judge_role: reviewer
+`
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte(expect), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := LoadCase(caseDir)
+	if err != nil {
+		t.Fatalf("case не разобран: %v", err)
+	}
+	if c.Role != "implementer" || len(c.Checks) != 4 {
+		t.Errorf("case = %+v", c)
+	}
+	if c.Checks[3].Kind != "llm_judge" || c.Checks[3].Criteria != "разбор глубокий" || c.Checks[3].JudgeRole != "reviewer" {
+		t.Errorf("llm_judge не разобран: %+v", c.Checks[3])
+	}
+}
+
+func TestLoadCaseRejectsRoleMismatch(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	expect := "role: analyst\nchecks:\n  - kind: outcome\n    expect: done\n"
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte(expect), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("несовпадение role/каталог не замечено")
+	}
+}
+
+func TestLoadCaseRejectsEmptyChecks(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte("role: implementer\nchecks: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("пустой checks не замечен")
+	}
+}
