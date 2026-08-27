@@ -1,0 +1,8 @@
+role: reviewer
+checks:
+  - kind: outcome
+    expect: done
+  - kind: diff_scope
+    allow: []
+  - kind: fixture_tests
+    command: "grep -qiE '(incorrect|wrong|defect|bug|does not return|always returns)' .agent/result.json"
