@@ -25,5 +25,5 @@ bin="${OFFICE_HOME:-$HOME/.office}/bin"
 mkdir -p "$bin"
 
 cd "$OFFICE_CONFIG_ROOT"
-go build -o "$bin/runner" ./runner/cmd/runner
+go build -o "$bin/runner" ./cmd/runner
 exec "$bin/runner" "$@"
