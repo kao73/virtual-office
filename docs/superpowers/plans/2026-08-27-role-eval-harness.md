@@ -136,7 +136,7 @@ git commit -m "ledger: add Eval field to Entry for eval-harness runs"
 - Consumes: `ledger.Entry.Eval` (Task 1).
 - Produces: `account(passport runner.Run, out runagent.Outcome, eval bool)` — the new third parameter; no other code outside this file calls `account` (it's unexported), so this is a self-contained signature change.
 
-- [ ] **Step 1: Update the existing call site so the package still compiles for the next step's test**
+- [x] **Step 1: Update the existing call site so the package still compiles for the next step's test**
 
 In `cmd/run-agent/main_test.go`, `TestAccountWritesTermination` currently calls:
 
@@ -150,7 +150,7 @@ In `cmd/run-agent/main_test.go`, `TestAccountWritesTermination` currently calls:
 
 Change the last line to close with `}, false)` instead of `})`.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Add to `cmd/run-agent/main_test.go`:
 
@@ -180,12 +180,12 @@ func TestAccountWritesEvalFlag(t *testing.T) {
 
 (`ledger`, `runagent`, `runner`, `encoding/json`, `os`, `path/filepath`, `strings` are all already imported in this file.)
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `go test ./cmd/run-agent/... -run TestAccountWritesEvalFlag -v`
 Expected: FAIL to compile — `account` takes 2 arguments, called with 3 (`too many arguments in call to account`).
 
-- [ ] **Step 4: Add the `--eval` flag and thread it through**
+- [x] **Step 4: Add the `--eval` flag and thread it through**
 
 In `cmd/run-agent/main.go`, in `execute()`'s flag block, add after `dryRun`:
 
@@ -221,22 +221,22 @@ func account(passport runner.Run, out runagent.Outcome, eval bool) {
 
 (Only the signature line and the `Eval: eval` addition change; the doc comment above `account` and the error-handling tail are unchanged.)
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `go test ./cmd/run-agent/... -run TestAccountWritesEvalFlag -v`
 Expected: PASS
 
-- [ ] **Step 6: Run the full package test suite (tasks.md 1.1's own verify, at the unit level)**
+- [x] **Step 6: Run the full package test suite (tasks.md 1.1's own verify, at the unit level)**
 
 Run: `go test ./cmd/run-agent/...`
 Expected: PASS. This is the practical form of tasks.md 1.1's verification ("invoking `run-agent --eval ...` writes a ledger entry with `eval: true`") — `TestAccountWritesEvalFlag` exercises exactly the code path a real `--eval` invocation reaches, at the same fidelity as the pre-existing `TestAccountWritesTermination` test for the `Termination` field. A full CLI invocation with `--eval` also works identically (the flag is a plain `flag.Bool` read once at the single call site) but would require real model credentials to exercise past `runagent.Execute`, which this repo's existing `cmd/run-agent` tests deliberately avoid (see `TestExitCodeTwoWithoutCredential` etc.) — this plan follows that established pattern rather than inventing a new one.
 
-- [ ] **Step 7: `go vet` and `go build` the whole module**
+- [x] **Step 7: `go vet` and `go build` the whole module**
 
 Run: `go build ./... && go vet ./...`
 Expected: clean (no other call site references `account`).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add cmd/run-agent/main.go cmd/run-agent/main_test.go
