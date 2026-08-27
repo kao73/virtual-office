@@ -1,0 +1,62 @@
+package main
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/kao73/virtual-office/internal/runner"
+)
+
+func buildFakeAgent(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "fakeagent")
+	cmd := exec.Command("go", "build", "-o", bin, "./testdata/fakeagent")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("fakeagent не собран: %v: %s", err, out)
+	}
+	return bin
+}
+
+func TestRunRoleAgentParsesResult(t *testing.T) {
+	bin := buildFakeAgent(t)
+	workdir := t.TempDir()
+	taskPath := filepath.Join(t.TempDir(), "task.md")
+	if err := os.WriteFile(taskPath, []byte("тестовая задача\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("FAKE_AGENT_RESULT", `{"outcome":"done","summary":"готово","next_owner":"none"}`)
+	t.Setenv("FAKE_AGENT_EXIT", "0")
+
+	result, code, err := runRoleAgent(bin, ".", "implementer", workdir, taskPath)
+	if err != nil {
+		t.Fatalf("run-agent не разобран: %v", err)
+	}
+	if code != 0 {
+		t.Errorf("код %d, ожидался 0", code)
+	}
+	if result.Outcome != runner.OutcomeDone {
+		t.Errorf("outcome=%q, ожидался done", result.Outcome)
+	}
+}
+
+func TestRunRoleAgentReportsInfraFailure(t *testing.T) {
+	bin := buildFakeAgent(t)
+	workdir := t.TempDir()
+	taskPath := filepath.Join(t.TempDir(), "task.md")
+	if err := os.WriteFile(taskPath, []byte("задача\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("FAKE_AGENT_EXIT", "2")
+
+	_, code, err := runRoleAgent(bin, ".", "implementer", workdir, taskPath)
+	if err == nil {
+		t.Fatal("инфраструктурная беда (код 2) не замечена")
+	}
+	if code != 2 {
+		t.Errorf("код %d, ожидался 2", code)
+	}
+}
