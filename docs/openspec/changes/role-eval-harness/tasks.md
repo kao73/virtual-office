@@ -8,7 +8,7 @@
 
 - [x] 2.1 Scaffold `cmd/eval-roles/main.go`: discover case directories under `evals/<role>/<case-id>/`, with an optional flag to filter by role or case name. Verify: running against an empty `evals/` tree reports "0 cases found" without erroring.
 - [x] 2.2 Implement fixture materialization: copy a case's `fixture/` into a temp dir, `git init && git add -A && git commit`. Verify: a unit test confirms the temp dir is a valid git repo with the fixture's contents committed.
-- [ ] 2.3 Implement invocation of `cmd/run-agent --role <role> --workdir <tempdir> --task <case>/task.md --eval` and parse the resulting `result.json` into `internal/runner.Result`. Verify: running one real case end-to-end produces a parsed `Result` matching the actual run outcome.
+- [x] 2.3 Implement invocation of `cmd/run-agent --role <role> --workdir <tempdir> --task <case>/task.md --eval` and parse the resulting `result.json` into `internal/runner.Result`. Verify: running one real case end-to-end produces a parsed `Result` matching the actual run outcome.
 - [ ] 2.4 Implement a pass/fail summary report across all discovered cases (case name, pass/fail, failure detail per failed check). Verify: running the harness against a mix of passing and deliberately-failing cases prints a summary that correctly counts both.
 
 ## 3. Check dispatcher and check kinds

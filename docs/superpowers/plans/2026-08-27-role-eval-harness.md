@@ -674,7 +674,7 @@ git commit -m "eval-roles: materialize a case's fixture/ into a one-commit git t
 
 The design doc's testing strategy (see spec header) splits coverage into two tiers: unit tests here use a **fake run-agent stand-in** (no LLM calls, deterministic); tier 2 — one real invocation — is a manual step at the end of this task, not a permanent `go test`, matching how this repo already avoids live-credential tests in `cmd/run-agent`'s own suite.
 
-- [ ] **Step 1: Write the fake run-agent stand-in**
+- [x] **Step 1: Write the fake run-agent stand-in**
 
 Create `cmd/eval-roles/testdata/fakeagent/main.go`:
 
@@ -743,7 +743,7 @@ func main() {
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `cmd/eval-roles/invoke_test.go`:
 
@@ -812,12 +812,12 @@ func TestRunRoleAgentReportsInfraFailure(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run TestRunRoleAgent -v`
 Expected: FAIL to compile — `runRoleAgent` undefined.
 
-- [ ] **Step 4: Implement `invoke.go`**
+- [x] **Step 4: Implement `invoke.go`**
 
 Create `cmd/eval-roles/invoke.go`:
 
@@ -889,12 +889,12 @@ func runRoleAgent(binPath, repoRoot, role, workdir, taskPath string) (runner.Res
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run TestRunRoleAgent -v`
 Expected: PASS (both tests)
 
-- [ ] **Step 6: Manual tier-2 check — one real invocation (not a `go test`)**
+- [x] **Step 6: Manual tier-2 check — one real invocation (not a `go test`)**
 
 This is the acceptance-level half of tasks.md 2.3's verify text ("running one real case end-to-end produces a parsed Result matching the actual run outcome"), done once by hand with real credentials, per the design doc's explicit two-tier testing strategy:
 
@@ -912,7 +912,7 @@ cat "$WORKDIR/.agent/result.json"
 
 Confirm: exit code is 0 or 1 (not 2), and `.agent/result.json` is present and matches the printed `исход:`/`итог:` line from `run-agent`'s own stdout. Clean up: `rm -rf "$WORKDIR" "$TASK" /tmp/run-agent-smoke`. Do not commit anything from this step — it produces no repo changes by design.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add cmd/eval-roles/invoke.go cmd/eval-roles/invoke_test.go cmd/eval-roles/testdata/fakeagent/main.go
