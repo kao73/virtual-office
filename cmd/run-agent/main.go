@@ -71,6 +71,7 @@ func execute() (int, error) {
 		"без флага роль остаётся в изоляции — только то, что названо в её собственном role.yaml")
 	baseFlag := flag.String("base", "", "базовая ветка: от неё считается разница по задаче (нужна reviewer'у)")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
+	evalFlag := flag.Bool("eval", false, "пометить прогон как eval-harness: не считается в per_role_daily")
 	flag.Parse()
 
 	if *roleName == "" || *workdirFlag == "" {
@@ -214,7 +215,7 @@ func execute() (int, error) {
 	// Ручной прогон тоже стоит денег и тоже попадает в реестр — без задачи
 	// и проекта: трекера здесь нет. Иначе отладка роли была бы бесплатной
 	// только на бумаге, а дневной расход роли считался бы неверно.
-	account(passport, out)
+	account(passport, out, *evalFlag)
 
 	printResult(out, passport)
 	if out.Result.Outcome == runner.OutcomeFailed {
@@ -234,13 +235,14 @@ func execute() (int, error) {
 // без этого поля выглядел бы в ней обычным провалом, и число прогонов, срезанных
 // пределом шагов, вышло бы заниженным — ровно то число, по которому подбирают
 // max_turns.
-func account(passport runner.Run, out runagent.Outcome) {
+func account(passport runner.Run, out runagent.Outcome, eval bool) {
 	runs, err := ledger.Default()
 	if err == nil {
 		err = runs.Append(ledger.Entry{
 			RunID: passport.RunID, Role: passport.Role, Started: passport.StartedAt,
 			Usage: out.Usage, Outcome: string(out.Result.Outcome),
 			Termination: string(out.Termination.Kind), ConfigSHA: passport.ConfigSHA,
+			Eval: eval,
 		})
 	}
 	if err != nil {

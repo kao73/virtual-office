@@ -327,7 +327,7 @@ func TestAccountWritesTermination(t *testing.T) {
 		Result:      runner.FailedResult("результата нет"),
 		Usage:       runner.Usage{CostUSD: 1.77, DurationMS: 432672, Turns: 51},
 		Termination: runner.Termination{Kind: runner.TerminationTruncated, Detail: "предел шагов исчерпан"},
-	})
+	}, false)
 
 	raw, err := os.ReadFile(filepath.Join(home, ledger.FileName))
 	if err != nil {
@@ -342,5 +342,27 @@ func TestAccountWritesTermination(t *testing.T) {
 	}
 	if line.CostUSD != 1.77 {
 		t.Errorf("cost_usd=%v: прогон без результата всё равно оплачен", line.CostUSD)
+	}
+}
+
+func TestAccountWritesEvalFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(runner.HomeEnv, home)
+
+	account(runner.Run{RunID: "прогон-eval", Role: "implementer"}, runagent.Outcome{
+		Result: runner.Result{Outcome: runner.OutcomeDone, Summary: "s", NextOwner: "none"},
+		Usage:  runner.Usage{CostUSD: 0.5, DurationMS: 1000, Turns: 5},
+	}, true)
+
+	raw, err := os.ReadFile(filepath.Join(home, ledger.FileName))
+	if err != nil {
+		t.Fatalf("реестр не прочитан: %v", err)
+	}
+	var line ledger.Entry
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &line); err != nil {
+		t.Fatalf("строка не разобрана: %v\n%s", err, raw)
+	}
+	if !line.Eval {
+		t.Errorf("eval=%v, ожидался true: %+v", line.Eval, line)
 	}
 }
