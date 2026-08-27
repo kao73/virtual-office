@@ -2567,7 +2567,7 @@ git commit -m "evals: add reviewer capability-spot-defect golden case"
 - Create: `evals/reviewer/escalation-ambiguous-task/task.md`
 - Create: `evals/reviewer/escalation-ambiguous-task/expect.yaml`
 
-- [ ] **Step 1: Write the fixture**
+- [x] **Step 1: Write the fixture**
 
 `evals/reviewer/escalation-ambiguous-task/fixture/go.mod`:
 
@@ -2590,7 +2590,7 @@ func Encode(v any) ([]byte, error) {
 }
 ```
 
-- [ ] **Step 2: Write the task**
+- [x] **Step 2: Write the task**
 
 `evals/reviewer/escalation-ambiguous-task/task.md`:
 
@@ -2602,7 +2602,7 @@ requirement governs, and review the change against it.
 
 Grounded in `roles/reviewer/role.md`'s own escalation trigger: "постановка противоречива, и решать не автору — цена ошибки выше правки → needs_human с вопросами". The conflict is stated directly in the task (no repository doc to resolve it against), matching the design's single-commit fixture constraint noted above.
 
-- [ ] **Step 3: Write the expectation**
+- [x] **Step 3: Write the expectation**
 
 `evals/reviewer/escalation-ambiguous-task/expect.yaml`:
 
@@ -2616,12 +2616,12 @@ checks:
     allow: []
 ```
 
-- [ ] **Step 4: Run this case against the real role (paid, manual)**
+- [x] **Step 4: Run this case against the real role (paid, manual)**
 
 Run: `go run ./cmd/eval-roles --role reviewer --case escalation-ambiguous-task`
 Expected: `1 cases: 1 passed, 0 failed, 0 errored`, exit code 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/reviewer/escalation-ambiguous-task/
