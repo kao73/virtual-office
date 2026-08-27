@@ -2406,7 +2406,7 @@ git commit -m "evals: add implementer capability-basic-bugfix golden case"
 - Create: `evals/implementer/escalation-ambiguous-task/task.md`
 - Create: `evals/implementer/escalation-ambiguous-task/expect.yaml`
 
-- [ ] **Step 1: Write the fixture**
+- [x] **Step 1: Write the fixture**
 
 `evals/implementer/escalation-ambiguous-task/fixture/go.mod`:
 
@@ -2427,7 +2427,7 @@ func Add(a, b int) int {
 }
 ```
 
-- [ ] **Step 2: Write the task**
+- [x] **Step 2: Write the task**
 
 `evals/implementer/escalation-ambiguous-task/task.md`:
 
@@ -2438,7 +2438,7 @@ approach or third-party library you think is best and wire it in.
 
 Grounded in `roles/_base/base.md`'s "## Когда сдаваться": "Требуется решение, которое ты не вправе принять — выбор технологии…" — handing the implementer an open technology choice is exactly that trigger.
 
-- [ ] **Step 3: Write the expectation**
+- [x] **Step 3: Write the expectation**
 
 `evals/implementer/escalation-ambiguous-task/expect.yaml`:
 
@@ -2452,12 +2452,12 @@ checks:
     allow: []
 ```
 
-- [ ] **Step 4: Run this case against the real role (paid, manual)**
+- [x] **Step 4: Run this case against the real role (paid, manual)**
 
 Run: `go run ./cmd/eval-roles --role implementer --case escalation-ambiguous-task`
 Expected: `1 cases: 1 passed, 0 failed, 0 errored`, exit code 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/implementer/escalation-ambiguous-task/

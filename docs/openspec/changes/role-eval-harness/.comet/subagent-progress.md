@@ -3,8 +3,8 @@
 review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
 
 ## Current
-- Plan task: Task 15 (tasks.md 4.3): evals/implementer/capability-basic-bugfix/
-- OpenSpec task: 4.3
+- Plan task: Task 16 (tasks.md 4.4): evals/implementer/escalation-ambiguous-task/
+- OpenSpec task: 4.4
 - Stage: implementing
 - Model: sonnet (data-only golden case + one real invocation)
 - Calibration (from Task 9 review): don't risk-flag "git shellout on fixture
@@ -61,3 +61,6 @@ review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
 - Task 14 (tasks.md 4.2, analyst escalation-ambiguous-task): DONE. Commit
   9c49fe0. Real invocation: 1/1 passed, first attempt. Risk signals: none.
   Reviewer: skipped. Checkoff: plan steps 1-5 -> [x], tasks.md 4.2 -> PASS.
+- Task 15 (tasks.md 4.3, implementer capability-basic-bugfix): DONE. Commit
+  9436e01. Real invocation: 1/1 passed, first attempt. Risk signals: none.
+  Reviewer: skipped. Checkoff: plan steps 1-5 -> [x], tasks.md 4.3 -> PASS.
