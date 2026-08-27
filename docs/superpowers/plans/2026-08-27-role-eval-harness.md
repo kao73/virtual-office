@@ -1645,7 +1645,7 @@ git commit -m "eval-roles: implement the fixture_tests checker"
 **Interfaces:**
 - Produces: `dispatchCheck(ctx CheckContext) CheckResult`, `runChecks(fixtureDir, initialCommit string, result runner.Result, specs []CheckSpec) []CheckResult`. Consumed by Task 12's `evaluateCase`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `cmd/eval-roles/run_test.go`:
 
@@ -1699,12 +1699,12 @@ func doneResultForTest() runner.Result   { return runner.Result{Outcome: runner.
 func failedResultForTest() runner.Result { return runner.Result{Outcome: runner.OutcomeFailed} }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run 'TestDispatchCheck|TestRunChecks' -v`
 Expected: FAIL to compile — `dispatchCheck`/`runChecks` undefined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `cmd/eval-roles/run.go`:
 
@@ -1744,12 +1744,12 @@ func runChecks(fixtureDir, initialCommit string, result runner.Result, specs []C
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run 'TestDispatchCheck|TestRunChecks' -v`
 Expected: PASS (all three)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cmd/eval-roles/run.go cmd/eval-roles/run_test.go
