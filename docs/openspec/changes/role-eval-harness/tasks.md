@@ -13,7 +13,7 @@
 
 ## 3. Check dispatcher and check kinds
 
-- [ ] 3.1 Implement `expect.yaml` parsing (`role`, `checks` list) and the `Checker` interface (`Run(caseDir, result) (pass bool, detail string, err error)`). Verify: unit test parses a case using all three MVP check kinds plus a case declaring `llm_judge` without a parse error.
+- [x] 3.1 Implement `expect.yaml` parsing (`role`, `checks` list) and the `Checker` interface (`Run(caseDir, result) (pass bool, detail string, err error)`). Verify: unit test parses a case using all three MVP check kinds plus a case declaring `llm_judge` without a parse error.
 - [ ] 3.2 Implement the `outcome` checker (asserts `Outcome` value; when `expect: needs_human`, also asserts non-empty `Questions`). Verify: unit tests cover `done`/`needs_human`/`blocked`/`failed` against synthetic `Result` values.
 - [ ] 3.3 Implement the `diff_scope` checker (diffs the fixture's working tree against its initial commit, checks changed paths against `allow` globs). Verify: unit test with an in-scope change passing and an out-of-scope change failing.
 - [ ] 3.4 Implement the `fixture_tests` checker (runs the declared command inside the fixture, checks exit code). Verify: unit test with a fixture whose command passes and one where it deliberately fails.

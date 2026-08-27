@@ -931,7 +931,7 @@ git commit -m "eval-roles: invoke run-agent as a subprocess and parse its result
 **Interfaces:**
 - Produces: `Case{Role, Checks, dir}`, `Case.id() string`, `CheckSpec{Kind, Expect, QuestionsNotEmpty, Allow, Command, Criteria, JudgeRole}`, `Checker` interface (`Run(ctx CheckContext) CheckResult`), `CheckContext{FixtureDir, InitialCommit, Result, Spec}`, `CheckResult{Pass, Detail, Err}`, `CaseOutcome{Case, Status, Checks, Err}`, `LoadCase(dir string) (Case, error)`. These are the exact types from the design doc's "Package layout" section. Consumed by every subsequent task in this group.
 
-- [ ] **Step 1: Implement the types (no test needed — plain struct/interface declarations; exercised by every later test)**
+- [x] **Step 1: Implement the types (no test needed — plain struct/interface declarations; exercised by every later test)**
 
 Create `cmd/eval-roles/types.go`:
 
@@ -1002,7 +1002,7 @@ type CaseOutcome struct {
 }
 ```
 
-- [ ] **Step 2: Write the failing test for `LoadCase`**
+- [x] **Step 2: Write the failing test for `LoadCase`**
 
 Create `cmd/eval-roles/loadcase_test.go`:
 
@@ -1079,12 +1079,12 @@ func TestLoadCaseRejectsEmptyChecks(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run TestLoadCase -v`
 Expected: FAIL to compile — `LoadCase` undefined.
 
-- [ ] **Step 4: Implement `LoadCase`**
+- [x] **Step 4: Implement `LoadCase`**
 
 Create `cmd/eval-roles/loadcase.go`:
 
@@ -1126,12 +1126,12 @@ func LoadCase(dir string) (Case, error) {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run TestLoadCase -v`
 Expected: PASS (all three)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cmd/eval-roles/types.go cmd/eval-roles/loadcase.go cmd/eval-roles/loadcase_test.go
