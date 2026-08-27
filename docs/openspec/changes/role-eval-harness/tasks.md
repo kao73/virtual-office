@@ -30,6 +30,6 @@
 
 ## 5. End-to-end verification
 
-- [ ] 5.1 Run the full 6-case MVP sweep via `cmd/eval-roles` against the roles' current `role.md`/`role.yaml`. Verify: harness summary reports 6/6 passed.
+- [x] 5.1 Run the full 6-case MVP sweep via `cmd/eval-roles` against the roles' current `role.md`/`role.yaml`. Verify: harness summary reports 6/6 passed.
 - [ ] 5.2 Demonstrate the regression signal: temporarily remove the escalation guidance from `implementer`'s `role.md`, re-run its escalation case, confirm it fails, then restore the file. Verify: the case fails while the guidance is removed; `git diff` shows the role file byte-for-byte restored afterward.
 - [ ] 5.3 Confirm eval-sweep runs do not change `per_role_daily` budget consumption used by the production pipeline. Verify: compare a role's `per_role_daily` spend calculation before and after running the eval sweep for that role — unchanged.

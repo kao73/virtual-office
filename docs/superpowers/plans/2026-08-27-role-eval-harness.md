@@ -2636,20 +2636,20 @@ Per the design doc's testing strategy: these three steps are acceptance-level ve
 
 ### Task 19 (tasks.md 5.1): full 6-case sweep
 
-- [ ] **Step 1: Confirm credentials are available**
+- [x] **Step 1: Confirm credentials are available**
 
 The office's model credential lives in `~/.zshrc` per this machine's setup; a non-interactive shell won't see it automatically — source it or export it explicitly in the shell running the sweep.
 
-- [ ] **Step 2: Run the full sweep**
+- [x] **Step 2: Run the full sweep**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go run ./cmd/eval-roles`
 Expected: `6 cases: 6 passed, 0 failed, 0 errored`, exit code 0 (`echo $?`).
 
-- [ ] **Step 3: If any case fails or errors**
+- [x] **Step 3: If any case fails or errors**
 
 Fix the specific case's `task.md`/`expect.yaml`/`fixture/` (per Tasks 13–18's own individual verify steps) — not the harness code — and rerun just that case with `--role <role> --case <id>` before rerunning the full sweep.
 
-- [ ] **Step 4: Record the result**
+- [x] **Step 4: Record the result**
 
 No commit needed for this step by itself (nothing changes unless Step 3 fixed a case, in which case that fix's own commit already covers it).
 

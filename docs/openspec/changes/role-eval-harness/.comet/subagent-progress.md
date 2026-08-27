@@ -3,11 +3,12 @@
 review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
 
 ## Current
-- Plan task: Task 18 (tasks.md 4.6): evals/reviewer/escalation-ambiguous-task/
-- OpenSpec task: 4.6
+- Plan task: Task 19 (tasks.md 5.1): full 6-case sweep
+- OpenSpec task: 5.1
 - Stage: implementing
-- Model: sonnet (data-only golden case + one real invocation)
-- Last task of Group 4 — after this, Group 5 (Tasks 19-21, real e2e sweep).
+- Model: sonnet
+- Group 4 complete. Group 5 (Tasks 19-21) is real, paid, manual e2e
+  verification per Global Constraints — no unit tests, shell commands only.
 - Calibration (from Task 9 review): don't risk-flag "git shellout on fixture
   temp dir, fixed args" or "adds entry to unexported checkers map" alone.
 - Credential note still applies (see progress.md operational note) for any
@@ -72,3 +73,7 @@ review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
 - Task 17 (tasks.md 4.5, reviewer capability-spot-defect): DONE. Commit
   dc0624b. Real invocation: 1/1 passed, first attempt. Risk signals: none.
   Checkoff: plan steps 1-5 -> [x], tasks.md 4.5 -> PASS.
+- Task 18 (tasks.md 4.6, reviewer escalation-ambiguous-task): DONE. Commit
+  f28617e. Real invocation: 2 attempts (+1 benign tool-timeout, non-billing-
+  relevant). Risk signals: none. Checkoff: plan steps 1-5 -> [x], tasks.md
+  4.6 -> PASS. Group 4 complete.
