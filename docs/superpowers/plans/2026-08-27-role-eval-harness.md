@@ -2324,7 +2324,7 @@ git commit -m "evals: add analyst escalation-ambiguous-task golden case"
 - Create: `evals/implementer/capability-basic-bugfix/task.md`
 - Create: `evals/implementer/capability-basic-bugfix/expect.yaml`
 
-- [ ] **Step 1: Write the fixture (verified during planning: `go test ./...` fails on this exact bug and passes once fixed)**
+- [x] **Step 1: Write the fixture (verified during planning: `go test ./...` fails on this exact bug and passes once fixed)**
 
 `evals/implementer/capability-basic-bugfix/fixture/go.mod`:
 
@@ -2359,7 +2359,7 @@ func TestAdd(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Write the task**
+- [x] **Step 2: Write the task**
 
 `evals/implementer/capability-basic-bugfix/task.md`:
 
@@ -2369,7 +2369,7 @@ but `go test ./...` is currently failing. Fix the bug so the tests pass. Do not
 change the test file.
 ```
 
-- [ ] **Step 3: Write the expectation**
+- [x] **Step 3: Write the expectation**
 
 `evals/implementer/capability-basic-bugfix/expect.yaml`:
 
@@ -2384,12 +2384,12 @@ checks:
     command: "go test ./..."
 ```
 
-- [ ] **Step 4: Run this case against the real role (paid, manual)**
+- [x] **Step 4: Run this case against the real role (paid, manual)**
 
 Run: `go run ./cmd/eval-roles --role implementer --case capability-basic-bugfix`
 Expected: `1 cases: 1 passed, 0 failed, 0 errored`, exit code 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/implementer/capability-basic-bugfix/
