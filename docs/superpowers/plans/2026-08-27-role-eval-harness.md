@@ -532,7 +532,7 @@ git commit -m "eval-roles: discover golden case directories under evals/<role>/<
 **Interfaces:**
 - Produces: `materializeFixture(caseDir string) (fixtureDir, initialCommit string, err error)` — copies `caseDir/fixture/` into a fresh `os.MkdirTemp` directory, commits it, returns the directory and the commit SHA. Caller owns cleanup (`os.RemoveAll(fixtureDir)`). Consumed by Task 12's `evaluateCase`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `cmd/eval-roles/fixture_test.go`:
 
@@ -586,12 +586,12 @@ func TestMaterializeFixtureFailsWithoutFixtureDir(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run TestMaterializeFixture -v`
 Expected: FAIL to compile — `materializeFixture` undefined.
 
-- [ ] **Step 3: Implement `materializeFixture`**
+- [x] **Step 3: Implement `materializeFixture`**
 
 Create `cmd/eval-roles/fixture.go`:
 
@@ -647,12 +647,12 @@ func materializeFixture(caseDir string) (fixtureDir, initialCommit string, err e
 
 (`os.CopyFS`/`os.DirFS` are stdlib since Go 1.23; this module is on `go 1.26`, confirmed compiling in-place during planning.)
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run TestMaterializeFixture -v`
 Expected: PASS (both tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cmd/eval-roles/fixture.go cmd/eval-roles/fixture_test.go
