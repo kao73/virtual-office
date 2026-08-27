@@ -1,0 +1,70 @@
+name: Claude — PR Review
+
+# Ревью запускается ТОЛЬКО вручную: оставьте в PR комментарий с упоминанием
+# @claude (например, "@claude please review"). Автоматического ревью на каждый
+# PR здесь нет.
+#
+# Авторизация — через OAuth-токен подписки Claude (Pro/Max/Team/Enterprise),
+# а НЕ через pay-as-you-go API-ключ.
+#   1. Локально: `claude setup-token` → скопировать токен (живёт ~1 год).
+#   2. Repo → Settings → Secrets and variables → Actions → New repository secret
+#      Name: CLAUDE_CODE_OAUTH_TOKEN, Value: <токен>
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+# Повторный @claude по тому же PR отменяет предыдущий незавершённый прогон.
+concurrency:
+  # Суффикс по наличию @claude в теле комментария РАЗВОДИТ группы: настоящий
+  # триггер → «…-<pr>-true», а служебный коммент бота «Claude Code is working…»
+  # (без @claude) → «…-<pr>-false». Без этого служебный коммент попадал бы в ту
+  # же группу и с cancel-in-progress отменял собственный прогон ревью (GitHub
+  # применяет concurrency ДО оценки job-level `if:`, поэтому даже skipped-прогон
+  # успевает отменить идущий). Два настоящих @claude остаются в «…-true» →
+  # поведение «новый @claude отменяет предыдущий незавершённый прогон» сохраняется.
+  group: claude-review-${{ github.event.issue.number || github.event.pull_request.number }}-${{ contains(github.event.comment.body, '@claude') }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    # Стартуем, только если комментарий относится к PR и содержит @claude.
+    # Это отсекает обычные issue и любые комментарии без упоминания,
+    # чтобы не поднимать runner впустую.
+    if: |
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' &&
+       contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20         # страховка от зависших прогонов
+    permissions:
+      contents: read          # read = только ревью; смените на write, если хотите,
+                              # чтобы по запросу Claude мог править код и пушить фиксы
+      pull-requests: write    # писать ревью и комментарии в PR
+      issues: write           # создавать/обновлять комментарий-трекер прогресса
+      actions: read           # github_ci MCP-сервер action'а: ревьюер видит статус CI
+      id-token: write         # claude-code-action@v1 выпускает GitHub-токен через
+                              # OIDC (обмен на токен Anthropic GitHub App). Без этого
+                              # GitHub не отдаёт ACTIONS_ID_TOKEN_REQUEST_URL и шаг
+                              # setupGitHubToken падает «Could not fetch an OIDC token».
+                              # ТРЕБУЕТ установленного Anthropic GitHub App на репо.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # полный diff нужен для адекватного ревью
+
+      - name: Claude review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Модель ревью: Opus 5 (по умолчанию у action — Sonnet).
+          claude_args: |
+            --model claude-opus-5
+            --max-turns 50
+            --append-system-prompt "Пиши ревью на русском языке: кратко и по делу. В начале отдельным списком выдели блокеры, затем — замечания «можно улучшить». Ссылайся на проблемные места как file:line."
