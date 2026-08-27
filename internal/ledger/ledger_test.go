@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -239,5 +240,33 @@ func TestLedgerOverrideWithoutItsRun(t *testing.T) {
 	}
 	if total.Runs != 0 || len(total.ByOutcome) != 0 {
 		t.Errorf("сводка %+v, ожидалась пустая", total)
+	}
+}
+
+func TestEntryEvalRoundTripsThroughJSON(t *testing.T) {
+	e := Entry{RunID: "r1", Role: "implementer", Outcome: "done", Eval: true}
+	raw, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("не сериализовано: %v", err)
+	}
+	if !strings.Contains(string(raw), `"eval":true`) {
+		t.Errorf("json не содержит eval:true: %s", raw)
+	}
+
+	var got Entry
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("не разобрано: %v", err)
+	}
+	if !got.Eval {
+		t.Errorf("Eval потерян при разборе: %+v", got)
+	}
+
+	// Историческая строка без eval — законная: миграция не нужна.
+	var historical Entry
+	if err := json.Unmarshal([]byte(`{"run_id":"r2","role":"implementer","outcome":"done"}`), &historical); err != nil {
+		t.Fatalf("историческая строка не разобрана: %v", err)
+	}
+	if historical.Eval {
+		t.Errorf("историческая строка без eval сочтена eval-прогоном")
 	}
 }
