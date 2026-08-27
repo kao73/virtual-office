@@ -11,7 +11,7 @@ includes:
 skills: []
 
 # Синтаксис правил — как у claude: пробел перед * значим,
-# Bash(git diff*) поймал бы и git diff-index.
+# Bash(git *diff*) поймал бы и git diff-index, и git -c x diff.
 tools:
   # tools.allow не защищает: команда, не описанная ни в allow, ни в deny,
   # модель выполняет или нет по собственному суждению, а не по проверке

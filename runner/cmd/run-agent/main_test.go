@@ -143,18 +143,9 @@ func TestRunAgentWarnsThatLocalIgnoresNetworkPolicy(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
 
-	// Создадим свежий git-репозиторий для конфига (требуется для ConfigSHA).
-	// Используем тот же паттерн, что и gitRepo.
-	configRoot := t.TempDir()
-	for _, args := range [][]string{{"init", "-q"}, {"commit", "-q", "--allow-empty", "-m", "начало"}} {
-		cmd := exec.Command("git", append([]string{"-C", configRoot}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=тест", "GIT_AUTHOR_EMAIL=test@office.local",
-			"GIT_COMMITTER_NAME=тест", "GIT_COMMITTER_EMAIL=test@office.local")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("конфиг-репозиторий не создан: %v: %s", err, out)
-		}
-	}
+	// Свежий git-репозиторий для конфига (требуется для ConfigSHA) — тот же
+	// рецепт, что и в gitRepo.
+	configRoot := gitRepo(t)
 
 	// Создадим синтетическую роль test-role с минимальным содержимым.
 	// Роль должна иметь сетевую политику для проверки сообщения о её неприменённости.
