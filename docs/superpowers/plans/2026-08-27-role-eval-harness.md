@@ -1770,7 +1770,7 @@ git commit -m "eval-roles: dispatch checks by kind; fail unimplemented kinds exp
 - Consumes: everything from Tasks 4–11 (`discoverCases`, `LoadCase`, `materializeFixture`, `runRoleAgent`/`resolveRunAgentBin`, `runChecks`).
 - Produces: `evaluateCase(runAgentBin, repoRoot string, c Case) CaseOutcome`, `printSummary(out io.Writer, outcomes []CaseOutcome)`, `exitCode(outcomes []CaseOutcome) int`, `run(args []string, stdout, stderr io.Writer) (int, error)`, `officeRoot() (string, error)`. This is the harness's full CLI, exercised end to end by `main()`.
 
-- [ ] **Step 1: Write the failing test for `evaluateCase`**
+- [x] **Step 1: Write the failing test for `evaluateCase`**
 
 Append to `cmd/eval-roles/run_test.go`:
 
@@ -1831,12 +1831,12 @@ func TestEvaluateCaseErrorsOnMissingFixture(t *testing.T) {
 
 Add `"os"`, `"path/filepath"` to `run_test.go`'s imports.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run TestEvaluateCase -v`
 Expected: FAIL to compile — `evaluateCase` undefined.
 
-- [ ] **Step 3: Implement `evaluateCase`**
+- [x] **Step 3: Implement `evaluateCase`**
 
 Append to `cmd/eval-roles/run.go` (add `"errors"`, `"os"`, `"path/filepath"` to its imports):
 
@@ -1884,12 +1884,12 @@ func evaluateCase(runAgentBin, repoRoot string, c Case) CaseOutcome {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run TestEvaluateCase -v`
 Expected: PASS (both)
 
-- [ ] **Step 5: Implement `report.go` (no separate failing-test step — exercised directly by Step 7's CLI test)**
+- [x] **Step 5: Implement `report.go` (no separate failing-test step — exercised directly by Step 7's CLI test)**
 
 Create `cmd/eval-roles/report.go`:
 
@@ -1951,7 +1951,7 @@ func exitCode(outcomes []CaseOutcome) int {
 }
 ```
 
-- [ ] **Step 6: Write the failing CLI-level test — this is tasks.md 2.4's own stated verification**
+- [x] **Step 6: Write the failing CLI-level test — this is tasks.md 2.4's own stated verification**
 
 Create `cmd/eval-roles/main_test.go`:
 
@@ -2033,12 +2033,12 @@ func TestRunRejectsCaseFlagWithoutRole(t *testing.T) {
 }
 ```
 
-- [ ] **Step 7: Run tests to verify they fail**
+- [x] **Step 7: Run tests to verify they fail**
 
 Run: `go test ./cmd/eval-roles/... -run TestRun -v`
 Expected: FAIL to compile — `run` undefined.
 
-- [ ] **Step 8: Implement `main.go`**
+- [x] **Step 8: Implement `main.go`**
 
 Create `cmd/eval-roles/main.go`:
 
@@ -2128,22 +2128,22 @@ func officeRoot() (string, error) {
 }
 ```
 
-- [ ] **Step 9: Run tests to verify they pass**
+- [x] **Step 9: Run tests to verify they pass**
 
 Run: `go test ./cmd/eval-roles/... -run TestRun -v`
 Expected: PASS (all three)
 
-- [ ] **Step 10: Run the entire `cmd/eval-roles` suite, `go vet`, `go build`**
+- [x] **Step 10: Run the entire `cmd/eval-roles` suite, `go vet`, `go build`**
 
 Run: `go test ./cmd/eval-roles/... -v && go vet ./cmd/eval-roles/... && go build ./cmd/eval-roles/...`
 Expected: PASS / clean / clean. This is the full Group 2+3 completion gate.
 
-- [ ] **Step 11: Sanity-check the built CLI against an empty `evals/`**
+- [x] **Step 11: Sanity-check the built CLI against an empty `evals/`**
 
 Run: `go run ./cmd/eval-roles` (from repo root, with no `evals/` directory yet — Group 4 creates it next)
 Expected stdout: `0 cases found`; `echo $?` → `0`.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add cmd/eval-roles/run.go cmd/eval-roles/run_test.go cmd/eval-roles/report.go cmd/eval-roles/main.go cmd/eval-roles/main_test.go
