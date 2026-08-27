@@ -1,0 +1,12 @@
+role: analyst
+checks:
+  - kind: outcome
+    expect: done
+  - kind: diff_scope
+    allow: ["docs/changes/_manual/**"]
+  - kind: fixture_tests
+    command: >-
+      test -s docs/changes/_manual/brief.md &&
+      test -s docs/changes/_manual/design.md &&
+      test -s docs/changes/_manual/tasks.md &&
+      grep -q '^- \[ \]' docs/changes/_manual/tasks.md
