@@ -1,0 +1,14 @@
+{
+  "change": "role-eval-harness",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "7bb184167bd08aeebff38729bbcf354c28002039f3f1bc8b10f93af5e68c75a8",
+  "files": [
+    { "path": "docs/openspec/changes/role-eval-harness/proposal.md", "sha256": "f0242cf5397b06a1f1949a51ba6eb9fab7fbb7596416b8c1f22f7f1904699990" },
+    { "path": "docs/openspec/changes/role-eval-harness/design.md", "sha256": "8bd7a19066b942880d7059e60e96338b84f8ba544681f5606b11f2ba219ac614" },
+    { "path": "docs/openspec/changes/role-eval-harness/tasks.md", "sha256": "3a5db3226a01e229baa2439038a4ad67ec0f1f8c4a9040cc09817496e9d10a62" },
+    { "path": "docs/openspec/changes/role-eval-harness/specs/role-eval-harness/spec.md", "sha256": "246ecae2bb0254570e48f6fea3615e594b13eb00882277e677dc5808d02f1b0a" }
+  ]
+}
