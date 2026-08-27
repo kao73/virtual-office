@@ -3,11 +3,10 @@
 review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
 
 ## Current
-- Plan task: Task 13 (tasks.md 4.1): evals/analyst/capability-basic-plan/
-- OpenSpec task: 4.1
+- Plan task: Task 14 (tasks.md 4.2): evals/analyst/escalation-ambiguous-task/
+- OpenSpec task: 4.2
 - Stage: implementing
-- Model: TBD (data-only golden case; likely needs a real agent run to verify
-  per tasks.md "Verify: passes against the current role")
+- Model: sonnet (data-only golden case + one real invocation)
 - Calibration (from Task 9 review): don't risk-flag "git shellout on fixture
   temp dir, fixed args" or "adds entry to unexported checkers map" alone.
 - Credential note still applies (see progress.md operational note) for any
@@ -56,3 +55,6 @@ review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
   (opus) -> Approved w/ 1 Important (exit-code test coverage gap) + 7 Minor
   deferred -> fix round 1/1 -> re-review ADDRESSED, clean. Checkoff: plan
   steps 1-12 -> [x], tasks.md 2.4 -> PASS. Groups 2+3 fully complete.
+- Task 13 (tasks.md 4.1, analyst capability-basic-plan): DONE. Commit
+  788e96e. Real invocation: 1/1 passed, first attempt. Risk signals: none.
+  Reviewer: skipped. Checkoff: plan steps 1-5 -> [x], tasks.md 4.1 -> PASS.

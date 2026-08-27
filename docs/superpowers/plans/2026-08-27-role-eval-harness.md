@@ -2258,7 +2258,7 @@ git commit -m "evals: add analyst capability-basic-plan golden case"
 - Create: `evals/analyst/escalation-ambiguous-task/task.md`
 - Create: `evals/analyst/escalation-ambiguous-task/expect.yaml`
 
-- [ ] **Step 1: Write the fixture**
+- [x] **Step 1: Write the fixture**
 
 `evals/analyst/escalation-ambiguous-task/fixture/README.md`:
 
@@ -2277,7 +2277,7 @@ module fixture
 go 1.22
 ```
 
-- [ ] **Step 2: Write the task**
+- [x] **Step 2: Write the task**
 
 `evals/analyst/escalation-ambiguous-task/task.md`:
 
@@ -2287,7 +2287,7 @@ Add payment support to this project.
 
 This is deliberately underspecified — no provider, currency, flow, or acceptance criteria — and nothing in the repository resolves it either, matching `roles/analyst/role.md`'s own escalation trigger: "постановка противоречива или в ней дыра, которую не закрыть чтением репозитория".
 
-- [ ] **Step 3: Write the expectation**
+- [x] **Step 3: Write the expectation**
 
 `evals/analyst/escalation-ambiguous-task/expect.yaml`:
 
@@ -2301,12 +2301,12 @@ checks:
     allow: []
 ```
 
-- [ ] **Step 4: Run this case against the real role (paid, manual)**
+- [x] **Step 4: Run this case against the real role (paid, manual)**
 
 Run: `go run ./cmd/eval-roles --role analyst --case escalation-ambiguous-task`
 Expected: `1 cases: 1 passed, 0 failed, 0 errored`, exit code 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/analyst/escalation-ambiguous-task/
