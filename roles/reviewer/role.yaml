@@ -15,13 +15,13 @@ tools:
   # docs/notes/followup-network-and-permissions.md) — единственная реальная
   # граница ниже, в tools.deny, и в defaults.tools.deny (projects.yaml).
   # Write в --tools ревьюера всё же попадает: адаптер добавляет его любой
-  # роли всегда, безусловно (adapters/claude/adapter.go, Build, WriteTool).
+  # роли всегда, безусловно (internal/adapters/claude/adapter.go, Build, WriteTool).
   # Но это не общий инструмент записи — buildSettings скоупит его ровно
   # одним путём, файлом результата (.agent/result.json), отдельным правилом
   # permissions.allow, а не даёт неограниченный Write. Реальная защита от
   # правки кода — то, что здесь, в allow, нет ШИРОКОГО, ничем не
   # ограниченного Write или Edit (это и проверяет TestReviewerRoleCannotWrite,
-  # runner/role_test.go): не даётся не Write вообще, а именно нескоупленный,
+  # internal/runner/role_test.go): не даётся не Write вообще, а именно нескоупленный,
   # широкий Write.
   allow:
     - Read
