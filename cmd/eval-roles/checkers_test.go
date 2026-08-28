@@ -25,6 +25,9 @@ func TestOutcomeChecker(t *testing.T) {
 		{"needs_human without questions", CheckSpec{Kind: "outcome", Expect: "needs_human", QuestionsNotEmpty: true}, runner.Result{Outcome: runner.OutcomeNeedsHuman}, false},
 		{"blocked matches", CheckSpec{Kind: "outcome", Expect: "blocked"}, runner.Result{Outcome: runner.OutcomeBlocked}, true},
 		{"failed matches", CheckSpec{Kind: "outcome", Expect: "failed"}, runner.Result{Outcome: runner.OutcomeFailed}, true},
+		{"next_owner matches", CheckSpec{Kind: "outcome", Expect: "done", NextOwner: "implementer"}, runner.Result{Outcome: runner.OutcomeDone, NextOwner: "implementer"}, true},
+		{"next_owner mismatches", CheckSpec{Kind: "outcome", Expect: "done", NextOwner: "implementer"}, runner.Result{Outcome: runner.OutcomeDone, NextOwner: "human"}, false},
+		{"next_owner unset ignores Result.NextOwner", CheckSpec{Kind: "outcome", Expect: "done"}, runner.Result{Outcome: runner.OutcomeDone, NextOwner: "human"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

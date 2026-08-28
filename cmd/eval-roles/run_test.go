@@ -225,14 +225,28 @@ func TestEvaluateCaseSpotDefectDistinguishesFoundVsMissed(t *testing.T) {
 		want    string
 	}{
 		{
+			// next_owner: implementer — по roles/reviewer/role.md, «Выход»:
+			// «работа не готова → done, next_owner: implementer». "none"
+			// здесь моделировал бы ответ, которого роль по своему промпту
+			// дать не должна.
 			"defect found",
-			`{"outcome":"done","summary":"В Max найден баг: обе ветки возвращают a, из-за чего Max(1,3) вернёт 1 вместо 3.","next_owner":"none"}`,
+			`{"outcome":"done","summary":"В Max найден баг: обе ветки возвращают a, из-за чего Max(1,3) вернёт 1 вместо 3.","next_owner":"implementer"}`,
 			"passed",
 		},
 		{
+			// next_owner: human — «работа готова → done, next_owner: human».
 			"defect missed",
-			`{"outcome":"done","summary":"Функция Max реализована верно, ошибок не найдено.","next_owner":"none"}`,
+			`{"outcome":"done","summary":"Функция Max реализована верно, ошибок не найдено.","next_owner":"human"}`,
 			"failed",
+		},
+		{
+			// Регрессия round 2: позитивный "некорректн" и негативный
+			// "корректно" пересекаются как подстроки, а "не найдено" ловит
+			// обычную закрывающую фразу верного разбора — у обеих фраз ниже
+			// нет отношения к тому, найден ли баг.
+			"defect found, phrased in words the old negation grep misread as approval",
+			`{"outcome":"done","summary":"Max реализован некорректно: обе ветки возвращают a. Других ошибок не найдено.","next_owner":"implementer"}`,
+			"passed",
 		},
 	}
 	for _, tc := range cases {
@@ -286,22 +300,26 @@ func TestEvaluateCaseRemovesFixtureDirOnFailureByDefault(t *testing.T) {
 	bin := buildFakeAgent(t)
 	t.Setenv(runAgentBinEnv, bin)
 	t.Setenv("FAKE_AGENT_RESULT", `{"outcome":"done","summary":"готово","next_owner":"none"}`)
+	// os.MkdirTemp("", ...) внутри materializeFixture слушает $TMPDIR — задаём
+	// собственный пустой временный каталог, чтобы счёт eval-roles-fixture-*
+	// ниже не зависел от параллельных go test, оборванных прошлых прогонов
+	// или каталогов, сознательно оставленных --keep-failed.
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
 
 	c, err := LoadCase("../../evals/implementer/capability-basic-bugfix")
 	if err != nil {
 		t.Fatalf("случай не разобран: %v", err)
 	}
 
-	before, _ := filepath.Glob(filepath.Join(os.TempDir(), "eval-roles-fixture-*"))
-
 	outcome := evaluateCase(bin, ".", c, io.Discard, false)
 	if outcome.Status != "failed" {
 		t.Fatalf("status=%q, ожидался failed: %+v", outcome.Status, outcome)
 	}
 
-	after, _ := filepath.Glob(filepath.Join(os.TempDir(), "eval-roles-fixture-*"))
-	if len(after) > len(before) {
-		t.Errorf("рабочий каталог провалившегося кейса не убран без --keep-failed: было %d, стало %d", len(before), len(after))
+	left, _ := filepath.Glob(filepath.Join(tmp, "eval-roles-fixture-*"))
+	if len(left) != 0 {
+		t.Errorf("рабочий каталог провалившегося кейса не убран без --keep-failed: остался %v", left)
 	}
 }
 

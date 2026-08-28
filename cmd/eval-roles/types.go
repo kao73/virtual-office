@@ -23,6 +23,7 @@ type CheckSpec struct {
 	// kind: outcome
 	Expect            string `yaml:"expect,omitempty"`
 	QuestionsNotEmpty bool   `yaml:"questions_not_empty,omitempty"`
+	NextOwner         string `yaml:"next_owner,omitempty"`
 
 	// kind: diff_scope
 	Allow []string `yaml:"allow,omitempty"`

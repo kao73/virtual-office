@@ -23,8 +23,8 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) (int, error) {
 	fs := flag.NewFlagSet("eval-roles", flag.ContinueOnError)
-	roleFlag := fs.String("role", "", "run only cases for this role")
-	caseFlag := fs.String("case", "", "run only this case id (requires --role)")
+	roleFlag := fs.String("role", "", "прогнать кейсы только этой роли")
+	caseFlag := fs.String("case", "", "прогнать только этот кейс (требует --role)")
 	keepFailedFlag := fs.Bool("keep-failed", false, "не удалять рабочий каталог не-passed кейсов — путь печатается в stderr")
 	if err := fs.Parse(args); err != nil {
 		return 0, err

@@ -23,6 +23,11 @@ var checkers = map[string]Checker{
 
 // outcomeChecker сверяет Result.Outcome со spec.Expect, а когда expect —
 // needs_human и задан questions_not_empty — ещё и что Questions не пуст.
+// Когда задан spec.NextOwner, сверяет и его с Result.NextOwner: это
+// обязательное, типизированное поле роли (см. roles/*/role.md, «Выход»), и
+// оно надёжнее любого разбора свободного текста summary/details_md —
+// тот способ спутать «нашёл дефект» с «одобрил» уже подвёл один раз
+// (evals/reviewer/capability-spot-defect).
 type outcomeChecker struct{}
 
 func (outcomeChecker) Run(ctx CheckContext) CheckResult {
@@ -37,6 +42,9 @@ func (outcomeChecker) Run(ctx CheckContext) CheckResult {
 	}
 	if want == runner.OutcomeNeedsHuman && ctx.Spec.QuestionsNotEmpty && len(ctx.Result.Questions) == 0 {
 		return CheckResult{Pass: false, Detail: "outcome=needs_human but questions is empty"}
+	}
+	if ctx.Spec.NextOwner != "" && ctx.Result.NextOwner != ctx.Spec.NextOwner {
+		return CheckResult{Pass: false, Detail: fmt.Sprintf("next_owner=%q, expected %q", ctx.Result.NextOwner, ctx.Spec.NextOwner)}
 	}
 	return CheckResult{Pass: true, Detail: fmt.Sprintf("outcome=%q as expected", got)}
 }
