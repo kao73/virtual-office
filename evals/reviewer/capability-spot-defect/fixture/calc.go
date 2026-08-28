@@ -5,5 +5,5 @@ func Max(a, b int) int {
 	if a > b {
 		return a
 	}
-	return a // bug: should return b when b >= a
+	return a
 }

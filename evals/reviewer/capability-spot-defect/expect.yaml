@@ -5,4 +5,4 @@ checks:
   - kind: diff_scope
     allow: []
   - kind: fixture_tests
-    command: "grep -qiE '(incorrect|wrong|defect|bug|does not return|always returns)' .agent/result.json"
+    command: "grep -qi 'Max' .agent/result.json && grep -qiE '(неверн|ошиб|сломан|некорректн|баг)' .agent/result.json"
