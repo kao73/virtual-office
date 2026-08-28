@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,21 @@ func TestOutcomeChecker(t *testing.T) {
 				t.Errorf("outcome-проверка не бывает инфраструктурной бедой: %v", result.Err)
 			}
 		})
+	}
+}
+
+// The role's own Summary is the explanation of what it did — on a mismatch
+// it belongs in Detail so a failed case can be debugged without re-running.
+func TestOutcomeCheckerIncludesSummaryOnMismatch(t *testing.T) {
+	result := outcomeChecker{}.Run(CheckContext{
+		Spec:   CheckSpec{Kind: "outcome", Expect: "done"},
+		Result: runner.Result{Outcome: runner.OutcomeFailed, Summary: "не хватило прав на запись"},
+	})
+	if result.Pass {
+		t.Fatal("mismatch должен провалиться")
+	}
+	if !strings.Contains(result.Detail, "не хватило прав на запись") {
+		t.Errorf("Detail не содержит Summary роли: %q", result.Detail)
 	}
 }
 
@@ -105,6 +121,37 @@ func TestDiffScopeCheckerFailsOutOfScopeChange(t *testing.T) {
 	result := diffScopeChecker{}.Run(CheckContext{FixtureDir: dir, InitialCommit: initial, Spec: CheckSpec{Allow: []string{"src/**"}}})
 	if result.Pass {
 		t.Errorf("out-of-scope (untracked) change should have failed: %+v", result)
+	}
+}
+
+// changedPaths concatenates two independently-sorted command outputs
+// (tracked via `git diff`, untracked via `git ls-files --others`); without
+// its own final sort, the union isn't globally sorted whenever a tracked
+// path sorts after an untracked one.
+func TestChangedPathsReturnsSortedPaths(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	initial := headOf(t, dir)
+
+	// Tracked (staged) change sorts after the untracked one below — a naive
+	// tracked-then-untracked concatenation would return them out of order.
+	if err := os.WriteFile(filepath.Join(dir, "zzz.txt"), []byte("z\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "add", "zzz.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "aaa.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err := changedPaths(dir, initial)
+	if err != nil {
+		t.Fatalf("changedPaths: %v", err)
+	}
+	want := []string{"aaa.txt", "zzz.txt"}
+	if !slices.Equal(paths, want) {
+		t.Errorf("paths = %v, want %v (sorted)", paths, want)
 	}
 }
 

@@ -42,6 +42,11 @@ func run(args []string, stdout, _ io.Writer) (int, error) {
 		return 0, err
 	}
 	if len(dirs) == 0 {
+		if *roleFlag != "" || *caseFlag != "" {
+			// An explicit filter matching nothing is a typo, not an empty
+			// tree — a silent "0 cases found" green exit would hide it.
+			return 2, fmt.Errorf("no cases matched --role=%q --case=%q", *roleFlag, *caseFlag)
+		}
 		fmt.Fprintln(stdout, "0 cases found")
 		return 0, nil
 	}

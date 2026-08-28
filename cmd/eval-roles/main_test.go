@@ -73,3 +73,20 @@ func TestRunRejectsCaseFlagWithoutRole(t *testing.T) {
 		t.Error("--case без --role должен быть отвергнут")
 	}
 }
+
+// A typo'd --role/--case that matches nothing must be a hard error, not a
+// silent "0 cases found" green exit — that green exit is reserved for a
+// genuinely empty evals/ tree with no filters applied at all.
+func TestRunFailsWhenRoleFilterMatchesNothing(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("OFFICE_CONFIG_ROOT", root)
+
+	var stdout, stderr bytes.Buffer
+	code, err := run([]string{"--role", "no-such-role"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("--role без совпадений должен быть ошибкой; code=%d, stdout=%s", code, stdout.String())
+	}
+	if !strings.Contains(err.Error(), "no-such-role") {
+		t.Errorf("сообщение об ошибке не называет фильтр: %v", err)
+	}
+}

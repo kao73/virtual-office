@@ -70,10 +70,15 @@ type CaseOutcome struct {
 
 ## Execution flow (per case)
 
-1. **Load and validate `expect.yaml`.** Confirm `role` matches the case's
-   directory and `checks` is non-empty. Failure → `CaseOutcome{Status:
-   "errored"}`, continue to the next case — one malformed case must not
-   hide results from the rest of the sweep.
+1. **Load and validate every `expect.yaml`, up front.** Before any fixture
+   is materialized or `run-agent` is invoked, every discovered case
+   directory's `expect.yaml` is loaded and validated: `role` must match the
+   case's directory, `checks` must be non-empty. A failure on any one case
+   **aborts the whole sweep immediately** (exit code 2) rather than becoming
+   a per-case `errored` outcome — for a harness that spends real money per
+   invocation, failing fast on a malformed case before a single paid
+   `run-agent` call beats discovering the same typo only after the sweep has
+   already spent money running the other cases.
 2. **Materialize the fixture.** Copy `fixture/` into a temp dir, `git init
    && git add -A && git commit`, capture the initial commit SHA. This
    duplicates the trivial pattern already used by test helpers like

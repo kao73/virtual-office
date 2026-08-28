@@ -33,8 +33,8 @@ func TestDispatchCheckRunsKnownKind(t *testing.T) {
 
 func TestRunChecksRunsEveryCheckNotJustFirstFailure(t *testing.T) {
 	specs := []CheckSpec{
-		{Kind: "outcome", Expect: "done"},        // will fail (result below is failed)
-		{Kind: "llm_judge"},                      // will fail (unimplemented)
+		{Kind: "outcome", Expect: "done"}, // will fail (result below is failed)
+		{Kind: "llm_judge"},               // will fail (unimplemented)
 	}
 	results := runChecks("", "", failedResultForTest(), specs)
 	if len(results) != 2 {
@@ -47,6 +47,36 @@ func TestRunChecksRunsEveryCheckNotJustFirstFailure(t *testing.T) {
 
 func doneResultForTest() runner.Result   { return runner.Result{Outcome: runner.OutcomeDone} }
 func failedResultForTest() runner.Result { return runner.Result{Outcome: runner.OutcomeFailed} }
+
+// Every golden case in evals/ declares several checks and, in practice, can
+// have some pass and some fail within the same case — but that mix was
+// untested at the unit level (TestRunChecksRunsEveryCheckNotJustFirstFailure
+// above has both checks fail). gitInit/headOf come from checkers_test.go.
+func TestRunChecksMixedPassAndFail(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	initial := headOf(t, dir)
+	// Stray untracked file outside allow — diff_scope must fail while
+	// outcome, evaluated against the same result, passes.
+	if err := os.WriteFile(filepath.Join(dir, "stray.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	specs := []CheckSpec{
+		{Kind: "outcome", Expect: "done"},
+		{Kind: "diff_scope", Allow: []string{"src/**"}},
+	}
+	results := runChecks(dir, initial, doneResultForTest(), specs)
+	if len(results) != 2 {
+		t.Fatalf("получено %d результатов, ожидалось 2", len(results))
+	}
+	if !results[0].Pass {
+		t.Errorf("outcome check должен был пройти: %+v", results[0])
+	}
+	if results[1].Pass {
+		t.Errorf("diff_scope check должен был провалиться: %+v", results[1])
+	}
+}
 
 func TestEvaluateCaseAggregatesPassed(t *testing.T) {
 	bin := buildFakeAgent(t)

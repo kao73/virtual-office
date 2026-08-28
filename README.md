@@ -505,7 +505,8 @@ Smoke-тест тратит подписку или деньги. Проверя
 roles/                 спецификации ролей: промпт, машиночитаемый контракт, шаблоны артефактов
 skills/                кастомные скиллы, подключаются ролью поимённо
 hooks/                 скрипты ограждений на событии Stop
-cmd/                   точки входа: runner, run-agent, validate-result
+evals/                 golden-кейсы ролей для cmd/eval-roles: fixture/, task.md, expect.yaml
+cmd/                   точки входа: runner, run-agent, validate-result, eval-roles
 internal/guard/        сами ограждения: проверки прогона, общие для хука и раннера
 internal/adapters/     перевод роли в вызов конкретного агента
 internal/backends/     где выполняется агент: local, sbx

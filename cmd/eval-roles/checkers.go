@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,7 +30,11 @@ func (outcomeChecker) Run(ctx CheckContext) CheckResult {
 	want := runner.Outcome(ctx.Spec.Expect)
 	got := ctx.Result.Outcome
 	if got != want {
-		return CheckResult{Pass: false, Detail: fmt.Sprintf("outcome=%q, expected %q", got, want)}
+		detail := fmt.Sprintf("outcome=%q, expected %q", got, want)
+		if ctx.Result.Summary != "" {
+			detail += fmt.Sprintf(" (summary: %s)", ctx.Result.Summary)
+		}
+		return CheckResult{Pass: false, Detail: detail}
 	}
 	if want == runner.OutcomeNeedsHuman && ctx.Spec.QuestionsNotEmpty && len(ctx.Result.Questions) == 0 {
 		return CheckResult{Pass: false, Detail: "outcome=needs_human but questions is empty"}
@@ -66,13 +71,19 @@ func (diffScopeChecker) Run(ctx CheckContext) CheckResult {
 // --others`). `git diff` alone misses the second group — a stray untracked
 // file is exactly the kind of out-of-scope write this check exists to catch.
 func changedPaths(fixtureDir, initialCommit string) ([]string, error) {
-	tracked, err := exec.Command("git", "-C", fixtureDir, "diff", "--name-only", initialCommit).CombinedOutput()
+	// .Output() (stdout only), not .CombinedOutput(): CombinedOutput merges
+	// stderr into the same bytes we then parse as a list of paths, so any
+	// stderr chatter git emits (locale warnings, core.autocrlf notices, …)
+	// would show up as a phantom "changed path" and fail diff_scope checks
+	// on a machine where git happens to warn. Error messages below recover
+	// stderr from *exec.ExitError.Stderr instead.
+	tracked, err := exec.Command("git", "-C", fixtureDir, "diff", "--name-only", initialCommit).Output()
 	if err != nil {
-		return nil, fmt.Errorf("git diff не выполнен: %w: %s", err, tracked)
+		return nil, fmt.Errorf("git diff не выполнен: %w: %s", err, exitStderr(err))
 	}
-	untracked, err := exec.Command("git", "-C", fixtureDir, "ls-files", "--others", "--exclude-standard").CombinedOutput()
+	untracked, err := exec.Command("git", "-C", fixtureDir, "ls-files", "--others", "--exclude-standard").Output()
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files не выполнен: %w: %s", err, untracked)
+		return nil, fmt.Errorf("git ls-files не выполнен: %w: %s", err, exitStderr(err))
 	}
 
 	seen := map[string]bool{}
@@ -86,7 +97,19 @@ func changedPaths(fixtureDir, initialCommit string) ([]string, error) {
 			paths = append(paths, line)
 		}
 	}
+	sort.Strings(paths)
 	return paths, nil
+}
+
+// exitStderr recovers stderr text from a command failure for error messages.
+// exec.Command(...).Output() leaves ExitError.Stderr populated as long as the
+// command's Stderr field was left nil (the case here).
+func exitStderr(err error) []byte {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.Stderr
+	}
+	return nil
 }
 
 func matchesAny(path string, allow []string) bool {
