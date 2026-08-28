@@ -72,7 +72,7 @@ func (o *Office) roleOverspent(roleName string) (bool, error) {
 	}
 
 	since := startOfDay(o.now())
-	spent, err := o.spent(ledger.Filter{Role: roleName, Since: since})
+	spent, err := o.spent(ledger.Filter{Role: roleName, Since: since, ExcludeEval: true})
 	if err != nil || !limit.Exceeded(spent) {
 		return false, err
 	}

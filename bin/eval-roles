@@ -1,0 +1,22 @@
+#!/bin/sh
+# Точка входа ручного запуска golden-кейсов.
+#
+# Обёртка сообщает eval-roles корень конфиг-репозитория, откуда берутся
+# evals/ и роли. В отличие от bin/run-agent и bin/runner, каталог вызова
+# запоминать незачем — --role/--case не принимают путей.
+#
+# Собирается бинарник и запускается через exec, как в bin/run-agent и
+# bin/runner — по той же причине: `go run` держит бинарник потомком и не
+# передаёт ему сигналов.
+
+set -eu
+
+OFFICE_CONFIG_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export OFFICE_CONFIG_ROOT
+
+bin="${OFFICE_HOME:-$HOME/.office}/bin"
+mkdir -p "$bin"
+
+cd "$OFFICE_CONFIG_ROOT"
+go build -o "$bin/eval-roles" ./cmd/eval-roles
+exec "$bin/eval-roles" "$@"

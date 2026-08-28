@@ -58,6 +58,12 @@ type Entry struct {
 	// Строкой, а не правкой прежней: реестр дописывается в конец и не правится
 	// никогда — иначе два раннера на машине затирали бы друг друга.
 	Overrides bool `json:"overrides,omitempty"`
+	// Eval — прогон запущен eval-harness'ом (cmd/eval-roles), не продом.
+	// Отсутствует/false у каждой исторической строки — миграция не нужна.
+	// per_role_daily в internal/pipeline/budget.go исключает такие строки:
+	// прогон роли, каким бы он ни был вызван, иначе читает общий реестр
+	// как обычный расход, и sweep золотых кейсов исчерпал бы дневной бюджет.
+	Eval bool `json:"eval,omitempty"`
 }
 
 // Ledger — файл реестра.
@@ -107,6 +113,9 @@ type Filter struct {
 	Task  string
 	Role  string
 	Since time.Time
+	// ExcludeEval отбрасывает строки eval-harness'а — их ставит запрос
+	// per_role_daily, который считает только прод.
+	ExcludeEval bool
 }
 
 func (f Filter) match(e Entry) bool {
@@ -114,6 +123,8 @@ func (f Filter) match(e Entry) bool {
 	case f.Task != "" && e.Task != f.Task:
 		return false
 	case f.Role != "" && e.Role != f.Role:
+		return false
+	case f.ExcludeEval && e.Eval:
 		return false
 	case !f.Since.IsZero() && e.Started.Before(f.Since):
 		return false

@@ -1,0 +1,9 @@
+{
+  "openspec_proposal": "docs/openspec/changes/role-eval-harness/proposal.md",
+  "openspec_design": "docs/openspec/changes/role-eval-harness/design.md",
+  "openspec_tasks": "docs/openspec/changes/role-eval-harness/tasks.md",
+  "openspec_delta_spec": "docs/openspec/changes/role-eval-harness/specs/role-eval-harness/spec.md",
+  "handoff_context": "docs/openspec/changes/archive/2026-08-28-role-eval-harness/.comet/handoff/design-context.json",
+  "handoff_markdown": "docs/openspec/changes/archive/2026-08-28-role-eval-harness/.comet/handoff/design-context.md",
+  "archive_directory": "docs/openspec/changes/archive/2026-08-28-role-eval-harness"
+}

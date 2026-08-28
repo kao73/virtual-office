@@ -545,6 +545,54 @@ func TestPerRoleDailyBudgetWarnKeepsWorking(t *testing.T) {
 	}
 }
 
+// per_role_daily — свойство прода: прогоны eval-harness'а не должны в него
+// попадать, иначе sweep золотых кейсов исчерпал бы дневной бюджет роли.
+func TestPerRoleDailySpendExcludesEvalEntries(t *testing.T) {
+	o := newOffice(t)
+	if err := o.Office.Ledger.Append(ledger.Entry{
+		RunID: "прод-прогон", Task: "OFF-9", Role: "implementer", Project: "OFF", Started: now,
+		Usage: runner.Usage{CostUSD: 5, DurationMS: 1000, Turns: 5}, Outcome: "done",
+	}); err != nil {
+		t.Fatalf("расход не записан: %v", err)
+	}
+	if err := o.Office.Ledger.Append(ledger.Entry{
+		RunID: "eval-прогон", Role: "implementer", Started: now,
+		Usage: runner.Usage{CostUSD: 100, DurationMS: 1000, Turns: 5}, Outcome: "done", Eval: true,
+	}); err != nil {
+		t.Fatalf("eval-расход не записан: %v", err)
+	}
+
+	spent, err := o.Office.spent(ledger.Filter{Role: "implementer", Since: startOfDay(now), ExcludeEval: true})
+	if err != nil {
+		t.Fatalf("расход не посчитан: %v", err)
+	}
+	if spent != 5 {
+		t.Errorf("per_role_daily = $%.2f, ожидалось $5.00 без eval-прогона на $100", spent)
+	}
+}
+
+// Та же гарантия, что и выше, но по настоящему пути проверки: через тик, а не
+// через вручную собранный Filter. TestPerRoleDailySpendExcludesEvalEntries сам
+// строит фильтр с ExcludeEval: true и потому не заметил бы отвал этого поля
+// в roleOverspent — этот тест бьёт по нему напрямую.
+func TestPerRoleDailyBudgetStopsIgnoreEvalSpend(t *testing.T) {
+	o := newOffice(t)
+	o.Office.Budgets.PerRoleDaily = budget.Limit{USD: 10, OnExceed: budget.Stop}
+	// Прод один потратил $6 — предела не хватает. Вместе с eval-прогоном на $10
+	// вышло бы $16 и роль остановилась бы, если бы eval считался наравне с продом.
+	o.spent(t, "OFF-9", "implementer", 6)
+	if err := o.Office.Ledger.Append(ledger.Entry{
+		RunID: "eval-прогон", Role: "implementer", Started: now,
+		Usage: runner.Usage{CostUSD: 10, DurationMS: 1000, Turns: 5}, Outcome: "done", Eval: true,
+	}); err != nil {
+		t.Fatalf("eval-расход не записан: %v", err)
+	}
+
+	if !o.tick(t) {
+		t.Error("роль не взяла задачу: eval-расход посчитан наравне с продом и исчерпал дневной бюджет")
+	}
+}
+
 // Дорогой прогон прерывать нечем — цена известна, когда работа уже сделана.
 // Поэтому per_run только предупреждает, и делает это после отчёта: замечания
 // агента человек читает первыми.
