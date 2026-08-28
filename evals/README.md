@@ -27,6 +27,13 @@ evals/<role>/<case-id>/
 `git diff <база>...HEAD`). Исправление — второй коммит в фикстуре плюс
 `--base` в `invoke.go` — не сделано.
 
+Следствие для `evals/reviewer/capability-spot-defect`: различение теперь на
+`next_owner: implementer`, но раз диффа нет, ревьюер, вернувший работу автору
+по совсем другой причине («не вижу, что изменилось — покажите дифф»), тоже
+даёт `done` + `next_owner: implementer` и слабый grep на «Max» (слово из
+самой постановки) его не отсеет. Остаточный риск ложного PASS не по сути
+кейса — сузился с round 2 (там ложным PASS было и одобрение), но не закрыт.
+
 ## expect.yaml
 
 ```yaml
@@ -36,12 +43,12 @@ checks:
     expect: done              # done | needs_human | blocked | failed
     questions_not_empty: true # только вместе с needs_human
     next_owner: implementer   # необязательно — сверяется с обязательным полем
-                               # результата роли (roles/*/role.md, «Выход»)
+                              # результата роли (roles/*/role.md, «Выход»)
   - kind: diff_scope
     allow: ["calc.go", "docs/changes/_manual/**"]  # "**" — любое число сегментов
   - kind: fixture_tests
     command: "go test ./..."  # выполняется внутри фикстуры через `sh -c`,
-                               # таймаут — 5 минут, не настраивается
+                              # таймаут — 5 минут, не настраивается
 ```
 
 | kind | Проверяет | Обязательные поля |

@@ -43,10 +43,17 @@ func (outcomeChecker) Run(ctx CheckContext) CheckResult {
 	if want == runner.OutcomeNeedsHuman && ctx.Spec.QuestionsNotEmpty && len(ctx.Result.Questions) == 0 {
 		return CheckResult{Pass: false, Detail: "outcome=needs_human but questions is empty"}
 	}
-	if ctx.Spec.NextOwner != "" && ctx.Result.NextOwner != ctx.Spec.NextOwner {
+	// TrimSpace: runner.Result.Validate (internal/runner/agentio.go) сверяет
+	// next_owner тем же способом — значение с хвостовым пробелом законно по
+	// контракту раннера, и здесь не должно провалиться из-за него одного.
+	if gotOwner := strings.TrimSpace(ctx.Spec.NextOwner); gotOwner != "" && strings.TrimSpace(ctx.Result.NextOwner) != gotOwner {
 		return CheckResult{Pass: false, Detail: fmt.Sprintf("next_owner=%q, expected %q", ctx.Result.NextOwner, ctx.Spec.NextOwner)}
 	}
-	return CheckResult{Pass: true, Detail: fmt.Sprintf("outcome=%q as expected", got)}
+	detail := fmt.Sprintf("outcome=%q as expected", got)
+	if ctx.Spec.NextOwner != "" {
+		detail += fmt.Sprintf(", next_owner=%q as expected", ctx.Result.NextOwner)
+	}
+	return CheckResult{Pass: true, Detail: detail}
 }
 
 // diffScopeChecker проваливается, если хоть один путь, изменившийся с

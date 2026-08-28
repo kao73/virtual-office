@@ -28,6 +28,9 @@ func TestOutcomeChecker(t *testing.T) {
 		{"next_owner matches", CheckSpec{Kind: "outcome", Expect: "done", NextOwner: "implementer"}, runner.Result{Outcome: runner.OutcomeDone, NextOwner: "implementer"}, true},
 		{"next_owner mismatches", CheckSpec{Kind: "outcome", Expect: "done", NextOwner: "implementer"}, runner.Result{Outcome: runner.OutcomeDone, NextOwner: "human"}, false},
 		{"next_owner unset ignores Result.NextOwner", CheckSpec{Kind: "outcome", Expect: "done"}, runner.Result{Outcome: runner.OutcomeDone, NextOwner: "human"}, true},
+		// runner.Result.Validate сравнивает через strings.TrimSpace (internal/runner/agentio.go) —
+		// значение с хвостовым пробелом законно по контракту раннера, и здесь должно совпасть так же.
+		{"next_owner matches despite surrounding whitespace", CheckSpec{Kind: "outcome", Expect: "done", NextOwner: "implementer"}, runner.Result{Outcome: runner.OutcomeDone, NextOwner: "implementer "}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

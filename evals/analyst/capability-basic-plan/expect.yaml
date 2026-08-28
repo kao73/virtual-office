@@ -2,6 +2,7 @@ role: analyst
 checks:
   - kind: outcome
     expect: done
+    next_owner: implementer
   - kind: diff_scope
     allow: ["docs/changes/_manual/**"]
   - kind: fixture_tests

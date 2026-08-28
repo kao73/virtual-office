@@ -109,6 +109,26 @@ func TestLoadCaseRejectsOutcomeWithoutExpect(t *testing.T) {
 	}
 }
 
+// expect: "don" (опечатка) прошёл бы загрузку и всплыл бы только после
+// платного прогона роли, в outcomeChecker, как обычный FAIL — то есть как
+// регресс роли, а не сломанный expect.yaml. `expect` — фиксированный список
+// из четырёх исходов, в отличие от next_owner (там роль может стоять любым
+// именем, и docs/contracts/agent-io.md сознательно не проверяет её
+// существование «на этапе 1» — LoadCase этому не противоречит).
+func TestLoadCaseRejectsUnknownExpect(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte("role: implementer\nchecks:\n  - kind: outcome\n    expect: don\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("неизвестный expect не замечен")
+	}
+}
+
 func TestLoadCaseRejectsEmptyChecks(t *testing.T) {
 	root := t.TempDir()
 	caseDir := filepath.Join(root, "implementer", "sample-case")

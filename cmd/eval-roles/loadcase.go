@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kao73/virtual-office/internal/runner"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,8 +44,15 @@ func LoadCase(dir string) (Case, error) {
 		}
 		switch chk.Kind {
 		case "outcome":
+			// expect — фиксированный список из четырёх исходов, в отличие
+			// от next_owner: там значением легитимно стоит любое имя роли,
+			// и docs/contracts/agent-io.md сознательно не проверяет её
+			// существование «на этапе 1» — здесь это же решение соблюдается.
 			if strings.TrimSpace(chk.Expect) == "" {
 				return Case{}, fmt.Errorf("expect.yaml: outcome-проверка без expect")
+			}
+			if !knownOutcome(chk.Expect) {
+				return Case{}, fmt.Errorf("expect.yaml: outcome-проверка с неизвестным expect %q", chk.Expect)
 			}
 		case "fixture_tests":
 			// Пустой command не провалился бы сам — `sh -c ""` выходит с
@@ -66,6 +74,17 @@ func LoadCase(dir string) (Case, error) {
 func knownCheckKind(kind string) bool {
 	switch kind {
 	case "outcome", "diff_scope", "fixture_tests", "llm_judge":
+		return true
+	default:
+		return false
+	}
+}
+
+// knownOutcome сообщает, является ли expect одним из четырёх исходов,
+// которые вообще способен вернуть агент (internal/runner.Outcome).
+func knownOutcome(expect string) bool {
+	switch runner.Outcome(expect) {
+	case runner.OutcomeDone, runner.OutcomeNeedsHuman, runner.OutcomeBlocked, runner.OutcomeFailed:
 		return true
 	default:
 		return false
