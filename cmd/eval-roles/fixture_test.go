@@ -40,7 +40,7 @@ func TestMaterializeFixtureCommitsFixtureTree(t *testing.T) {
 }
 
 func TestMaterializeFixtureFailsWithoutFixtureDir(t *testing.T) {
-	caseDir := t.TempDir() // no "fixture" subdirectory
+	caseDir := t.TempDir() // без подкаталога "fixture"
 	if _, _, err := materializeFixture(caseDir); err == nil {
 		t.Error("отсутствие fixture/ не замечено")
 	}

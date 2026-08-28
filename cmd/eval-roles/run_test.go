@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,8 +34,8 @@ func TestDispatchCheckRunsKnownKind(t *testing.T) {
 
 func TestRunChecksRunsEveryCheckNotJustFirstFailure(t *testing.T) {
 	specs := []CheckSpec{
-		{Kind: "outcome", Expect: "done"}, // will fail (result below is failed)
-		{Kind: "llm_judge"},               // will fail (unimplemented)
+		{Kind: "outcome", Expect: "done"}, // провалится (результат ниже — failed)
+		{Kind: "llm_judge"},               // провалится (не реализован)
 	}
 	results := runChecks("", "", failedResultForTest(), specs)
 	if len(results) != 2 {
@@ -48,16 +49,16 @@ func TestRunChecksRunsEveryCheckNotJustFirstFailure(t *testing.T) {
 func doneResultForTest() runner.Result   { return runner.Result{Outcome: runner.OutcomeDone} }
 func failedResultForTest() runner.Result { return runner.Result{Outcome: runner.OutcomeFailed} }
 
-// Every golden case in evals/ declares several checks and, in practice, can
-// have some pass and some fail within the same case — but that mix was
-// untested at the unit level (TestRunChecksRunsEveryCheckNotJustFirstFailure
-// above has both checks fail). gitInit/headOf come from checkers_test.go.
+// Каждый golden case в evals/ объявляет несколько проверок и на практике может
+// внутри одного кейса иметь и прошедшие, и провалившиеся — но эта смесь была
+// не покрыта на уровне юнит-теста (TestRunChecksRunsEveryCheckNotJustFirstFailure
+// выше проваливает обе проверки). gitInit/headOf — из checkers_test.go.
 func TestRunChecksMixedPassAndFail(t *testing.T) {
 	dir := t.TempDir()
 	gitInit(t, dir)
 	initial := headOf(t, dir)
-	// Stray untracked file outside allow — diff_scope must fail while
-	// outcome, evaluated against the same result, passes.
+	// Случайный неотслеживаемый файл вне allow — diff_scope обязана
+	// провалиться, а outcome, оцененная по тому же результату, — пройти.
 	if err := os.WriteFile(filepath.Join(dir, "stray.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +79,31 @@ func TestRunChecksMixedPassAndFail(t *testing.T) {
 	}
 }
 
+func TestAggregateStatusErroredWhenAnyCheckErrs(t *testing.T) {
+	status, err := aggregateStatus([]CheckResult{
+		{Pass: true},
+		{Err: errors.New("boom")},
+	})
+	if status != "errored" {
+		t.Errorf("status=%q, ожидался errored", status)
+	}
+	if err == nil {
+		t.Error("errored-статус обязан нести объединённую ошибку")
+	}
+}
+
+// Err ранжируется выше Pass:false: пришедший позже обычный провал не должен
+// понизить уже errored-статус до failed.
+func TestAggregateStatusErroredNotDowngradedByLaterFailure(t *testing.T) {
+	status, _ := aggregateStatus([]CheckResult{
+		{Err: errors.New("boom")},
+		{Pass: false, Detail: "тоже не так"},
+	})
+	if status != "errored" {
+		t.Errorf("status=%q, ожидался errored (не должен понизиться до failed)", status)
+	}
+}
+
 func TestEvaluateCaseAggregatesPassed(t *testing.T) {
 	bin := buildFakeAgent(t)
 	t.Setenv(runAgentBinEnv, bin)
@@ -88,10 +114,11 @@ func TestEvaluateCaseAggregatesPassed(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(caseDir, "fixture"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// materializeFixture (Task 5) commits the fixture tree via `git add -A &&
-	// git commit`, which fails on a truly empty tree ("nothing to commit") —
-	// so, unlike the brief's literal listing, the fixture needs at least one
-	// file. Matches the seeding pattern in fixture_test.go.
+	// materializeFixture (Task 5) коммитит дерево фикстуры через `git add -A
+	// && git commit`, а это проваливается на по-настоящему пустом дереве
+	// («nothing to commit») — так что, в отличие от буквального перечисления
+	// в брифе, фикстуре нужен хотя бы один файл. Тот же приём заполнения,
+	// что в fixture_test.go.
 	if err := os.WriteFile(filepath.Join(caseDir, "fixture", "seed.txt"), []byte("seed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +139,45 @@ func TestEvaluateCaseAggregatesPassed(t *testing.T) {
 	}
 	if outcome.Case != "testrole/ok-case" {
 		t.Errorf("case=%q, ожидался testrole/ok-case", outcome.Case)
+	}
+}
+
+// Единственный путь, который не гоняет ни один другой тест: diff_scope через
+// настоящий конвейер evaluateCase → materializeFixture → runRoleAgent. Он
+// доказывает, что собственная запись fakeagent'а в .agent/ исключена из diff
+// точно так же, как у настоящего run-agent — иначе каждый golden case,
+// использующий diff_scope (4 из 6 под evals/), остался бы непроверенным
+// в `go test ./...`.
+func TestEvaluateCaseDiffScopeIgnoresAgentDir(t *testing.T) {
+	bin := buildFakeAgent(t)
+	t.Setenv(runAgentBinEnv, bin)
+	t.Setenv("FAKE_AGENT_RESULT", `{"outcome":"done","summary":"ok","next_owner":"none"}`)
+
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "testrole", "scope-case")
+	if err := os.MkdirAll(filepath.Join(caseDir, "fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseDir, "fixture", "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseDir, "task.md"), []byte("задача\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// allow: [] — самая строгая из возможных областей. Проходит, только если
+	// .agent/ (единственное, что пишет fakeagent) по-настоящему невидим для
+	// git, а не просто случайно отсутствует.
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte("role: testrole\nchecks:\n  - kind: diff_scope\n    allow: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadCase(caseDir)
+	if err != nil {
+		t.Fatalf("case не разобран: %v", err)
+	}
+
+	outcome := evaluateCase(bin, ".", c)
+	if outcome.Status != "passed" {
+		t.Errorf("status=%q, ожидался passed (.agent/ должен быть исключён из diff_scope): %+v", outcome.Status, outcome)
 	}
 }
 

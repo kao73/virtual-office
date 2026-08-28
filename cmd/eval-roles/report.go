@@ -5,9 +5,9 @@ import (
 	"io"
 )
 
-// printSummary prints one line per case (PASS/FAIL/ERROR), the detail of
-// every non-passing check under a failed case, the error under an errored
-// case, and a final tally line.
+// printSummary печатает по строке на кейс (PASS/FAIL/ERROR), детали каждой
+// непройденной проверки под провалившимся кейсом, ошибку под errored-кейсом
+// и итоговую строку со счётом.
 func printSummary(out io.Writer, outcomes []CaseOutcome) {
 	var passed, failed, errored int
 	for _, o := range outcomes {
@@ -31,9 +31,10 @@ func printSummary(out io.Writer, outcomes []CaseOutcome) {
 	fmt.Fprintf(out, "\n%d cases: %d passed, %d failed, %d errored\n", len(outcomes), passed, failed, errored)
 }
 
-// exitCode mirrors run-agent's own 1=behavioral/2=infra split, one level up:
-// 0 clean pass, 1 clean sweep with at least one failed case, 2 if any case
-// errored (or the harness itself couldn't run at all — see main.go).
+// exitCode повторяет собственное деление run-agent'а 1=поведение/2=инфра, но
+// уровнем выше: 0 — чистый pass, 1 — чистый прогон, но хоть один кейс failed,
+// 2 — если хоть один кейс errored (или сам харнесс вообще не смог
+// запуститься — см. main.go).
 func exitCode(outcomes []CaseOutcome) int {
 	hasErrored, hasFailed := false, false
 	for _, o := range outcomes {

@@ -1,9 +1,9 @@
-// Command fakeagent stands in for cmd/run-agent in cmd/eval-roles tests: it
-// accepts the same flag shape and writes a scripted result.json instead of
-// making a real LLM call. Behavior is controlled either by environment
-// variables (FAKE_AGENT_RESULT, FAKE_AGENT_EXIT) or by per-fixture control
-// files (<workdir>/.fake-result.json, <workdir>/.fake-exit), so different
-// cases invoked in the same process can still behave differently.
+// Команда fakeagent подменяет cmd/run-agent в тестах cmd/eval-roles: принимает
+// те же флаги и пишет заскриптованный result.json вместо настоящего вызова
+// LLM. Поведение управляется либо переменными окружения (FAKE_AGENT_RESULT,
+// FAKE_AGENT_EXIT), либо файлами управления на кейс (<workdir>/.fake-result.json,
+// <workdir>/.fake-exit) — так разные кейсы, вызванные в одном процессе, всё
+// равно могут вести себя по-разному.
 package main
 
 import (
@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 func main() {
@@ -24,6 +26,17 @@ func main() {
 
 	if *workdir == "" {
 		fmt.Fprintln(os.Stderr, "fakeagent: --workdir обязателен")
+		os.Exit(2)
+	}
+
+	// Настоящий run-agent прячет .agent/ от git через ExcludeAgentDir
+	// (internal/runner/input.go) до того, как агент начинает писать в рабочую
+	// папку — иначе .agent/result.json сам попадал бы в diff_scope как
+	// изменение вне allow. fakeagent повторяет это: без этого golden-кейсы
+	// с diff_scope никогда не проверялись бы по-настоящему в go test — только
+	// вручную, реальным run-agent.
+	if err := runner.ExcludeAgentDir(*workdir); err != nil {
+		fmt.Fprintln(os.Stderr, "fakeagent:", err)
 		os.Exit(2)
 	}
 

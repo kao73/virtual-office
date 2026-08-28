@@ -25,8 +25,8 @@ func TestRunReportsZeroCasesFound(t *testing.T) {
 	}
 }
 
-// tasks.md 2.4: "running the harness against a mix of passing and
-// deliberately-failing cases prints a summary that correctly counts both."
+// tasks.md 2.4: «прогон харнесса на смеси проходящих и намеренно
+// проваливающихся кейсов печатает сводку, которая верно считает и те, и другие».
 func TestRunReportsMixOfPassingAndFailingCases(t *testing.T) {
 	root := t.TempDir()
 	seed := func(caseID, resultJSON string) {
@@ -67,6 +67,49 @@ func TestRunReportsMixOfPassingAndFailingCases(t *testing.T) {
 	}
 }
 
+// Фиксирует текущее поведение: в отличие от любого провала уровня кейса
+// (нет fixture/task.md, инфраструктурная беда run-agent'а), который
+// evaluateCase ловит и отражает одной строкой "errored", сломанный
+// expect.yaml обрывает весь прогон до того, как выполнится хоть один кейс —
+// good-case вообще не получает строки PASS/FAIL.
+func TestRunAbortsWholeSweepOnOneBadCase(t *testing.T) {
+	root := t.TempDir()
+
+	goodDir := filepath.Join(root, "evals", "testrole", "good-case")
+	if err := os.MkdirAll(filepath.Join(goodDir, "fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(goodDir, "fixture", ".fake-result.json"), []byte(`{"outcome":"done","summary":"ok","next_owner":"none"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(goodDir, "task.md"), []byte("задача\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(goodDir, "expect.yaml"), []byte("role: testrole\nchecks:\n  - kind: outcome\n    expect: done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// role в expect.yaml не совпадает с каталогом роли — LoadCase её отвергнет.
+	badDir := filepath.Join(root, "evals", "testrole", "bad-case")
+	if err := os.MkdirAll(filepath.Join(badDir, "fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(badDir, "expect.yaml"), []byte("role: other\nchecks:\n  - kind: outcome\n    expect: done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(runAgentBinEnv, buildFakeAgent(t))
+	t.Setenv("OFFICE_CONFIG_ROOT", root)
+
+	var stdout, stderr bytes.Buffer
+	if _, err := run([]string{"--role", "testrole"}, &stdout, &stderr); err == nil {
+		t.Fatal("сломанный expect.yaml одного кейса должен был оборвать весь прогон")
+	}
+	if strings.Contains(stdout.String(), "good-case") {
+		t.Errorf("good-case не должен был выполниться раньше прерывания прогона:\n%s", stdout.String())
+	}
+}
+
 func TestRunRejectsCaseFlagWithoutRole(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if _, err := run([]string{"--case", "x"}, &stdout, &stderr); err == nil {
@@ -74,9 +117,10 @@ func TestRunRejectsCaseFlagWithoutRole(t *testing.T) {
 	}
 }
 
-// A typo'd --role/--case that matches nothing must be a hard error, not a
-// silent "0 cases found" green exit — that green exit is reserved for a
-// genuinely empty evals/ tree with no filters applied at all.
+// Опечатавшийся --role/--case, не совпавший ни с чем, обязан быть жёсткой
+// ошибкой, а не молчаливым зелёным выходом «0 cases found» — этот зелёный
+// выход зарезервирован за по-настоящему пустым деревом evals/ вообще без
+// применённых фильтров.
 func TestRunFailsWhenRoleFilterMatchesNothing(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("OFFICE_CONFIG_ROOT", root)

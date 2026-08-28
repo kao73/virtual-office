@@ -39,8 +39,9 @@ func TestOutcomeChecker(t *testing.T) {
 	}
 }
 
-// The role's own Summary is the explanation of what it did — on a mismatch
-// it belongs in Detail so a failed case can be debugged without re-running.
+// Собственный Summary роли — объяснение того, что она сделала; при
+// несовпадении ему место в Detail, чтобы провалившийся кейс можно было
+// отладить без повторного прогона.
 func TestOutcomeCheckerIncludesSummaryOnMismatch(t *testing.T) {
 	result := outcomeChecker{}.Run(CheckContext{
 		Spec:   CheckSpec{Kind: "outcome", Expect: "done"},
@@ -112,8 +113,9 @@ func TestDiffScopeCheckerFailsOutOfScopeChange(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "src", "a.go"), []byte("package a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// This file is never `git add`-ed — it must still be caught: an
-	// untracked stray write is exactly what this check exists to catch.
+	// Этот файл никогда не проходит `git add` — и всё равно должен быть
+	// пойман: именно неотслеживаемая случайная запись и есть то, что эта
+	// проверка призвана ловить.
 	if err := os.WriteFile(filepath.Join(dir, "other.txt"), []byte("y\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -124,17 +126,19 @@ func TestDiffScopeCheckerFailsOutOfScopeChange(t *testing.T) {
 	}
 }
 
-// changedPaths concatenates two independently-sorted command outputs
-// (tracked via `git diff`, untracked via `git ls-files --others`); without
-// its own final sort, the union isn't globally sorted whenever a tracked
-// path sorts after an untracked one.
+// changedPaths склеивает вывод двух независимо отсортированных команд
+// (отслеживаемое — через `git diff`, неотслеживаемое — через `git ls-files
+// --others`); без собственной финальной сортировки объединение не
+// отсортировано глобально всякий раз, когда отслеживаемый путь идёт по
+// алфавиту после неотслеживаемого.
 func TestChangedPathsReturnsSortedPaths(t *testing.T) {
 	dir := t.TempDir()
 	gitInit(t, dir)
 	initial := headOf(t, dir)
 
-	// Tracked (staged) change sorts after the untracked one below — a naive
-	// tracked-then-untracked concatenation would return them out of order.
+	// Отслеживаемое (застейдженное) изменение идёт по алфавиту после
+	// неотслеживаемого ниже — наивная склейка «сначала отслеживаемое, потом
+	// неотслеживаемое» вернула бы их не по порядку.
 	if err := os.WriteFile(filepath.Join(dir, "zzz.txt"), []byte("z\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +156,45 @@ func TestChangedPathsReturnsSortedPaths(t *testing.T) {
 	want := []string{"aaa.txt", "zzz.txt"}
 	if !slices.Equal(paths, want) {
 		t.Errorf("paths = %v, want %v (sorted)", paths, want)
+	}
+}
+
+// Сломанный allow-паттерн — это сломанный expect.yaml, а не роль, нарушившая
+// область; он обязан всплыть как Err, а не как ложный "changed outside allow".
+func TestDiffScopeCheckerReportsErrOnMalformedPattern(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	initial := headOf(t, dir)
+
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := diffScopeChecker{}.Run(CheckContext{FixtureDir: dir, InitialCommit: initial, Spec: CheckSpec{Allow: []string{"["}}})
+	if result.Err == nil {
+		t.Errorf("malformed pattern should have produced Err: %+v", result)
+	}
+}
+
+// git по умолчанию C-квотирует не-ASCII пути (core.quotePath=true); без
+// отключения этого кириллическое имя файла вернулось бы из `git diff`/`git
+// ls-files` восьмеричноэкранированной строкой в кавычках, не совпадающей ни
+// с одним glob'ом.
+func TestDiffScopeCheckerHandlesNonASCIIFilenames(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	initial := headOf(t, dir)
+
+	if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "имя.md"), []byte("текст\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := diffScopeChecker{}.Run(CheckContext{FixtureDir: dir, InitialCommit: initial, Spec: CheckSpec{Allow: []string{"docs/**"}}})
+	if !result.Pass {
+		t.Errorf("in-scope Cyrillic filename failed: %+v", result)
 	}
 }
 
@@ -187,6 +230,17 @@ func TestFixtureTestsCheckerFailsOnNonZeroExit(t *testing.T) {
 	}
 	if result.Err != nil {
 		t.Errorf("провал команды — обычный Pass=false, не Err: %v", result.Err)
+	}
+}
+
+// Незапустившаяся команда (здесь: FixtureDir не существует, так что сам
+// shell не запустить) — инфраструктурная беда, не вина роли; она обязана
+// вернуться как Err, а не как обычный Pass:false.
+func TestFixtureTestsCheckerReportsErrWhenCommandCannotStart(t *testing.T) {
+	checker := fixtureTestsChecker{timeout: 5 * time.Second}
+	result := checker.Run(CheckContext{FixtureDir: "/does/not/exist-xyz", Spec: CheckSpec{Command: "true"}})
+	if result.Err == nil {
+		t.Errorf("command that couldn't start should have produced Err: %+v", result)
 	}
 }
 

@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// LoadCase parses <dir>/expect.yaml into a Case and validates it against the
-// case's own directory: role must match the parent directory name, and
-// checks must not be empty.
+// LoadCase разбирает <dir>/expect.yaml в Case и сверяет её с собственным
+// каталогом кейса: role обязан совпадать с именем родительского каталога,
+// а checks не должен быть пуст.
 func LoadCase(dir string) (Case, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "expect.yaml"))
 	if err != nil {
@@ -30,6 +31,16 @@ func LoadCase(dir string) (Case, error) {
 	}
 	if len(c.Checks) == 0 {
 		return Case{}, errors.New("expect.yaml: checks пуст")
+	}
+	for _, chk := range c.Checks {
+		// Только fixture_tests: пустой command не провалился бы сам —
+		// `sh -c ""` выходит с кодом 0, и проверка молча зазеленела бы,
+		// ничего не проверив. У outcome и diff_scope такой ловушки нет:
+		// пустой Expect не совпадёт ни с одним исходом, а пустой Allow
+		// у diff_scope — законное значение (запрет любых изменений).
+		if chk.Kind == "fixture_tests" && strings.TrimSpace(chk.Command) == "" {
+			return Case{}, fmt.Errorf("expect.yaml: fixture_tests-проверка без command")
+		}
 	}
 	return c, nil
 }

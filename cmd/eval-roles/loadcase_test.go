@@ -55,6 +55,24 @@ func TestLoadCaseRejectsRoleMismatch(t *testing.T) {
 	}
 }
 
+// fixture_tests-проверка с пустым command молча PASS'ила бы (`sh -c ""`
+// выходит с 0) — это нужно отвергать при загрузке, а не оставлять пустой
+// проверке зеленеть впустую.
+func TestLoadCaseRejectsFixtureTestsWithoutCommand(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	expect := "role: implementer\nchecks:\n  - kind: fixture_tests\n"
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte(expect), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("fixture_tests без command не замечен")
+	}
+}
+
 func TestLoadCaseRejectsEmptyChecks(t *testing.T) {
 	root := t.TempDir()
 	caseDir := filepath.Join(root, "implementer", "sample-case")

@@ -22,6 +22,7 @@ func buildFakeAgent(t *testing.T) string {
 func TestRunRoleAgentParsesResult(t *testing.T) {
 	bin := buildFakeAgent(t)
 	workdir := t.TempDir()
+	gitInit(t, workdir) // fakeagent теперь вызывает runner.ExcludeAgentDir, а ей нужен git-репозиторий
 	taskPath := filepath.Join(t.TempDir(), "task.md")
 	if err := os.WriteFile(taskPath, []byte("тестовая задача\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -45,6 +46,7 @@ func TestRunRoleAgentParsesResult(t *testing.T) {
 func TestRunRoleAgentReportsInfraFailure(t *testing.T) {
 	bin := buildFakeAgent(t)
 	workdir := t.TempDir()
+	gitInit(t, workdir) // fakeagent теперь вызывает runner.ExcludeAgentDir, а ей нужен git-репозиторий
 	taskPath := filepath.Join(t.TempDir(), "task.md")
 	if err := os.WriteFile(taskPath, []byte("задача\n"), 0o644); err != nil {
 		t.Fatal(err)

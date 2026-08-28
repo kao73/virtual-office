@@ -10,13 +10,13 @@ import (
 	"github.com/kao73/virtual-office/internal/runner"
 )
 
-// runAgentBinEnv lets tests substitute a fake run-agent stand-in instead of
-// building the real cmd/run-agent (which would require real credentials and
-// spend real money on every test run).
+// runAgentBinEnv позволяет тестам подставить фиктивный run-agent вместо
+// сборки настоящего cmd/run-agent — тому нужны настоящие креды, и он тратил
+// бы настоящие деньги при каждом прогоне тестов.
 const runAgentBinEnv = "EVAL_ROLES_RUN_AGENT_BIN"
 
-// resolveRunAgentBin returns the run-agent binary to invoke: the override
-// named by runAgentBinEnv if set, otherwise a freshly built cmd/run-agent.
+// resolveRunAgentBin возвращает бинарник run-agent для вызова: переопределение
+// из runAgentBinEnv, если оно задано, иначе — свежесобранный cmd/run-agent.
 func resolveRunAgentBin(repoRoot, binDir string) (string, error) {
 	if bin := os.Getenv(runAgentBinEnv); bin != "" {
 		return bin, nil
@@ -34,11 +34,11 @@ func buildRunAgent(repoRoot, binDir string) (string, error) {
 	return bin, nil
 }
 
-// runRoleAgent invokes binPath as run-agent against workdir, then reads and
-// parses the result.json it left behind. Exit code 2 (run-agent's own
-// infra-failure convention) is reported as an error; exit 0 or 1 both
-// proceed to reading the result — exit 1 is a legitimate outcome=failed run
-// that an outcome check might itself be asserting against.
+// runRoleAgent вызывает binPath как run-agent против workdir, затем читает и
+// разбирает оставленный им result.json. Код выхода 2 (собственная конвенция
+// run-agent для инфраструктурной беды) сообщается как ошибка; коды 0 и 1 оба
+// идут дальше к чтению результата — 1 это законный прогон с outcome=failed,
+// на который может как раз проверять outcome-проверка.
 func runRoleAgent(binPath, repoRoot, role, workdir, taskPath string) (runner.Result, int, error) {
 	cmd := exec.Command(binPath, "--role", role, "--workdir", workdir, "--task", taskPath, "--eval")
 	cmd.Dir = repoRoot

@@ -6,17 +6,17 @@ import (
 	"github.com/kao73/virtual-office/internal/runner"
 )
 
-// Case — golden case parsed from expect.yaml.
+// Case — golden case, разобранный из expect.yaml.
 type Case struct {
 	Role   string      `yaml:"role"`
 	Checks []CheckSpec `yaml:"checks"`
-	dir    string      // set by the loader, not read from YAML
+	dir    string      // ставит загрузчик, из YAML не читается
 }
 
-// id — the case's own directory name, e.g. "capability-basic-plan".
+// id — имя собственного каталога кейса, например "capability-basic-plan".
 func (c Case) id() string { return filepath.Base(c.dir) }
 
-// CheckSpec — one declared check inside expect.yaml's checks list.
+// CheckSpec — одна объявленная проверка из списка checks в expect.yaml.
 type CheckSpec struct {
 	Kind string `yaml:"kind"`
 
@@ -30,35 +30,35 @@ type CheckSpec struct {
 	// kind: fixture_tests
 	Command string `yaml:"command,omitempty"`
 
-	// kind: llm_judge — reserved, parsed, no handler yet
+	// kind: llm_judge — зарезервирован, разбирается, обработчика пока нет
 	Criteria  string `yaml:"criteria,omitempty"`
 	JudgeRole string `yaml:"judge_role,omitempty"`
 }
 
-// Checker evaluates one declared check against a role's run.
+// Checker судит один объявленный check по прогону роли.
 type Checker interface {
 	Run(ctx CheckContext) CheckResult
 }
 
-// CheckContext — everything one Checker needs to judge one check.
+// CheckContext — всё, что нужно Checker'у, чтобы вынести вердикт по одной проверке.
 type CheckContext struct {
-	FixtureDir    string // materialized temp git repo
-	InitialCommit string // fixture's first commit SHA — input to diff_scope
+	FixtureDir    string // материализованный временный git-репозиторий
+	InitialCommit string // SHA первого коммита фикстуры — вход для diff_scope
 	Result        runner.Result
 	Spec          CheckSpec
 }
 
-// CheckResult — one check's verdict.
+// CheckResult — вердикт одной проверки.
 type CheckResult struct {
 	Pass   bool
 	Detail string
-	Err    error // the check itself couldn't run (infra) — distinct from Pass=false (role behavior)
+	Err    error // сама проверка не выполнилась (инфраструктура) — не то же самое, что Pass=false (поведение роли)
 }
 
-// CaseOutcome — one case's aggregate verdict.
+// CaseOutcome — итоговый вердикт по одному кейсу.
 type CaseOutcome struct {
 	Case   string // "<role>/<case-id>"
 	Status string // "passed" | "failed" | "errored"
 	Checks []CheckResult
-	Err    error // set when Status == "errored"
+	Err    error // задан, когда Status == "errored"
 }

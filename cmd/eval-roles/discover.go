@@ -7,9 +7,9 @@ import (
 	"sort"
 )
 
-// discoverCases walks evalsRoot/<role>/<case-id>/ and returns matching case
-// directories, sorted for stable output. A missing or empty evalsRoot is not
-// an error — it yields an empty slice.
+// discoverCases обходит evalsRoot/<role>/<case-id>/ и возвращает подходящие
+// каталоги кейсов, отсортированные для стабильного вывода. Отсутствующий или
+// пустой evalsRoot — не ошибка: результат просто пуст.
 func discoverCases(evalsRoot, roleFilter, caseFilter string) ([]string, error) {
 	rolePattern := "*"
 	if roleFilter != "" {

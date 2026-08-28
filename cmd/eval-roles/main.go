@@ -1,6 +1,6 @@
-// Command eval-roles runs golden-case fixtures against office roles through
-// the existing cmd/run-agent path and reports deterministic pass/fail
-// results. Invocation is always manual: no CI or git-hook triggers it.
+// Команда eval-roles прогоняет фикстуры golden case против ролей офиса через
+// существующий путь cmd/run-agent и выдаёт детерминированные pass/fail
+// результаты. Запуск всегда ручной: ни CI, ни git-хук её не вызывают.
 package main
 
 import (
@@ -43,8 +43,9 @@ func run(args []string, stdout, _ io.Writer) (int, error) {
 	}
 	if len(dirs) == 0 {
 		if *roleFlag != "" || *caseFlag != "" {
-			// An explicit filter matching nothing is a typo, not an empty
-			// tree — a silent "0 cases found" green exit would hide it.
+			// Явный фильтр, не совпавший ни с чем, — это опечатка, а не
+			// пустое дерево; молчаливый зелёный выход «0 cases found»
+			// спрятал бы её.
 			return 2, fmt.Errorf("no cases matched --role=%q --case=%q", *roleFlag, *caseFlag)
 		}
 		fmt.Fprintln(stdout, "0 cases found")
@@ -64,7 +65,11 @@ func run(args []string, stdout, _ io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer func() { _ = os.RemoveAll(binDir) }()
+	defer func() {
+		if err := os.RemoveAll(binDir); err != nil {
+			fmt.Fprintln(os.Stderr, "eval-roles: временный каталог сборки не убран:", err)
+		}
+	}()
 
 	runAgentBin, err := resolveRunAgentBin(repoRoot, binDir)
 	if err != nil {

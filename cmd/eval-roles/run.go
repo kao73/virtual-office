@@ -9,9 +9,9 @@ import (
 	"github.com/kao73/virtual-office/internal/runner"
 )
 
-// dispatchCheck resolves ctx.Spec.Kind through the checkers map and runs it.
-// A dispatch miss (e.g. "llm_judge") fails the check explicitly instead of
-// silently skipping it.
+// dispatchCheck находит ctx.Spec.Kind в карте checkers и запускает её.
+// Промах диспетчера (например, "llm_judge") явно проваливает проверку, а не
+// молча её пропускает.
 func dispatchCheck(ctx CheckContext) CheckResult {
 	checker, ok := checkers[ctx.Spec.Kind]
 	if !ok {
@@ -20,8 +20,8 @@ func dispatchCheck(ctx CheckContext) CheckResult {
 	return checker.Run(ctx)
 }
 
-// runChecks evaluates every declared check — not just until the first
-// failure, so a case with several problems reports all of them in one sweep.
+// runChecks выполняет каждую объявленную проверку — не только до первого
+// провала, так что кейс с несколькими проблемами сообщит их все за один проход.
 func runChecks(fixtureDir, initialCommit string, result runner.Result, specs []CheckSpec) []CheckResult {
 	results := make([]CheckResult, 0, len(specs))
 	for _, spec := range specs {
@@ -35,9 +35,9 @@ func runChecks(fixtureDir, initialCommit string, result runner.Result, specs []C
 	return results
 }
 
-// evaluateCase runs one golden case end to end: materialize its fixture,
-// invoke the role through run-agent, run every declared check, and
-// aggregate the verdict.
+// evaluateCase прогоняет один golden case целиком: материализует его
+// фикстуру, вызывает роль через run-agent, выполняет каждую объявленную
+// проверку и сводит их в итоговый вердикт.
 func evaluateCase(runAgentBin, repoRoot string, c Case) CaseOutcome {
 	name := c.Role + "/" + c.id()
 
@@ -45,7 +45,11 @@ func evaluateCase(runAgentBin, repoRoot string, c Case) CaseOutcome {
 	if err != nil {
 		return CaseOutcome{Case: name, Status: "errored", Err: fmt.Errorf("фикстура не подготовлена: %w", err)}
 	}
-	defer func() { _ = os.RemoveAll(fixtureDir) }()
+	defer func() {
+		if err := os.RemoveAll(fixtureDir); err != nil {
+			fmt.Fprintln(os.Stderr, "eval-roles: временная фикстура не убрана:", err)
+		}
+	}()
 
 	taskPath := filepath.Join(c.dir, "task.md")
 	if _, err := os.Stat(taskPath); err != nil {
@@ -58,7 +62,15 @@ func evaluateCase(runAgentBin, repoRoot string, c Case) CaseOutcome {
 	}
 
 	checks := runChecks(fixtureDir, initialCommit, result, c.Checks)
+	status, combined := aggregateStatus(checks)
+	return CaseOutcome{Case: name, Status: status, Checks: checks, Err: combined}
+}
 
+// aggregateStatus сводит результаты проверок кейса к одному вердикту: любой
+// Err (инфраструктура) поднимает статус до "errored" и держит его там, даже
+// если следующая проверка всего лишь Pass:false — незапустившаяся проверка
+// весомее проверки, которая запустилась и нашла роль неправой.
+func aggregateStatus(checks []CheckResult) (string, error) {
 	status := "passed"
 	var errs []error
 	for _, r := range checks {
@@ -74,5 +86,5 @@ func evaluateCase(runAgentBin, repoRoot string, c Case) CaseOutcome {
 	if status == "errored" {
 		combined = errors.Join(errs...)
 	}
-	return CaseOutcome{Case: name, Status: status, Checks: checks, Err: combined}
+	return status, combined
 }

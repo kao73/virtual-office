@@ -38,7 +38,7 @@ func TestDiscoverCasesFiltersByRoleAndCase(t *testing.T) {
 	}
 }
 
-// tasks.md 2.1: an empty (or nonexistent) evals/ tree is not an error.
+// tasks.md 2.1: пустое (или отсутствующее) дерево evals/ — не ошибка.
 func TestDiscoverCasesEmptyTreeIsNotAnError(t *testing.T) {
 	dirs, err := discoverCases(filepath.Join(t.TempDir(), "no-such-evals"), "", "")
 	if err != nil {

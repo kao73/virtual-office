@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// TestExitCode exercises the three-way exit-code contract directly: 0 clean
-// pass, 1 failed-but-not-errored, 2 whenever any case errored — even
-// alongside failed or passed cases.
+// TestExitCode напрямую проверяет тройной контракт кода выхода: 0 — чистый
+// pass, 1 — failed-но-не-errored, 2 — как только хоть один кейс errored, даже
+// рядом с failed или passed кейсами.
 func TestExitCode(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -46,9 +46,9 @@ func TestExitCode(t *testing.T) {
 	}
 }
 
-// TestPrintSummaryRendersErroredCase confirms the ERROR branch actually
-// prints something distinguishable — the case name and the underlying
-// error text — not just that the tally counts it.
+// TestPrintSummaryRendersErroredCase подтверждает, что ветка ERROR
+// действительно печатает что-то различимое — имя кейса и текст самой
+// ошибки, — а не только то, что счётчик его учёл.
 func TestPrintSummaryRendersErroredCase(t *testing.T) {
 	var out bytes.Buffer
 	outcomes := []CaseOutcome{

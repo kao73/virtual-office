@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// materializeFixture copies caseDir/fixture into a fresh temp directory,
-// commits it as a single git commit, and returns the temp directory plus
-// that commit's SHA. The caller owns cleanup of the returned directory.
+// materializeFixture копирует caseDir/fixture в свежий временный каталог,
+// коммитит его одним git-коммитом и возвращает этот каталог вместе с SHA
+// коммита. Уборка возвращённого каталога — на вызывающем.
 func materializeFixture(caseDir string) (fixtureDir, initialCommit string, err error) {
 	fixtureSrc := filepath.Join(caseDir, "fixture")
 	if info, statErr := os.Stat(fixtureSrc); statErr != nil || !info.IsDir() {
@@ -41,7 +41,7 @@ func materializeFixture(caseDir string) (fixtureDir, initialCommit string, err e
 
 	head, err := exec.Command("git", "-C", fixtureDir, "rev-parse", "HEAD").Output()
 	if err != nil {
-		return "", "", fmt.Errorf("HEAD не определён: %w", err)
+		return "", "", fmt.Errorf("HEAD не определён: %w: %s", err, exitStderr(err))
 	}
 	return fixtureDir, strings.TrimSpace(string(head)), nil
 }
