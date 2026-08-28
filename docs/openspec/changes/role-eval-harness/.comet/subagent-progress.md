@@ -3,16 +3,14 @@
 review_mode: standard | tdd_mode: tdd | fix-round cap: 1 (standard)
 
 ## Current
-- Plan task: Task 21 (tasks.md 5.3): confirm eval-sweep runs don't move per_role_daily
-- OpenSpec task: 5.3
-- Stage: implementing
-- Model: sonnet
-- Task 20 / tasks.md 5.2 NOT checked off: confirmed reproducible finding (2/2
-  real runs) that removing base.md's escalation section does not make
-  implementer/escalation-ambiguous-task fail. Restoration verified 4x, no
-  destructive residue. This is a plan/spec-level finding to surface to the
-  user, not a code defect for this task to fix. See progress.md for full
-  ruling. Task 21 is independent of this and proceeds normally.
+- Stage: final-review (all 21 tasks executed; 20/21 tasks.md checked, 5.2
+  deliberately unchecked — see progress.md ruling)
+- Final whole-branch review (opus) complete: Ready to merge WITH FIXES,
+  5 Important findings (see progress.md). User chose to investigate Task
+  20's non-reproduction; a focused fork investigation of archived run
+  transcripts for that specific case is in progress.
+- Not yet run: comet guard build --apply (withheld pending user direction
+  on the Important findings + the Task 20/5.2 investigation outcome).
 - Calibration (from Task 9 review): don't risk-flag "git shellout on fixture
   temp dir, fixed args" or "adds entry to unexported checkers map" alone.
 - Credential note still applies (see progress.md operational note) for any
