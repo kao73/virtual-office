@@ -5,4 +5,10 @@ checks:
   - kind: diff_scope
     allow: []
   - kind: fixture_tests
-    command: "grep -qi 'Max' .agent/result.json && grep -qiE '(неверн|ошиб|сломан|некорректн|баг)' .agent/result.json"
+    # Одних корневых слов («ошиб», «баг», …) мало: «ошибок не найдено» тоже
+    # содержит «ошиб» и раньше засчитывалась как найденный дефект. Проверка
+    # обязана И увидеть слово-триггер, И не увидеть рядом отрицания.
+    command: >-
+      grep -qi 'Max' .agent/result.json &&
+      grep -qiE '(неверн|ошиб|сломан|некорректн|баг)' .agent/result.json &&
+      ! grep -qiE '(не найдено|нет ошибок|ошибок нет|корректно|верно реализован|works correctly|no bugs?( found)?|no issues)' .agent/result.json

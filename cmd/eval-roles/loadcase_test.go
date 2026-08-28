@@ -73,6 +73,42 @@ func TestLoadCaseRejectsFixtureTestsWithoutCommand(t *testing.T) {
 	}
 }
 
+// Неизвестный kind (опечатка вроде "outcom") без этой проверки всплыл бы
+// только после платного прогона роли, в dispatchCheck, и выглядел бы в
+// сводке как обычный FAIL — то есть как регресс роли, а не сломанный
+// expect.yaml.
+func TestLoadCaseRejectsUnknownKind(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte("role: implementer\nchecks:\n  - kind: outcom\n    expect: done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("неизвестный kind не замечен")
+	}
+}
+
+// Пустой expect у outcome-проверки: got != want никогда не совпадёт с "", так
+// что проверка технически безопасна (не зазеленеет впустую, как fixture_tests
+// с пустым command) — но платить прогоном роли за то, что было предрешено
+// опечаткой в expect.yaml, всё равно не стоит.
+func TestLoadCaseRejectsOutcomeWithoutExpect(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte("role: implementer\nchecks:\n  - kind: outcome\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("outcome без expect не замечен")
+	}
+}
+
 func TestLoadCaseRejectsEmptyChecks(t *testing.T) {
 	root := t.TempDir()
 	caseDir := filepath.Join(root, "implementer", "sample-case")

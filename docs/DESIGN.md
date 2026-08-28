@@ -148,12 +148,13 @@
   бюджетом уходит к человеку обычным путём, роль с исчерпанным дневным пределом
   просто не берёт задач. См. §2.7 и `docs/notes/budgets.md`.
 - ~~Evals для ролей перед промоутом конфига из `main` в `stable`.~~
-  **Сделано (role-eval-harness).** `cmd/eval-roles` прогоняет golden-кейсы
-  (`evals/<role>/<case-id>/`: fixture + task.md + expect.yaml) через
-  `run-agent` и сверяет исход декларативными проверками (`outcome`,
-  `diff_scope`, `fixture_tests`). Подробности —
-  `docs/openspec/changes/archive/2026-08-28-role-eval-harness/` и
-  `docs/superpowers/specs/2026-08-27-role-eval-harness-design.md`.
+  **Сделано (role-eval-harness) — без гейта промоута.** `cmd/eval-roles`
+  прогоняет golden-кейсы (`evals/<role>/<case-id>/`: fixture + task.md +
+  expect.yaml) через `run-agent` и сверяет исход декларативными проверками
+  (`outcome`, `diff_scope`, `fixture_tests`). Запуск ручной: ни `main`→`stable`,
+  ни какой-либо другой промоут к нему не привязан — эта часть исходного пункта
+  не сделана. Подробности — `docs/openspec/changes/archive/2026-08-28-role-eval-harness/`
+  и `docs/superpowers/specs/2026-08-27-role-eval-harness-design.md`.
 
 ## 5. Существующие решения (для ориентира, чтобы не изобретать)
 

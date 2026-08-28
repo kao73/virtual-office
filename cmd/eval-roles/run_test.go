@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kao73/virtual-office/internal/runner"
@@ -133,7 +136,7 @@ func TestEvaluateCaseAggregatesPassed(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false)
 	if outcome.Status != "passed" {
 		t.Errorf("status=%q, ожидался passed: %+v", outcome.Status, outcome)
 	}
@@ -175,9 +178,130 @@ func TestEvaluateCaseDiffScopeIgnoresAgentDir(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false)
 	if outcome.Status != "passed" {
 		t.Errorf("status=%q, ожидался passed (.agent/ должен быть исключён из diff_scope): %+v", outcome.Status, outcome)
+	}
+}
+
+// Ни один прогон харнесса ещё не доказал, что кейс реально умеет краснеть —
+// зелёный sweep выглядел бы так же, будь все проверки декоративными. Гоняет
+// настоящий golden case (evals/implementer/capability-basic-bugfix, чья
+// фикстура несёт реальный баг: Add возвращает a-b) через fakeagent, который
+// заявляет "done", но саму фикстуру не трогает — баг остаётся, `go test ./...`
+// внутри неё обязан провалиться.
+func TestEvaluateCaseCatchesUnfixedBug(t *testing.T) {
+	bin := buildFakeAgent(t)
+	t.Setenv(runAgentBinEnv, bin)
+	t.Setenv("FAKE_AGENT_RESULT", `{"outcome":"done","summary":"готово","next_owner":"none"}`)
+
+	c, err := LoadCase("../../evals/implementer/capability-basic-bugfix")
+	if err != nil {
+		t.Fatalf("случай не разобран: %v", err)
+	}
+
+	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	if outcome.Status != "failed" {
+		t.Fatalf("status=%q, ожидался failed (баг в calc.go не исправлен, go test ./... обязан провалиться): %+v", outcome.Status, outcome)
+	}
+}
+
+// Регрессия на прежний вариант проверки evals/reviewer/capability-spot-defect:
+// grep по одним лишь корням («ошиб», «баг», …) совпадал и с «баг найден», и
+// с «ошибок **не** найдено» — единственный кейс, чья задача отличить
+// заметившего дефект ревьюера от не заметившего, не различал их вовсе.
+func TestEvaluateCaseSpotDefectDistinguishesFoundVsMissed(t *testing.T) {
+	bin := buildFakeAgent(t)
+	t.Setenv(runAgentBinEnv, bin)
+
+	c, err := LoadCase("../../evals/reviewer/capability-spot-defect")
+	if err != nil {
+		t.Fatalf("случай не разобран: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		summary string
+		want    string
+	}{
+		{
+			"defect found",
+			`{"outcome":"done","summary":"В Max найден баг: обе ветки возвращают a, из-за чего Max(1,3) вернёт 1 вместо 3.","next_owner":"none"}`,
+			"passed",
+		},
+		{
+			"defect missed",
+			`{"outcome":"done","summary":"Функция Max реализована верно, ошибок не найдено.","next_owner":"none"}`,
+			"failed",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("FAKE_AGENT_RESULT", tc.summary)
+			outcome := evaluateCase(bin, ".", c, io.Discard, false)
+			if outcome.Status != tc.want {
+				t.Errorf("status=%q, ожидался %q: %+v", outcome.Status, tc.want, outcome)
+			}
+		})
+	}
+}
+
+// --keep-failed сохраняет рабочий каталог не-passed кейса вместо того, чтобы
+// его убирать — иначе разобраться в провале можно только повторным (платным)
+// прогоном роли.
+func TestEvaluateCaseKeepsFixtureDirOnFailureWhenRequested(t *testing.T) {
+	bin := buildFakeAgent(t)
+	t.Setenv(runAgentBinEnv, bin)
+	t.Setenv("FAKE_AGENT_RESULT", `{"outcome":"done","summary":"готово","next_owner":"none"}`)
+
+	c, err := LoadCase("../../evals/implementer/capability-basic-bugfix")
+	if err != nil {
+		t.Fatalf("случай не разобран: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	outcome := evaluateCase(bin, ".", c, &stderr, true)
+	if outcome.Status != "failed" {
+		t.Fatalf("status=%q, ожидался failed: %+v", outcome.Status, outcome)
+	}
+
+	const marker = "рабочий каталог сохранён — "
+	msg := stderr.String()
+	idx := strings.Index(msg, marker)
+	if idx == -1 {
+		t.Fatalf("не нашли сообщение о сохранённом каталоге в stderr: %q", msg)
+	}
+	dir := strings.TrimSpace(msg[idx+len(marker):])
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("рабочий каталог провалившегося кейса не сохранён: %v", err)
+	}
+}
+
+// Без --keep-failed поведение остаётся прежним: рабочий каталог провалившегося
+// кейса убирается. Считает каталоги eval-roles-fixture-* до и после — прямого
+// пути (CaseOutcome не несёт его) в этой ветке нет.
+func TestEvaluateCaseRemovesFixtureDirOnFailureByDefault(t *testing.T) {
+	bin := buildFakeAgent(t)
+	t.Setenv(runAgentBinEnv, bin)
+	t.Setenv("FAKE_AGENT_RESULT", `{"outcome":"done","summary":"готово","next_owner":"none"}`)
+
+	c, err := LoadCase("../../evals/implementer/capability-basic-bugfix")
+	if err != nil {
+		t.Fatalf("случай не разобран: %v", err)
+	}
+
+	before, _ := filepath.Glob(filepath.Join(os.TempDir(), "eval-roles-fixture-*"))
+
+	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	if outcome.Status != "failed" {
+		t.Fatalf("status=%q, ожидался failed: %+v", outcome.Status, outcome)
+	}
+
+	after, _ := filepath.Glob(filepath.Join(os.TempDir(), "eval-roles-fixture-*"))
+	if len(after) > len(before) {
+		t.Errorf("рабочий каталог провалившегося кейса не убран без --keep-failed: было %d, стало %d", len(before), len(after))
 	}
 }
 
@@ -195,7 +319,7 @@ func TestEvaluateCaseErrorsOnMissingFixture(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase("/does/not/matter", ".", c)
+	outcome := evaluateCase("/does/not/matter", ".", c, io.Discard, false)
 	if outcome.Status != "errored" {
 		t.Errorf("status=%q, ожидался errored (нет fixture/)", outcome.Status)
 	}

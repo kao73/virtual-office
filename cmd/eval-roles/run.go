@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -38,7 +39,10 @@ func runChecks(fixtureDir, initialCommit string, result runner.Result, specs []C
 // evaluateCase прогоняет один golden case целиком: материализует его
 // фикстуру, вызывает роль через run-agent, выполняет каждую объявленную
 // проверку и сводит их в итоговый вердикт.
-func evaluateCase(runAgentBin, repoRoot string, c Case) CaseOutcome {
+// keepFailed, когда true, не убирает fixtureDir не-passed кейса — иначе
+// разобраться в FAIL можно только повторным (платным) прогоном роли; путь
+// сохранённого каталога печатается в stderr.
+func evaluateCase(runAgentBin, repoRoot string, c Case, stderr io.Writer, keepFailed bool) (outcome CaseOutcome) {
 	name := c.Role + "/" + c.id()
 
 	fixtureDir, initialCommit, err := materializeFixture(c.dir)
@@ -46,8 +50,12 @@ func evaluateCase(runAgentBin, repoRoot string, c Case) CaseOutcome {
 		return CaseOutcome{Case: name, Status: "errored", Err: fmt.Errorf("фикстура не подготовлена: %w", err)}
 	}
 	defer func() {
+		if keepFailed && outcome.Status != "passed" {
+			fmt.Fprintf(stderr, "eval-roles: %s: рабочий каталог сохранён — %s\n", name, fixtureDir)
+			return
+		}
 		if err := os.RemoveAll(fixtureDir); err != nil {
-			fmt.Fprintln(os.Stderr, "eval-roles: временная фикстура не убрана:", err)
+			fmt.Fprintln(stderr, "eval-roles: временная фикстура не убрана:", err)
 		}
 	}()
 

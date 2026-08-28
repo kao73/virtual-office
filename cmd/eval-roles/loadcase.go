@@ -33,14 +33,41 @@ func LoadCase(dir string) (Case, error) {
 		return Case{}, errors.New("expect.yaml: checks пуст")
 	}
 	for _, chk := range c.Checks {
-		// Только fixture_tests: пустой command не провалился бы сам —
-		// `sh -c ""` выходит с кодом 0, и проверка молча зазеленела бы,
-		// ничего не проверив. У outcome и diff_scope такой ловушки нет:
-		// пустой Expect не совпадёт ни с одним исходом, а пустой Allow
-		// у diff_scope — законное значение (запрет любых изменений).
-		if chk.Kind == "fixture_tests" && strings.TrimSpace(chk.Command) == "" {
-			return Case{}, fmt.Errorf("expect.yaml: fixture_tests-проверка без command")
+		// Опечатка в данных не должна стоить платного прогона агента: и
+		// неизвестный kind, и пустой обязательный параметр всплывали бы
+		// только в dispatchCheck/checkers ПОСЛЕ настоящего прогона роли,
+		// и выглядели бы в сводке как FAIL — то есть как регресс роли,
+		// а не как сломанный expect.yaml.
+		if !knownCheckKind(chk.Kind) {
+			return Case{}, fmt.Errorf("expect.yaml: неизвестный kind %q", chk.Kind)
+		}
+		switch chk.Kind {
+		case "outcome":
+			if strings.TrimSpace(chk.Expect) == "" {
+				return Case{}, fmt.Errorf("expect.yaml: outcome-проверка без expect")
+			}
+		case "fixture_tests":
+			// Пустой command не провалился бы сам — `sh -c ""` выходит с
+			// кодом 0, и проверка молча зазеленела бы, ничего не проверив.
+			// У diff_scope такой ловушки нет: пустой Allow — законное
+			// значение (запрет любых изменений).
+			if strings.TrimSpace(chk.Command) == "" {
+				return Case{}, fmt.Errorf("expect.yaml: fixture_tests-проверка без command")
+			}
 		}
 	}
 	return c, nil
+}
+
+// knownCheckKind сообщает, известен ли kind: тем же четырём значениям, что
+// разбирает CheckSpec (см. types.go), включая ещё не реализованный
+// llm_judge — dispatchCheck сам явно проваливает его как «not implemented»,
+// и это осознанно необработанный вид, а не опечатка.
+func knownCheckKind(kind string) bool {
+	switch kind {
+	case "outcome", "diff_scope", "fixture_tests", "llm_judge":
+		return true
+	default:
+		return false
+	}
 }
