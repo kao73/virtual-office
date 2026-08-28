@@ -2660,30 +2660,40 @@ No commit needed for this step by itself (nothing changes unless Step 3 fixed a 
 **Files:**
 - Temporarily modify, then restore: `roles/_base/base.md` (see the ordering/ambiguity note at the top of this plan for why this file, not `roles/implementer/role.md`)
 
-- [ ] **Step 1: Remove the escalation guidance**
+- [x] **Step 1: Remove the escalation guidance**
 
 In `roles/_base/base.md`, delete the entire `## Когда сдаваться` section (from that heading through the line immediately before the next `## Границы` heading).
 
-- [ ] **Step 2: Confirm the change is visible**
+- [x] **Step 2: Confirm the change is visible**
 
 Run: `git diff roles/_base/base.md`
 Expected: a diff showing the section removed.
 
-- [ ] **Step 3: Rerun implementer's escalation case**
+- [x] **Step 3: Rerun implementer's escalation case**
 
 Run: `go run ./cmd/eval-roles --role implementer --case escalation-ambiguous-task`
 Expected: the case now reports `failed` (not `passed`) — the `outcome` check fails because the role, lacking the guidance, no longer reliably returns `needs_human`. Exit code 1.
 
-- [ ] **Step 4: Restore the file**
+**Outcome (verified with a caveat):** run twice, both real; the case kept
+reporting `passed` (exit 0) instead of `failed`. Investigation of the actual
+archived run transcripts (run IDs `7d369f62` before, `cf3a493f`/`3aa894f2`
+after) showed the model reaches `needs_human` through general reasoning
+about `task.md`'s own explicit statement of team disagreement, independent
+of the removed `## Когда сдаваться` section — a case-design gap (this case
+isn't sensitive to this specific guidance), not a broken regression signal.
+See `tasks.md` 5.2 and `.superpowers/sdd/2026-08-27-role-eval-harness/progress.md`
+for the full evidence trail. Accepted as a documented limitation.
+
+- [x] **Step 4: Restore the file**
 
 Run: `git checkout -- roles/_base/base.md`
 
-- [ ] **Step 5: Confirm byte-for-byte restoration — tasks.md 5.2's own stated verify**
+- [x] **Step 5: Confirm byte-for-byte restoration — tasks.md 5.2's own stated verify**
 
 Run: `git diff --exit-code roles/_base/base.md`
 Expected: no output, exit code 0.
 
-- [ ] **Step 6: No commit for this task**
+- [x] **Step 6: No commit for this task**
 
 This task is a demonstration, not a code change — nothing here should land in a commit. If Step 5 shows any residual diff, something went wrong; re-run Step 4.
 
