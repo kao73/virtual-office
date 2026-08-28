@@ -152,7 +152,7 @@
   (`evals/<role>/<case-id>/`: fixture + task.md + expect.yaml) через
   `run-agent` и сверяет исход декларативными проверками (`outcome`,
   `diff_scope`, `fixture_tests`). Подробности —
-  `docs/openspec/changes/role-eval-harness/` и
+  `docs/openspec/changes/archive/2026-08-28-role-eval-harness/` и
   `docs/superpowers/specs/2026-08-27-role-eval-harness-design.md`.
 
 ## 5. Существующие решения (для ориентира, чтобы не изобретать)
