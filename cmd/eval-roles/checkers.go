@@ -46,7 +46,7 @@ func (outcomeChecker) Run(ctx CheckContext) CheckResult {
 	// TrimSpace: runner.Result.Validate (internal/runner/agentio.go) сверяет
 	// next_owner тем же способом — значение с хвостовым пробелом законно по
 	// контракту раннера, и здесь не должно провалиться из-за него одного.
-	if gotOwner := strings.TrimSpace(ctx.Spec.NextOwner); gotOwner != "" && strings.TrimSpace(ctx.Result.NextOwner) != gotOwner {
+	if wantOwner := strings.TrimSpace(ctx.Spec.NextOwner); wantOwner != "" && strings.TrimSpace(ctx.Result.NextOwner) != wantOwner {
 		return CheckResult{Pass: false, Detail: fmt.Sprintf("next_owner=%q, expected %q", ctx.Result.NextOwner, ctx.Spec.NextOwner)}
 	}
 	detail := fmt.Sprintf("outcome=%q as expected", got)
