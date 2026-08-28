@@ -2,6 +2,7 @@
 change: role-eval-harness
 design-doc: docs/superpowers/specs/2026-08-27-role-eval-harness-design.md
 base-ref: 7240c3bc173a62ebc91fc6d5a85e6ef0fc7f48df
+archived-with: 2026-08-28-role-eval-harness
 ---
 
 # Role Eval Harness Implementation Plan

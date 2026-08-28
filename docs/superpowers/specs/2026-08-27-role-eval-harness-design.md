@@ -2,6 +2,8 @@
 comet_change: role-eval-harness
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-08-28-role-eval-harness
+status: final
 ---
 
 # role-eval-harness — Technical Design
