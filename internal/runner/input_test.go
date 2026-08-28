@@ -305,7 +305,7 @@ func TestContextCarriesRunnerSections(t *testing.T) {
 // называется отдельной строкой и только когда он в git: незакоммиченный файл
 // для следующей роли не существует, и обещать его нельзя.
 func TestContextNamesChangeDirAndPlan(t *testing.T) {
-	workdir, role := gitRepo(t), scopedRole(t)
+	workdir, role := gitRepo(t), fixtureRole(t)
 	passport := fixturePassport()
 	passport.TaskKey = "OFF-1"
 
@@ -321,8 +321,12 @@ func TestContextNamesChangeDirAndPlan(t *testing.T) {
 		t.Errorf("обещан каталог, которого нет:\n%s", context)
 	}
 
-	if _, err := PrepareChangeDir(workdir, role, passport.TaskKey); err != nil {
-		t.Fatalf("каталог изменения не подготовлен: %v", err)
+	dir := filepath.Join(workdir, ChangeDirRel(passport.TaskKey))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("каталог изменения не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, FileTasks), []byte("- [ ] план\n"), 0o644); err != nil {
+		t.Fatalf("план не записан: %v", err)
 	}
 	context := prepare()
 	if !strings.Contains(context, "Каталог изменения: docs/changes/OFF-1") {

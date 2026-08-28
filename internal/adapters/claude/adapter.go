@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -118,12 +117,12 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		return abort(fmt.Errorf("системный промпт не записан: %w", err))
 	}
 
-	hooks, checker, err := copyHooks(roleDir, role, validator)
+	hooks, err := copyHooks(roleDir, role, validator)
 	if err != nil {
 		return abort(err)
 	}
 
-	settings, err := buildSettings(role, workdir, run, hooks, checker)
+	settings, err := buildSettings(role, workdir, hooks)
 	if err != nil {
 		return abort(err)
 	}
@@ -139,14 +138,6 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 	tools := toolNames(role.Tools.Allow)
 	if !slices.Contains(tools, WriteTool) {
 		tools = append(tools, WriteTool)
-	}
-	// Область записи роли превращается в правило на путь, а состав --tools
-	// собирается из имён правил `allow` — но голого `Edit` роль там держать
-	// не вправе, он разрешил бы правку всего. Поэтому инструмент добавляет
-	// адаптер, ровно тогда, когда сам синтезировал правило: иначе у роли
-	// с областью записи не оказалось бы инструмента вовсе.
-	if writeScopeRule(role, workdir, run) != "" && !slices.Contains(tools, FileRule) {
-		tools = append(tools, FileRule)
 	}
 
 	pluginDir := ""
@@ -210,10 +201,10 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		Workdir: workdir,
 		Timeout: time.Duration(role.Limits.TimeoutSec) * time.Second,
 
-		Env: append(append([]string{
+		Env: append([]string{
 			"CLAUDE_CONFIG_DIR=" + configDir,
 			credVar + "=" + credValue,
-		}, identityVars(role)...), officeVars(role, workdir, run)...),
+		}, identityVars(role)...),
 		HostEnv: hostEnv,
 
 		Workspaces: []runner.Workspace{
@@ -247,42 +238,6 @@ func networkAllow(role runner.Role) []string {
 	hosts := append([]string{AgentAPIHost}, role.Network.Allow...)
 	slices.Sort(hosts)
 	return slices.Compact(hosts)
-}
-
-// officeVars — параметры прогона для ограждений. Хук получает их из окружения,
-// а не аргументами: аргументы задаёт адаптер, и второй адаптер, написанный под
-// другого агента, повторил бы их по-своему. Имена `OFFICE_*` — агент-нейтральная
-// часть контракта прогона, см. docs/contracts/agent-io.md.
-//
-// Что в них класть, решает раннер: наблюдает прогон он, и то же самое значение
-// нужно ему самому, когда он проверяет ограждения после прогона. Дело адаптера —
-// перенести это в окружение запуска.
-//
-// Пустые значения не передаются вовсе: «переменной нет» и «значение пустое» —
-// одно и то же, и в шелле это одна форма `${VAR:-}`.
-func officeVars(role runner.Role, workdir string, run runner.Run) []string {
-	vars := runner.RunEnv(role, workdir, run)
-
-	env := make([]string, 0, len(vars))
-	for _, name := range slices.Sorted(maps.Keys(vars)) {
-		if vars[name] != "" {
-			env = append(env, name+"="+vars[name])
-		}
-	}
-	return env
-}
-
-// writeScopeRule — правило разрешений для области записи роли. Пусто означает,
-// что роль области не объявляла: границу ей задаёт состав инструментов.
-//
-// Роль называет намерение («каталог изменения»), а во что оно превратится, знает
-// адаптер: путь собирается из ключа задачи, форма `//<путь>` — абсолютная,
-// маска `**` покрывает файлы внутри.
-func writeScopeRule(role runner.Role, workdir string, run runner.Run) string {
-	if role.WriteScope.Dir != runner.ScopeChangeDir {
-		return ""
-	}
-	return FileRule + "(/" + runner.ChangeDir(workdir, run.TaskKey) + "/**)"
 }
 
 // identityVars задают личность коммитов. Переменные окружения выбраны потому, что
@@ -319,34 +274,34 @@ func credential() (string, string, error) {
 //
 // Валидатор кладётся рядом со скриптами под фиксированным именем: скрипт ищет его
 // у себя под боком, потому что своего пути внутри изоляции он не знает.
-func copyHooks(roleDir string, role runner.Role, validator string) ([]string, string, error) {
+func copyHooks(roleDir string, role runner.Role, validator string) ([]string, error) {
 	sources := role.HookFiles()
-	if len(sources) == 0 && len(role.Guards) == 0 {
-		return nil, "", nil
+	if len(sources) == 0 {
+		return nil, nil
 	}
 	if validator == "" {
-		return nil, "", errors.New("роль ставит ограждение, но бинарник проверки результата не собран: ограждению нечем проверять")
+		return nil, errors.New("роль ставит хук, но бинарник проверки результата не собран: хуку нечем проверять")
 	}
 
 	dir := filepath.Join(roleDir, "hooks")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, "", fmt.Errorf("каталог ограждений не создан: %w", err)
+		return nil, fmt.Errorf("каталог хуков не создан: %w", err)
 	}
 
 	copied := make([]string, 0, len(sources))
 	for _, src := range sources {
 		dst := filepath.Join(dir, filepath.Base(src))
 		if err := copyExecutable(src, dst); err != nil {
-			return nil, "", fmt.Errorf("ограждение не скопировано: %w", err)
+			return nil, fmt.Errorf("хук не скопирован: %w", err)
 		}
 		copied = append(copied, dst)
 	}
 
 	checker := filepath.Join(dir, runner.ValidatorName)
 	if err := copyExecutable(validator, checker); err != nil {
-		return nil, "", fmt.Errorf("проверка результата не скопирована: %w", err)
+		return nil, fmt.Errorf("проверка результата не скопирована: %w", err)
 	}
-	return copied, checker, nil
+	return copied, nil
 }
 
 // copyExecutable копирует файл, сохраняя бит исполняемости. Бит обязателен:
@@ -384,10 +339,10 @@ type hookCommand struct {
 	Timeout int    `json:"timeout,omitempty"`
 }
 
-// buildSettings переводит tools, hooks и ограждения роли в settings.json.
-// Путь к файлу результата подставляется в команду хука абсолютным: так ограждению
+// buildSettings переводит tools и hooks роли в settings.json.
+// Путь к файлу результата подставляется в команду хука абсолютным: так хуку
 // не приходится гадать, откуда его запустили.
-func buildSettings(role runner.Role, workdir string, run runner.Run, hooks []string, checker string) (string, error) {
+func buildSettings(role runner.Role, workdir string, hooks []string) (string, error) {
 	resultPath := filepath.Join(workdir, role.ResultFile)
 
 	// Право записать файл результата добавляется к разрешениям роли всегда и одним
@@ -398,29 +353,15 @@ func buildSettings(role runner.Role, workdir string, run runner.Run, hooks []str
 	// самого settings.json, а он лежит в хозяйстве запуска. Форма с одной косой
 	// не совпадает ни с чем — измерено, см. docs/notes/claude-cli.md.
 	allow := append(slices.Clone(role.Tools.Allow), FileRule+"(/"+resultPath+")")
-	if rule := writeScopeRule(role, workdir, run); rule != "" {
-		allow = append(allow, rule)
-	}
 	s := settingsFile{
 		Permissions: permissionsBlock{Allow: allow, Deny: role.Tools.Deny},
 	}
 
-	commands := make([]hookCommand, 0, len(hooks)+len(role.Guards))
+	commands := make([]hookCommand, 0, len(hooks))
 	for _, script := range hooks {
 		commands = append(commands, hookCommand{
 			Type:    "command",
 			Command: shellQuote(script) + " " + shellQuote(resultPath),
-			Timeout: 60,
-		})
-	}
-	// Ограждения роли идут после скриптов, и порядок этот по делу: первым стоит
-	// require-result.sh, и о невалидном результате агент узнаёт раньше, чем
-	// о претензиях к содержанию работы. Аргумента-пути у них нет — обстановку
-	// прогона они читают из окружения.
-	for _, name := range role.Guards {
-		commands = append(commands, hookCommand{
-			Type:    "command",
-			Command: shellQuote(checker) + " guard " + shellQuote(name),
 			Timeout: 60,
 		})
 	}
