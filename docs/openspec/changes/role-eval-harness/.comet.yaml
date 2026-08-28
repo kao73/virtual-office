@@ -8,7 +8,7 @@ subagent_dispatch: confirmed
 tdd_mode: tdd
 review_mode: standard
 isolation: branch
-verify_mode: null
+verify_mode: full
 auto_transition: true
 base_ref: 7a3cceb0687a133bfc201c6882d53df06266c976
 design_doc: docs/superpowers/specs/2026-08-27-role-eval-harness-design.md
