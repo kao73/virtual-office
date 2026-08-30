@@ -2265,7 +2265,7 @@ git commit -m "test(evals): point analyst golden cases at docs/comet/changes"
 
 **Interfaces:** None new.
 
-- [ ] **Step 1: Author the fixture using the shared recipe**
+- [x] **Step 1: Author the fixture using the shared recipe**
 
 - Base fixture files: a small `calc` package, deliberately missing the function the brief describes:
 
@@ -2312,7 +2312,7 @@ git commit -m "test(evals): point analyst golden cases at docs/comet/changes"
 - `specs/calc/spec.md` — one capability spec with one explicit acceptance item, e.g. `AC1: Double(x) returns 2*x, pinned by a test`.
 - Confirm via `comet native status eval-brief --json` that phase is `build` after `comet native next eval-brief --confirmed` — this is the phase implementer's role.md step (Task 10) checks for.
 
-- [ ] **Step 2: Write `task.md`**
+- [x] **Step 2: Write `task.md`**
 
 ```markdown
 Continue the work described in this change: the acceptance items live in the
@@ -2321,7 +2321,7 @@ change's own spec, not repeated here.
 
 (Deliberately minimal — the point of this case is that implementer gets its real instructions from the Comet Native change via context, not from `task.md`, mirroring how `capability-resume-no-reinvoke` deliberately keeps `task.md` unchanged while the fixture around it carries the real state.)
 
-- [ ] **Step 3: Write `expect.yaml`**
+- [x] **Step 3: Write `expect.yaml`**
 
 ```yaml
 role: implementer
@@ -2340,7 +2340,7 @@ checks:
 
 The `fixture_tests` command's second half is deliberately written to tolerate not knowing the exact `comet-state.yaml` path/shape in advance (per this plan's "Notes on task ordering" item 4/7): it first tries a permissive grep across any `.yaml` file in the change directory, and falls back to explicitly locating a file named `comet-state.yaml` if the first form doesn't match. Tighten this command once Task 13/14's own fixture-authoring step (which runs the real CLI) has shown the real file name and its exact "phase advanced past build" marker — do not leave the permissive form in place if a precise one is easy to write by then.
 
-- [ ] **Step 4: Sanity-check without spending money**
+- [x] **Step 4: Sanity-check without spending money**
 
 ```bash
 cd evals/implementer/capability-reads-brief-and-spec/fixture && go build ./... && go vet ./...
@@ -2348,7 +2348,7 @@ cd evals/implementer/capability-reads-brief-and-spec/fixture && go build ./... &
 
 Expected: the base fixture (without `Double` yet) builds — this only proves the *starting point* compiles, which it must so implementer isn't fighting a broken baseline; `go test ./...` at this point still passes too (only `TestAdd` exists).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/implementer/capability-reads-brief-and-spec
