@@ -1,0 +1,8 @@
+role: analyst
+checks:
+  - kind: outcome
+    expect: needs_human
+    questions_not_empty: true
+    next_owner: human
+  - kind: diff_scope
+    allow: ["docs/superpowers/**"]
