@@ -1,0 +1,14 @@
+{
+  "change": "analyst-brainstorming-skill",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "583161a71f71272f17f4d2c4ff0af21a1646136616388c40e8aca7493aa0dd97",
+  "files": [
+    { "path": "docs/openspec/changes/analyst-brainstorming-skill/proposal.md", "sha256": "8c31c5b97e8a020cd7a001516a1922e6552626f750f51620b5b1ff09f5d732ae" },
+    { "path": "docs/openspec/changes/analyst-brainstorming-skill/design.md", "sha256": "145d5d663417007054aae90459aa09820adbb38b6433d1a733194f7c3df75329" },
+    { "path": "docs/openspec/changes/analyst-brainstorming-skill/tasks.md", "sha256": "7feecefd214b8008696d27c900cbdf3dd0fe316f6b940af0b8e81e2247ecf36d" },
+    { "path": "docs/openspec/changes/analyst-brainstorming-skill/specs/role-external-skills/spec.md", "sha256": "11919edb742c9028d5043fbf743f292bf68e6aa586d8db57545d46ca639b3fbc" }
+  ]
+}
