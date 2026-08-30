@@ -804,7 +804,7 @@ This is the task the "archive before the PR, wired alongside, not an afterthough
 - Consumes: `runner.CometChangeName`/`runner.CometChangeDirRel` (Task 4), `runner.FileBrief`, `workspace.Manager.{Ensure,Push}`, `workspace.ErrWorktreeBusy`, `tracker.Task.Ref()`.
 - Produces: `(o *Office) archiveIfReady(task tracker.Task, project tracker.Project) (ok bool, err error)` — consumed only by `openPR` in this same task; not exported outside the package.
 
-- [ ] **Step 1: Write the failing `prBody` fallback tests**
+- [x] **Step 1: Write the failing `prBody` fallback tests**
 
 In `internal/pipeline/prpass_test.go`, add these two tests right after `TestPRPassBodyFallsBackToTicket`:
 
@@ -853,7 +853,7 @@ func TestPRPassBodyFallsBackToLegacyChangeDir(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail as expected**
+- [x] **Step 2: Run the tests to verify they fail as expected**
 
 ```bash
 go test ./internal/pipeline/... -run TestPRPassBody -v
@@ -861,7 +861,7 @@ go test ./internal/pipeline/... -run TestPRPassBody -v
 
 Expected: `TestPRPassBodyPrefersCometChangeOverLegacy` fails (the new-root brief isn't read at all yet — `prBody` still only checks `runner.ChangeDirRel`, so it would actually pick up "Старая постановка" and the test's negative assertion fails); `TestPRPassBodyFallsBackToLegacyChangeDir` already passes today (no regression to prove yet, but keep it — it becomes the regression guard for Step 3).
 
-- [ ] **Step 3: Fix `prBody`'s root order**
+- [x] **Step 3: Fix `prBody`'s root order**
 
 In `internal/pipeline/prpass.go`, replace the body-reading part of `prBody` (lines ~298-308):
 
@@ -906,7 +906,7 @@ with:
 	}
 ```
 
-- [ ] **Step 4: Run the `prBody` tests to verify they pass**
+- [x] **Step 4: Run the `prBody` tests to verify they pass**
 
 ```bash
 go test ./internal/pipeline/... -run TestPRPassBody -v
@@ -914,7 +914,7 @@ go test ./internal/pipeline/... -run TestPRPassBody -v
 
 Expected: both new tests pass, and `TestPRPassBodyCarriesBriefAndReport`/`TestPRPassBodyFallsBackToTicket` (which only ever populate `runner.ChangeDirRel`, the legacy root) still pass unmodified — they now exercise the fallback branch rather than the sole branch, with identical observable output.
 
-- [ ] **Step 5: Write the failing archive tests**
+- [x] **Step 5: Write the failing archive tests**
 
 Create `internal/pipeline/archive_test.go`:
 
@@ -1016,7 +1016,7 @@ func TestArchiveIfReadyDefersWhenWorktreeBusy(t *testing.T) {
 }
 ```
 
-- [ ] **Step 6: Run the tests to verify they fail**
+- [x] **Step 6: Run the tests to verify they fail**
 
 ```bash
 go test ./internal/pipeline/... -run TestArchiveIfReady -v
@@ -1024,7 +1024,7 @@ go test ./internal/pipeline/... -run TestArchiveIfReady -v
 
 Expected: compile error — `archiveIfReady`, `cometExecutable`, `archiveReadyPhase` don't exist yet.
 
-- [ ] **Step 7: Implement `internal/pipeline/archive.go`**
+- [x] **Step 7: Implement `internal/pipeline/archive.go`**
 
 ```go
 package pipeline
@@ -1150,7 +1150,7 @@ func runComet(dir string, args ...string) (string, error) {
 }
 ```
 
-- [ ] **Step 8: Wire `archiveIfReady` into `openPR`**
+- [x] **Step 8: Wire `archiveIfReady` into `openPR`**
 
 In `internal/pipeline/prpass.go`, `openPR` (around line 101-108), insert the call right after the forge is confirmed known and before `prBody` is computed:
 
@@ -1172,7 +1172,7 @@ In `internal/pipeline/prpass.go`, `openPR` (around line 101-108), insert the cal
 	title, body, err := o.prBody(task, repo, project)
 ```
 
-- [ ] **Step 9: Run the archive tests, then the full package, to verify green**
+- [x] **Step 9: Run the archive tests, then the full package, to verify green**
 
 ```bash
 go test ./internal/pipeline/... -run TestArchiveIfReady -v
@@ -1181,7 +1181,7 @@ go test ./internal/pipeline/... -v
 
 Expected: all four new archive tests pass. Every pre-existing `prpass_test.go`/`pipeline_test.go` test also still passes: `archiveIfReady` finds no real `comet` binary in the ordinary test environment (unless a test explicitly installs the fake one), fails fast inside `runComet`, logs, and returns `(true, nil)` — `openPR` proceeds to open the pull request exactly as it did before this task, for every test that doesn't touch the fake `comet`.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add internal/pipeline/prpass.go internal/pipeline/archive.go internal/pipeline/prpass_test.go internal/pipeline/archive_test.go
