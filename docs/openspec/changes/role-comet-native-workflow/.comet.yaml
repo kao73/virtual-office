@@ -1,6 +1,6 @@
 workflow: full
 language: en
-phase: design
+phase: build
 context_compression: off
 build_mode: null
 build_pause: null
@@ -11,7 +11,7 @@ isolation: branch
 verify_mode: null
 auto_transition: true
 base_ref: fefae454b48bf3b6adc829fcb095cda0b4134067
-design_doc: null
+design_doc: docs/superpowers/specs/2026-08-30-role-comet-native-workflow-design.md
 plan: null
 verify_result: pending
 verify_failures: 0
@@ -24,7 +24,7 @@ archived: false
 bound_branch: comet/role-comet-native-workflow
 direct_override: null
 handoff_context: docs/openspec/changes/role-comet-native-workflow/.comet/handoff/design-context.json
-handoff_hash: 4c79157f1cf4713149ffecb46d8099aecaaebe9a02ae265280ad79dbf3b04756
+handoff_hash: cdaf309496bddcf7b47030d84bb69adf97a1d176598f2922da40b2103631fc54
 classic_profile: full
 classic_migration: 1
 run_id: 4b047b83-3a66-4973-9aad-02d7614519d7

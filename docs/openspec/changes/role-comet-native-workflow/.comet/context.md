@@ -3,7 +3,7 @@
 - Change: role-comet-native-workflow
 - Phase: design
 - Mode: compact
-- Context hash: 4c79157f1cf4713149ffecb46d8099aecaaebe9a02ae265280ad79dbf3b04756
+- Context hash: cdaf309496bddcf7b47030d84bb69adf97a1d176598f2922da40b2103631fc54
 
 Generated-by: comet-handoff.sh
 
@@ -88,8 +88,8 @@ governs a different, orthogonal mechanism (`tools`/`network` layering, not hooks
 ## docs/openspec/changes/role-comet-native-workflow/design.md
 
 - Source: docs/openspec/changes/role-comet-native-workflow/design.md
-- Lines: 1-82
-- SHA256: 4f80f44c04d810f331d5f4d8bc49fd290b02a6fb6fba90cf1fd6c46575429adc
+- Lines: 1-88
+- SHA256: 45a8f45b94d8792414869d3227372614416c9c4b53b38716577406799c732c92
 
 [TRUNCATED]
 
@@ -138,10 +138,16 @@ Design Doc from the Design phase) established the technical facts this design re
   judgment, and both experiments showed that judgment lands close to what the office already wants
   (self-resolve the trivial, defuse the risky, never fabricate-and-proceed on something genuinely
   irreversible). Classic remains this repository's own meta-development workflow only.
-- **Archive is runner Go code, not a fourth role.** `comet native archive` is documented as
-  deterministic; adding a role/agent invocation to call one deterministic CLI command would cost a
-  full run for no judgment it needs to make, and would contradict the existing "route lives in the
-  graph/code" principle already applied to PR handling.
+- **Archive is runner Go code, not a fourth role — and runs before the PR opens, not after
+  merge.** `comet native archive` is documented as deterministic; adding a role/agent invocation to
+  call one deterministic CLI command would cost a full run for no judgment it needs to make, and
+  would contradict the existing "route lives in the graph/code" principle already applied to PR
+  handling. `internal/pipeline/prpass.go`'s `openPR` is already deterministic runner code that runs
+  before the PR exists — Archive attaches there, on the task's own branch. Archiving *after* merge
+  was considered and rejected during the Design phase's technical investigation: it would mean the
+  runner pushing an unreviewed commit straight to the default branch, which the office's own rule
+  that only a human merges (`docs/DESIGN.md` §2.8) forbids. Before the PR, the archive commit is
+  just part of the same PR a human already reviews and merges.
 - **One change, one design/plan, not phased by role.** `analyst` switching output format from
   `tasks.md`/`design.md` to `brief.md`/`spec.md` is a breaking change to `implementer`'s input
   regardless of whether `implementer` itself adopts Native's CLI-driven Build mechanics - the two
@@ -168,12 +174,6 @@ Design Doc from the Design phase) established the technical facts this design re
   rough edges to route around, not trust blindly).
 - [Verifier check-dispatch JSON schema is not yet fully understood - a live experiment hit `Native
   Runtime check 0 fields are invalid` and ran out of turn budget before resolving it] → Mitigation:
-  resolve the exact schema during the Design phase's technical investigation, before writing
-  `reviewer`'s role.md instructions.
-
-## Open Questions
-
-- Where/how the `sbx` sandbox image is customized to add Node + `comet` (or whether that is outside
 
 ```
 
