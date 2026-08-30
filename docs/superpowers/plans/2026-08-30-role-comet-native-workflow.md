@@ -2135,7 +2135,7 @@ If a step above (`comet native new`, `comet native next --confirmed`) does not b
 
 **Interfaces:** None new — these are `cmd/eval-roles` golden-case fixtures, consumed only by a live, paid `./bin/eval-roles` invocation (Task 16), never by any Go test in this repo's own suite.
 
-- [ ] **Step 1: Update `capability-basic-plan/expect.yaml`**
+- [x] **Step 1: Update `capability-basic-plan/expect.yaml`**
 
 `task.md` and the `fixture/greet/` source files are unaffected (analyst still needs to investigate the same `greet` package and write a plan for the same `Shout` function) — only the paths analyst now writes to change. Replace:
 
@@ -2169,7 +2169,7 @@ checks:
       git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/comet/changes | grep -q 'spec\.md$'
 ```
 
-- [ ] **Step 2: Update `escalation-ambiguous-decision/expect.yaml`**
+- [x] **Step 2: Update `escalation-ambiguous-decision/expect.yaml`**
 
 `task.md` and `fixture/README.md` (the ambiguous "add payment support" task and its unhelpful placeholder README) are unaffected — analyst still needs to hit the same genuine ambiguity and escalate. Replace:
 
@@ -2197,7 +2197,7 @@ checks:
     allow: ["docs/comet/changes/**"]
 ```
 
-- [ ] **Step 3: Rewrite `capability-resume-no-reinvoke`'s fixture using the shared recipe**
+- [x] **Step 3: Rewrite `capability-resume-no-reinvoke`'s fixture using the shared recipe**
 
 `task.md` stays as-is ("Add an exported function `Whisper`..."). The fixture must now contain a real Comet Native change already past Shape confirmation, so analyst's "resume, no re-invoke" rule (role.md step 1) has something real to recognize. Using the shared recipe above, with:
 
@@ -2239,7 +2239,7 @@ checks:
 
 (Unchanged from today — the assertion is still "resume produced no diff, but still names real, existing artifacts.")
 
-- [ ] **Step 4: Sanity-check the fixtures without spending money**
+- [x] **Step 4: Sanity-check the fixtures without spending money**
 
 ```bash
 find evals/analyst/capability-resume-no-reinvoke/fixture -type f | sort
@@ -2248,7 +2248,7 @@ git -C evals/analyst/capability-resume-no-reinvoke/fixture status 2>&1 | head -1
 
 Expected: the fixture directory tree now contains `docs/comet/changes/eval-resume/{brief.md,specs/greet/spec.md}` and whatever state file(s) `comet native new`/`next` produced, plus the unchanged `go.mod`/`greet/` files; it is a plain directory (not itself a `.git` repo — the second command should report "not a git repository" or similar, matching every other `evals/*/fixture/` in this repo, since `cmd/eval-roles`'s own `fixture.go` materializes the git repo around it at run time).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/analyst
