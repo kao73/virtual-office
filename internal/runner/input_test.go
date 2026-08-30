@@ -344,6 +344,36 @@ func TestContextNamesChangeDirAndPlan(t *testing.T) {
 	}
 }
 
+// Новый корень Comet Native проверяется первым: задача, которую ведёт analyst
+// через этот конвейер, найдётся там, даже если старый каталог тоже существует
+// (например, остался от прежней задачи, использовавшей тот же workdir).
+func TestContextPrefersCometChangeDirOverLegacy(t *testing.T) {
+	workdir, role := gitRepo(t), fixtureRole(t)
+	passport := fixturePassport()
+	passport.TaskKey = "OFF-1"
+
+	legacy := filepath.Join(workdir, ChangeDirRel(passport.TaskKey))
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatalf("старый каталог не создан: %v", err)
+	}
+	cometDir := filepath.Join(workdir, CometChangeDirRel(passport.TaskKey))
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatalf("новый каталог не создан: %v", err)
+	}
+
+	if err := PrepareInput(workdir, role, passport, Input{Task: "Задача\n"}); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+	context := read(t, workdir, FileContext)
+
+	if !strings.Contains(context, "Каталог изменения: "+CometChangeDirRel(passport.TaskKey)) {
+		t.Errorf("новый корень не назван в контексте:\n%s", context)
+	}
+	if strings.Contains(context, "Каталог изменения: "+ChangeDirRel(passport.TaskKey)) {
+		t.Errorf("старый корень не должен побеждать новый, когда оба есть:\n%s", context)
+	}
+}
+
 // Рабочая папка переиспользуется, а `result.json` в ней остаётся от прошлого
 // прогона. Прогон, не успевший написать свой — упёршийся в предел шагов или
 // убитый таймаутом, — прочитал бы чужой и выдал бы чужие слова за собственный

@@ -167,11 +167,19 @@ func composeContext(workdir string, role Role, run Run, in Input) (string, error
 	if in.BaseBranch != "" {
 		fmt.Fprintf(&b, "- Базовая ветка: %s\n", in.BaseBranch)
 	}
-	// Каталог изменения агент сам не найдёт: путь собирается из ключа задачи,
-	// а на первом прогоне каталог ещё пуст и от прочих не отличается. План
-	// называется отдельно и только когда он в git: незакоммиченный файл для
-	// следующей роли не существует, и обещать его нельзя.
-	if dir := ChangeDirRel(run.TaskKey); exists(filepath.Join(workdir, dir)) {
+	// Новый корень Comet Native проверяется первым: задача, которую ведёт
+	// analyst через этот конвейер, найдётся там. Старый docs/changes/<KEY>
+	// остаётся вторым источником — для задач, чью Shape-фазу analyst прошёл
+	// ещё до этого перехода. "План: <путь>/tasks.md" имеет смысл только у
+	// старого корня: изменения Comet Native такого файла не пишут вовсе, и
+	// строка там просто не появится — это не пробел, а точный ответ.
+	dir := CometChangeDirRel(run.TaskKey)
+	if !exists(filepath.Join(workdir, dir)) {
+		if legacy := ChangeDirRel(run.TaskKey); exists(filepath.Join(workdir, legacy)) {
+			dir = legacy
+		}
+	}
+	if exists(filepath.Join(workdir, dir)) {
 		fmt.Fprintf(&b, "- Каталог изменения: %s\n", dir)
 		if plan := filepath.Join(dir, FileTasks); TrackedByGit(workdir, plan) {
 			fmt.Fprintf(&b, "- План: %s\n", plan)
