@@ -1422,7 +1422,7 @@ git commit -m "chore(skills): vendor comet-native 0.4.0-beta.18"
 - Consumes: `skills/comet/`, `skills/comet-native/` (Tasks 7–8), `hooks.pre_tool_use` schema (Task 2), `runner.CometChangeName`/`CometChangeDirRel` (Task 4, referenced by name in prose — `role.md` is read by the agent, not compiled, so it names the path convention rather than importing Go).
 - Produces: the Shape half of the phase-to-role mapping. `next_owner: implementer` on `done` is unchanged from today — no `workflow.yaml` change needed (analyst's own `by_next_owner` map already has `implementer: Ready`).
 
-- [ ] **Step 1: Replace `role.yaml`**
+- [x] **Step 1: Replace `role.yaml`**
 
 Replace `roles/analyst/role.yaml` in full:
 
@@ -1499,7 +1499,7 @@ result_file: .agent/result.json
 
 (Only two things changed from the current file: `skills:` and the new `hooks.pre_tool_use` entry — everything else, including every comment, is unchanged.)
 
-- [ ] **Step 2: Replace the dispatcher section of `role.md`**
+- [x] **Step 2: Replace the dispatcher section of `role.md`**
 
 Replace everything from `## Диспетчер скиллов` through the end of that section (the current file's lines 17-68, ending right before `## Как коммитить`) with:
 
@@ -1550,7 +1550,7 @@ Replace everything from `## Диспетчер скиллов` through the end o
 6. **Исход.** Shape подтверждён → `done`, `next_owner: implementer`.
 ```
 
-- [ ] **Step 3: Update `## Как коммитить`'s stale skill reference**
+- [x] **Step 3: Update `## Как коммитить`'s stale skill reference**
 
 Replace this bullet:
 
@@ -1573,7 +1573,7 @@ with:
 
 The rest of `## Как коммитить` is unchanged (design doc: "unchanged in substance").
 
-- [ ] **Step 4: Update `## Когда задачу вернул разработчик`**
+- [x] **Step 4: Update `## Когда задачу вернул разработчик`**
 
 Replace:
 
@@ -1609,7 +1609,7 @@ with:
 
 `## Вход` and `## Исходы` are unchanged — neither names the retired skills or the old change root.
 
-- [ ] **Step 5: Verify the role still loads**
+- [x] **Step 5: Verify the role still loads**
 
 ```bash
 go test ./internal/runner/... -run TestShippedRolesAreValid -v
@@ -1618,7 +1618,7 @@ go test ./internal/runner/... -run TestSystemPromptGluesIncludesThenRoleThenSpec
 
 Expected: `TestShippedRolesAreValid` passes for `analyst` — this exercises `LoadRole` against the real `roles/analyst/role.yaml`, which now depends on Tasks 2, 3, 7, and 8 all having landed first (the `skills: [comet, comet-native]` mount and `hooks.pre_tool_use` reference must resolve against real files). If this task is executed before those, it fails with "скилл не найден" or "файл хука не найден" — that is expected and is why this task is sequenced after Tasks 2–8, not before.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add roles/analyst/role.yaml roles/analyst/role.md
