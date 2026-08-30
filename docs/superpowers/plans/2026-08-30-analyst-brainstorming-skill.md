@@ -2,6 +2,7 @@
 change: analyst-brainstorming-skill
 design-doc: docs/superpowers/specs/2026-08-30-analyst-brainstorming-skill-design.md
 base-ref: 88cba0291c3b05799ef5f8f2463889bf51892a5f
+archived-with: 2026-08-30-analyst-brainstorming-skill
 ---
 
 # Analyst Brainstorming Skill Implementation Plan

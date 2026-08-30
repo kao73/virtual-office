@@ -2,6 +2,8 @@
 comet_change: analyst-brainstorming-skill
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-08-30-analyst-brainstorming-skill
+status: final
 ---
 
 # analyst-brainstorming-skill — Technical Design
