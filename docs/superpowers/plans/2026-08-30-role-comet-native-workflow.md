@@ -120,7 +120,7 @@ git commit -m "docs(sbx): record the comet CLI sandbox bootstrap gap"
 - Produces: `Role.Hooks.PreToolUse []PreToolUseHook` (exported field, each with exported `Matcher`/`Command string` fields) — consumed by Task 3 (`internal/adapters/claude/adapter.go`'s `buildSettings`).
 - Produces: the validation rule "a `hooks.pre_tool_use` entry's `command` must name a script under a skill actually listed in `skills:`" — enforced at `LoadRole` time, so a misconfigured role fails before any agent runs.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `internal/runner/role_test.go`, add these cases to the `TestLoadRoleRejects` table (inside the existing `cases := map[string]struct{...}{...}` literal):
 
@@ -214,7 +214,7 @@ func TestLoadRoleAcceptsPreToolUseHook(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 go test ./internal/runner/... -run TestLoadRole -v
@@ -222,7 +222,7 @@ go test ./internal/runner/... -run TestLoadRole -v
 
 Expected: `TestLoadRoleRejects/pre_tool_use_*` fail with "не разобран" (unknown YAML field `pre_tool_use`, since `Hooks` doesn't have it yet), and the two new standalone tests fail to compile or fail outright (`role.Hooks.PreToolUse` doesn't exist yet) — confirm the failure is "field doesn't exist" in nature, not a typo in the test itself.
 
-- [ ] **Step 3: Implement the schema and validation**
+- [x] **Step 3: Implement the schema and validation**
 
 In `internal/runner/role.go`, replace the `Hooks` struct (around line 51-53):
 
@@ -312,7 +312,7 @@ func skillFromHookScript(path string) (string, bool) {
 
 `slices` is already imported in `role.go` (used by `slices.Contains` elsewhere in `validate`) — no new import needed.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 go test ./internal/runner/... -v -run TestLoadRole
@@ -320,7 +320,7 @@ go test ./internal/runner/... -v -run TestLoadRole
 
 Expected: all `TestLoadRoleRejects` subtests pass (including the three new ones), `TestLoadRoleRejectsPreToolUseMissingScript` and `TestLoadRoleAcceptsPreToolUseHook` pass, and every previously-passing test in the file still passes (run `go test ./internal/runner/...` with no `-run` filter to confirm no regression, including `TestShippedRolesAreValid` — no shipped role declares `pre_tool_use` yet, so it stays green here and only becomes meaningful once Tasks 9–11 land).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/runner/role.go internal/runner/role_test.go
