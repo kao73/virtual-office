@@ -11,7 +11,7 @@
 
 ## 3. Vendor Comet skills
 
-- [ ] 3.1 Vendor `skills/comet/` and `skills/comet-native/` (unmodified copies, `.source.yaml` pin, same pattern as `skills/brainstorming`/`skills/writing-plans`)
+- [x] 3.1 Vendor `skills/comet/` and `skills/comet-native/` (unmodified copies, `.source.yaml` pin, same pattern as `skills/brainstorming`/`skills/writing-plans`)
 
 ## 4. Role updates
 

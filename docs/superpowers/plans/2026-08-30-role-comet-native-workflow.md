@@ -1384,7 +1384,7 @@ git commit -m "chore(skills): vendor comet 0.4.0-beta.18"
 
 **Interfaces:** Same as Task 7, for `role.Skills` containing `"comet-native"`.
 
-- [ ] **Step 1–3: Locate, copy, verify** — identical process to Task 7 Steps 1–3, using the `comet-native` directory found by the same `find` command (Task 7 Step 1 already searched for both). If `/tmp/comet-vendor` was already cleaned up by Task 7, re-run the `npm pack`/`tar xzf` from Task 7 Step 1 first.
+- [x] **Step 1–3: Locate, copy, verify** — identical process to Task 7 Steps 1–3, using the `comet-native` directory found by the same `find` command (Task 7 Step 1 already searched for both). If `/tmp/comet-vendor` was already cleaned up by Task 7, re-run the `npm pack`/`tar xzf` from Task 7 Step 1 first.
 
 ```bash
 mkdir -p skills/comet-native
@@ -1392,7 +1392,7 @@ cp -R <located-comet-native-skill-dir>/. skills/comet-native/
 test -f skills/comet-native/SKILL.md
 ```
 
-- [ ] **Step 4: Write `skills/comet-native/.source.yaml`**
+- [x] **Step 4: Write `skills/comet-native/.source.yaml`**
 
 Same repository/tag/commit as Task 7's `skills/comet/.source.yaml` (both ship from the same npm package version):
 
@@ -1402,7 +1402,7 @@ tag: v0.4.0-beta.18
 commit: <same commit as skills/comet/.source.yaml>
 ```
 
-- [ ] **Step 5: Stage and commit**
+- [x] **Step 5: Stage and commit**
 
 ```bash
 git add skills/comet-native
