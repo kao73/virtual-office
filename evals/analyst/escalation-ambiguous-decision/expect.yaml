@@ -5,4 +5,4 @@ checks:
     questions_not_empty: true
     next_owner: human
   - kind: diff_scope
-    allow: ["docs/superpowers/**"]
+    allow: ["docs/comet/changes/**"]
