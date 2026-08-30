@@ -4,10 +4,8 @@ checks:
     expect: done
     next_owner: implementer
   - kind: diff_scope
-    allow: ["docs/changes/_manual/**"]
+    allow: ["docs/superpowers/**"]
   - kind: fixture_tests
     command: >-
-      test -s docs/changes/_manual/brief.md &&
-      test -s docs/changes/_manual/design.md &&
-      test -s docs/changes/_manual/tasks.md &&
-      grep -q '^- \[ \]' docs/changes/_manual/tasks.md
+      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/superpowers/specs | grep -q '\.md$' &&
+      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/superpowers/plans | grep -q '\.md$'

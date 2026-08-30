@@ -1,0 +1,9 @@
+{
+  "openspec_proposal": "docs/openspec/changes/analyst-brainstorming-skill/proposal.md",
+  "openspec_design": "docs/openspec/changes/analyst-brainstorming-skill/design.md",
+  "openspec_tasks": "docs/openspec/changes/analyst-brainstorming-skill/tasks.md",
+  "openspec_delta_spec": "docs/openspec/changes/analyst-brainstorming-skill/specs/role-external-skills/spec.md",
+  "handoff_context": "docs/openspec/changes/archive/2026-08-30-analyst-brainstorming-skill/.comet/handoff/design-context.json",
+  "handoff_markdown": "docs/openspec/changes/archive/2026-08-30-analyst-brainstorming-skill/.comet/handoff/design-context.md",
+  "archive_directory": "docs/openspec/changes/archive/2026-08-30-analyst-brainstorming-skill"
+}

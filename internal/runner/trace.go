@@ -4,8 +4,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
+
+// BaseStatusPath — где в рабочей папке лежит снимок состояния на старте прогона.
+func BaseStatusPath(workdir string) string {
+	return filepath.Join(workdir, Dir, FileBaseStatus)
+}
 
 // notStartedTurns — сколько шагов прогон вправе сделать, всё ещё считаясь
 // не начинавшимся.
