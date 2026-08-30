@@ -63,6 +63,19 @@ the vendored `comet`+`comet-native` skills mounted as a plugin) grounded every c
      `{id, name, executable, argv, cwdRef, timeoutMs, repeatable}` — exact keys, no extras.
    - A Verifier `final-result`: `{iteration, attempt, verdict: "pass"|"fail"|"blocked",
      acceptance: [{id, result: "passed"|"failed"|"blocked", reason}], risks: string[], summary}`.
+   **Correction (Build phase, Task 11 fix, 2026-08-31):** these two shapes are correct as the
+   *inner* payload, but were never verified against a live `comet native next --runner-input`
+   call, and it turns out both need an outer envelope the CLI actually requires: a check plan is
+   `{"kind": "dispatch-verifier", "checks": [...]}`, not a bare array (`comet native next` rejects
+   a bare array with "Native Runner input must be an object"); a `final-result` is `{"kind":
+   "verifier-response", "response": {"kind": "final-result", "result": {...the shape above...}}}`,
+   not the bare inner object (rejected with "Native Runner input kind is invalid"). Also newly
+   found: a passing `final-result` (all acceptance items `passed`) moves the change to status
+   `await-user`, not directly to `archive-ready` — one more self-confirm call is required
+   (`comet native next <name> --summary "..." --confirmed`, the same trust-based flag named in
+   Evidence base item 5) before `archive-ready` is actually reached. A failing/blocked verdict
+   needs no such step; Native routes back to `build`/`repairing` on its own. See
+   `roles/reviewer/role.md`'s corrected Verify-dispatch section for the fixed contract.
 10. `comet` is `@rpamis/comet@0.4.0-beta.18` (npm, MIT, Node 22+, no daemon). A confirmed,
     unconditional bug in this exact version: `comet classic workspace prepare|resolve` fails with
     `"Classic command project context is unavailable"` (root cause: a missing

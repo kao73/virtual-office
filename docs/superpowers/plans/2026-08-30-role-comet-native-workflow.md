@@ -2122,6 +2122,8 @@ rm -rf "$scratch"
 
 If a step above (`comet native new`, `comet native next --confirmed`) does not behave as narrated — a different flag name, a different state file location — treat the design doc's own Evidence base item 3/4 (documenting exactly these two commands from live headless experiments) as the ground truth for the command *invocation*, and this recipe's file-layout assumptions as the part to correct; do not silently invent a fake `comet-state.yaml` by hand instead of running the real CLI, since golden cases exist specifically to prove the real integration works.
 
+**Correction (Build phase, Task 11 fix, 2026-08-31 — read before Task 15 authors its dispatch-verifier/builder-handoff/final-result fixtures):** `comet-state.yaml` really does live directly at `docs/comet/changes/<name>/comet-state.yaml` (not under `.comet/*/`) — this recipe's first `cat` guess above is wrong but its `find` fallback covers it, so no action needed there. What DOES need correcting, verified live against the pinned CLI: a real `comet native new`-created change assigns its own acceptance IDs (`A1`, `A2`, ...) when it parses `specs/<capability>/spec.md` — whatever literal prefix the spec text itself uses (e.g. writing "AC1: ..." in the markdown) is NOT the id the CLI assigns; always confirm the real id via `comet native status <name> --json`'s `data.acceptance`/`builderHandoff.addressed_acceptance_ids` before hard-coding it into a `--runner-input` JSON body or an `expect.yaml` grep. Also: `dispatch-verifier`'s checks and a `final-result` both need an outer envelope the CLI requires — `{"kind": "dispatch-verifier", "checks": [...]}` (a bare array is rejected: "Native Runner input must be an object") and `{"kind": "verifier-response", "response": {"kind": "final-result", "result": {...the iteration/attempt/verdict/acceptance/risks/summary shape...}}}` (the bare inner object is rejected: "Native Runner input kind is invalid") — see `roles/reviewer/role.md`'s corrected Verify section for the exact shapes. And: a passing `final-result` (all acceptance items `passed`) moves the change to status `await-user`, not straight to `archive-ready` — one more `comet native next <name> --summary "..." --confirmed` is required first (same self-confirm pattern as Shape); only then does `archive-ready` actually appear in `comet-state.yaml`/`--json`'s `data.loop.stage`.
+
 ---
 
 ## Task 13 (tasks.md 7.1, analyst): `evals/analyst/`
@@ -2369,8 +2371,8 @@ git commit -m "test(evals): add implementer golden case reading a Comet Native b
 The existing fixture (`calc.go`/`calc_test.go`, a colleague's buggy `Max` implementation) stays exactly as-is as the *code under review*. Using the shared recipe, additionally seed a Comet Native change already in `verify` phase with an acceptance item the buggy `Max` violates:
 
 - `<name>`: `eval-spot-defect`.
-- `brief.md` / `specs/calc/spec.md`: one acceptance item, e.g. `AC1: Max(a, b) returns the larger of a and b for all int inputs, including when a == b`.
-- After `comet native next eval-spot-defect --confirmed` (→ `build`), simulate a Builder handoff to reach `verify`: `comet native next eval-spot-defect --runner-input <a minimal builder-handoff JSON naming AC1 as addressed>` (the design doc's own `{kind, summary, addressed_acceptance_ids, checks, known_limits}` shape from its `adapter.go`/implementer section — reuse it here verbatim as the JSON body). Confirm via `--json` that phase is now `verify`.
+- `brief.md` / `specs/calc/spec.md`: one acceptance item, e.g. `Max(a, b) returns the larger of a and b for all int inputs, including when a == b` (the "AC1:"-style label some earlier drafts used is prose only — the real id Comet assigns is `A1`; confirm it via `comet native status eval-spot-defect --json` after Shape confirms, don't assume).
+- After `comet native next eval-spot-defect --confirmed` (→ `build`), simulate a Builder handoff to reach `verify`: build the JSON body per the design doc's `{kind, summary, addressed_acceptance_ids, checks, known_limits}` shape (top-level, no extra envelope — `checks[].result` must be `"passed"`, not `"pass"`), naming the real id (`A1`) in `addressed_acceptance_ids`, and submit via `comet native next eval-spot-defect --runner-input <file>`. Confirm via `--json` that phase is now `verify`.
 
 Update `evals/reviewer/capability-spot-defect/task.md` only if its current wording ("A colleague implemented the `Max` function... Review their work") no longer matches once a real acceptance ID exists to reference — if the existing wording still reads naturally, leave it unchanged.
 
@@ -2387,18 +2389,20 @@ checks:
   - kind: diff_scope
     allow: []
   - kind: fixture_tests
-    # AC1 — реальный критерий приёмки заведённого для этого кейса изменения
-    # Comet Native; провалившийся вердикт по нему — точный сигнал, что
+    # A1 — реальный id критерия приёмки, который присвоил сам Comet Native
+    # (подтверди через `comet native status eval-spot-defect --json` при
+    # заведении фикстуры — литеральный префикс в тексте spec.md id не
+    # определяет); провалившийся вердикт по нему — точный сигнал, что
     # ревьюер прошёл через dispatch-verifier/final-result, а не свободный
     # разбор угадал слово "Max" в тексте.
-    command: "grep -qi 'AC1' .agent/result.json"
+    command: "grep -qi 'A1' .agent/result.json"
 ```
 
 - [ ] **Step 3: Author `capability-clean-verify`'s fixture using the shared recipe**
 
 - Base fixture: a small, already-correct package (e.g. `calc.Max` implemented correctly this time), plus its test.
 - `<name>`: `eval-clean-verify`.
-- Seed through Shape confirmation, a Builder handoff, and then simulate a *passing* `final-result` for the sole acceptance item (`comet native next eval-clean-verify --runner-input <a final-result JSON with acceptance: [{"id": "AC1", "result": "passed", "reason": "..."}], verdict: "pass">`). Confirm via `--json` that phase reaches `archive-ready` — this is the exact state `internal/pipeline/archive.go` (Task 5) looks for.
+- Seed through Shape confirmation, a Builder handoff (same shape/caveats as `capability-spot-defect` above), then a `dispatch-verifier` round (envelope: `{"kind": "dispatch-verifier", "checks": [...]}` — a bare array is rejected), then a passing `final-result` for the sole acceptance item, wrapped: `{"kind": "verifier-response", "response": {"kind": "final-result", "result": {"iteration": 1, "attempt": 1, "verdict": "pass", "acceptance": [{"id": "A1", "result": "passed", "reason": "..."}], "risks": [], "summary": "..."}}}` (confirm `A1` is really the assigned id first — see the shared recipe's correction note above). This moves the change to status `await-user`, not directly to `archive-ready` — submit one more `comet native next eval-clean-verify --summary "Verify confirmed for fixture" --confirmed` before checking the phase. Confirm via `--json` that `data.loop.stage` is now `archive-ready` — this is the exact state `internal/pipeline/archive.go` (Task 5) looks for.
 
 - [ ] **Step 4: Write `task.md` and `expect.yaml`**
 

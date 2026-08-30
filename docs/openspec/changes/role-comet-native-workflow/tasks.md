@@ -1,7 +1,7 @@
 ## 1. Dependency and bootstrap investigation
 
 - [x] 1.1 Determine where/how the `sbx` sandbox image is customized (or confirm it is outside this repo's control) and how Node 22+ / `comet` would reach it
-- [ ] 1.2 Confirm the exact `--runner-input dispatch-verifier` check schema Comet Native's Build→Verify handoff expects (blocked on `Native Runtime check 0 fields are invalid` during design-time experiments)
+- [x] 1.2 Confirm the exact `--runner-input dispatch-verifier` check schema Comet Native's Build→Verify handoff expects (blocked on `Native Runtime check 0 fields are invalid` during design-time experiments)
 - [x] 1.3 Decide the archive `--finish` mode and its call site relative to the existing PR-merge detection in the runner
 
 ## 2. Adapter changes
