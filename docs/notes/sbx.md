@@ -334,3 +334,33 @@ matches both an allow and a deny rule, the request is blocked».
 - Секретами sbx умеет управлять сам (`sbx secret`, подстановка через хостовый прокси,
   агент не видит сырого значения). Мы по-прежнему передаём кред переменной окружения —
   просто больше не через аргументы. Перейти на их механизм — кандидат на улучшение.
+
+## `comet` CLI bootstrap (role-comet-native-workflow)
+
+Investigated 2026-08-30 for `role-comet-native-workflow`: `analyst`/`implementer`/
+`reviewer` need Node 22+ and the `@rpamis/comet` npm CLI available inside the role's
+own sandbox at runtime (their mounted `comet`/`comet-native` skills are inert
+markdown+script bundles without it), and the runner host itself separately needs
+the same CLI for the deterministic archive step (`internal/pipeline/archive.go`).
+
+**No local image-customization hook exists.** `bootstrap/` contains only the
+runner-service unit files and the unrelated Jira polygon Dockerfile — nothing that
+builds or extends the `sbx` image. The image is entirely external and versioned by
+`sbx` itself (v0.38.0 at last check); this repository has never had a documented way
+to add a package to it.
+
+**Node is very likely already present** — Claude Code (`claude`, confirmed present
+inside the sandbox) ships via npm and needs a Node runtime — but this is not
+independently confirmed in this repository's own notes as of this investigation.
+Confirm with `sbx exec node --version` the next time `sbx` is available, and narrow
+this note once done.
+
+**Conclusion: installing `comet` into the sandbox image is a separate prerequisite
+change outside this repository's control**, most likely an `sbx`-side base-image
+update or an equivalent mechanism this repository does not yet have. It does not
+block writing role.yaml/role.md/adapter code that assumes `comet` is present at
+runtime (tasks.md items 2–7 of this change) — it blocks only the first real
+sandboxed run of the finished pipeline. A developer's own machine, for local
+`eval-roles` runs and for authoring the golden-case fixtures in this change, needs
+`comet` installed the ordinary way (`npm install -g @rpamis/comet@0.4.0-beta.18` or
+similar) — that is unaffected by this gap and does not require solving it.
