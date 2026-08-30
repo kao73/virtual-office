@@ -1,0 +1,11 @@
+role: implementer
+checks:
+  - kind: outcome
+    expect: done
+    next_owner: reviewer
+  - kind: diff_scope
+    allow: ["calc/calc.go", "calc/calc_test.go", "docs/comet/changes/**"]
+  - kind: fixture_tests
+    command: >-
+      go test ./... &&
+      grep -q '^phase: build$' docs/comet/changes/eval-brief/comet-state.yaml
