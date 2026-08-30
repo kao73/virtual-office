@@ -1,6 +1,6 @@
 ## Purpose
 
-Lets a headless office role draw on an external, versioned skill's expertise while still terminating safely and deterministically when that skill's own instructions assume a live human participant it does not have.
+Lets a headless office role draw on external, versioned skills' expertise while still terminating safely and deterministically when those skills' own instructions assume a live human participant, or a hand-off to a capability, the role does not have.
 
 ## ADDED Requirements
 
@@ -12,22 +12,22 @@ When a role's mounted external skill reaches a point in its own instructions tha
 - **THEN** the run ends with `outcome: needs_human` and a `questions[]` entry shaped as `{id, text, options[]}`, answerable by the existing tracker comment protocol
 
 ### Requirement: No redundant re-invocation on resume
-When a role resumes a task after a human has answered a question the mounted skill's process raised, and the committed plan already reflects that answer, the role SHALL NOT invoke the skill's process a second time for the same decision.
+When a role resumes a task after a human has answered a question a mounted skill's process raised, and prior work already reflects that answer, the role SHALL NOT invoke the skill's process a second time for the same decision.
 
-#### Scenario: Resuming with an already-satisfied plan
-- **WHEN** `analyst` runs again on a task whose plan is already committed to the change directory and matches the human's answer
+#### Scenario: Resuming with already-satisfied prior work
+- **WHEN** `analyst` runs again on a task whose spec/plan is already committed — wherever the skill's own conventions placed it — and matches the human's answer
 - **THEN** the run completes with `outcome: done` and does not call the skill a second time
 
-### Requirement: Skill output reconciles with the role's fixed artifact contract
-Regardless of what location or hand-off convention a mounted skill's own instructions describe, the role SHALL always record the outcome of using that skill in its own existing artifact contract (the change directory's `brief.md`/`design.md`/`tasks.md`), and SHALL NOT follow the skill's own conventions for where to save output or which other skill to hand off to next.
+### Requirement: Every produced artifact is declared, regardless of location
+A role using a mounted skill's own file-location conventions SHALL name every file it actually creates or modifies in `result.json`'s `artifacts` field, so that wherever a skill chooses to save its output, that output does not become untraceable to the task that produced it.
 
-#### Scenario: Skill's own instructions suggest a different save location or hand-off
-- **WHEN** the mounted skill's process would otherwise save output elsewhere or recommend invoking a further skill
-- **THEN** the role's actual output still lands in the change directory's existing three files, and no other skill is invoked as a hand-off
+#### Scenario: Skill saves output to its own default location
+- **WHEN** a mounted skill saves a spec or plan to a location the office's own fixed contract does not name (e.g. `docs/superpowers/specs/...`, `docs/superpowers/plans/...`)
+- **THEN** `result.json`'s `artifacts` field lists that exact path
 
-### Requirement: Task plans specify concrete, checkable detail
-A task plan produced with the mounted skill's help SHALL name the exact files each task touches and what each task's change consumes or produces, and SHALL NOT contain placeholder text standing in for real content.
+### Requirement: Hand-off steps the role cannot honor are neutralized by instruction, not by editing the skill
+When a mounted skill's own process ends with a step that assumes a capability or a live participant the role does not have (an interactive execution choice, a required sub-skill the role isn't granted), the role SHALL follow an explicit dispatcher instruction that ends its run without acting on that step, and SHALL NOT modify the skill's own files or the content it produces to work around the step.
 
-#### Scenario: A completed task plan is reviewed for placeholders
-- **WHEN** `tasks.md` is read after `analyst` finishes a task
-- **THEN** every task item names concrete file paths and has no "TBD", "similar to task N", or equivalent placeholder text
+#### Scenario: A skill's terminal step names a capability the role doesn't have
+- **WHEN** `writing-plans` reaches its "Execution Handoff" step, naming `subagent-driven-development` or `executing-plans`
+- **THEN** `analyst` does not answer the question, does not invoke either named skill, and finishes its run with the plan already saved — unedited, including any header text the skill wrote
