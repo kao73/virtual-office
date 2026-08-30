@@ -339,7 +339,7 @@ git commit -m "feat(runner): add hooks.pre_tool_use to the role schema"
 - Consumes: `runner.Role.Hooks.PreToolUse []runner.PreToolUseHook` (Task 2).
 - Produces: `settings.json`'s `hooks.PreToolUse` array, one `hookMatcher{Matcher, Hooks: [...]}` per declared entry, with `Command` fully resolved (absolute path inside the built plugin, `$WORKDIR` substituted) — the shape Claude Code's own `PreToolUse` hook mechanism expects, verified directly against a synthetic payload during design (design doc Evidence base item 8).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `internal/adapters/claude/adapter_test.go`, add `"encoding/json"` to the import block, then add this fixture and test after `TestBuildAddsSkillToolWhenRoleUsesSkills`:
 
@@ -423,7 +423,7 @@ func TestBuildWiresPreToolUseHook(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```bash
 go test ./internal/adapters/claude/... -run TestBuildWiresPreToolUseHook -v
@@ -431,7 +431,7 @@ go test ./internal/adapters/claude/... -run TestBuildWiresPreToolUseHook -v
 
 Expected: compile error or failure — `hookMatcher` has no `Matcher` field yet, and `buildSettings` doesn't emit a `"PreToolUse"` key.
 
-- [ ] **Step 3: Reorder `Build()` so `pluginDir` exists before `buildSettings` runs**
+- [x] **Step 3: Reorder `Build()` so `pluginDir` exists before `buildSettings` runs**
 
 In `internal/adapters/claude/adapter.go`, `Build()` currently computes `settings`/`settingsPath` *before* `tools`/`pluginDir` (lines ~120-151). `pluginDir` must exist first: a `hooks.pre_tool_use` command's leading path resolves against it. Replace this whole block:
 
@@ -513,7 +513,7 @@ with:
 
 Everything below this block in `Build()` (the `argv` construction, `Workspaces`, `launch.Skills`) already reads `tools`/`pluginDir` further down and needs no change — only their point of computation moved earlier.
 
-- [ ] **Step 4: Extend `hookMatcher` and `buildSettings`**
+- [x] **Step 4: Extend `hookMatcher` and `buildSettings`**
 
 Replace the `hookMatcher` struct (around line 332-334):
 
@@ -636,7 +636,7 @@ func resolvePreToolUseCommand(command, pluginDir, workdir string) string {
 }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 ```bash
 go test ./internal/adapters/claude/... -v -run TestBuildWiresPreToolUseHook
@@ -650,7 +650,7 @@ go test ./internal/adapters/claude/... -v
 
 Expected: `TestBuildSettings`, `TestBuildCopiesHooksOutOfConfigRepo`, `TestStopHookGuardsResultFile`, `TestBuildCopiesOnlyRoleSkills`, `TestBuildAddsSkillToolWhenRoleUsesSkills`, `TestBuildWithoutSkillsSkipsPlugin` all still pass — the reordering in Step 3 must not change `pluginDir`'s value or `tools`' contents for any of them, only the order the two are computed in.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/adapters/claude/adapter.go internal/adapters/claude/adapter_test.go

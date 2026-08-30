@@ -6,8 +6,8 @@
 
 ## 2. Adapter changes
 
-- [ ] 2.1 Add `PreToolUse` hook support to `internal/adapters/claude/adapter.go`'s `buildSettings`, alongside the existing `Stop` hook
-- [ ] 2.2 Wire the vendored `comet-hook-router.mjs` path (from the mounted `comet` skill's plugin dir) into the generated settings for roles that declare it
+- [x] 2.1 Add `PreToolUse` hook support to `internal/adapters/claude/adapter.go`'s `buildSettings`, alongside the existing `Stop` hook
+- [x] 2.2 Wire the vendored `comet-hook-router.mjs` path (from the mounted `comet` skill's plugin dir) into the generated settings for roles that declare it
 
 ## 3. Vendor Comet skills
 
