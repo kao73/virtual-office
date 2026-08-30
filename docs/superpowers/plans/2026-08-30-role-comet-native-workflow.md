@@ -51,7 +51,7 @@ All file paths and line numbers below were read from the actual repository durin
 
 **Interfaces:** None — this is a documentation-only investigation task with no code dependency for any later task. Later tasks that need a *local* (non-sandboxed) `comet` CLI say so themselves; this task's finding is about the *production sandbox* image only.
 
-- [ ] **Step 1: Confirm there is no existing image-customization hook**
+- [x] **Step 1: Confirm there is no existing image-customization hook**
 
 ```bash
 find bootstrap -maxdepth 2
@@ -61,11 +61,11 @@ grep -rn "sbx\|sandbox" docs/notes/sbx.md | head -20
 
 Expected: `bootstrap/` contains only `office-runner.service`, `local.office.runner.plist`, `office-runner.timer`, `README.md`, and the unrelated `bootstrap/jira/` polygon — nothing that builds, extends, or customizes the `sbx` sandbox image itself. `docs/notes/sbx.md` already documents `sbx` as a vendored, externally-versioned image (v0.38.0 at last check) with a fixed toolset (`claude`, `git`, `python3`, `uv`) and no documented local-customization mechanism.
 
-- [ ] **Step 2: Check whether Node is already present in the image**
+- [x] **Step 2: Check whether Node is already present in the image**
 
 `docs/notes/sbx.md`'s own "Что проверено эмпирически" section already lists the sandbox's installed toolset (`uid=1000(agent)`, `claude`, `git`, `python3`, `uv`) — Node is not in that list, but Claude Code itself (`claude`) ships via npm and very likely requires a Node runtime to exist somewhere in that image. Do not assume either way from documentation alone: this step is a note for whoever next has `sbx` access to run `sbx exec node --version` (or equivalent) and confirm, not something this task can execute without sandbox access.
 
-- [ ] **Step 3: Write the findings into `docs/notes/sbx.md`**
+- [x] **Step 3: Write the findings into `docs/notes/sbx.md`**
 
 Append this section (adjust the "Node is very likely already present" sentence below only if Step 2 was actually run and Node's presence confirmed one way or the other):
 
@@ -101,7 +101,7 @@ sandboxed run of the finished pipeline. A developer's own machine, for local
 similar) — that is unaffected by this gap and does not require solving it.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/notes/sbx.md
