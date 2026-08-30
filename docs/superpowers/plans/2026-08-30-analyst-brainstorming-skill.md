@@ -691,7 +691,7 @@ result in `...` after lowercasing.
 - Produces: `func Whisper(name string) string` — the package's only other exported
   function besides `Greet`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 func TestWhisper(t *testing.T) {
@@ -701,12 +701,12 @@ func TestWhisper(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./greet/... -run TestWhisper -v`
 Expected: FAIL — `Whisper` undefined.
 
-- [ ] **Step 3: Implement `Whisper`**
+- [x] **Step 3: Implement `Whisper`**
 
 ```go
 // Whisper returns a hushed-tone greeting for name: Greet's own shape, lowercased
@@ -718,17 +718,17 @@ func Whisper(name string) string {
 
 Add `"strings"` to the existing `import` block in `greet/greet.go`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `go test ./greet/... -run TestWhisper -v`
 Expected: PASS
 
-- [ ] **Step 5: Run the full package suite**
+- [x] **Step 5: Run the full package suite**
 
 Run: `go test ./...`
 Expected: PASS — `TestGreet` and `TestWhisper` both green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add greet/greet.go greet/greet_test.go
