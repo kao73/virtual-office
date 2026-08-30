@@ -122,15 +122,6 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		return abort(err)
 	}
 
-	settings, err := buildSettings(role, workdir, hooks)
-	if err != nil {
-		return abort(err)
-	}
-	settingsPath := filepath.Join(roleDir, "settings.json")
-	if err := os.WriteFile(settingsPath, []byte(settings), 0o644); err != nil {
-		return abort(fmt.Errorf("settings.json не записан: %w", err))
-	}
-
 	// Набор инструментов складывается из двух источников: что разрешила роль
 	// и что задействовал сам раннер. Второе в tools.allow не пишут — роль
 	// перечисляет там работу с файлами и командами, а не механизм подгрузки
@@ -140,6 +131,10 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		tools = append(tools, WriteTool)
 	}
 
+	// pluginDir считается раньше settings.json: команда hooks.pre_tool_use
+	// (например, comet-hook-router.mjs) ссылается на путь внутри уже
+	// собранного плагина, и buildSettings должен знать этот путь заранее,
+	// а не достраивать его вторым проходом.
 	pluginDir := ""
 	if len(role.Skills) > 0 {
 		if pluginDir, err = buildPlugin(roleDir, role); err != nil {
@@ -148,6 +143,15 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 		if !slices.Contains(tools, SkillTool) {
 			tools = append(tools, SkillTool)
 		}
+	}
+
+	settings, err := buildSettings(role, workdir, pluginDir, hooks)
+	if err != nil {
+		return abort(err)
+	}
+	settingsPath := filepath.Join(roleDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(settings), 0o644); err != nil {
+		return abort(fmt.Errorf("settings.json не записан: %w", err))
 	}
 
 	argv := []string{
@@ -330,7 +334,11 @@ type permissionsBlock struct {
 }
 
 type hookMatcher struct {
-	Hooks []hookCommand `json:"hooks"`
+	// Matcher — пусто у Stop (он не фильтрует по инструменту, и сегодняшнее
+	// поведение не должно измениться ни одним лишним байтом в JSON); у
+	// PreToolUse — регэксп вида "Write|Edit".
+	Matcher string        `json:"matcher,omitempty"`
+	Hooks   []hookCommand `json:"hooks"`
 }
 
 type hookCommand struct {
@@ -342,7 +350,7 @@ type hookCommand struct {
 // buildSettings переводит tools и hooks роли в settings.json.
 // Путь к файлу результата подставляется в команду хука абсолютным: так хуку
 // не приходится гадать, откуда его запустили.
-func buildSettings(role runner.Role, workdir string, hooks []string) (string, error) {
+func buildSettings(role runner.Role, workdir, pluginDir string, hooks []string) (string, error) {
 	resultPath := filepath.Join(workdir, role.ResultFile)
 
 	// Право записать файл результата добавляется к разрешениям роли всегда и одним
@@ -369,11 +377,50 @@ func buildSettings(role runner.Role, workdir string, hooks []string) (string, er
 		s.Hooks = map[string][]hookMatcher{"Stop": {{Hooks: commands}}}
 	}
 
+	// PreToolUse не копируется адаптером отдельно, в отличие от Stop: скрипт
+	// (comet-hook-router.mjs) уже лежит внутри собранного плагина, потому что
+	// role.go's validate() требует, чтобы его скилл был подключён в skills: —
+	// buildPlugin() его туда и кладёт. Здесь только резолвится путь и
+	// подставляется $WORKDIR.
+	if preToolUse := role.Hooks.PreToolUse; len(preToolUse) > 0 {
+		matchers := make([]hookMatcher, 0, len(preToolUse))
+		for _, ptu := range preToolUse {
+			matchers = append(matchers, hookMatcher{
+				Matcher: ptu.Matcher,
+				Hooks: []hookCommand{{
+					Type:    "command",
+					Command: resolvePreToolUseCommand(ptu.Command, pluginDir, workdir),
+					Timeout: 60,
+				}},
+			})
+		}
+		if s.Hooks == nil {
+			s.Hooks = map[string][]hookMatcher{}
+		}
+		s.Hooks["PreToolUse"] = matchers
+	}
+
 	raw, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("settings.json не сериализован: %w", err)
 	}
 	return string(raw) + "\n", nil
+}
+
+// resolvePreToolUseCommand переводит объявленную ролью команду хука в то, что
+// реально выполнится: первое слово команды — путь внутри собранного плагина
+// (role.yaml пишет его относительно skills/, здесь он становится абсолютным
+// от pluginDir и заворачивается в кавычки как и путь Stop-хука), а
+// буквальная подстрока "$WORKDIR" — в реальный workdir этого запуска. Обе
+// подстановки делаются только здесь: до Build() не существует ни pluginDir,
+// ни workdir.
+func resolvePreToolUseCommand(command, pluginDir, workdir string) string {
+	script, args, hasArgs := strings.Cut(command, " ")
+	resolved := shellQuote(filepath.Join(pluginDir, script))
+	if hasArgs {
+		resolved += " " + args
+	}
+	return strings.ReplaceAll(resolved, "$WORKDIR", workdir)
 }
 
 // buildPlugin собирает плагин из скиллов роли: агенту видны только они,
