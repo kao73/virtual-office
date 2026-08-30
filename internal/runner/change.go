@@ -25,18 +25,45 @@ const (
 // ChangeFiles — файлы каталога изменения в порядке чтения: зачем, как и что делать.
 func ChangeFiles() []string { return []string{FileBrief, FileDesign, FileTasks} }
 
-// ChangeDirRel — каталог изменения задачи, относительно корня рабочей папки.
-func ChangeDirRel(taskKey string) string {
+// changeName — безопасное имя каталога изменения из ключа задачи, общее для
+// старого и нового корня: тот же ключ адресует одну и ту же задачу в обоих.
+func changeName(taskKey string) string {
 	name := safeKey(taskKey)
 	if name == "" {
 		name = ManualChange
 	}
-	return filepath.Join(ChangesDir, name)
+	return name
+}
+
+// ChangeDirRel — каталог изменения задачи, относительно корня рабочей папки.
+func ChangeDirRel(taskKey string) string {
+	return filepath.Join(ChangesDir, changeName(taskKey))
 }
 
 // ChangeDir — то же абсолютным путём.
 func ChangeDir(workdir, taskKey string) string {
 	return filepath.Join(workdir, ChangeDirRel(taskKey))
+}
+
+// CometChangesDir — новый корень каталогов изменений для analyst/implementer/
+// reviewer, которые ведут задачу через Comet Native (Shape/Build/Verify).
+// ChangesDir (docs/changes) остаётся вторым источником — для задач, чью
+// Shape-фазу analyst прошёл ещё до этого перехода, и для ручных прогонов вне
+// комет-конвейера.
+const CometChangesDir = "docs/comet/changes"
+
+// CometChangeName — <name> изменения Comet Native задачи: тот же безопасный
+// ключ, что и у старого каталога, но отдельно от корня — его использует и
+// путь в git (CometChangeDirRel), и сама команда `comet native ... <name>`,
+// которой каталог, а не только имя, ни к чему.
+func CometChangeName(taskKey string) string {
+	return changeName(taskKey)
+}
+
+// CometChangeDirRel — каталог изменения Comet Native задачи, относительно
+// корня рабочей папки.
+func CometChangeDirRel(taskKey string) string {
+	return filepath.Join(CometChangesDir, changeName(taskKey))
 }
 
 // safeKey чистит ключ задачи, прежде чем тот станет именем каталога.

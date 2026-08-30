@@ -16,3 +16,28 @@ func TestChangeDirRel(t *testing.T) {
 		}
 	}
 }
+
+func TestCometChangeName(t *testing.T) {
+	cases := map[string]string{
+		"OFF-1":     "OFF-1",
+		"":          "_manual",
+		"../../etc": ".._.._etc",
+	}
+	for key, want := range cases {
+		if got := CometChangeName(key); got != want {
+			t.Errorf("CometChangeName(%q) = %q, ожидалось %q", key, got, want)
+		}
+	}
+}
+
+func TestCometChangeDirRel(t *testing.T) {
+	cases := map[string]string{
+		"OFFICE-1": "docs/comet/changes/OFFICE-1",
+		"":         "docs/comet/changes/_manual",
+	}
+	for key, want := range cases {
+		if got := CometChangeDirRel(key); got != want {
+			t.Errorf("CometChangeDirRel(%q) = %q, ожидалось %q", key, got, want)
+		}
+	}
+}
