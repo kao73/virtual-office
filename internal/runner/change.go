@@ -3,6 +3,7 @@ package runner
 import (
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -52,18 +53,62 @@ func ChangeDir(workdir, taskKey string) string {
 // комет-конвейера.
 const CometChangesDir = "docs/comet/changes"
 
-// CometChangeName — <name> изменения Comet Native задачи: тот же безопасный
-// ключ, что и у старого каталога, но отдельно от корня — его использует и
-// путь в git (CometChangeDirRel), и сама команда `comet native ... <name>`,
+// CometChangeName — <name> изменения Comet Native задачи: используется и
+// путём в git (CometChangeDirRel), и самой командой `comet native ... <name>`,
 // которой каталог, а не только имя, ни к чему.
 func CometChangeName(taskKey string) string {
-	return changeName(taskKey)
+	return cometSafeName(taskKey)
 }
 
 // CometChangeDirRel — каталог изменения Comet Native задачи, относительно
-// корня рабочей папки.
+// корня рабочей папки. Имя каталога — то же cometSafeName, что и у
+// CometChangeName: archive.go ищет изменение по CometChangeName, а
+// prpass.go/input.go читают каталог по CometChangeDirRel — оба обязаны
+// называть одно и то же изменение.
 func CometChangeDirRel(taskKey string) string {
-	return filepath.Join(CometChangesDir, changeName(taskKey))
+	return filepath.Join(CometChangesDir, cometSafeName(taskKey))
+}
+
+// cometNativeNamePattern — то, что реальный Native CLI принимает как <name>
+// изменения (native-paths.js: NATIVE_CHANGE_NAME_PATTERN, обнаружено живым
+// запуском comet при ревью Задачи 5): только строчные латинские буквы,
+// цифры и одиночные дефисы-разделители, начинается с буквы.
+var cometNativeNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
+
+// cometSafeName приводит changeName(taskKey) к виду, который реальный Native
+// CLI примет как <name>. Обычный ключ трекера ("OFF-1") после lower-case уже
+// подходит; то, что легаси-хелпер (changeName) считает "безопасным" для
+// файловой системы (точки, подчёркивания вида "_manual") — не годится для
+// Native, у него более строгий паттерн. При несовпадении после lower-case —
+// санитизация: всё вне [a-z0-9] схлопывается в один дефис, края обрезаются,
+// пустой результат становится "change", результат без буквы в начале
+// получает префикс "x-".
+func cometSafeName(taskKey string) string {
+	name := strings.ToLower(changeName(taskKey))
+	if cometNativeNamePattern.MatchString(name) {
+		return name
+	}
+	var b strings.Builder
+	prevDash := false
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevDash = false
+			continue
+		}
+		if !prevDash && b.Len() > 0 {
+			b.WriteByte('-')
+			prevDash = true
+		}
+	}
+	name = strings.Trim(b.String(), "-")
+	if name == "" {
+		name = "change"
+	}
+	if name[0] < 'a' || name[0] > 'z' {
+		name = "x-" + name
+	}
+	return name
 }
 
 // safeKey чистит ключ задачи, прежде чем тот станет именем каталога.
