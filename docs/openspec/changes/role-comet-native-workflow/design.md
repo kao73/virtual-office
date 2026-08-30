@@ -12,7 +12,12 @@ Design Doc from the Design phase) established the technical facts this design re
   technically block an `Edit` on an existing file outside the `build` phase (verified directly with
   a synthetic payload; a `Write` of a brand-new file was not blocked the same way).
 - `comet native archive --confirmed --finish keep|merge|push|pull-request` is documented and
-  behaves as a standalone, deterministic command - no agent needed.
+  behaves as a standalone, deterministic command - no agent needed. **Correction (Build phase, Task
+  5 review, 2026-08-31):** not verified live until Build - the real CLI rejects `--finish` alongside
+  `--confirmed` (exit 64), and under `isolation: current` (what these roles use) doesn't need it at
+  all; it also does a bare filesystem rename with no git commit under that isolation, which the
+  runner now commits itself. See `internal/pipeline/archive.go` and the Superpowers design doc's
+  Evidence base item 6 for the corrected contract.
 - `comet init --platform claude --workflow native --scope project --yes` produces a minimal
   footprint (`.claude/{rules,skills,settings.local.json}`, `.comet/`, `docs/comet/`); the wide
   multi-platform footprint seen in early exploration came from the unscoped `comet workflow
@@ -43,7 +48,8 @@ Design Doc from the Design phase) established the technical facts this design re
   (self-resolve the trivial, defuse the risky, never fabricate-and-proceed on something genuinely
   irreversible). Classic remains this repository's own meta-development workflow only.
 - **Archive is runner Go code, not a fourth role — and runs before the PR opens, not after
-  merge.** `comet native archive` is documented as deterministic; adding a role/agent invocation to
+  merge.** `comet native archive` is deterministic (in the sense of "no judgment call, safe to
+  script" - the exact flags needed correction once verified live, see above); adding a role/agent invocation to
   call one deterministic CLI command would cost a full run for no judgment it needs to make, and
   would contradict the existing "route lives in the graph/code" principle already applied to PR
   handling. `internal/pipeline/prpass.go`'s `openPR` is already deterministic runner code that runs

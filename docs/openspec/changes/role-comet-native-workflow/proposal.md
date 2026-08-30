@@ -25,9 +25,11 @@ always-current `specs/` tree on Archive.
   to advance to Verify.
 - `reviewer` drives **Verify**: dispatches the Runtime-mandated read-only Verifier role against the
   acceptance items instead of freely re-deriving what to check from the diff.
-- **Archive becomes a deterministic runner step**, not a fourth role: after the human merges the
-  role's PR, the runner (not an agent) runs `comet native archive --confirmed --finish keep`,
-  syncing the delta capability spec into the client project's canonical `specs/`.
+- **Archive becomes a deterministic runner step**, not a fourth role: the runner (not an agent) runs
+  `comet native archive --confirmed` (superseding this line's original "after merge"/`--finish keep`
+  wording — superseded already during Design, see `design.md`'s Decisions, and the exact flags
+  corrected during Build after live verification, see `design.md`'s Context correction), syncing the
+  delta capability spec into the client project's canonical `specs/`.
 - `internal/adapters/claude/adapter.go` gains a second hook type (`PreToolUse`, alongside the
   existing `Stop` hook) so Comet's own guard hook (`comet-hook-router.mjs`) can technically enforce
   phase-scoped write permissions — turning "analyst does not write code" / "reviewer does not edit"

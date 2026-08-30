@@ -35,7 +35,17 @@ the vendored `comet`+`comet-native` skills mounted as a plugin) grounded every c
    outcome (already generalized by `specs/role-external-skills/spec.md`'s "Human-approval
    fallback" requirement) is the real safety boundary, not this flag.
 6. `comet native archive <name> --confirmed --finish merge|push|pull-request|keep` is a standalone,
-   documented-as-deterministic command.
+   documented-as-deterministic command. **Correction (Build phase, Task 5 review, 2026-08-31):**
+   this claim was never verified live during design — it was wrong. Verified against the actually
+   installed CLI: `--finish` is rejected outright alongside `--confirmed` (`--finish is only valid
+   with --dry-run`, exit 64) and is not required at all under `isolation: current` (what these
+   roles use). The real call is a single `comet native archive <name> --confirmed`. Separately,
+   `comet native status --json`'s payload is wrapped in an envelope (`{command, exitCode, data:
+   {phase, loop: {stage}}}`) — `"archive-ready"` (bullet 4/§Runner below) is `data.loop.stage`, not
+   `data.phase` (whose enum is only `shape|build|verify|archive`). And under `isolation: current`,
+   `archive --confirmed` does a bare filesystem rename with no git commit — the runner must commit
+   the rename itself before pushing. See the corrected §Runner below and
+   `internal/pipeline/archive.go`'s doc comments for the fixed contract.
 7. `comet init --platform claude --workflow native --scope project --yes` produces a minimal
    footprint (`.claude/{rules,skills,settings.local.json}`, `.comet/`, `docs/comet/`); the wide
    multi-platform footprint seen in earlier, unscoped testing (`comet workflow resolve --activate`)
@@ -289,14 +299,25 @@ Two independent fixes to the same underlying drift, found during this phase's in
 - **`input.go:174`** (the "Каталог изменения: `<path>`" context line implementer/reviewer receive)
   has the identical drift — same fix, same helper reuse.
 - **Archive attaches to `prpass.go`'s `openPR` (`prpass.go:76`), before it runs**, on the task's
-  own branch: once Native's state shows `archive-ready` (i.e., `reviewer` submitted a passing
-  `final-result`), the pass runs `comet native archive <name> --confirmed --finish keep` before
-  calling `openPR`. This corrects the Open-phase `design.md`'s original "archive after merge"
-  guess — archiving after merge would mean the runner pushing an unreviewed commit straight to the
-  default branch, which `docs/DESIGN.md` §2.8's "the human merges" rule forbids. Before the PR
-  opens, the archive commit is simply part of the same PR a human already reviews and merges,
-  and `--finish keep` avoids Comet's own git operations (merge/push) conflicting with the office's
-  existing `Forge`-driven PR flow.
+  own branch: once Native's state shows `data.loop.stage == "archive-ready"` (i.e., `reviewer`
+  submitted a passing `final-result`), the pass runs `comet native archive <name> --confirmed`
+  before calling `openPR`. This corrects the Open-phase `design.md`'s original "archive after
+  merge" guess — archiving after merge would mean the runner pushing an unreviewed commit straight
+  to the default branch, which `docs/DESIGN.md` §2.8's "the human merges" rule forbids. Before the
+  PR opens, the archive commit is simply part of the same PR a human already reviews and merges.
+  **Correction (Build phase, Task 5 review, 2026-08-31):** the paragraph above originally read
+  `--confirmed --finish keep`, on the untested assumption that `--finish keep` "avoids Comet's own
+  git operations conflicting with the office's PR flow." That's wrong on two counts, both found by
+  running the real CLI: `--finish` is rejected together with `--confirmed` at all (exit 64), and
+  under `isolation: current` — the isolation these roles actually use, since the runner has already
+  isolated the task with its own worktree — `archive --confirmed` never runs a git operation of its
+  own regardless of `--finish`; it does a bare filesystem rename of the change directory. So there
+  is no Comet-vs-office git conflict to avoid, but there is a gap the original text didn't
+  anticipate: nothing commits the rename. The runner (`archiveIfReady`) now stages and commits it
+  itself — `git add -A && git commit` in the task's worktree, right after a successful `archive
+  --confirmed` and before `Workspaces.Push` — using the same worktree `work()` already committed
+  the role's own output in. This keeps the "archive commit rides in the same PR a human reviews"
+  property the original design wanted; it just needed the runner, not Comet, to make the commit.
 
 ## Vendoring
 
