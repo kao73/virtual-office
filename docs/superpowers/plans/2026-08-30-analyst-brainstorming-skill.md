@@ -53,7 +53,7 @@ All shell commands below were checked against the actual repository during plann
 **Interfaces:**
 - Produces: `skills/brainstorming/` on disk, at the path `internal/runner.Role.SkillDirs()` will resolve for `role.Skills == ["brainstorming", ...]` (`filepath.Join(configRoot, "skills", "brainstorming")`) — consumed by Task 3, which lists `brainstorming` in `roles/analyst/role.yaml`'s `skills:`. Nothing in this task references `role.yaml` yet, so this task does not change `analyst`'s behavior on its own.
 
-- [ ] **Step 1: Fetch the pinned source**
+- [x] **Step 1: Fetch the pinned source**
 
 Primary path (reproducible from the pinned commit):
 
@@ -65,7 +65,7 @@ git -C /tmp/superpowers-vendor checkout b36e0829c6d0140e93cfef2ca599b1b07d4a7797
 
 Fallback, only if GitHub is unreachable from this machine: the operator's local Claude Code plugin cache already holds an installed copy of Superpowers tagged `6.3.0` (confirmed identical version, same `SKILL.md` content, during planning for this change) at `~/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0/`. If using the fallback, skip straight to Step 2 using that path instead of `/tmp/superpowers-vendor`, and skip the `diff -r` sub-step of Step 3 (there is nothing independent to diff against).
 
-- [ ] **Step 2: Copy the skill subtree into this repo**
+- [x] **Step 2: Copy the skill subtree into this repo**
 
 ```bash
 mkdir -p skills/brainstorming
@@ -74,7 +74,7 @@ cp -R /tmp/superpowers-vendor/skills/brainstorming/. skills/brainstorming/
 
 Only the `skills/brainstorming/` subtree is copied — not the top-level Superpowers repo/plugin files (`LICENSE`, `package.json`, `.claude-plugin/`, etc.). Those are the plugin wrapper around all fourteen Superpowers skills; `analyst` only mounts this one skill's own directory.
 
-- [ ] **Step 3: Verify the copy is complete and unmodified**
+- [x] **Step 3: Verify the copy is complete and unmodified**
 
 ```bash
 test -f skills/brainstorming/SKILL.md
@@ -84,7 +84,7 @@ diff -r /tmp/superpowers-vendor/skills/brainstorming skills/brainstorming
 
 Expected: both `test` commands exit 0 (files present); `diff -r` prints nothing (byte-identical copy — this is the "vendor pinned copies, not a live reference" decision made verifiable).
 
-- [ ] **Step 4: Write the source record**
+- [x] **Step 4: Write the source record**
 
 Create `skills/brainstorming/SOURCE.md`:
 
@@ -96,19 +96,19 @@ Create `skills/brainstorming/SOURCE.md`:
 - Commit: b36e0829c6d0140e93cfef2ca599b1b07d4a7797
 ```
 
-- [ ] **Step 5: Remove the now-redundant placeholder**
+- [x] **Step 5: Remove the now-redundant placeholder**
 
 ```bash
 git rm skills/.gitkeep
 ```
 
-- [ ] **Step 6: Clean up the temp clone (primary path only)**
+- [x] **Step 6: Clean up the temp clone (primary path only)**
 
 ```bash
 rm -rf /tmp/superpowers-vendor
 ```
 
-- [ ] **Step 7: Stage and commit**
+- [x] **Step 7: Stage and commit**
 
 ```bash
 git add skills/brainstorming skills/.gitkeep
