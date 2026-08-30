@@ -1,0 +1,14 @@
+{
+  "change": "role-comet-native-workflow",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "4c79157f1cf4713149ffecb46d8099aecaaebe9a02ae265280ad79dbf3b04756",
+  "files": [
+    { "path": "docs/openspec/changes/role-comet-native-workflow/proposal.md", "sha256": "1ad85897f3351dbc758b421050c11ced70a62c71ec758da4269ba2463551799a" },
+    { "path": "docs/openspec/changes/role-comet-native-workflow/design.md", "sha256": "4f80f44c04d810f331d5f4d8bc49fd290b02a6fb6fba90cf1fd6c46575429adc" },
+    { "path": "docs/openspec/changes/role-comet-native-workflow/tasks.md", "sha256": "c06504cc504b625d9cdebec098d62ff77b4e194a79ba875ff5aa1e5dee4ee64a" },
+    { "path": "docs/openspec/changes/role-comet-native-workflow/specs/role-native-workflow/spec.md", "sha256": "62dfea7d3bcb020836f48273d49367f7ddc7484e80fa9a47d92cc75d064940a0" }
+  ]
+}

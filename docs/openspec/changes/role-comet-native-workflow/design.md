@@ -42,10 +42,16 @@ Design Doc from the Design phase) established the technical facts this design re
   judgment, and both experiments showed that judgment lands close to what the office already wants
   (self-resolve the trivial, defuse the risky, never fabricate-and-proceed on something genuinely
   irreversible). Classic remains this repository's own meta-development workflow only.
-- **Archive is runner Go code, not a fourth role.** `comet native archive` is documented as
-  deterministic; adding a role/agent invocation to call one deterministic CLI command would cost a
-  full run for no judgment it needs to make, and would contradict the existing "route lives in the
-  graph/code" principle already applied to PR handling.
+- **Archive is runner Go code, not a fourth role — and runs before the PR opens, not after
+  merge.** `comet native archive` is documented as deterministic; adding a role/agent invocation to
+  call one deterministic CLI command would cost a full run for no judgment it needs to make, and
+  would contradict the existing "route lives in the graph/code" principle already applied to PR
+  handling. `internal/pipeline/prpass.go`'s `openPR` is already deterministic runner code that runs
+  before the PR exists — Archive attaches there, on the task's own branch. Archiving *after* merge
+  was considered and rejected during the Design phase's technical investigation: it would mean the
+  runner pushing an unreviewed commit straight to the default branch, which the office's own rule
+  that only a human merges (`docs/DESIGN.md` §2.8) forbids. Before the PR, the archive commit is
+  just part of the same PR a human already reviews and merges.
 - **One change, one design/plan, not phased by role.** `analyst` switching output format from
   `tasks.md`/`design.md` to `brief.md`/`spec.md` is a breaking change to `implementer`'s input
   regardless of whether `implementer` itself adopts Native's CLI-driven Build mechanics - the two
