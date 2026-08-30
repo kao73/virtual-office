@@ -1,0 +1,11 @@
+role: analyst
+checks:
+  - kind: outcome
+    expect: done
+    next_owner: implementer
+  - kind: diff_scope
+    allow: []
+  - kind: fixture_tests
+    command: >-
+      jq -e '.artifacts | length > 0' .agent/result.json &&
+      for f in $(jq -r '.artifacts[]' .agent/result.json); do test -e "$f" || exit 1; done
