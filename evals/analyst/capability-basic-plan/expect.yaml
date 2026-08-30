@@ -7,6 +7,5 @@ checks:
     allow: ["docs/superpowers/**"]
   - kind: fixture_tests
     command: >-
-      find docs/superpowers/specs -name '*.md' | grep -q . &&
-      find docs/superpowers/plans -name '*.md' | grep -q . &&
-      git ls-tree -r --name-only HEAD -- docs/superpowers | grep -q .
+      git ls-tree -r --name-only HEAD -- docs/superpowers/specs | grep -q '\.md$' &&
+      git ls-tree -r --name-only HEAD -- docs/superpowers/plans | grep -q '\.md$'
