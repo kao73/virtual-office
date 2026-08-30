@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/kao73/virtual-office/internal/runner"
@@ -154,28 +155,46 @@ const (
 	archiveCommitEmail = "comet-archive@office.local"
 )
 
+// cometArchiveScope — единственный путь, который `comet native archive`
+// трогает под isolation: current — переименование каталога изменения
+// (docs/comet/archive/<date>-<name>) плюс синхронизация delta-spec
+// (docs/comet/specs/**), проверено живым прогоном при ревью Задачи 5 —
+// тот же корень, что и runner.CometChangesDir, но без "changes". Рабочая
+// папка общая с ролью (analyst/implementer/reviewer), которая могла оставить
+// в ней своё незакоммиченное — commitArchiveRename не должен ни видеть, ни
+// трогать ничего вне этого пути.
+var cometArchiveScope = filepath.Dir(runner.CometChangesDir)
+
 // commitArchiveRename коммитит то, что `comet native archive --confirmed`
 // оставил в рабочей папке при isolation: current голым fs.rename. Рабочая
-// папка чистая — коммитить нечего, и это не ошибка: например, переименование
-// могло не оставить изменений (изменение уже было закоммичено раньше).
+// папка чистая в пределах cometArchiveScope — коммитить нечего, и это не
+// ошибка: например, переименование могло не оставить изменений (изменение
+// уже было закоммичено раньше). Незакоммиченное вне cometArchiveScope —
+// не наше дело: это либо чужая рабочая копия роли, либо её легитимный
+// незакоммиченный остаток (см. sweepWorktrees в prpass.go), и он не должен
+// ни блокировать, ни провоцировать архивный коммит.
 func commitArchiveRename(dir, name string) error {
-	dirty, err := gitDirty(dir)
+	dirty, err := gitDirty(dir, cometArchiveScope)
 	if err != nil {
 		return err
 	}
 	if !dirty {
 		return nil
 	}
-	if err := gitArchive(dir, "add", "-A"); err != nil {
+	if err := gitArchive(dir, "add", "-A", "--", cometArchiveScope); err != nil {
 		return err
 	}
-	return gitArchive(dir, "commit", "-m", "chore: archive Comet Native change "+name)
+	return gitArchive(dir, "commit", "-m", "chore: archive Comet Native change "+name, "--", cometArchiveScope)
 }
 
-// gitDirty — есть ли в рабочей папке незакоммиченные изменения.
-func gitDirty(dir string) (bool, error) {
-	cmd := exec.Command("git", "status", "--porcelain")
+// gitDirty — есть ли в рабочей папке незакоммиченные изменения в пределах
+// scope. Пейсспек обязателен: без него команда видит всю рабочую папку,
+// включая незакоммиченный остаток роли за пределами scope, который не
+// должен ни считаться "есть что архивировать", ни попадать под подозрение.
+func gitDirty(dir, scope string) (bool, error) {
+	cmd := exec.Command("git", "status", "--porcelain", "--", scope)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -189,11 +208,15 @@ func gitDirty(dir string) (bool, error) {
 
 // gitArchive выполняет git-команду коммита архивирования от лица раннера, а
 // не роли — тем же паттерном, что и runComet (cmd.Dir вместо "-C", stderr
-// в ошибку при неудаче), но с собственной личностью коммита через окружение.
+// в ошибку при неудаче), но с собственной личностью коммита через окружение
+// и с GIT_TERMINAL_PROMPT=0 — той же защитной конвенцией, что и
+// internal/workspace.gitEnv для остальных git-вызовов раннера (сетевых
+// операций здесь нет, но конвенция общая для всех git-вызовов раннера).
 func gitArchive(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
 		"GIT_AUTHOR_NAME="+archiveCommitName, "GIT_AUTHOR_EMAIL="+archiveCommitEmail,
 		"GIT_COMMITTER_NAME="+archiveCommitName, "GIT_COMMITTER_EMAIL="+archiveCommitEmail)
 	if _, err := cmd.Output(); err != nil {
