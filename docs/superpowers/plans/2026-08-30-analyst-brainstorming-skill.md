@@ -382,7 +382,7 @@ EOF
 **Interfaces:**
 - Consumes: Task 3's dispatcher (this case now exercises the forced-architectural path; its `task.md` and `fixture/` are untouched — the *task* asked ("add `Shout`, write the plan") stays a plain, unambiguous plan-writing request, only the resulting *check* changes to match where the new dispatcher puts the output).
 
-- [ ] **Step 1: Read the current case to confirm nothing else needs to change**
+- [x] **Step 1: Read the current case to confirm nothing else needs to change**
 
 ```bash
 cat evals/analyst/capability-basic-plan/task.md
@@ -391,7 +391,7 @@ ls evals/analyst/capability-basic-plan/fixture/
 
 Expected: `task.md` still reads "Add a new exported function `Shout`..." and `fixture/` still has `go.mod`, `greet/greet.go`, `greet/greet_test.go` — nothing here needs a content change, only `expect.yaml`.
 
-- [ ] **Step 2: Replace `expect.yaml`**
+- [x] **Step 2: Replace `expect.yaml`**
 
 Replace the full contents of `evals/analyst/capability-basic-plan/expect.yaml` with:
 
@@ -411,7 +411,7 @@ checks:
 
 This keeps the case's original purpose (a plain, unambiguous plan-writing task ending in `done`) as a canary that the new, forced-architectural path still produces real, findable output — the check no longer asserts a specific file name or heading structure (that's now `brainstorming`/`writing-plans`'s own concern, not this office's), only that *some* spec and *some* plan landed under the two new default directories.
 
-- [ ] **Step 3: Stage and commit**
+- [x] **Step 3: Stage and commit**
 
 ```bash
 git add evals/analyst/capability-basic-plan/expect.yaml
