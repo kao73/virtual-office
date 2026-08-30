@@ -1829,7 +1829,7 @@ git commit -m "feat(implementer): drive Comet Native Build instead of tasks.md/d
 **Interfaces:**
 - Produces: the Verify half of the phase-to-role mapping. `next_owner: implementer` on a failing/blocked acceptance item is unchanged; `next_owner: none` on a clean pass replaces `next_owner: human` — verified in "Notes on task ordering" item 5 above to route identically (`Approved`) with no `workflow.yaml` change.
 
-- [ ] **Step 1: Replace `role.yaml`**
+- [x] **Step 1: Replace `role.yaml`**
 
 Replace `roles/reviewer/role.yaml` in full — only `skills:` and the new `hooks.pre_tool_use` entry change:
 
@@ -1901,7 +1901,7 @@ limits:
 result_file: .agent/result.json
 ```
 
-- [ ] **Step 2: Replace `## Работа`'s step 1 with the conditional Comet dispatch**
+- [x] **Step 2: Replace `## Работа`'s step 1 with the conditional Comet dispatch**
 
 Replace (current file, lines 22-35):
 
@@ -1970,7 +1970,7 @@ with:
    возвращают не автору, а аналитику (`done`, `next_owner: analyst`).
 ```
 
-- [ ] **Step 3: Update `## Выход`'s success case**
+- [x] **Step 3: Update `## Выход`'s success case**
 
 Replace:
 
@@ -1993,7 +1993,7 @@ with:
 
 `### Замечания` and the rest of `## Выход` (`needs_human`/`blocked`/`failed` bullets, the closing paragraph about return rounds) are unchanged — none of them name the retired free-form-only path exclusively, and base.md's generic escalation rules still apply on top regardless of whether a Comet Native change is active.
 
-- [ ] **Step 4: Verify the role still loads and the write-scope test still passes**
+- [x] **Step 4: Verify the role still loads and the write-scope test still passes**
 
 ```bash
 go test ./internal/runner/... -run TestShippedRolesAreValid -v
@@ -2002,7 +2002,7 @@ go test ./internal/runner/... -run TestReviewerRoleCannotWrite -v
 
 Expected: both pass unchanged — `tools.allow`/`tools.deny` are untouched by this task, only `skills:` and `hooks:` changed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add roles/reviewer/role.yaml roles/reviewer/role.md
