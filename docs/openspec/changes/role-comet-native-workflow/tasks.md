@@ -25,7 +25,7 @@
 
 ## 6. Contracts and docs
 
-- [ ] 6.1 Update `docs/contracts/agent-io.md` to note `docs/comet/changes/<name>/` replacing `docs/changes/<KEY>/` for these three roles
+- [x] 6.1 Update `docs/contracts/agent-io.md` to note `docs/comet/changes/<name>/` replacing `docs/changes/<KEY>/` for these three roles
 
 ## 7. Verification
 

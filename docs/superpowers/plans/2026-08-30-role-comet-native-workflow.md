@@ -2018,7 +2018,7 @@ git commit -m "feat(reviewer): dispatch Comet Native Verify instead of free-form
 
 **Interfaces:** None — prose-only contract documentation update, no code depends on this file's content (it is a source for humans and for the adapter's own embedded `ResultSpec`, which this task does not touch — only the "Каталог изменения" section's prose changes).
 
-- [ ] **Step 1: Replace the outdated closing paragraph of "### Каталог изменения"**
+- [x] **Step 1: Replace the outdated closing paragraph of "### Каталог изменения"**
 
 Replace:
 
@@ -2048,7 +2048,7 @@ Shape-фазу `analyst` прошёл ещё до этого перехода, �
 комет-конвейера.
 ```
 
-- [ ] **Step 2: Clarify the "План:" line's scope**
+- [x] **Step 2: Clarify the "План:" line's scope**
 
 Immediately after the bullet list that reads:
 
@@ -2066,7 +2066,7 @@ add:
   не пробел. Она остаётся осмысленной только для каталогов в старом корне.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/contracts/agent-io.md
