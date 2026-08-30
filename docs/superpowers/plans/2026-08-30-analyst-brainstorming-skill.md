@@ -450,7 +450,7 @@ Do not run this case for real yet — Task 7 runs the full paid sweep once all f
 - Consumes: same shape as the pre-existing `evals/analyst/escalation-ambiguous-task` (task.md and fixture/ content reused, per design.md's explicit "reused/adapted rather than invented from scratch" instruction).
 - Produces: nothing consumed elsewhere in this plan — this is a leaf golden case.
 
-- [ ] **Step 1: Create the case directory and its task/fixture, reusing the existing ambiguous-task shape**
+- [x] **Step 1: Create the case directory and its task/fixture, reusing the existing ambiguous-task shape**
 
 ```bash
 mkdir -p evals/analyst/escalation-ambiguous-decision/fixture
@@ -481,7 +481,7 @@ currency, or flow the task below refers to.
 
 This is the same task and fixture as `evals/analyst/escalation-ambiguous-task` — deliberately. That case tests `analyst`'s own baseline judgment (it predates this change and never invokes any skill). This new case tests the *same* genuine, repository-unresolvable ambiguity routed through the new forced-`brainstorming` dispatcher, to confirm the skill path still ends in the same correct escalation rather than fabricating a provider choice.
 
-- [ ] **Step 2: Write `expect.yaml`**
+- [x] **Step 2: Write `expect.yaml`**
 
 ```yaml
 role: analyst
@@ -496,7 +496,7 @@ checks:
 
 `diff_scope.allow` is broadened from the existing `escalation-ambiguous-task`'s empty list: `brainstorming`'s own checklist asks clarifying questions (step 3) *before* writing a design doc (step 6), so it may reach the payment-provider ambiguity before writing anything — or it may commit a partial spec first. Either is a legitimate pass; `diffScopeChecker` accepts an empty diff against any `allow` list, so this broadened list does not require a file to exist, it only permits one if `brainstorming` got that far.
 
-- [ ] **Step 3: Prove the check can actually fail (no paid run required)**
+- [x] **Step 3: Prove the check can actually fail (no paid run required)**
 
 ```bash
 go build -o /tmp/fakeagent ./cmd/eval-roles/testdata/fakeagent
@@ -511,7 +511,7 @@ Expected: the case reports `failed` — the `outcome` check catches the fake age
 rm -f /tmp/fakeagent
 ```
 
-- [ ] **Step 4: Stage and commit**
+- [x] **Step 4: Stage and commit**
 
 ```bash
 git add evals/analyst/escalation-ambiguous-decision
