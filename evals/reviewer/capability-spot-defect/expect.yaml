@@ -13,6 +13,10 @@ checks:
   - kind: diff_scope
     allow: []
   - kind: fixture_tests
-    # Слабая, не обязанная быть точной подсказка, что разбор был не мимо
-    # темы — различение "нашёл/не нашёл" целиком на next_owner выше.
-    command: "grep -qi 'Max' .agent/result.json"
+    # A1 — реальный id критерия приёмки, который присвоил сам Comet Native
+    # (подтверди через `comet native status eval-spot-defect --json` при
+    # заведении фикстуры — литеральный префикс в тексте spec.md id не
+    # определяет); провалившийся вердикт по нему — точный сигнал, что
+    # ревьюер прошёл через dispatch-verifier/final-result, а не свободный
+    # разбор угадал слово "Max" в тексте.
+    command: "grep -qi 'A1' .agent/result.json"

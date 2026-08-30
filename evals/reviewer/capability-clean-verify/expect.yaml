@@ -1,0 +1,11 @@
+role: reviewer
+checks:
+  - kind: outcome
+    expect: done
+    next_owner: none
+  - kind: diff_scope
+    allow: []
+  - kind: fixture_tests
+    command: >-
+      find docs/comet/changes/eval-clean-verify -iname "comet-state.yaml" |
+      xargs grep -q "archive-ready"
