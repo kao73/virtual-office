@@ -36,14 +36,19 @@
    найди реальные проверки проекта тем же способом, каким это уже делает
    implementer (`.pre-commit-config.yaml`, lint-таргет `Makefile`, тестовый
    раннер), опиши каждую как объект `{id, name, executable, argv, cwdRef,
-   timeoutMs, repeatable}` — ровно эти поля, без лишних и без пропущенных —
-   заверни в конверт (`kind`/`checks` — CLI отвергает голый массив: «Native
-   Runner input must be an object», проверено живым прогоном 0.4.0-beta.18)
-   и отправь:
+   timeoutMs, repeatable}` — ровно эти поля, без лишних и без пропущенных.
+   `cwdRef` — нормализованный путь относительно корня проекта (`"."` для
+   корня), а не символическое имя вроде `"projectRoot"`: такое Runtime
+   молча помечает как `interrupted` уже на исполнении, и последующий
+   проходящий `final-result` из-за этого отвергается («Native Verifier
+   response was invalid: ... cannot pass before every required check
+   succeeds»). Заверни в конверт (`kind`/`checks` — CLI отвергает голый
+   массив: «Native Runner input must be an object», проверено живым
+   прогоном 0.4.0-beta.18) и отправь:
 
        cat > /tmp/dispatch-verifier.json <<'EOF'
        {"kind": "dispatch-verifier", "checks": [{"id": "...", "name": "...",
-         "executable": "...", "argv": [...], "cwdRef": "...", "timeoutMs": ...,
+         "executable": "...", "argv": [...], "cwdRef": ".", "timeoutMs": ...,
          "repeatable": ...}]}
        EOF
        comet native next <name> --runner-input /tmp/dispatch-verifier.json
@@ -57,8 +62,8 @@
    «тесты зелёные» в чужом отчёте — не проверка, а утверждение.
 5. **Оцени работу.** С активным изменением Comet Native — по результатам
    проверок Runtime и собственному чтению диффа и кода оцени каждый критерий
-   приёмки и отправь `final-result`, тоже в конверте (голый `{iteration, ...}`
-   CLI отвергает: «Native Runner input kind is invalid», тоже проверено живым
+   приёмки и отправь `final-result`, тоже в конверте — голый `{iteration, ...}`
+   CLI отвергает: «Native Runner input kind is invalid» (проверено живым
    прогоном):
 
        cat > /tmp/final-result.json <<'EOF'
@@ -70,15 +75,17 @@
        EOF
        comet native next <name> --runner-input /tmp/final-result.json
 
-   тем же способом, через `--runner-input`. У каждого критерия приёмки должен
-   быть ровно один вердикт. Провальный вердикт Native сама возвращает в
-   `build` на исправление — дальше ничего не требуется, переходи сразу к
-   исходу. Прошедший вердикт (все критерии `passed`) переводит изменение не
-   сразу в `archive-ready`, а в `await-user` — Native ждёт то же
-   самоподтверждение, что и на Shape (design doc, Evidence base item 5:
-   `--confirmed` — доверительный флаг, не независимая проверка). Заверши его
-   тем же способом, каким `analyst` подтверждает Shape, когда не осталось
-   ничего по-настоящему неоднозначного:
+   У каждого критерия приёмки должен быть ровно один вердикт. `fail` Native
+   сама возвращает в `build` на исправление — дальше ничего не требуется,
+   переходи сразу к исходу. `blocked` оставляет изменение в `await-user` с
+   `next_action: resolve-verifier-blocker` — тоже переходи к исходу
+   (`blocked` у тебя самой, человеку через `blocker`), лишний шаг здесь не
+   нужен. Только `pass` (все критерии `passed`) переводит изменение не сразу
+   в `archive-ready`, а в `await-user` с ожиданием подтверждения — Native
+   ждёт то же самоподтверждение, что и на Shape: `--confirmed` доверительный
+   флаг, не независимая проверка. Заверши его тем же способом, каким
+   `analyst` подтверждает Shape, когда не осталось ничего по-настоящему
+   неоднозначного:
 
        comet native next <name> --summary "..." --confirmed
 
@@ -112,9 +119,10 @@
   в `summary`/`details_md`. Это не провал: разбор состоялся, дальше ход за автором;
 - все критерии приёмки прошли (с активным изменением Comet Native) → `done`,
   `next_owner: none` — Verify передаёт дальше человеку через существующий
-  PR-поток, а не другой роли; состояние Comet Native переходит в
-  `archive-ready`, которое читает PR-проход раннера, прежде чем открыть pull
-  request. Без активного изменения Comet Native, работа готова как раньше →
+  PR-поток, а не другой роли; после самоподтверждения из шага 5 выше
+  состояние Comet Native переходит в `archive-ready`, которое читает
+  PR-проход раннера, прежде чем открыть pull request. Без активного
+  изменения Comet Native, работа готова как раньше →
   `done`, `next_owner: human`, короткое одобрение: что проверено и чем.
   Дальше её ведёт человек в обоих случаях;
 - постановка противоречива, и решать не автору — цена ошибки выше правки → `needs_human`
