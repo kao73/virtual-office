@@ -3,35 +3,31 @@
 Plan: docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
 review_mode: standard | tdd_mode: tdd | build_mode: subagent-driven-development
 
-## Current
-- Task: (about to dispatch) Task 9 (tasks.md 4.1) — roles/analyst/{role.yaml,role.md}
-- Stage: implementing
-- Model: TBD
-- IMPORTANT for this dispatch and Tasks 10/11: role.md text must describe
-  `<name>` as the SANITIZED Native change name (runner.CometChangeName's
-  output — lowercase, `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`), not the raw safeKey/
-  task-key. A real tracker key like "OFF-1" becomes "off-1". The plan's own
-  prose (Task 4's Interfaces note, ~line 669) says "the same safe key the
-  runner already computes" — that's now imprecise post-Task-5-fix; correct
-  it when dispatching.
+## Progress: 11/16 tasks complete (Tasks 1-11)
 
-## Progress: 8/16 tasks complete (Tasks 1-8)
+## Current
+- Task: (about to dispatch) Task 12 (tasks.md 6.1) — docs/contracts/agent-io.md prose update
+- Stage: implementing
 
 ## History (condensed — full detail in .superpowers/sdd/2026-08-30-role-comet-native-workflow/progress.md)
-- Task 1 (sbx investigation): done, 79fb6b1.
-- Task 2 (role.go hooks schema): done, 1bb1533. Review clean.
-- Task 3 (adapter PreToolUse wiring): done, 6e3c57c. Review clean.
-- Task 4 (change-root helpers): done, 99de3ac. Review clean; naming later corrected (Task 5 fix round 1).
-- Task 5 (archive before PR): done after 2 fix rounds (42f35f9, 8dbaf0d, 9228c67), both re-reviewed clean.
-  Highest-risk task so far. Design doc + OpenSpec docs corrected (1305646).
-- Task 6 (input.go context line): done, d6de935. No risk signals, no reviewer needed.
-- Task 7 (vendor skills/comet): done, 1a50671. Verified byte-identical to source directly.
-- Task 8 (vendor skills/comet-native): done, a88e20b. Verified byte-identical to source directly.
-  tasks.md 3.1 closed.
+- Tasks 1-8: all done and clean (see prior checkpoint entries in git history,
+  commit 6bba159, for full detail). Task 5 was the highest-risk (2 fix rounds).
+- Task 9 (analyst role rewrite): done, 5f51fa3. Review clean, 2 Minor cosmetic
+  notes deferred (bare "spec.md", missing --details flag) — both pre-corrected
+  in Tasks 10-11's dispatches.
+- Task 10 (implementer role rewrite): done, f5e5d31 + fix 1508892->deca733
+  (coordinator fixed a dangling internal cross-reference the implementer
+  correctly flagged rather than silently rewrote). Review clean, RESOLVED.
+- Task 11 (reviewer role rewrite): done, 1c68c39. Review clean. The one real
+  semantic change in this task (next_owner: none replacing next_owner: human
+  on success) independently traced through workflow.yaml/pipeline.go and
+  CONFIRMED to route identically. tasks.md 4.1/4.2/4.3 all closed.
 
-## Remaining: Tasks 9-16
-9-11: role.yaml/role.md rewrites for analyst/implementer/reviewer (each depends on
-  Tasks 2,3,7,8, all landed — TestShippedRolesAreValid should now resolve real files).
-12: docs/contracts/agent-io.md prose update.
-13-15: eval golden-case fixtures (need local `comet` CLI — confirmed installed).
-16: paid live regression run — requires explicit user go-ahead before spending money.
+## Remaining: Tasks 12-16
+12: docs/contracts/agent-io.md prose update (small, no code).
+13-15: eval golden-case fixtures (need local `comet` CLI — confirmed
+  installed and working, version 0.4.0-beta.18, used extensively in Task 5's
+  live verification).
+16: paid live regression run — requires explicit user go-ahead before
+  spending money, per the plan's own Global Constraints ("manual-only, costs
+  real money/subscription per run").
