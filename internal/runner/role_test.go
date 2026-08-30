@@ -137,6 +137,27 @@ func TestLoadRoleRejects(t *testing.T) {
 			yaml:     fixtureRoleYAML + "write_scope:\n  dir: change_dir\n",
 			wantPart: "не разобран",
 		},
+		"pre_tool_use без matcher": {
+			yaml: strings.Replace(fixtureRoleYAML,
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+					"    - matcher: \"\"\n      command: skills/comet/scripts/comet-hook-router.mjs\n", 1),
+			wantPart: "matcher пуст",
+		},
+		"pre_tool_use без command": {
+			yaml: strings.Replace(fixtureRoleYAML,
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+					"    - matcher: \"Write|Edit\"\n      command: \"\"\n", 1),
+			wantPart: "command пуст",
+		},
+		"pre_tool_use ссылается на неподключённый скилл": {
+			yaml: strings.Replace(fixtureRoleYAML,
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+					"    - matcher: \"Write|Edit\"\n      command: skills/comet/scripts/comet-hook-router.mjs\n", 1),
+			wantPart: "нет в skills",
+		},
 	}
 
 	for name, tc := range cases {
@@ -219,6 +240,68 @@ func TestLoadRoleRejectsNonExecutableHook(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "не исполняемый") {
 		t.Errorf("ошибка не объясняет причину: %v", err)
+	}
+}
+
+// Скрипт хука существует, но подключённого скилла, к которому он относится,
+// в roleYAML нет вовсе — SkillDirs() его даже не проверяет, потому что о нём
+// не знает список skills:. Отдельный тест: табличный TestLoadRoleRejects выше
+// не создаёт файлов сверх стандартной фикстуры, а этому нужен настоящий
+// каталог скилла без самого файла скрипта внутри него.
+func TestLoadRoleRejectsPreToolUseMissingScript(t *testing.T) {
+	yaml := strings.Replace(fixtureRoleYAML, "skills: []", "skills: [comet]", 1)
+	yaml = strings.Replace(yaml,
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+			"    - matcher: \"Write|Edit\"\n      command: skills/comet/scripts/comet-hook-router.mjs\n", 1)
+	root := fixtureOffice(t, yaml)
+	// Каталог скилла существует (иначе SkillDirs() отверг бы роль раньше и по
+	// другой причине), а самого скрипта внутри — нет.
+	if err := os.MkdirAll(filepath.Join(root, "skills", "comet"), 0o755); err != nil {
+		t.Fatalf("каталог скилла не создан: %v", err)
+	}
+
+	_, err := LoadRole(root, "tester")
+	if err == nil {
+		t.Fatal("скрипт хука отсутствует, но роль принята")
+	}
+	if !strings.Contains(err.Error(), "файл хука не найден") {
+		t.Errorf("ошибка не объясняет причину: %v", err)
+	}
+}
+
+// Хук-роутер Comet enforces фазовые границы записи технически, а не только
+// текстом role.md (design doc "Phase-scoped writes are hook-enforced") — и
+// корректно объявленный hooks.pre_tool_use обязан разбираться, а не только
+// отвергаться.
+func TestLoadRoleAcceptsPreToolUseHook(t *testing.T) {
+	yaml := strings.Replace(fixtureRoleYAML, "skills: []", "skills: [comet]", 1)
+	yaml = strings.Replace(yaml,
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+			"    - matcher: \"Write|Edit\"\n      command: skills/comet/scripts/comet-hook-router.mjs --platform claude --project-root \"$WORKDIR\"\n", 1)
+	root := fixtureOffice(t, yaml)
+	scriptDir := filepath.Join(root, "skills", "comet", "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("каталог скрипта не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptDir, "comet-hook-router.mjs"), []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
+		t.Fatalf("скрипт хука не записан: %v", err)
+	}
+
+	role, err := LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("корректный pre_tool_use хук отвергнут: %v", err)
+	}
+	if len(role.Hooks.PreToolUse) != 1 {
+		t.Fatalf("hooks.pre_tool_use не разобран: %+v", role.Hooks)
+	}
+	got := role.Hooks.PreToolUse[0]
+	if got.Matcher != "Write|Edit" {
+		t.Errorf("matcher=%q, ожидался Write|Edit", got.Matcher)
+	}
+	if !strings.HasPrefix(got.Command, "skills/comet/scripts/comet-hook-router.mjs") {
+		t.Errorf("command=%q искажён при разборе", got.Command)
 	}
 }
 
