@@ -16,7 +16,7 @@
 ## 4. Role updates
 
 - [x] 4.1 `roles/analyst`: mount `comet`/`comet-native`, rewrite `role.md`'s skill dispatcher for the Shape phase, drop `brainstorming`/`writing-plans`
-- [ ] 4.2 `roles/implementer`: mount `comet`/`comet-native`, rewrite `role.md` to read `brief.md`/`spec.md` instead of `tasks.md`/`design.md`, keep one-step-one-commit discipline
+- [x] 4.2 `roles/implementer`: mount `comet`/`comet-native`, rewrite `role.md` to read `brief.md`/`spec.md` instead of `tasks.md`/`design.md`, keep one-step-one-commit discipline
 - [ ] 4.3 `roles/reviewer`: mount `comet`/`comet-native`, rewrite `role.md` to dispatch the mandated read-only Verifier and mark acceptance items
 
 ## 5. Runner archive step

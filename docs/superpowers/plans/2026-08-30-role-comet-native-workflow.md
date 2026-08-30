@@ -1636,7 +1636,7 @@ git commit -m "feat(analyst): drive Comet Native Shape instead of brainstorming/
 **Interfaces:**
 - Produces: the Build half of the phase-to-role mapping. `next_owner: reviewer` (success) and `next_owner: analyst` (mismatch) on `done` are unchanged from today.
 
-- [ ] **Step 1: Replace `role.yaml`**
+- [x] **Step 1: Replace `role.yaml`**
 
 Replace `roles/implementer/role.yaml` in full — only `skills:` and the new `hooks.pre_tool_use` entry change, every comment and every other field stays as-is:
 
@@ -1707,7 +1707,7 @@ limits:
 result_file: .agent/result.json
 ```
 
-- [ ] **Step 2: Replace `### Если есть план` with the Comet-aware, conditional section**
+- [x] **Step 2: Replace `### Если есть план` with the Comet-aware, conditional section**
 
 Replace this section (current file, lines 29-50):
 
@@ -1785,7 +1785,7 @@ Native, и работа идёт по нему. Из корня рабочей �
 в очередь без него (см. «Плана в контексте нет» ниже).
 ```
 
-- [ ] **Step 3: Update the truncated-run section's `tasks.md` reference**
+- [x] **Step 3: Update the truncated-run section's `tasks.md` reference**
 
 In `### Если прошлый прогон был усечён`, replace:
 
@@ -1805,13 +1805,13 @@ with:
 
 Everything else in that section, `### Если ветка не сливается`, and `## Выход` is unchanged — none of it names `tasks.md`/`design.md` specifically.
 
-- [ ] **Step 4: Verify the role still loads**
+- [x] **Step 4: Verify the role still loads**
 
 ```bash
 go test ./internal/runner/... -run TestShippedRolesAreValid -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add roles/implementer/role.yaml roles/implementer/role.md
