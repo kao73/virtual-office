@@ -6,7 +6,7 @@ prompt: role.md
 includes:
   - ../_base/base.md
 
-skills: []
+skills: [brainstorming, writing-plans]
 
 # Синтаксис правил — как у claude: пробел перед * значим,
 # Bash(git *diff*) поймал бы и git diff-index, и git -c x diff.
