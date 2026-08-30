@@ -16,8 +16,8 @@
 ## 3. Eval coverage
 
 - [x] 3.1 Add `evals/analyst/<case>-ambiguous-decision/`: a task with a genuine, repository-unresolvable ambiguity; expect `needs_human` with a correctly shaped `questions[]`
-- [ ] 3.2 Add `evals/analyst/<case>-resume-no-reinvoke/`: a fixture with prior work already present (spec/plan committed wherever `brainstorming`/`writing-plans` would have put it) and a human answer already recorded; expect `done` without a second `Skill` invocation
-- [ ] 3.3 Confirm `result.json`'s `artifacts` field names the real files in both new cases — this is now the only link between a freely-placed file and its task
+- [x] 3.2 Add `evals/analyst/<case>-resume-no-reinvoke/`: a fixture with prior work already present (spec/plan committed wherever `brainstorming`/`writing-plans` would have put it) and a human answer already recorded; expect `done` without a second `Skill` invocation
+- [x] 3.3 Confirm `result.json`'s `artifacts` field names the real files in both new cases — this is now the only link between a freely-placed file and its task
 
 ## 4. Verification
 

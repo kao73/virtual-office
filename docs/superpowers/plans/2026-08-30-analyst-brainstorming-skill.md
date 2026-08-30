@@ -551,7 +551,7 @@ Do not run this case for real yet — Task 7 runs the full paid sweep once all f
 **Interfaces:**
 - Consumes: nothing from other tasks — this case's fixture is self-contained (see Note 4 in "Notes on task ordering and resolved ambiguities" above for why it carries the "human already answered" fact as spec content, not as `context.md`/`STATE.md`).
 
-- [ ] **Step 1: Create the case directory**
+- [x] **Step 1: Create the case directory**
 
 ```bash
 mkdir -p evals/analyst/capability-resume-no-reinvoke/fixture/greet
@@ -559,7 +559,7 @@ mkdir -p evals/analyst/capability-resume-no-reinvoke/fixture/docs/superpowers/sp
 mkdir -p evals/analyst/capability-resume-no-reinvoke/fixture/docs/superpowers/plans
 ```
 
-- [ ] **Step 2: Write the task and the plain Go fixture**
+- [x] **Step 2: Write the task and the plain Go fixture**
 
 `evals/analyst/capability-resume-no-reinvoke/task.md`:
 
@@ -607,7 +607,7 @@ func TestGreet(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Write the pre-committed spec, recording the resolved decision**
+- [x] **Step 3: Write the pre-committed spec, recording the resolved decision**
 
 `evals/analyst/capability-resume-no-reinvoke/fixture/docs/superpowers/specs/2026-08-29-greet-whisper-design.md`:
 
@@ -655,7 +655,7 @@ None beyond normal test coverage — this is a pure, dependency-free string func
 acceptance check for this spec.
 ```
 
-- [ ] **Step 4: Write the pre-committed plan, matching `writing-plans`'s real, unedited output format**
+- [x] **Step 4: Write the pre-committed plan, matching `writing-plans`'s real, unedited output format**
 
 `evals/analyst/capability-resume-no-reinvoke/fixture/docs/superpowers/plans/2026-08-29-greet-whisper.md`:
 
@@ -750,7 +750,7 @@ Which approach?
 
 This plan document is written exactly as `writing-plans` would leave it, unedited — including the "REQUIRED SUB-SKILL" header and the unanswered "Execution Handoff" question at the end (dispatcher rule 6: `analyst` never strips or answers this).
 
-- [ ] **Step 5: Write `expect.yaml`**
+- [x] **Step 5: Write `expect.yaml`**
 
 ```yaml
 role: analyst
@@ -768,7 +768,7 @@ checks:
 
 `diff_scope.allow: []` is deliberate: a correct resume makes no further edits at all — the pre-seeded spec and plan already exist and already match the human's answer, so a passing run produces an empty diff. The `fixture_tests` command is the concrete, harness-runnable form of `tasks.md` item 3.3 — confirm `result.json`'s `artifacts` is non-empty and every listed path actually exists on disk inside the fixture.
 
-- [ ] **Step 6: Prove the check can actually fail (no paid run required)**
+- [x] **Step 6: Prove the check can actually fail (no paid run required)**
 
 Two separate fake-agent runs, each proving a different failure mode this case's checks exist to catch:
 
@@ -800,7 +800,7 @@ Expected: `failed` — the `fixture_tests` check's `jq -e '.artifacts | length >
 rm -f /tmp/fakeagent
 ```
 
-- [ ] **Step 7: Stage and commit**
+- [x] **Step 7: Stage and commit**
 
 ```bash
 git add evals/analyst/capability-resume-no-reinvoke
