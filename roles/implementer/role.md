@@ -55,15 +55,19 @@ Native, и работа идёт по нему. Из корня рабочей �
 сходится. Аналитик поправит их и вернёт задачу тебе.
 
 Когда работа сделана, отправь Builder handoff, чтобы Comet Native передал
-изменение в Verify:
+изменение в Verify. `checks` — массив объектов (`"result"` — ровно `"passed"`,
+`"failed"` или `"blocked"`, не `"pass"`/`"fail"`), `known_limits` — массив, не
+строка: CLI отвергает и голые строки в `checks`, и `known_limits` строкой
+(«Native Builder check 0 must be an object» / «...known limits must be an
+array» — проверено живым прогоном 0.4.0-beta.18):
 
     cat > /tmp/builder-handoff.json <<'EOF'
     {
       "kind": "builder-handoff",
       "summary": "...",
       "addressed_acceptance_ids": ["..."],
-      "checks": ["..."],
-      "known_limits": "..."
+      "checks": [{"name": "...", "result": "passed"|"failed"|"blocked", "note": null}],
+      "known_limits": []
     }
     EOF
     comet native next <name> --runner-input /tmp/builder-handoff.json
