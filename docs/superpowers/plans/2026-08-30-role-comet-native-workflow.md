@@ -1308,7 +1308,7 @@ git commit -m "fix(runner): prefer the Comet Native change root in run context"
 
 **Prerequisite:** a local Node 22+ and `npm` (this is the "developer's own machine" case Task 1 explicitly separates from the production sandbox gap — it does not depend on that gap being solved).
 
-- [ ] **Step 1: Install the pinned CLI locally and locate the skill's real files**
+- [x] **Step 1: Install the pinned CLI locally and locate the skill's real files**
 
 ```bash
 mkdir -p /tmp/comet-vendor && cd /tmp/comet-vendor
@@ -1325,14 +1325,14 @@ npm root -g
 find "$(npm root -g)/@rpamis/comet" -maxdepth 5 -type d -iname "comet" -o -type d -iname "comet-native"
 ```
 
-- [ ] **Step 2: Copy the skill directory into this repo**
+- [x] **Step 2: Copy the skill directory into this repo**
 
 ```bash
 mkdir -p skills/comet
 cp -R <located-comet-skill-dir>/. skills/comet/
 ```
 
-- [ ] **Step 3: Verify the copy is complete**
+- [x] **Step 3: Verify the copy is complete**
 
 ```bash
 test -f skills/comet/SKILL.md
@@ -1341,14 +1341,14 @@ test -f skills/comet/scripts/comet-hook-router.mjs
 
 Expected: both exit 0. If `comet-hook-router.mjs` is not directly under `scripts/` in the real package, find its actual relative path and use that path consistently in Task 3's test fixtures and in Tasks 9–11's `role.yaml` `hooks.pre_tool_use.command` — the design doc's own path (`skills/comet/scripts/comet-hook-router.mjs`) is what the design-phase experiments actually invoked, so treat a mismatch here as a signal to re-check against a fresh `npm view @rpamis/comet@0.4.0-beta.18` rather than silently diverging.
 
-- [ ] **Step 4: Determine the pinned tag/commit for `.source.yaml`**
+- [x] **Step 4: Determine the pinned tag/commit for `.source.yaml`**
 
 ```bash
 npm view @rpamis/comet@0.4.0-beta.18 repository.url
 git ls-remote --tags https://github.com/rpamis/comet.git | grep -i "0.4.0-beta.18"
 ```
 
-- [ ] **Step 5: Write `skills/comet/.source.yaml`**
+- [x] **Step 5: Write `skills/comet/.source.yaml`**
 
 ```yaml
 repository: https://github.com/rpamis/comet
@@ -1358,7 +1358,7 @@ commit: <resolved commit from Step 4>
 
 (Matches the shape of `skills/brainstorming/.source.yaml`/`skills/writing-plans/.source.yaml` exactly — no drift-check script, per this repo's existing precedent for vendored skills.)
 
-- [ ] **Step 6: Clean up and stage**
+- [x] **Step 6: Clean up and stage**
 
 ```bash
 rm -rf /tmp/comet-vendor
@@ -1368,7 +1368,7 @@ git status --short
 
 Expected: every file under `skills/comet/` shows as new (`A`), nothing else changed.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git commit -m "chore(skills): vendor comet 0.4.0-beta.18"
