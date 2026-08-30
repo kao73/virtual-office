@@ -4,35 +4,34 @@ Plan: docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
 review_mode: standard | tdd_mode: tdd | build_mode: subagent-driven-development
 
 ## Current
-- Task: (about to dispatch) Task 6 (tasks.md — none, internal/runner/input.go) — dual-root context line
+- Task: (about to dispatch) Task 9 (tasks.md 4.1) — roles/analyst/{role.yaml,role.md}
 - Stage: implementing
 - Model: TBD
+- IMPORTANT for this dispatch and Tasks 10/11: role.md text must describe
+  `<name>` as the SANITIZED Native change name (runner.CometChangeName's
+  output — lowercase, `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`), not the raw safeKey/
+  task-key. A real tracker key like "OFF-1" becomes "off-1". The plan's own
+  prose (Task 4's Interfaces note, ~line 669) says "the same safe key the
+  runner already computes" — that's now imprecise post-Task-5-fix; correct
+  it when dispatching.
 
-## Carry-forward for Tasks 9-11 (IMPORTANT, do not lose this)
-role.md text for analyst/implementer/reviewer must describe <name> as the
-SANITIZED Native change name (runner.CometChangeName's output: lowercase,
-`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`), NOT "the same safe key the runner already
-computes" verbatim as the plan's own prose currently says (plan line ~669,
-Task 4's Interfaces note) — a real tracker key like "OFF-1" becomes "off-1".
-Found during Task 5's re-review (out-of-scope observation).
+## Progress: 8/16 tasks complete (Tasks 1-8)
 
-## History
-- Task 1 (sbx investigation): done. Commit 79fb6b1. Review: not needed (no risk signals).
-- Task 2 (role.go hooks schema): done. Commit 1bb1533. Review clean.
-- Task 3 (adapter PreToolUse wiring): done. Commit 6e3c57c. Review clean.
-- Task 4 (change-root helpers): done. Commit 99de3ac. Review clean (0 findings)
-  — but see Task 5: CometChangeName's output format later corrected (fix
-  round 1, commit 42f35f9) to be Native-CLI-compatible (lowercase/sanitized).
-- Task 5 (archive before PR): done after 2 fix rounds, both re-reviewed
-  clean. Implementer c0001af. Fix round 1: 42f35f9 (runner naming fix) +
-  8dbaf0d (pipeline CLI-contract fix) — corrected 4 Critical findings the
-  original review caught by testing the real installed comet CLI live
-  (JSON envelope shape, phase-vs-stage, --finish rejected, invalid change
-  names) plus Important findings (self-commit needed under isolation:
-  current — user chose "archive.go commits it itself" over changing the
-  roles' isolation mode; non-busy Ensure failure was aborting the whole PR
-  pass). Fix round 2: 9228c67 — scoped an unscoped `git add -A` the fix
-  brief itself had prescribed (coordinator's own mistake), found by the
-  round-1 re-review. Design doc + OpenSpec design.md/proposal.md corrected
-  to match the real CLI contract (commit 1305646). tasks.md 1.3 and 5.1 both
-  closed. This was the highest-risk task so far — worth the extra rounds.
+## History (condensed — full detail in .superpowers/sdd/2026-08-30-role-comet-native-workflow/progress.md)
+- Task 1 (sbx investigation): done, 79fb6b1.
+- Task 2 (role.go hooks schema): done, 1bb1533. Review clean.
+- Task 3 (adapter PreToolUse wiring): done, 6e3c57c. Review clean.
+- Task 4 (change-root helpers): done, 99de3ac. Review clean; naming later corrected (Task 5 fix round 1).
+- Task 5 (archive before PR): done after 2 fix rounds (42f35f9, 8dbaf0d, 9228c67), both re-reviewed clean.
+  Highest-risk task so far. Design doc + OpenSpec docs corrected (1305646).
+- Task 6 (input.go context line): done, d6de935. No risk signals, no reviewer needed.
+- Task 7 (vendor skills/comet): done, 1a50671. Verified byte-identical to source directly.
+- Task 8 (vendor skills/comet-native): done, a88e20b. Verified byte-identical to source directly.
+  tasks.md 3.1 closed.
+
+## Remaining: Tasks 9-16
+9-11: role.yaml/role.md rewrites for analyst/implementer/reviewer (each depends on
+  Tasks 2,3,7,8, all landed — TestShippedRolesAreValid should now resolve real files).
+12: docs/contracts/agent-io.md prose update.
+13-15: eval golden-case fixtures (need local `comet` CLI — confirmed installed).
+16: paid live regression run — requires explicit user go-ahead before spending money.
