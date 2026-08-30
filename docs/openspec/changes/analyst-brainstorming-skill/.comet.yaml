@@ -1,6 +1,6 @@
 workflow: full
 language: en
-phase: build
+phase: verify
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -8,7 +8,7 @@ subagent_dispatch: confirmed
 tdd_mode: tdd
 review_mode: standard
 isolation: branch
-verify_mode: null
+verify_mode: full
 auto_transition: true
 base_ref: 08c71862e4b1c69d3db6fdeb422cbfa5c95bf3c1
 design_doc: docs/superpowers/specs/2026-08-30-analyst-brainstorming-skill-design.md
