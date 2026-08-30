@@ -21,5 +21,5 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Run the two new `analyst` golden cases from section 3; confirm they pass
-- [ ] 4.2 Run `go test ./...`
+- [x] 4.1 Run the two new `analyst` golden cases from section 3; confirm they pass
+- [x] 4.2 Run `go test ./...`

@@ -830,7 +830,7 @@ Do not run this case for real yet — Task 7 runs the full paid sweep now that a
 
 **Files:** none (no code changes — this task only runs existing tooling).
 
-- [ ] **Step 1: Confirm the repo builds and the pre-existing Go test suite is unaffected**
+- [x] **Step 1: Confirm the repo builds and the pre-existing Go test suite is unaffected**
 
 ```bash
 go build ./...
@@ -840,7 +840,7 @@ go test ./...
 
 Expected: all three succeed. This plan makes zero `.go` changes, so this is a pure regression check — a failure here means something in the environment is broken, not something this change caused; investigate before proceeding.
 
-- [ ] **Step 2: Run the two new golden cases (tasks.md 4.1)**
+- [x] **Step 2: Run the two new golden cases (tasks.md 4.1)**
 
 ```bash
 ./bin/eval-roles --role analyst --case escalation-ambiguous-decision
@@ -854,7 +854,7 @@ Expected: both report `passed`. These are real, paid role invocations (per `READ
 ./bin/eval-roles --role analyst --case capability-resume-no-reinvoke --keep-failed
 ```
 
-- [ ] **Step 3: Run the full `analyst` suite, including the two cases this plan did not touch**
+- [x] **Step 3: Run the full `analyst` suite, including the two cases this plan did not touch**
 
 ```bash
 ./bin/eval-roles --role analyst
@@ -866,6 +866,6 @@ Expected: all four cases (`capability-basic-plan`, `escalation-ambiguous-task`, 
 
 `escalation-ambiguous-task` is the one case this plan never modifies. If it now fails where it previously passed, that is a real, unresolved finding, not something to silently patch: it would mean the forced-`brainstorming` dispatcher (Task 3) writes something under `docs/superpowers/**` even on a task this simple and short-circuited, which this case's own `diff_scope.allow: []` does not tolerate. Neither `proposal.md` nor the design doc's Risks/Boundary-Conditions sections anticipate this specific regression, so if it happens: **stop, do not edit `escalation-ambiguous-task/expect.yaml` on your own judgment**, and report it back as an open design question (whether that case's `allow` should also be broadened like `escalation-ambiguous-decision`'s, or whether the dispatcher's forced-architectural rule needs a narrower trigger) rather than resolving it unilaterally — this is exactly the kind of gap the design doc's own "Boundary Conditions Deliberately Left Open" section asks Build to watch for.
 
-- [ ] **Step 4: Record the result**
+- [x] **Step 4: Record the result**
 
 No file to write — this task's only output is the pass/fail state confirmed in Steps 1–3. If all cases passed, the `analyst-brainstorming-skill` change is functionally complete per this plan; any further action (archiving the OpenSpec change, updating `docs/openspec/changes/analyst-brainstorming-skill/tasks.md`'s checkboxes) belongs to whichever Comet phase or workflow owns that bookkeeping, not to this plan.
