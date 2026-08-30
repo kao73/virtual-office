@@ -218,7 +218,7 @@ EOF
 - Consumes: `skills/brainstorming/` and `skills/writing-plans/` must already exist on disk (Tasks 1–2) — `internal/runner.Role.validate()` (`internal/runner/role.go`) fails `LoadRole` with "скилл не найден" for any name in `role.Skills` whose directory doesn't exist, so this task cannot land before Tasks 1–2.
 - Produces: `analyst`'s system prompt (assembled by `Role.SystemPrompt()` from `role.md` + `_base/base.md`) now instructs invoking `Skill: office-role-analyst:brainstorming` at the start of every task; `analyst`'s Claude Code plugin (built by `internal/adapters/claude.buildPlugin`) now contains both skills, mounted read-only, discoverable via the `Skill` tool.
 
-- [ ] **Step 1: Change `role.yaml`'s skill list**
+- [x] **Step 1: Change `role.yaml`'s skill list**
 
 In `roles/analyst/role.yaml`, change line 9 from:
 
@@ -234,7 +234,7 @@ skills: [brainstorming, writing-plans]
 
 Nothing else in `role.yaml` changes — `tools.allow` already has `Edit`/`Write` unrestricted (from the separate `remove-role-guards` change), and the `Skill` tool is added automatically by the adapter whenever `role.Skills` is non-empty (`internal/adapters/claude/adapter.go:143–150`), not by anything in `role.yaml` itself.
 
-- [ ] **Step 2: Replace `role.md`'s `## Выход` section**
+- [x] **Step 2: Replace `role.md`'s `## Выход` section**
 
 In `roles/analyst/role.md`, delete the entire block from the `## Выход` heading (line 17) through the end of the size-threshold paragraph (line 50) — i.e. everything between `## Вход`'s last line and `## Как коммитить`'s heading — and replace it with:
 
@@ -287,7 +287,7 @@ In `roles/analyst/role.md`, delete the entire block from the `## Выход` hea
    `writing-plans`, без правок.
 ```
 
-- [ ] **Step 3: Reword `role.md`'s `## Как коммитить` body**
+- [x] **Step 3: Reword `role.md`'s `## Как коммитить` body**
 
 Immediately after Step 2's replacement, the `## Как коммитить` heading and its body follow. Replace the body (everything from the paragraph after the heading through the third bullet, i.e. the old lines 54–71) with:
 
@@ -318,7 +318,7 @@ Immediately after Step 2's replacement, the `## Как коммитить` headi
 
 The `## Как коммитить` heading itself is unchanged. `## Вход`, `## Исходы`, and `## Когда задачу вернул разработчик` are untouched by this task — none of them reference the old fixed-file contract.
 
-- [ ] **Step 4: Structural sanity check**
+- [x] **Step 4: Structural sanity check**
 
 ```bash
 grep -c '^## ' roles/analyst/role.md
@@ -331,7 +331,7 @@ grep -qv 'Три файла в каталоге изменения' roles/analys
 
 Expected: five headings total (`## Вход`, `## Диспетчер скиллов`, `## Как коммитить`, `## Исходы`, `## Когда задачу вернул разработчик`), all four `echo` lines print.
 
-- [ ] **Step 5: Integration check — role loads and both skills mount (no LLM call, no cost)**
+- [x] **Step 5: Integration check — role loads and both skills mount (no LLM call, no cost)**
 
 ```bash
 mkdir -p /tmp/analyst-dry-run && cd /tmp/analyst-dry-run
@@ -348,7 +348,7 @@ Expected: exits 0; the `== скиллы ==` section of the output lists both `br
 rm -rf /tmp/analyst-dry-run
 ```
 
-- [ ] **Step 6: Stage and commit**
+- [x] **Step 6: Stage and commit**
 
 ```bash
 git add roles/analyst/role.yaml roles/analyst/role.md

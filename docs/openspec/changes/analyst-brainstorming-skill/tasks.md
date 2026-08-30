@@ -6,12 +6,12 @@
 
 ## 2. Analyst role changes
 
-- [ ] 2.1 `roles/analyst/role.yaml`: set `skills: [brainstorming, writing-plans]`
-- [ ] 2.2 `roles/analyst/role.md`: add the dispatcher — always invoke `Skill: office-role-analyst:brainstorming` at the start of a new task
-- [ ] 2.3 `roles/analyst/role.md`: add the resume-skip clause — do not re-invoke the skill when prior work (a committed spec/plan, wherever it was saved, or the role's own past `artifacts` visible in the tracker history) already reflects any human answer received
-- [ ] 2.4 `roles/analyst/role.md`: remove the "Три файла в каталоге изменения" instruction as the mandatory output location — let `brainstorming`/`writing-plans` save wherever their own conventions call for
-- [ ] 2.5 `roles/analyst/role.md`: add the artifacts rule — every file actually created or modified, wherever it lands, must be named in `result.json`'s `artifacts` field
-- [ ] 2.6 `roles/analyst/role.md`: add the Execution Handoff rule — when `writing-plans` asks which execution approach to use, never answer and never invoke `subagent-driven-development` or `executing-plans`; the role's work ends once the plan is saved, unedited
+- [x] 2.1 `roles/analyst/role.yaml`: set `skills: [brainstorming, writing-plans]`
+- [x] 2.2 `roles/analyst/role.md`: add the dispatcher — always invoke `Skill: office-role-analyst:brainstorming` at the start of a new task
+- [x] 2.3 `roles/analyst/role.md`: add the resume-skip clause — do not re-invoke the skill when prior work (a committed spec/plan, wherever it was saved, or the role's own past `artifacts` visible in the tracker history) already reflects any human answer received
+- [x] 2.4 `roles/analyst/role.md`: remove the "Три файла в каталоге изменения" instruction as the mandatory output location — let `brainstorming`/`writing-plans` save wherever their own conventions call for
+- [x] 2.5 `roles/analyst/role.md`: add the artifacts rule — every file actually created or modified, wherever it lands, must be named in `result.json`'s `artifacts` field
+- [x] 2.6 `roles/analyst/role.md`: add the Execution Handoff rule — when `writing-plans` asks which execution approach to use, never answer and never invoke `subagent-driven-development` or `executing-plans`; the role's work ends once the plan is saved, unedited
 
 ## 3. Eval coverage
 
