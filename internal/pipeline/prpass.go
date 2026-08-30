@@ -105,6 +105,14 @@ func (o *Office) openPR(task tracker.Task) error {
 		return nil
 	}
 
+	if ok, err := o.archiveIfReady(task, project); err != nil {
+		return err
+	} else if !ok {
+		// Рабочая папка занята прямо сейчас — pull request подождёт
+		// следующего прохода, а не откроется без архивирования.
+		return nil
+	}
+
 	title, body, err := o.prBody(task, repo, project)
 	if err != nil {
 		return err
@@ -296,14 +304,25 @@ func (o *Office) prBody(task tracker.Task, repo string, project tracker.Project)
 	title := fmt.Sprintf("%s %s", task.Key, task.Summary)
 
 	brief, found, err := o.Workspaces.Show(repo, project.Branch(task.Key),
-		filepath.Join(runner.ChangeDirRel(task.Key), runner.FileBrief))
+		filepath.Join(runner.CometChangeDirRel(task.Key), runner.FileBrief))
 	if err != nil {
 		return "", "", err
 	}
 	if !found {
-		// Постановки в ветке нет — задача пришла мимо аналитика. Тогда телом идёт
-		// сам тикет целиком, вместе с темой: в заголовке она есть, но тело pull
-		// request читают и отдельно от него.
+		// Новый корень Comet Native пуст — задача либо старше этого перехода
+		// (analyst вёл её через прежний docs/changes/<KEY>), либо пришла мимо
+		// аналитика вовсе. Второй, старый корень остаётся источником, пока
+		// первый не подтвердил свою пустоту, а не наоборот.
+		brief, found, err = o.Workspaces.Show(repo, project.Branch(task.Key),
+			filepath.Join(runner.ChangeDirRel(task.Key), runner.FileBrief))
+		if err != nil {
+			return "", "", err
+		}
+	}
+	if !found {
+		// Ни в одном из корней постановки нет — задача пришла мимо аналитика.
+		// Тогда телом идёт сам тикет целиком, вместе с темой: в заголовке она
+		// есть, но тело pull request читают и отдельно от него.
 		brief = task.Summary + "\n\n" + task.Description
 	}
 

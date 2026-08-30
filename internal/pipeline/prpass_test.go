@@ -200,6 +200,49 @@ func TestPRPassBodyFallsBackToTicket(t *testing.T) {
 	}
 }
 
+// Постановка Comet Native — новый, предпочтительный источник тела pull
+// request; старый docs/changes/<KEY> не должен побеждать его, если оба есть.
+func TestPRPassBodyPrefersCometChangeOverLegacy(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/3", state: forge.Open})
+	o.agent.work = func(req Request) {
+		writes(filepath.Join(runner.ChangeDirRel("OFF-1"), runner.FileBrief),
+			"Старая постановка.\n")(req)
+		writes(filepath.Join(runner.CometChangeDirRel("OFF-1"), runner.FileBrief),
+			"Цель: считать среднее через Comet.\n")(req)
+	}
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t)
+
+	got := f.opened[0].body
+	if !strings.Contains(got, "Цель: считать среднее через Comet") {
+		t.Errorf("постановка Comet Native не попала в тело:\n%s", got)
+	}
+	if strings.Contains(got, "Старая постановка") {
+		t.Errorf("старая постановка не должна побеждать новую:\n%s", got)
+	}
+}
+
+// Задача, которую analyst вёл до перехода на Comet Native, хранит постановку
+// в старом корне — prBody не должен молча забыть про неё только потому, что
+// нового корня нет.
+func TestPRPassBodyFallsBackToLegacyChangeDir(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/4", state: forge.Open})
+	o.agent.work = writes(filepath.Join(runner.ChangeDirRel("OFF-1"), runner.FileBrief),
+		"Цель: старая постановка ещё жива.\n")
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t)
+
+	if !strings.Contains(f.opened[0].body, "Цель: старая постановка ещё жива") {
+		t.Errorf("старая постановка не подхвачена как fallback:\n%s", f.opened[0].body)
+	}
+}
+
 // Запись об открытии без адреса второго pull request не порождает: комментарий
 // могли поправить руками, и молча удвоить PR офис не вправе.
 func TestPRPassKeepsSilenceOnRecordWithoutURL(t *testing.T) {
