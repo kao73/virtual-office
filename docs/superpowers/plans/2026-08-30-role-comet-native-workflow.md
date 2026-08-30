@@ -1200,7 +1200,7 @@ git commit -m "feat(pipeline): archive Comet Native changes before opening the p
 - Consumes: `CometChangeDirRel` (Task 4, same package — no import needed).
 - Produces: the same "Каталог изменения: `<path>`" context line implementer/reviewer already read, now preferring the new root.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `internal/runner/input_test.go`, add this test right after `TestContextNamesChangeDirAndPlan`:
 
@@ -1236,7 +1236,7 @@ func TestContextPrefersCometChangeDirOverLegacy(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```bash
 go test ./internal/runner/... -run TestContextPrefersCometChangeDirOverLegacy -v
@@ -1244,7 +1244,7 @@ go test ./internal/runner/... -run TestContextPrefersCometChangeDirOverLegacy -v
 
 Expected: fails — `composeContext` still only checks `ChangeDirRel`, so it reports the legacy path.
 
-- [ ] **Step 3: Fix `composeContext`**
+- [x] **Step 3: Fix `composeContext`**
 
 In `internal/runner/input.go`, replace (around lines 174-179):
 
@@ -1280,7 +1280,7 @@ with:
 	}
 ```
 
-- [ ] **Step 4: Run the tests to verify green**
+- [x] **Step 4: Run the tests to verify green**
 
 ```bash
 go test ./internal/runner/... -run TestContext -v
@@ -1288,7 +1288,7 @@ go test ./internal/runner/... -run TestContext -v
 
 Expected: the new test passes, and `TestContextNamesChangeDirAndPlan` (legacy-only, no new-root directory present) still passes unmodified — it now exercises the fallback branch with identical observable output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/runner/input.go internal/runner/input_test.go
