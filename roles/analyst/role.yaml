@@ -6,7 +6,7 @@ prompt: role.md
 includes:
   - ../_base/base.md
 
-skills: [brainstorming, writing-plans]
+skills: [comet, comet-native]
 
 # Синтаксис правил — как у claude: пробел перед * значим,
 # Bash(git *diff*) поймал бы и git diff-index, и git -c x diff.
@@ -15,10 +15,10 @@ tools:
   # модель выполняет или нет по собственному суждению, а не по проверке
   # рантайма (измерено 2026-08-27, docs/notes/followup-network-and-permissions.md,
   # «Находка 2»; подробнее — docs/contracts/role-sandbox-permissions.md).
-  # Перечисление git-подкоманд здесь раньше не давало защиты, которую
-  # могло бы казаться, что даёт, — и вдобавок было хрупким к флагу перед
-  # подкомандой. Единственная реальная граница — tools.deny ниже
-  # и defaults.tools.deny в projects.yaml.
+  # Единственная реальная граница — tools.deny ниже и defaults.tools.deny
+  # в projects.yaml, плюс hooks.pre_tool_use ниже — технический, а не
+  # текстовый барьер записи вне фазы build (design doc "Phase-scoped writes
+  # are hook-enforced").
   allow:
     - Read
     - Grep
@@ -39,6 +39,9 @@ tools:
 hooks:
   stop:
     - hooks/require-result.sh   # не даёт завершиться без валидного result.json
+  pre_tool_use:
+    - matcher: "Write|Edit"
+      command: skills/comet/scripts/comet-hook-router.mjs --platform claude --project-root "$WORKDIR"
 
 # Куда писать и как соотноситься с другими ролями — решает текст role.md,
 # а не поле контракта: технической проверки этому нет, роль пишет туда,
