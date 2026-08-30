@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -22,22 +23,25 @@ import (
 // PATH целиком — Ensure/Push этой же функции нужен настоящий git.
 var cometExecutable = "comet"
 
-// archiveReadyPhase — значение фазы Comet Native изменения, при котором
-// reviewer уже передал прошедший final-result и Archive можно запускать:
-// "Native's own state moves to archive-ready, which the runner's PR pass
-// reads before opening the PR" (design doc, roles/reviewer, «Outcome»).
-//
-// Это единственное место, где design doc называет значение фазы дословно, а
-// не только структуру; подтверждается первым же живым прогоном этого шага
-// (план, задача «Full regression + live golden-case run») — расхождение
-// правится одной строкой здесь.
-const archiveReadyPhase = "archive-ready"
+// archiveReadyStage — значение data.loop.stage изменения Comet Native, при
+// котором reviewer уже передал прошедший final-result и Archive можно
+// запускать (design doc, roles/reviewer, «Outcome»: "Native's own state
+// moves to archive-ready" — та фраза называет именно стадию цикла, что
+// подтверждено живым прогоном `comet native status --json` при ревью Задачи
+// 5), а не data.phase, у которой значения — только shape|build|verify|archive.
+const archiveReadyStage = "archive-ready"
 
 // cometStatus — часть вывода `comet native status <name> --json`, нужная
-// раннеру. Остальные поля (loop, blockers, …) читает сама роль внутри своей
-// сессии; раннеру среди них важна только фаза.
+// раннеру: обёрнута в конверт {command, exitCode, data: {...}} (реальный
+// формат CLI, не то, что предполагал design doc до живой проверки при
+// ревью Задачи 5) — раннеру нужны только data.phase и data.loop.stage.
 type cometStatus struct {
-	Phase string `json:"phase"`
+	Data struct {
+		Phase string `json:"phase"`
+		Loop  struct {
+			Stage string `json:"stage"`
+		} `json:"loop"`
+	} `json:"data"`
 }
 
 // archiveIfReady запускает детерминированный шаг Archive Comet Native —
@@ -57,16 +61,18 @@ type cometStatus struct {
 // ok=false просит openPR подождать следующего прохода: рабочая папка занята
 // прямо сейчас (роль работает в ней), и лезть под чужой замок нельзя. Любая
 // другая беда — comet не найден на этой машине, статус не читается, сама
-// команда упала — не блокирует pull request: это внешняя зависимость, чей
-// бутстрап на хосте раннера этим изменением не решён (tasks.md 1.1), и
-// оставлять задачи без pull request до её появления нельзя.
+// команда упала, рабочая папка не подготовлена — не блокирует pull request:
+// это внешняя зависимость, чей бутстрап на хосте раннера этим изменением не
+// решён (tasks.md 1.1), и оставлять задачи без pull request до её появления
+// нельзя.
 func (o *Office) archiveIfReady(task tracker.Task, project tracker.Project) (ok bool, err error) {
 	ws, err := o.Workspaces.Ensure(task.Ref(), project)
 	if errors.Is(err, workspace.ErrWorktreeBusy) {
 		return false, nil
 	}
 	if err != nil {
-		return false, err
+		o.logf("%s: рабочая папка для архивирования не подготовлена: %v", task.Key, err)
+		return true, nil
 	}
 	defer o.unlock(task.Key, ws)
 
@@ -76,18 +82,33 @@ func (o *Office) archiveIfReady(task tracker.Task, project tracker.Project) (ok 
 		o.logf("%s: comet native status не прочитан, архивирование пропущено: %v", task.Key, err)
 		return true, nil
 	}
-	if status.Phase != archiveReadyPhase {
+	if status.Data.Loop.Stage != archiveReadyStage {
 		return true, nil // Verify ещё не отдал прошедший final-result
 	}
 
-	if _, err := runComet(ws.Dir, "native", "archive", name, "--confirmed", "--finish", "keep"); err != nil {
+	if _, err := runComet(ws.Dir, "native", "archive", name, "--confirmed"); err != nil {
 		o.logf("%s: comet native archive не выполнен: %v", task.Key, err)
 		return true, nil
 	}
-	if _, err := o.Workspaces.Push(ws); err != nil {
+
+	// Под isolation: current (единственный режим, которым пользуются эти
+	// роли) `comet native archive --confirmed` делает голый fs.rename
+	// каталога изменения — без git add/commit (git-плюмбинг там есть только
+	// для isolation: branch/worktree, проверено по исходнику CLI при ревью
+	// Задачи 5). Без коммита Workspaces.Push публиковать нечего, и весь
+	// замысел "архивный коммит едет в PR" молча не имеет эффекта.
+	if err := commitArchiveRename(ws.Dir, name); err != nil {
+		o.logf("%s: коммит архивирования не создан: %v", task.Key, err)
+		return true, nil
+	}
+
+	switch pushed, err := o.Workspaces.Push(ws); {
+	case err != nil:
 		o.logf("%s: коммит архивирования не опубликован: %v", task.Key, err)
-	} else {
+	case pushed:
 		o.logf("%s: изменение %s заархивировано", task.Key, name)
+	default:
+		o.logf("%s: архивирование %s не создало новых коммитов", task.Key, name)
 	}
 	return true, nil
 }
@@ -118,4 +139,69 @@ func runComet(dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("comet %s: %w", strings.Join(args, " "), err)
 	}
 	return string(out), nil
+}
+
+// archiveCommitName/archiveCommitEmail — личность коммита, которым
+// archiveIfReady сам фиксирует переименование, оставленное
+// `comet native archive` незакоммиченным (см. комментарий выше). Этот
+// коммит не принадлежит ни одной роли: internal/workspace.gitEnv нарочно не
+// задаёт личность, потому что «коммиты — работа агента, а не его обвязки»
+// — но здесь обратный случай, обвязка коммитит сама, и личность нужна своя,
+// того же домена office.local, что и у остальных системных участников
+// (ср. GIT_AUTHOR_NAME/EMAIL в cmd/eval-roles/fixture.go).
+const (
+	archiveCommitName  = "comet-archive"
+	archiveCommitEmail = "comet-archive@office.local"
+)
+
+// commitArchiveRename коммитит то, что `comet native archive --confirmed`
+// оставил в рабочей папке при isolation: current голым fs.rename. Рабочая
+// папка чистая — коммитить нечего, и это не ошибка: например, переименование
+// могло не оставить изменений (изменение уже было закоммичено раньше).
+func commitArchiveRename(dir, name string) error {
+	dirty, err := gitDirty(dir)
+	if err != nil {
+		return err
+	}
+	if !dirty {
+		return nil
+	}
+	if err := gitArchive(dir, "add", "-A"); err != nil {
+		return err
+	}
+	return gitArchive(dir, "commit", "-m", "chore: archive Comet Native change "+name)
+}
+
+// gitDirty — есть ли в рабочей папке незакоммиченные изменения.
+func gitDirty(dir string) (bool, error) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, fmt.Errorf("git status: %w\n%s", err, exitErr.Stderr)
+		}
+		return false, fmt.Errorf("git status: %w", err)
+	}
+	return len(out) > 0, nil
+}
+
+// gitArchive выполняет git-команду коммита архивирования от лица раннера, а
+// не роли — тем же паттерном, что и runComet (cmd.Dir вместо "-C", stderr
+// в ошибку при неудаче), но с собственной личностью коммита через окружение.
+func gitArchive(dir string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME="+archiveCommitName, "GIT_AUTHOR_EMAIL="+archiveCommitEmail,
+		"GIT_COMMITTER_NAME="+archiveCommitName, "GIT_COMMITTER_EMAIL="+archiveCommitEmail)
+	if _, err := cmd.Output(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, exitErr.Stderr)
+		}
+		return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return nil
 }

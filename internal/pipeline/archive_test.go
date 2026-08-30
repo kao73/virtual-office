@@ -2,24 +2,34 @@ package pipeline
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 // fakeComet подкладывает на PATH подложный `comet`: на "native status ... --json"
-// печатает {"phase": phase}, на "native archive ..." создаёт файл-метку и
-// возвращает её путь. Он предваряет системный PATH, а не заменяет его: git,
-// которым archiveIfReady пользуется через Ensure/Push, обязан остаться
-// доступным.
-func fakeComet(t *testing.T, phase string) (archivedMarker string) {
+// печатает конверт {command,exitCode,data:{phase,loop:{stage}}} — тот же
+// формат, что и настоящий CLI (обнаружено живым запуском при ревью Задачи 5),
+// а не голый {"phase":...}, который эмулировался до фикса. На "native archive
+// ..." создаёт archivedMarker (подтверждает, что archive был вызван) и,
+// отдельно, оставляет рабочую папку грязной — как настоящий
+// `comet native archive --confirmed` при isolation: current, который делает
+// голый fs.rename каталога изменения, а не git-коммит. Он предваряет
+// системный PATH, а не заменяет его: git, которым archiveIfReady пользуется
+// через Ensure/Push и через свой собственный коммит переименования, обязан
+// остаться доступным.
+func fakeComet(t *testing.T, stage string) (archivedMarker string) {
 	t.Helper()
 	binDir := t.TempDir()
 	archivedMarker = filepath.Join(t.TempDir(), "archived")
 
 	script := "#!/bin/sh\n" +
 		"case \"$2\" in\n" +
-		"  status) echo \"{\\\"phase\\\":\\\"" + phase + "\\\"}\" ;;\n" +
-		"  archive) : > \"" + archivedMarker + "\" ;;\n" +
+		"  status) echo \"{\\\"command\\\":\\\"status\\\",\\\"exitCode\\\":0,\\\"data\\\":{\\\"phase\\\":\\\"archive\\\",\\\"loop\\\":{\\\"stage\\\":\\\"" + stage + "\\\"}}}\" ;;\n" +
+		"  archive) : > \"" + archivedMarker + "\"; date > .archived-rename ;;\n" +
 		"  *) exit 1 ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(filepath.Join(binDir, "comet"), []byte(script), 0o755); err != nil {
@@ -31,7 +41,7 @@ func fakeComet(t *testing.T, phase string) (archivedMarker string) {
 
 func TestArchiveIfReadyRunsArchiveWhenPhaseMatches(t *testing.T) {
 	o := newOffice(t)
-	marker := fakeComet(t, archiveReadyPhase)
+	marker := fakeComet(t, archiveReadyStage)
 	task := o.approved(t, "OFF-1")
 
 	ok, err := o.archiveIfReady(task, o.Projects["OFF"])
@@ -43,12 +53,37 @@ func TestArchiveIfReadyRunsArchiveWhenPhaseMatches(t *testing.T) {
 	}
 }
 
+// Пин на реальный гейт: подложный comet действительно вернул именно эту
+// стадию (не что-то ещё — comet не найден, JSON не разобран и т. п. тоже
+// оставили бы marker отсутствующим), и эта стадия не archiveReadyStage.
+// Иначе "маркер отсутствует" не доказывал бы, что сработала именно проверка
+// стадии.
 func TestArchiveIfReadySkipsWhenPhaseNotReady(t *testing.T) {
 	o := newOffice(t)
-	marker := fakeComet(t, "verify")
+	const stage = "verify"
+	if stage == archiveReadyStage {
+		t.Fatalf("тестовая стадия %q совпадает с archiveReadyStage — тест ничего не проверяет", stage)
+	}
+	marker := fakeComet(t, stage)
 	task := o.approved(t, "OFF-1")
+	project := o.Projects["OFF"]
 
-	ok, err := o.archiveIfReady(task, o.Projects["OFF"])
+	ws, err := o.Workspaces.Ensure(task.Ref(), project)
+	if err != nil {
+		t.Fatalf("рабочая папка не готова для проверки: %v", err)
+	}
+	status, err := cometNativeStatus(ws.Dir, runner.CometChangeName(task.Key))
+	if err := ws.Unlock(); err != nil {
+		t.Fatalf("рабочая папка не отпущена: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("comet native status не прочитан: %v", err)
+	}
+	if status.Data.Loop.Stage != stage {
+		t.Fatalf("подложный comet вернул stage=%q, тест собран неверно", status.Data.Loop.Stage)
+	}
+
+	ok, err := o.archiveIfReady(task, project)
 	if err != nil || !ok {
 		t.Fatalf("archiveIfReady = %v, %v", ok, err)
 	}
@@ -91,5 +126,46 @@ func TestArchiveIfReadyDefersWhenWorktreeBusy(t *testing.T) {
 	}
 	if ok {
 		t.Error("archiveIfReady должен был отступить: рабочая папка занята")
+	}
+}
+
+// Под isolation: current `comet native archive --confirmed` делает голый
+// fs.rename каталога изменения, а не git-коммит (проверено живым прогоном
+// при ревью Задачи 5) — без коммита Workspaces.Push публиковать нечего.
+// fakeComet's archive case имитирует rename, оставляя рабочую папку грязной;
+// этот тест проверяет, что archiveIfReady сам фиксирует изменение коммитом
+// прежде, чем звать Push.
+func TestArchiveIfReadyCommitsTheRename(t *testing.T) {
+	o := newOffice(t)
+	fakeComet(t, archiveReadyStage)
+	task := o.approved(t, "OFF-1")
+	project := o.Projects["OFF"]
+
+	ok, err := o.archiveIfReady(task, project)
+	if err != nil || !ok {
+		t.Fatalf("archiveIfReady = %v, %v", ok, err)
+	}
+
+	ws, err := o.Workspaces.Ensure(task.Ref(), project)
+	if err != nil {
+		t.Fatalf("рабочая папка не открыта для проверки: %v", err)
+	}
+	defer ws.Unlock()
+
+	out, err := exec.Command("git", "-C", ws.Dir, "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("git status: %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("рабочая папка осталась грязной после архивирования: %q", out)
+	}
+
+	subject, err := exec.Command("git", "-C", ws.Dir, "log", "-1", "--format=%s").Output()
+	if err != nil {
+		t.Fatalf("git log: %v", err)
+	}
+	wantSubject := "chore: archive Comet Native change " + runner.CometChangeName(task.Key)
+	if got := strings.TrimSpace(string(subject)); got != wantSubject {
+		t.Errorf("тема коммита = %q, ожидалось %q", got, wantSubject)
 	}
 }
