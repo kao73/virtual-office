@@ -2200,7 +2200,7 @@ checks:
 `task.md` stays as-is ("Add an exported function `Whisper`..."). The fixture must now contain a real Comet Native change already past Shape confirmation, so analyst's "resume, no re-invoke" rule (role.md step 1) has something real to recognize. Using the shared recipe above, with:
 
 - Base fixture files: the existing `fixture/go.mod` and `fixture/greet/{greet.go,greet_test.go}` (unchanged — copy them into `$scratch` before running `comet native new`).
-- `<name>`: `EVAL-RESUME` (an eval fixture has no real tracker key; this matches the existing manual/no-key convention elsewhere in this repo — `_manual`-style naming — while still being a valid `safeKey` output).
+- `<name>`: `eval-resume` (an eval fixture has no real tracker key; lowercase, matching Native's real change-name pattern `^[a-z][a-z0-9]*(-[a-z0-9]+)*$` — **correction, Build phase, Task 5 review, 2026-08-31**: this and the other three eval-fixture names below were originally written uppercase, e.g. `EVAL-RESUME`; the real CLI rejects that (exit 65, "Invalid Native change name") the same way it rejects unsanitized tracker keys — see `internal/runner/change.go`'s `cometSafeName`, added in Task 5's fix round).
 - `brief.md` content to hand-write before confirming Shape: state the `Whisper` requirement (mirroring the retired `docs/superpowers/specs/2026-08-29-greet-whisper-design.md` fixture's own content) and include a `## Decisions` section already resolving the "hushed tone" formatting choice explicitly, so there is nothing left for analyst to re-derive or ask about:
 
   ```markdown
@@ -2217,7 +2217,7 @@ checks:
   ```
 
 - `specs/greet/spec.md` content: a short capability spec pinning the same behavior as an acceptance item (`Whisper("Ada") == "hello, ada..."`).
-- After `comet native next EVAL-RESUME --confirmed`, confirm via `comet native status EVAL-RESUME --json` that phase is `build` (not `shape`) — this is the state analyst's role.md step 1 checks for ("уже есть и стоит в фазе `build`... — Shape по этой задаче уже пройден").
+- After `comet native next eval-resume --confirmed`, confirm via `comet native status eval-resume --json` that phase is `build` (not `shape`) — this is the state analyst's role.md step 1 checks for ("уже есть и стоит в фазе `build`... — Shape по этой задаче уже пройден").
 
 Update `expect.yaml`:
 
@@ -2244,7 +2244,7 @@ find evals/analyst/capability-resume-no-reinvoke/fixture -type f | sort
 git -C evals/analyst/capability-resume-no-reinvoke/fixture status 2>&1 | head -1
 ```
 
-Expected: the fixture directory tree now contains `docs/comet/changes/EVAL-RESUME/{brief.md,specs/greet/spec.md}` and whatever state file(s) `comet native new`/`next` produced, plus the unchanged `go.mod`/`greet/` files; it is a plain directory (not itself a `.git` repo — the second command should report "not a git repository" or similar, matching every other `evals/*/fixture/` in this repo, since `cmd/eval-roles`'s own `fixture.go` materializes the git repo around it at run time).
+Expected: the fixture directory tree now contains `docs/comet/changes/eval-resume/{brief.md,specs/greet/spec.md}` and whatever state file(s) `comet native new`/`next` produced, plus the unchanged `go.mod`/`greet/` files; it is a plain directory (not itself a `.git` repo — the second command should report "not a git repository" or similar, matching every other `evals/*/fixture/` in this repo, since `cmd/eval-roles`'s own `fixture.go` materializes the git repo around it at run time).
 
 - [ ] **Step 5: Commit**
 
@@ -2295,7 +2295,7 @@ git commit -m "test(evals): point analyst golden cases at docs/comet/changes"
   }
   ```
 
-- `<name>`: `EVAL-BRIEF`.
+- `<name>`: `eval-brief`.
 - `brief.md`:
   ```markdown
   # Brief: Double
@@ -2308,7 +2308,7 @@ git commit -m "test(evals): point analyst golden cases at docs/comet/changes"
     semantics — not in scope for this change.
   ```
 - `specs/calc/spec.md` — one capability spec with one explicit acceptance item, e.g. `AC1: Double(x) returns 2*x, pinned by a test`.
-- Confirm via `comet native status EVAL-BRIEF --json` that phase is `build` after `comet native next EVAL-BRIEF --confirmed` — this is the phase implementer's role.md step (Task 10) checks for.
+- Confirm via `comet native status eval-brief --json` that phase is `build` after `comet native next eval-brief --confirmed` — this is the phase implementer's role.md step (Task 10) checks for.
 
 - [ ] **Step 2: Write `task.md`**
 
@@ -2332,8 +2332,8 @@ checks:
   - kind: fixture_tests
     command: >-
       go test ./... &&
-      grep -q "builder-handoff\|stage" docs/comet/changes/EVAL-BRIEF/*.yaml 2>/dev/null ||
-      find docs/comet/changes/EVAL-BRIEF -iname "comet-state.yaml" | xargs grep -q "build"
+      grep -q "builder-handoff\|stage" docs/comet/changes/eval-brief/*.yaml 2>/dev/null ||
+      find docs/comet/changes/eval-brief -iname "comet-state.yaml" | xargs grep -q "build"
 ```
 
 The `fixture_tests` command's second half is deliberately written to tolerate not knowing the exact `comet-state.yaml` path/shape in advance (per this plan's "Notes on task ordering" item 4/7): it first tries a permissive grep across any `.yaml` file in the change directory, and falls back to explicitly locating a file named `comet-state.yaml` if the first form doesn't match. Tighten this command once Task 13/14's own fixture-authoring step (which runs the real CLI) has shown the real file name and its exact "phase advanced past build" marker — do not leave the permissive form in place if a precise one is easy to write by then.
@@ -2368,9 +2368,9 @@ git commit -m "test(evals): add implementer golden case reading a Comet Native b
 
 The existing fixture (`calc.go`/`calc_test.go`, a colleague's buggy `Max` implementation) stays exactly as-is as the *code under review*. Using the shared recipe, additionally seed a Comet Native change already in `verify` phase with an acceptance item the buggy `Max` violates:
 
-- `<name>`: `EVAL-SPOT-DEFECT`.
+- `<name>`: `eval-spot-defect`.
 - `brief.md` / `specs/calc/spec.md`: one acceptance item, e.g. `AC1: Max(a, b) returns the larger of a and b for all int inputs, including when a == b`.
-- After `comet native next EVAL-SPOT-DEFECT --confirmed` (→ `build`), simulate a Builder handoff to reach `verify`: `comet native next EVAL-SPOT-DEFECT --runner-input <a minimal builder-handoff JSON naming AC1 as addressed>` (the design doc's own `{kind, summary, addressed_acceptance_ids, checks, known_limits}` shape from its `adapter.go`/implementer section — reuse it here verbatim as the JSON body). Confirm via `--json` that phase is now `verify`.
+- After `comet native next eval-spot-defect --confirmed` (→ `build`), simulate a Builder handoff to reach `verify`: `comet native next eval-spot-defect --runner-input <a minimal builder-handoff JSON naming AC1 as addressed>` (the design doc's own `{kind, summary, addressed_acceptance_ids, checks, known_limits}` shape from its `adapter.go`/implementer section — reuse it here verbatim as the JSON body). Confirm via `--json` that phase is now `verify`.
 
 Update `evals/reviewer/capability-spot-defect/task.md` only if its current wording ("A colleague implemented the `Max` function... Review their work") no longer matches once a real acceptance ID exists to reference — if the existing wording still reads naturally, leave it unchanged.
 
@@ -2397,8 +2397,8 @@ checks:
 - [ ] **Step 3: Author `capability-clean-verify`'s fixture using the shared recipe**
 
 - Base fixture: a small, already-correct package (e.g. `calc.Max` implemented correctly this time), plus its test.
-- `<name>`: `EVAL-CLEAN-VERIFY`.
-- Seed through Shape confirmation, a Builder handoff, and then simulate a *passing* `final-result` for the sole acceptance item (`comet native next EVAL-CLEAN-VERIFY --runner-input <a final-result JSON with acceptance: [{"id": "AC1", "result": "passed", "reason": "..."}], verdict: "pass">`). Confirm via `--json` that phase reaches `archive-ready` — this is the exact state `internal/pipeline/archive.go` (Task 5) looks for.
+- `<name>`: `eval-clean-verify`.
+- Seed through Shape confirmation, a Builder handoff, and then simulate a *passing* `final-result` for the sole acceptance item (`comet native next eval-clean-verify --runner-input <a final-result JSON with acceptance: [{"id": "AC1", "result": "passed", "reason": "..."}], verdict: "pass">`). Confirm via `--json` that phase reaches `archive-ready` — this is the exact state `internal/pipeline/archive.go` (Task 5) looks for.
 
 - [ ] **Step 4: Write `task.md` and `expect.yaml`**
 
@@ -2418,7 +2418,7 @@ checks:
     allow: []
   - kind: fixture_tests
     command: >-
-      find docs/comet/changes/EVAL-CLEAN-VERIFY -iname "comet-state.yaml" |
+      find docs/comet/changes/eval-clean-verify -iname "comet-state.yaml" |
       xargs grep -q "archive-ready"
 ```
 
