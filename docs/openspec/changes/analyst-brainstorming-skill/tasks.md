@@ -1,8 +1,8 @@
 ## 1. Vendor the skills
 
 - [x] 1.1 Copy Superpowers `brainstorming` v6.3.0 (github.com/obra/superpowers, commit `b36e0829c6d0140e93cfef2ca599b1b07d4a7797`) into `skills/brainstorming/`, matching the copy already validated on `experiment/skill-question-spike`
-- [ ] 1.2 Copy Superpowers `writing-plans`, same repo/tag/commit, into `skills/writing-plans/`, matching the copy already validated on `experiment/writing-plans-handoff-spike`
-- [ ] 1.3 Add a plain source-record file per skill (e.g. `skills/brainstorming/SOURCE.md`, `skills/writing-plans/SOURCE.md`) naming the repo, tag, and commit — informational only, no automated check
+- [x] 1.2 Copy Superpowers `writing-plans`, same repo/tag/commit, into `skills/writing-plans/`, matching the copy already validated on `experiment/writing-plans-handoff-spike`
+- [x] 1.3 Add a plain source-record file per skill (e.g. `skills/brainstorming/SOURCE.md`, `skills/writing-plans/SOURCE.md`) naming the repo, tag, and commit — informational only, no automated check
 
 ## 2. Analyst role changes
 

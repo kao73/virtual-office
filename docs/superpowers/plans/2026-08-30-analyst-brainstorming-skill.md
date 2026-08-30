@@ -139,7 +139,7 @@ EOF
 - Produces: `skills/writing-plans/` on disk, at the path `SkillDirs()` will resolve for `role.Skills` containing `"writing-plans"` — consumed by Task 3.
 - Consumes: nothing from Task 1 (the two skills vendor independently; only Task 3 needs both to exist).
 
-- [ ] **Step 1: Fetch the pinned source**
+- [x] **Step 1: Fetch the pinned source**
 
 If the primary-path clone from Task 1 was already cleaned up, re-clone (or reuse it if you kept it around — the commit is the same):
 
@@ -151,14 +151,14 @@ git -C /tmp/superpowers-vendor checkout b36e0829c6d0140e93cfef2ca599b1b07d4a7797
 
 Fallback (no network): `~/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0/`, same as Task 1.
 
-- [ ] **Step 2: Copy the skill subtree into this repo**
+- [x] **Step 2: Copy the skill subtree into this repo**
 
 ```bash
 mkdir -p skills/writing-plans
 cp -R /tmp/superpowers-vendor/skills/writing-plans/. skills/writing-plans/
 ```
 
-- [ ] **Step 3: Verify the copy is complete and unmodified**
+- [x] **Step 3: Verify the copy is complete and unmodified**
 
 ```bash
 test -f skills/writing-plans/SKILL.md
@@ -168,7 +168,7 @@ diff -r /tmp/superpowers-vendor/skills/writing-plans skills/writing-plans
 
 Expected: both `test` commands exit 0; `diff -r` prints nothing.
 
-- [ ] **Step 4: Write the source record**
+- [x] **Step 4: Write the source record**
 
 Create `skills/writing-plans/SOURCE.md`:
 
@@ -180,13 +180,13 @@ Create `skills/writing-plans/SOURCE.md`:
 - Commit: b36e0829c6d0140e93cfef2ca599b1b07d4a7797
 ```
 
-- [ ] **Step 5: Clean up the temp clone (primary path only)**
+- [x] **Step 5: Clean up the temp clone (primary path only)**
 
 ```bash
 rm -rf /tmp/superpowers-vendor
 ```
 
-- [ ] **Step 6: Stage and commit**
+- [x] **Step 6: Stage and commit**
 
 ```bash
 git add skills/writing-plans
