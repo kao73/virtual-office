@@ -668,7 +668,7 @@ git commit -m "feat(adapter): wire hooks.pre_tool_use into settings.json"
 **Interfaces:**
 - Produces: `runner.CometChangeName(taskKey string) string` and `runner.CometChangeDirRel(taskKey string) string` — consumed by Task 5 (`prpass.go`), Task 6 (`input.go`), and every role's `role.md` text (Tasks 9–11, which describe `<name>` as "the same safe key the runner already computes").
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `internal/runner/change_test.go`:
 
@@ -699,7 +699,7 @@ func TestCometChangeDirRel(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 go test ./internal/runner/... -run TestCometChange -v
@@ -707,7 +707,7 @@ go test ./internal/runner/... -run TestCometChange -v
 
 Expected: compile error — `CometChangeName`/`CometChangeDirRel` don't exist yet.
 
-- [ ] **Step 3: Implement, refactoring the shared "safe name or manual" logic out of `ChangeDirRel`**
+- [x] **Step 3: Implement, refactoring the shared "safe name or manual" logic out of `ChangeDirRel`**
 
 In `internal/runner/change.go`, replace:
 
@@ -772,7 +772,7 @@ func CometChangeDirRel(taskKey string) string {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 go test ./internal/runner/... -run TestChangeDirRel -v
@@ -781,7 +781,7 @@ go test ./internal/runner/... -run TestCometChange -v
 
 Expected: both old (`TestChangeDirRel`, unmodified) and new tests pass — the refactor must not change `ChangeDirRel`'s existing output for any key.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/runner/change.go internal/runner/change_test.go
