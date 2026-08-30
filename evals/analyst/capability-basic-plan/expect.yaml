@@ -7,5 +7,5 @@ checks:
     allow: ["docs/superpowers/**"]
   - kind: fixture_tests
     command: >-
-      git ls-tree -r --name-only HEAD -- docs/superpowers/specs | grep -q '\.md$' &&
-      git ls-tree -r --name-only HEAD -- docs/superpowers/plans | grep -q '\.md$'
+      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/superpowers/specs | grep -q '\.md$' &&
+      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/superpowers/plans | grep -q '\.md$'
