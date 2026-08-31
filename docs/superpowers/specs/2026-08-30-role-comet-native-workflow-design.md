@@ -399,3 +399,59 @@ fixture repo):
   failure is irrelevant to this design (Classic is never invoked by the role pipeline), but it is
   evidence this exact CLI version has real rough edges; pin the version vendored/installed and
   re-verify against any newer release before upgrading it.
+
+## Post-Build final-review findings (2026-08-31)
+
+All 16 tasks landed and were individually reviewed clean — but each review was scoped to its own
+task's diff, and a mandatory whole-branch final review (before Task 16's live run) caught several
+things no single task's diff could reveal, all fixed and independently live-re-verified afterward:
+
+- **The `PreToolUse` guard hook was never actually executable.** `skills/comet/scripts/
+  comet-hook-router.mjs` shipped mode 644 (matching the upstream npm package itself, not a
+  vendoring mistake) — the adapter invokes it directly rather than via `node <path>`, so it exited
+  126 ("permission denied"), which Claude Code's hook mechanism treats as a non-blocking error.
+  The "technical, not just textual, enforcement" this whole design is built around had never once
+  fired. Fixed: `chmod +x` on vendoring, plus an exec-bit check in `role.go`'s `hooks.pre_tool_use`
+  validation mirroring the existing `Stop`-hook check (a role declaring a non-executable hook script
+  now fails at load time instead of shipping a dead guard).
+- **`.comet/` was never git-tracked or excluded.** `comet native new` writes `.comet/config.yaml`,
+  `.comet/current-change.json`, and `.comet/runtime/**` with no `.gitignore` of its own. Left as-is:
+  a fresh/rebuilt worktree or second runner host could never resume a change (`comet native status`
+  needs `config.yaml`); every Comet-driven worktree stayed permanently "dirty" and unreclaimable by
+  `sweepWorktrees`; the guard hook (above) silently went neutral wherever `current-change.json` was
+  missing. Fixed: `internal/runner.ExcludeCometRuntime` extends the existing `ExcludeAgentDir`
+  `info/exclude` mechanism to exclude the two machine-local paths, while `config.yaml` stays a
+  normal trackable path that `analyst` now explicitly commits on first `comet native new`.
+- **Activating the guard hook (first fix above) exposed a third bug**: with no `hook.allow_paths`
+  configured, the guard can't distinguish a role's own mandatory `.agent/result.json`/`STATE.md`
+  write from a real code edit. Outside `build` phase this either hard-blocks the write (breaking
+  `analyst`'s `needs_human` escalation outright) or — worse — silently succeeds while reverting the
+  change's phase backward (`verify`→`build`, or on `capability-clean-verify`'s archive-phase case,
+  `archive`→`build` while also deleting `verification.md`). Found and fixed in three rounds as it
+  kept surfacing in one more place each time: `analyst`'s own `role.md` now appends `hook:
+  allow_paths: [.agent, STATE.md]` to `.comet/config.yaml` once per project (checked on both the
+  new-change and resume branches); all four pre-seeded `evals/*` golden-case fixtures — which bypass
+  the live `analyst` run that would otherwise add this — got the identical block added directly to
+  their fixture `.comet/config.yaml`. Verified live across every reachable phase (`shape`, `build`,
+  `verify`, `verify`/`await-user`, `archive`) with negative controls proving the corruption is real
+  without the fix. This remains a `role.md`-text contract with no technical check that analyst
+  actually adds it on a fresh project, consistent with this repository's existing "role.md decides,
+  no technical enforcement" convention elsewhere — Task 16's live run is what actually exercises
+  this end-to-end with a real model, not just simulated-compliant CLI calls.
+- **`archiveIfReady` trusted `comet native archive --confirmed`'s exit 0 with no postcondition
+  check.** Live-verified: in a worktree missing `.comet/runtime/**` state, the archive command can
+  print a recovery message and exit 0 while actually *reverting* the change's phase
+  (`archive`/`archive-ready` → `verify`) instead of archiving — and the old code committed and
+  pushed that regression as a successful archive. Fixed: `archiveIfReady` now verifies the archive
+  destination actually exists and the source directory is actually gone before committing/pushing;
+  otherwise it logs the mismatch and skips, non-blocking, same as every other failure path in that
+  function.
+- Plus smaller fixes: two `evals/analyst/` and one `evals/implementer/` golden case needed
+  `diff_scope.allow` widened for paths a compliant run genuinely touches; `evals/implementer/
+  capability-reads-brief-and-spec` needed the same seeded-runtime-state fix Task 15 already applied
+  to `evals/reviewer/capability-spot-defect` (a fresh materialized checkout's first `comet native
+  next` call silently no-ops without local execution history) and a corrected (previously inverted)
+  `fixture_tests` assertion.
+
+Full detail, every live-CLI reproduction, and every review round's findings are in
+`.superpowers/sdd/2026-08-30-role-comet-native-workflow/progress.md`.
