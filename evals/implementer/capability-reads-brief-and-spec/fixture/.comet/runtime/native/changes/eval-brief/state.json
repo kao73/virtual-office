@@ -1,0 +1,12 @@
+{
+  "schema": "comet.native.local-execution.v4",
+  "change": "eval-brief",
+  "basedOnStateVersion": 2,
+  "workspace": {
+    "projectRoot": "/private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/65c3e618-fc8f-42ab-a749-78187d2c4f6e/scratchpad/eval-brief-seed2.NaPu45",
+    "worktreeRoot": "/private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/65c3e618-fc8f-42ab-a749-78187d2c4f6e/scratchpad/eval-brief-seed2.NaPu45",
+    "branch": "main"
+  },
+  "execution": null,
+  "checks": []
+}

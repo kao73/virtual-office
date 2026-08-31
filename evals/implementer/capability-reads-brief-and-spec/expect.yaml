@@ -4,8 +4,27 @@ checks:
     expect: done
     next_owner: reviewer
   - kind: diff_scope
-    allow: ["calc/calc.go", "calc/calc_test.go", "docs/comet/changes/**"]
+    allow:
+      - "calc/calc.go"
+      - "calc/calc_test.go"
+      - "docs/comet/changes/**"
+      # Comet's own local-execution bookkeeping: tracked in this fixture
+      # (see .comet/ below) so a fresh materialized checkout doesn't
+      # silently no-op on the first Builder handoff call — but that means
+      # it genuinely gets modified by a compliant implementer's very first
+      # real CLI call, so it must be allowed here too, or every compliant
+      # run fails diff_scope on Comet's own state file (same pattern as
+      # evals/reviewer/capability-spot-defect).
+      - ".comet/runtime/native/changes/eval-brief/state.json"
   - kind: fixture_tests
+    # Real post-handoff content, confirmed live (materialize this fixed
+    # fixture, implement Double, submit the real builder-handoff JSON):
+    # the first call now advances phase build -> verify, state_version
+    # 2 -> 3, loop.stage -> verify-ready, on the FIRST call, no retry
+    # needed. The pre-fix version of this check (`grep -q '^phase: build$'`)
+    # passed on the broken no-op path (handoff never advanced) instead of
+    # the correct one — this asserts the change actually reached verify.
     command: >-
       go test ./... &&
-      grep -q '^phase: build$' docs/comet/changes/eval-brief/comet-state.yaml
+      grep -q '^phase: verify$' docs/comet/changes/eval-brief/comet-state.yaml &&
+      grep -q '^  stage: verify-ready$' docs/comet/changes/eval-brief/comet-state.yaml
