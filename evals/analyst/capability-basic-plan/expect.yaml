@@ -4,7 +4,16 @@ checks:
     expect: done
     next_owner: implementer
   - kind: diff_scope
-    allow: ["docs/comet/changes/**"]
+    allow:
+      - "docs/comet/changes/**"
+      # comet native new (Fix 2b) writes this one trackable file inside
+      # .comet/, and analyst's role.md now explicitly git-adds it on a new
+      # change — confirmed live (final-review fix round 1, Fix 5): after
+      # PrepareInput's ExcludeCometRuntime excludes .comet/current-change.json
+      # and .comet/runtime/** via info/exclude, those two never show up as
+      # changed at all, but .comet/config.yaml still does (it's the one path
+      # deliberately left trackable).
+      - ".comet/config.yaml"
   - kind: fixture_tests
     command: >-
       git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/comet/changes | grep -q 'brief\.md$' &&
