@@ -2747,3 +2747,50 @@ A scoped re-review of just this fix drove the fixed command through a real, comp
 git add skills/comet skills/comet-native bootstrap/sbx-kits/comet-cli internal/backends/sbx/sbx.go bootstrap/sbx-kits/bake-comet-template.sh roles/reviewer/role.md docs/superpowers/specs/2026-08-30-role-comet-native-workflow-design.md docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
 git commit -m "chore(comet): bump pinned comet from 0.4.0-beta.18 to 0.4.0-beta.20"
 ```
+
+---
+
+## Task 19: fix `eval-roles` runs never naming a fixture's Comet Native change directory
+
+Found live, mid-Task-16-live-run, at the user's explicit go-ahead to run the paid golden-case checkpoint. Not a beta.20 regression — a pre-existing gap in how `eval-roles`/`run-agent` compose `context.md`, present since whichever of Tasks 9–15 first wrote a Comet-Native-dependent golden case, only now actually exercised live.
+
+**Symptom:** `reviewer/capability-spot-defect` failed twice, reproducibly, with `command "grep -qE '\bA1\b' .agent/result.json" failed`. Re-run with `--keep-failed` and inspected: the reviewer wrote a fully correct, well-reasoned defect report (`outcome: done`, `next_owner: implementer`, pinpointing the real bug in `Max`) — but never called `comet native` at all (`grep 'comet native' .agent/run.log` — zero matches; `.comet/runtime/.../state.json` — `execution: null, checks: []`, untouched). Per its own `role.md`, that's the *correct* fallback for "no active Comet Native change in context" — the reviewer wasn't wrong, `context.md` was.
+
+**Root cause, traced in code, not guessed:** `cmd/run-agent/main.go`'s `execute()` builds `passport := runner.Run{...}` without ever setting `TaskKey` — by design, per its own existing doc comment on the field ("Пуст при ручном запуске: трекера там нет"), since `run-agent` has no tracker. `internal/runner/input.go`'s `composeContext` derives the `context.md` line "Каталог изменения" from `CometChangeDirRel(run.TaskKey)`; with an empty key this deterministically resolves to `docs/comet/changes/manual` (confirmed live: `CometChangeDirRel("")` — verified with a throwaway test), which matches none of this branch's eval fixtures (`eval-brief`, `eval-spot-defect`, `eval-resume`, `eval-clean-verify`). So the line is never written for any `eval-roles`-driven run, full stop — regardless of `comet` version.
+
+**Why most of the 6 new golden cases still passed despite this:** their `task.md` happens to textually name "this change" (`capability-reads-brief-and-spec`: *"Continue the work described in **this change**"*; `capability-clean-verify`: *"Review the already-passing work described in **this change**"*) — enough for a capable agent to go looking at `docs/comet/changes/` on its own initiative and find the right one, independent of the broken structured field. `capability-spot-defect`'s `task.md` (*"A colleague implemented the `Max` function… Review their work"*) gives no such cue, so nothing compensated for the gap. Confirmed exactly two fixtures round-trip-fixed by this: `CometChangeName("eval-brief") == "eval-brief"` and same for the other three fixture names — a directory name that's already `cometSafeName`-safe passes through `changeName`/`cometSafeName` unchanged (verified live with a throwaway test), so the fixture's own directory name is always a valid, reusable task key.
+
+**Fix:** give `run-agent` a way to be told the task key explicitly, and have `eval-roles` supply it from what the fixture itself already seeded — the same shape of information a real tracker-driven run would carry, not a new concept.
+
+**Files:**
+- Edit: `cmd/run-agent/main.go` — new `--task-key` flag, wired to `passport.TaskKey`.
+- Edit: `cmd/eval-roles/fixture.go` — new `discoverFixtureTaskKey(fixtureDir string) string`: lists `docs/comet/changes/*`, returns the single subdirectory's name, `""` if none or more than one (never guesses between ambiguous candidates).
+- Edit: `cmd/eval-roles/invoke.go` — `runRoleAgent` gains a `taskKey string` parameter; appends `--task-key <taskKey>` to the `run-agent` invocation when non-empty.
+- Edit: `cmd/eval-roles/run.go` — `evaluateCase` calls `discoverFixtureTaskKey(fixtureDir)` and threads the result through.
+- Edit: `cmd/eval-roles/testdata/fakeagent/main.go` — accepts `--task-key` (previously undeclared, would have made `go test` fail once real code started passing it) and records it under `.agent/.fake-task-key` for tests to assert — **inside `.agent/`, not the fixture root**, since `.agent/` is the one directory `ExcludeAgentDir` already keeps out of git; a first attempt at this instrumentation wrote the marker to the fixture root and immediately broke `TestEvaluateCaseSpotDefectDistinguishesFoundVsMissed` by tripping its `diff_scope` check — caught by `go test`, not left in.
+- Edit: `cmd/eval-roles/invoke_test.go` — updates the two existing `runRoleAgent` call sites for the new parameter, adds `TestRunRoleAgentPassesTaskKey`.
+- Edit: `cmd/eval-roles/fixture_test.go` — adds `TestDiscoverFixtureTaskKeyFindsSeededChange`, `TestDiscoverFixtureTaskKeyEmptyWithoutChange`, `TestDiscoverFixtureTaskKeyEmptyWithMultipleChanges`.
+
+**Interfaces:** `runner.Run.TaskKey` (already existed, already read by `composeContext`) is now reachable from a CLI flag for the first time; no schema change. Real, tracker-driven runs are untouched — the runner already sets `TaskKey` itself before this code path is ever reached.
+
+**Not done:** editing `capability-spot-defect`'s own `task.md` to add a "this change" hint, as a second, weaker line of defense alongside the code fix — judged unnecessary once the code fix makes the context field reliable, and doing both would leave it unclear which one actually made the case pass in a future re-read of this history.
+
+Full repo `go build/vet/test` clean. Independent review (`pr-review-toolkit:code-reviewer`) dispatched against this diff before committing.
+
+**Review confirmed every root-cause and blast-radius claim above independently** (own throwaway tests for `CometChangeDirRel("")` and the four fixtures' round-trip, traced every consumer of `Passport.TaskKey` in `internal/pipeline`/`internal/adapters/claude` to confirm production is untouched, confirmed `.agent/.fake-task-key` is structurally inert to every `diff_scope` check via `ExcludeAgentDir`/`git ls-files --others --exclude-standard`) and found 2 Important gaps in the fix's *durability*, both fixed:
+
+- **Nothing tested the one line the whole fix rests on** (`passport.TaskKey = *taskKeyFlag` in `cmd/run-agent/main.go`) — mutation-tested by the reviewer (corrupted the value, `go test ./...` stayed fully green) to prove the gap was real, not theoretical. The existing tests each covered a neighbor (`composeContext` given an already-set `TaskKey`; `invoke.go` passing `--task-key` to a *fake* agent with its own independent flag parsing) but never the seam where the real binary turns the flag into the passport field. Fixed: `TestDryRunNamesCometChangeDirFromTaskKey` in `cmd/run-agent/main_test.go`, mirroring the existing `TestDryRunNamesBranches` pattern — builds the real binary, runs `--task-key eval-brief --dry-run` against a workdir that has `docs/comet/changes/eval-brief/`, asserts the exact "Каталог изменения" line in the real `context.md`. Personally re-ran the reviewer's own mutation against this new test with `-count=1` (plain `go test` without it silently used a stale cached pass) — fails with a clear message naming the corrupted value; reverted, re-confirmed green.
+- **`discoverFixtureTaskKey` degrades to the exact pre-fix bug, silently, on any fixture-authoring mistake.** The function's own doc comment claimed the round-trip `CometChangeName(name) == name` is "guaranteed" — it isn't, technically; eval fixtures are hand-authored directory trees, not Comet-produced artifacts, and a directory named e.g. `eval_brief` (underscore) would silently `discoverFixtureTaskKey` its way back to `""`, reproducing the original bug with zero signal, discoverable only by another paid live run. Fixed: `discoverFixtureTaskKey` now returns `(name, warning string)` — still returns `""` for the mismatch case (passing the unsanitized name wouldn't help; `CometChangeDirRel` would sanitize it into a path that *still* doesn't match the real directory), but the warning names exactly what's wrong. Same treatment for the pre-existing "more than one change directory" case, previously also silent. `evaluateCase` (`cmd/eval-roles/run.go`) prints the warning to `stderr`, prefixed with the case name. Three new tests in `cmd/eval-roles/fixture_test.go` cover: no warning on a clean match, a real warning on ambiguity, a real warning on an unsafe directory name.
+
+Also noted by the review, informational rather than a defect: `context.md` for any `eval-roles` run with a discovered task key now also gains a `- Задача: <fixture dir name>` line (the same `composeContext` code that already emits it whenever `TaskKey != ""` — not something this task's own code added deliberately, just a consequence of setting the field at all). Harmless for `implementer`/`reviewer` (neither reads it), and actively helpful for `analyst`: `capability-resume-no-reinvoke`'s task key now resolves to exactly `eval-resume`, matching what its own `role.md` logic (`CometChangeName` from the task key) was already trying to derive from task-text alone. Worth knowing, not worth engineering around.
+
+Full repo `go build/vet/test -count=1` (fresh, not cached) clean after both fixes.
+
+- [ ] **Commit**
+
+```bash
+git add cmd/eval-roles cmd/run-agent docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
+git commit -m "fix(eval-roles): pass --task-key so context.md names a fixture's Comet Native change"
+```
+
+After this commit, resume Task 16 Steps 3–4 from the start of the affected list — the `--task-key` fix changes what `context.md` says for every case that seeds a Comet Native change, so cases that already passed under the old, broken behavior are worth re-running too, not just `capability-spot-defect`.

@@ -136,6 +136,39 @@ func TestDryRunNamesBranches(t *testing.T) {
 	}
 }
 
+// Найдено живым прогоном (задача 16 → задача 19): --task-key был прокинут
+// до passport.TaskKey, но ни один тест не проверял именно этот шов — только
+// его соседей по отдельности (composeContext уже покрыт при заданном
+// TaskKey, invoke.go — что --task-key долетает до фиктивного агента).
+// Мутационный тест ревью подтвердил дыру: испортить значение в main.go
+// (passport.TaskKey на другую строку) — весь go test ./... остаётся
+// зелёным. Этот тест закрывает именно её.
+func TestDryRunNamesCometChangeDirFromTaskKey(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+
+	const taskKey = "eval-brief"
+	changeDir := filepath.Join(workdir, runner.CometChangeDirRel(taskKey))
+	if err := os.MkdirAll(changeDir, 0o755); err != nil {
+		t.Fatalf("каталог изменения не создан: %v", err)
+	}
+
+	code, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "reviewer", "--workdir", workdir, "--task", taskFile(t), "--task-key", taskKey, "--dry-run")
+	if code != 0 {
+		t.Fatalf("код %d, ожидался 0; вывод: %s", code, out)
+	}
+
+	context, err := os.ReadFile(filepath.Join(workdir, runner.Dir, runner.FileContext))
+	if err != nil {
+		t.Fatalf("контекст не прочитан: %v", err)
+	}
+	if want := "Каталог изменения: " + runner.CometChangeDirRel(taskKey); !strings.Contains(string(context), want) {
+		t.Errorf("в контексте нет %q — --task-key не дошёл до composeContext:\n%s", want, context)
+	}
+}
+
 // Список доменов роли на бэкенде без песочницы не значит ничего. Промолчать
 // об этом — значит дать человеку поверить, что сеть закрыта: он читает role.yaml,
 // а не исходники бэкенда.

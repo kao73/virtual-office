@@ -72,6 +72,10 @@ func execute() (int, error) {
 	baseFlag := flag.String("base", "", "базовая ветка: от неё считается разница по задаче (нужна reviewer'у)")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
 	evalFlag := flag.Bool("eval", false, "пометить прогон как eval-harness: не считается в per_role_daily")
+	taskKeyFlag := flag.String("task-key", "", "ключ задачи в трекере: определяет каталог изменения "+
+		"Comet Native в context.md (composeContext/CometChangeDirRel). Без него, как при обычном "+
+		"ручном запуске, трекера нет и строка «Каталог изменения» не появится — доступно eval-roles "+
+		"и другим ручным воспроизведениям фикстур с уже заведённым изменением")
 	flag.Parse()
 
 	if *roleName == "" || *workdirFlag == "" {
@@ -154,6 +158,7 @@ func execute() (int, error) {
 	passport := runner.Run{
 		RunID:      runID,
 		Role:       role.Name,
+		TaskKey:    *taskKeyFlag,
 		ConfigSHA:  configSHA,
 		StartedAt:  time.Now(),
 		BaseCommit: base,

@@ -64,7 +64,11 @@ func evaluateCase(runAgentBin, repoRoot string, c Case, stderr io.Writer, keepFa
 		return CaseOutcome{Case: name, Status: "errored", Err: fmt.Errorf("task.md не найден: %w", err)}
 	}
 
-	result, _, err := runRoleAgent(runAgentBin, repoRoot, c.Role, fixtureDir, taskPath)
+	taskKey, warning := discoverFixtureTaskKey(fixtureDir)
+	if warning != "" {
+		fmt.Fprintf(stderr, "eval-roles: %s: %s\n", name, warning)
+	}
+	result, _, err := runRoleAgent(runAgentBin, repoRoot, c.Role, fixtureDir, taskPath, taskKey)
 	if err != nil {
 		return CaseOutcome{Case: name, Status: "errored", Err: err}
 	}
