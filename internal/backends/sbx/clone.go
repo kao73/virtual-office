@@ -130,14 +130,22 @@ const notFoundInContainer = "not found in container"
 // и забирает каталоги обмена (агент мог дописать в них: .agent/result.json,
 // .comet/current-change.json при первом comet native new).
 //
-// Ветка — раньше каталогов, и это не произвольный порядок: часть
-// l.Clone.Dirs (например, .comet/config.yaml, если роль его коммитит —
-// см. roles/analyst/role.md) на самом деле лежит и в git. Занеси её на хост
-// раньше git-слияния — и следующее за ней `git merge --ff-only` откажет:
-// «your local changes... would be overwritten by merge» (воспроизведено
-// вживую при разработке). Слиянием сперва — а уже потом поверх чистого
-// дерева — каталоги кладутся без риска зацепить то, что git и так вот-вот
-// принесёт сам.
+// Порядок — commitLeftovers, потом fetchBranch, потом каталоги — и это
+// не произвольный порядок, а два независимых ограничения разом:
+//
+//  1. commitLeftovers — раньше fetchBranch, а не после (как было раньше,
+//     см. историю этого файла и Task 23 плана): коммит-подчистка обязана
+//     появиться в истории песочницы прежде, чем оттуда сходит git fetch —
+//     иначе она останется внутри снесённой песочницы точно так же, как то,
+//     что она спасает.
+//  2. fetchBranch — раньше каталогов: часть l.Clone.Dirs (например,
+//     .comet/config.yaml, если роль его коммитит — см. roles/analyst/role.md)
+//     на самом деле лежит и в git. Занеси её на хост раньше git-слияния —
+//     и следующее за ней `git merge --ff-only` откажет: «your local
+//     changes... would be overwritten by merge» (воспроизведено вживую при
+//     разработке). Слиянием сперва — а уже потом поверх чистого дерева —
+//     каталоги кладутся без риска зацепить то, что git и так вот-вот
+//     принесёт сам.
 //
 // Зовётся при любом исходе прогона, включая усечение по таймауту или
 // пределу шагов: снос песочницы следом безвозвратно унесёт коммиты агента,
@@ -150,25 +158,42 @@ const notFoundInContainer = "not found in container"
 // каталога, которого не было там и на входе — для остальных это
 // настоящая беда, а не законное «роль его не завела».
 //
-// Возвращает наружу только закоммиченное (fetchBranch) и явно названные
-// l.Clone.Dirs — незакоммиченные правки где угодно ещё в дереве задачи снос
-// песочницы унесёт безвозвратно, и это не обходится молча: warnUncommitted
-// ниже пишет об этом в log. Полноценно тащить остаток — отдельная, более
-// крупная задача (см. Task 21 плана): цена ошибки здесь ниже, чем у Critical
-// находок этого раунда, — role.md рассчитан на переиспользуемую рабочую
-// папку только там, где --clone сегодня не подключён (production-конвейер),
-// а eval-roles каждый прогон материализует фикстуру заново и никогда не
-// возвращается к тому же каталогу.
+// Возвращает наружу закоммиченное (fetchBranch, включая коммит-подчистку
+// commitLeftovers) и явно названные l.Clone.Dirs. До Задачи 23 незакоммиченный
+// остаток снос песочницы безвозвратно терял и только логировал это
+// (warnUncommitted) — живым прогоном найдено, что это не теоретический
+// случай: ни implementer, ни reviewer не коммитят
+// docs/comet/changes/<name>/comet-state.yaml, который `comet native`
+// постоянно правит своими CLI-вызовами как побочный эффект протокола, и
+// состояние Comet Native терялось на каждом --clone-прогоне после первого.
+// commitLeftovers ниже это чинит общим приёмом, а не точечно под один файл.
+//
+// Неудача commitLeftovers копится в sweepErr и возвращается только после
+// fetchBranch, а не вместо него: сеть безопасности не вправе отменить
+// подтяжку настоящих коммитов агента — независимое ревью нашло живьём
+// воспроизводимый сценарий (усечение по таймауту прямо посреди `git
+// commit` роли оставляет `.git/index.lock`, из-за которого сама подчистка
+// не может даже начать `git add`), где обратный порядок стирал бы час
+// честной работы агента ради спасения объедков, которых, возможно, и не
+// было. fetchBranch тем самым остаётся безусловным — ровно тем свойством,
+// которого требует его собственный doc-комментарий («зовётся при любом
+// исходе прогона»).
 func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, presentOnEntry []string, log io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cloneSyncTimeout)
 	defer cancel()
 
 	primary := l.Workspaces[0].Path
 
+	sweepErr := commitLeftovers(ctx, log, name, primary, l.Clone.Dirs, run)
+	if sweepErr != nil {
+		fmt.Fprintf(log, "\nпесочница %s: подчистка незакоммиченного не удалась: %v\n", name, sweepErr)
+	}
 	if err := fetchBranch(ctx, name, primary, l.Clone); err != nil {
 		return err
 	}
-	warnUncommitted(ctx, log, name, primary, run)
+	if sweepErr != nil {
+		return sweepErr
+	}
 
 	for _, dir := range l.Clone.Dirs {
 		dst := filepath.Join(primary, dir)
@@ -194,25 +219,136 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 	return nil
 }
 
-// warnUncommitted пишет в log предупреждение, если внутри песочницы осталась
-// незакоммиченная работа: --clone возвращает наружу только коммиты и явно
-// названные l.Clone.Dirs, а снос песочницы следом безвозвратно унесёт всё
-// остальное — правки, которые агент не успел закоммитить где угодно ещё
-// в дереве задачи.
+// cloneSweepName/cloneSweepEmail — личность коммита, которым commitLeftovers
+// сама сохраняет незакоммиченный остаток после агента, тем же приёмом, что
+// archiveCommitName/archiveCommitEmail в internal/pipeline/archive.go: это
+// не решение роли, а сеть безопасности обвязки — и в git blame это обязано
+// быть видно, а не выглядеть так, будто роль сама решила это закоммитить.
 //
-// Молчит, а не роняет прогон: незакоммиченный мусор — не всегда беда (роль
-// reviewer вообще не коммитит), и цена ложной тревоги на каждый обычный
-// прогон выше цены редкой потери, которую эта проверка хотя бы делает видимой
-// в логе вместо полной тишины. `grep -q .` внутри песочницы даёт булев
-// сигнал через код возврата: непустой `git status --porcelain` — совпадение
-// и код 0, пустой — код 1, что step оборачивает в ошибку и здесь просто
-// молча означает «нечего сообщать».
-func warnUncommitted(ctx context.Context, log io.Writer, name, primary string, run step) {
-	if err := run(ctx, "exec", name, "sh", "-c",
-		"git -C "+primary+" status --porcelain | grep -q ."); err == nil {
-		fmt.Fprintf(log, "\nпесочница %s: внутри осталась незакоммиченная работа — --clone "+
-			"подтягивает наружу только коммиты и .agent/.comet, снос песочницы унесёт остальное безвозвратно\n", name)
+// Задаются переменными окружения git-процесса (внутри commitScript ниже),
+// а не `-c user.name=...`: у git переменные окружения перебивают -c-конфиг.
+// Сегодня в этом конкретном exec-вызове никакого чужого GIT_AUTHOR_NAME
+// нет — identityVars роли идут `--env`-флагами только на execArgs
+// (internal/backends/sbx/sbx.go), запуск самого агента, и в createArgs
+// песочницы, а тем более в отдельных exec-вызовах commitLeftovers, их нет
+// (независимое ревью проверило по исходнику). Выбор — на будущее, не
+// заплатка под сегодняшний баг: `--env` для этих вызовов однажды может
+// понадобиться по другой причине, и тогда `-c` тихо проиграл бы ей.
+const (
+	cloneSweepName  = "clone-sweep"
+	cloneSweepEmail = "clone-sweep@office.local"
+)
+
+// mergeCheckScript/dirtyCheckScript/addScript/stagedCheckScript/commitScript
+// — шаги commitLeftovers, каждый своим exec-вызовом, а не одним большим
+// скриптом: между add и commit нужен настоящий Go-условный переход (см.
+// commitLeftovers), которого одна строка shell не даёт без потери точности
+// лога. $1 — путь (primary) везде; addScript получает вдобавок $2.. —
+// pathspec-исключения вида «:!dir» (см. dirs у commitLeftovers). Путь и
+// исключения — позиционные аргументы шелла, не подставлены в текст
+// скрипта конкатенацией: конкатенация ломается на путях с пробелом или
+// другим спецсимволом шелла — раньше это молча превращало «дерево
+// грязное» в «дерево чистое» (независимое ревью, живой сценарий с путём
+// вроде «/Users/x/my repo»), а не только теоретический риск инъекции
+// (сам путь задаёт не агент).
+const (
+	mergeCheckScript  = `git -C "$1" ls-files --unmerged | grep -q .`
+	dirtyCheckScript  = `git -C "$1" status --porcelain | grep -q .`
+	addScript         = `primary=$1; shift; git -C "$primary" add -A -- . "$@"`
+	stagedCheckScript = `git -C "$1" diff --cached --quiet`
+)
+
+// commitScript — --no-verify: клиентский репозиторий мог обзавестись
+// git-хуками уже внутри песочницы (npm install ставит husky/lefthook
+// в .git/hooks), и pre-commit-хук, упавший на случайном мусоре, не должен
+// ронять весь прогон ради коммита, который сам по себе не обязателен.
+const commitScript = `GIT_AUTHOR_NAME="` + cloneSweepName + `" GIT_AUTHOR_EMAIL="` + cloneSweepEmail + `" ` +
+	`GIT_COMMITTER_NAME="` + cloneSweepName + `" GIT_COMMITTER_EMAIL="` + cloneSweepEmail + `" ` +
+	`git -C "$1" commit -q --no-verify -m "chore: preserve sandbox-local changes left uncommitted by the run"`
+
+// mergeInProgress — есть ли в песочнице незавершённое слияние (неразрешённые
+// записи индекса, `git ls-files --unmerged»). `git add -A` на таком дереве
+// разрешил бы конфликтные пути в индексе прямо с текстом «<<<<<<<», а коммит
+// поверх них объявил бы конфликт разрешённым — порча ветки задачи хуже, чем
+// просто не спасти незакоммиченное в этом одном случае: его снос песочницы
+// унесёт, как и до этой правки, не тише и не хуже.
+//
+// Не по файлам-маркерам (MERGE_HEAD и т. п.): независимое ревью нашло живой
+// сценарий без единого из них — конфликтующий `git stash pop`
+// (`implementer` может засташить перед сверкой, см. roles/implementer/role.md)
+// оставляет ровно те же неразрешённые записи индекса, но ни одного
+// стандартного файла-маркера слияния. `ls-files --unmerged` смотрит на сам
+// индекс, а не на то, какая команда его туда довела, — шире и вернее.
+func mergeInProgress(ctx context.Context, name, primary string, run step) bool {
+	return run(ctx, "exec", name, "sh", "-c", mergeCheckScript, "sh", primary) == nil
+}
+
+// commitLeftovers сохраняет то, что агент оставил незакоммиченным внутри
+// песочницы, отдельным коммитом от служебной личности выше — не подменяя
+// собой дисциплину роли «коммить то, что сделал, а не всё подряд»
+// (roles/*/role.md, «Как коммитить»), а страхуя её: --clone возвращает
+// наружу только закоммиченное (fetchBranch) и явно названные dirs, а снос
+// песочницы следом безвозвратно уносил всё остальное — до Задачи 24 только
+// предупреждая об этом в log (warnUncommitted), не спасая.
+//
+// dirs — то же самое, что l.Clone.Dirs (конверт обмена: .agent,
+// .comet/current-change.json, .comet/runtime), явным pathspec-исключением
+// на самом `git add -A`, а не косвенно через `.git/info/exclude`. Раньше
+// на это исключение полагались только через syncExcludeFile, копию,
+// которая тиха и необязательна (пустой источник хоста — не ошибка) и
+// резолвит путь иначе, чем ExcludeAgentDir (`git rev-parse
+// --git-common-dir»); независимое ревью нашло, что расхождение этих двух
+// путей молча оставляет .git/info/exclude в песочнице пустым — тогда
+// pathspec-исключение здесь остаётся единственным, что не даёт системному
+// промпту, паспорту прогона и `.agent/result.json» уехать в коммит ветки
+// задачи клиентского проекта.
+//
+// Между add и «нечего коммитить» — отдельный шаг (stagedCheckScript), а не
+// просто «commit и посмотреть на код возврата»: то, что было грязным по
+// `git status`, не обязано остаться застейдженным после `git add -A --
+// . :!dir` — pathspec мог отфильтровать его целиком (именно тот случай,
+// ради которого добавлено исключение выше), или изменение вовсе не
+// стейджится добавлением (например, только указатель подмодуля).
+// Независимое ревью нашло оба сценария живьём: без этого шага `git commit`
+// выходил с «nothing to commit», commitLeftovers превращала это в ошибку,
+// а cloneOutcome — совсем здоровый прогон агента в код -1. «Нечего
+// коммитить после фильтрации» — не беда, а такой же законный исход, как
+// «дерево изначально было чистым».
+//
+// Неудача настоящего add/commit — другое дело, настоящая ошибка: cloneSyncOut
+// копит её и пробрасывает дальше уже после fetchBranch (см. её
+// doc-комментарий) — цена та же, что у потери коммитов агента, которую
+// fetchBranch тоже не прощает молча.
+func commitLeftovers(ctx context.Context, log io.Writer, name, primary string, dirs []string, run step) error {
+	if mergeInProgress(ctx, name, primary, run) {
+		fmt.Fprintf(log, "\nпесочница %s: незавершённое слияние — подчистка пропущена, чтобы не "+
+			"закоммитить конфликтные маркеры как разрешённые\n", name)
+		return nil
 	}
+
+	if err := run(ctx, "exec", name, "sh", "-c", dirtyCheckScript, "sh", primary); err != nil {
+		return nil // нечего сохранять
+	}
+
+	addArgs := []string{"exec", name, "sh", "-c", addScript, "sh", primary}
+	for _, dir := range dirs {
+		addArgs = append(addArgs, ":!"+dir)
+	}
+	if err := run(ctx, addArgs...); err != nil {
+		return fmt.Errorf("незакоммиченная работа внутри песочницы %s не занесена в индекс: %w", name, err)
+	}
+
+	if err := run(ctx, "exec", name, "sh", "-c", stagedCheckScript, "sh", primary); err == nil {
+		return nil // после add -A -- . :!dir застейдженного не осталось — нечего коммитить, это не беда
+	}
+
+	if err := run(ctx, "exec", name, "sh", "-c", commitScript, "sh", primary); err != nil {
+		return fmt.Errorf("незакоммиченная работа внутри песочницы %s не сохранена: %w", name, err)
+	}
+
+	fmt.Fprintf(log, "\nпесочница %s: внутри осталась незакоммиченная работа — сохранена отдельным "+
+		"коммитом (chore: preserve sandbox-local changes), не от лица роли\n", name)
+	return nil
 }
 
 // fetchBranch подтягивает ветку задачи из песочницы в l.Clone.FetchInto —

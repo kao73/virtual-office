@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -181,6 +182,11 @@ func TestSyncExcludeFileNoopWithoutSource(t *testing.T) {
 // overwritten". cloneSyncOut обязана слить ветку раньше, чем класть каталоги
 // поверх рабочего дерева — этот тест проверяет именно порядок, а не только
 // то, что оба шага в принципе случаются.
+// commitLeftovers обязана позваться до fetchBranch (см. её собственный
+// doc-comment) — здесь это проверяется тем, что даже при заведомо
+// провальном fetchBranch (несовпадение веток) один вызов run() всё равно
+// происходит (сам commitLeftovers, на чистом дереве — только проверка,
+// без коммита), а вот до каталогов Dirs дело дойти не должно вовсе.
 func TestCloneSyncOutStopsAtDirsWhenFetchFails(t *testing.T) {
 	primary, fetchInto, name := setupCloneFixture(t)
 	// fetchInto уводим на другую ветку — fetchBranch откажет ещё до слияния.
@@ -190,13 +196,22 @@ func TestCloneSyncOutStopsAtDirsWhenFetchFails(t *testing.T) {
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
 	}
-	rec := &recordedStep{}
+	// Не идёт слияние (mergeInProgress), дерево чистое (grep не находит
+	// совпадений) — commitLeftovers ограничится двумя проверками и не
+	// полезет коммитить.
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений")}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("несовпадение веток не замечено — слияние не должно было даже начаться")
 	}
-	if len(rec.calls) != 0 {
-		t.Errorf("cp каталогов позван, хотя слияние ветки провалилось раньше: %q", rec.calls)
+	if len(rec.calls) != 2 {
+		t.Errorf("ожидалось 2 вызова (обе проверки commitLeftovers до провалившегося fetchBranch), получено %d: %q",
+			len(rec.calls), rec.calls)
+	}
+	for _, call := range rec.calls {
+		if len(call) > 0 && call[0] == "cp" {
+			t.Errorf("cp каталогов позван, хотя слияние ветки провалилось раньше: %q", rec.calls)
+		}
 	}
 }
 
@@ -210,17 +225,18 @@ func TestCloneSyncOutTreatsMissingContainerPathAsNotFatalOnlyWhenAbsentOnEntry(t
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent", ".comet"}},
 	}
-	// Первый вызов после успешного слияния — warnUncommitted (git status
-	// внутри песочницы); дальше — .agent синхронизировался штатно (значит,
+	// Первые два вызова, до fetchBranch, — commitLeftovers (mergeInProgress,
+	// потом git status внутри песочницы; дерево чистое, до коммита дело не
+	// доходит); дальше — .agent синхронизировался штатно (значит,
 	// presentOnEntry его называет), .comet в песочнице не заведён — sbx cp
 	// отвечает так, как отвечает вживую (см. notFoundInContainer в clone.go).
-	rec := &recordedStep{errs: []error{errors.New("grep: нет совпадений"), nil, errors.New(`ERROR: path ".../.comet" not found in container`)}}
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений"), nil, errors.New(`ERROR: path ".../.comet" not found in container`)}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err != nil {
 		t.Fatalf("отсутствие .comet в песочнице (не занесённого на входе) не должно проваливать выгрузку: %v", err)
 	}
-	if len(rec.calls) != 3 {
-		t.Fatalf("ожидалось 3 вызова (warnUncommitted + 2 cp), получено %d: %q", len(rec.calls), rec.calls)
+	if len(rec.calls) != 4 {
+		t.Fatalf("ожидалось 4 вызова (commitLeftovers x2 + 2 cp), получено %d: %q", len(rec.calls), rec.calls)
 	}
 }
 
@@ -233,8 +249,8 @@ func TestCloneSyncOutFailsWhenExpectedDirMissingOnExit(t *testing.T) {
 	}
 	// .agent был занесён на входе (presentOnEntry его называет), но на
 	// выходе почему-то пропал — это уже не «роль его не завела», а беда.
-	// Первый вызов — warnUncommitted, дальше — сам упавший cp.
-	rec := &recordedStep{errs: []error{errors.New("grep: нет совпадений"), errors.New(`ERROR: path ".../.agent" not found in container`)}}
+	// Первые два вызова — commitLeftovers (дерево чистое), дальше — сам упавший cp.
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений"), errors.New(`ERROR: path ".../.agent" not found in container`)}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err == nil {
 		t.Fatal("пропажа каталога, который сама же занесла cloneSyncIn, прошла молча")
@@ -248,46 +264,499 @@ func TestCloneSyncOutPropagatesRealCPFailure(t *testing.T) {
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
 	}
-	// Первый вызов — warnUncommitted, дальше — сам упавший cp.
-	rec := &recordedStep{errs: []error{errors.New("grep: нет совпадений"), errors.New("sbx cp: connection refused")}}
+	// Первые два вызова — commitLeftovers (дерево чистое), дальше — сам упавший cp.
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений"), errors.New("sbx cp: connection refused")}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("настоящая неудача sbx cp растворилась в допущении «каталога не было»")
 	}
 }
 
-// warnUncommitted не роняет прогон и не подменяет cloneErr — только
-// дописывает наблюдение в log, когда grep внутри песочницы находит
-// незакоммиченные правки (код 0), и молчит, когда не находит (код 1,
-// step оборачивает в ошибку).
-func TestCloneSyncOutWarnsAboutUncommittedWork(t *testing.T) {
+// commitLeftovers не роняет прогон на пустом месте и не лезет коммитить,
+// когда слияние не идёт, а grep внутри песочницы ничего не находит (код 1,
+// step оборачивает в ошибку) — молчит и возвращает nil без третьего вызова.
+func TestCommitLeftoversNoopWhenClean(t *testing.T) {
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений")}}
+	var log bytes.Buffer
+
+	if err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run); err != nil {
+		t.Fatalf("commitLeftovers на чистом дереве вернула ошибку: %v", err)
+	}
+	if len(rec.calls) != 2 {
+		t.Errorf("на чистом дереве ожидалось 2 вызова (обе проверки), получено %d: %q", len(rec.calls), rec.calls)
+	}
+	if log.Len() != 0 {
+		t.Errorf("сообщение о сохранении прозвучало на чистом дереве: %q", log.String())
+	}
+}
+
+// Незавершённое слияние — commitLeftovers обязана отказаться от подчистки
+// вовсе, а не смести конфликтные маркеры в коммит: `git add -A` на таком
+// дереве разрешил бы пути с «<<<<<<<» прямо в индексе (независимое ревью,
+// живой сценарий с усечённым по таймауту разрешением конфликта).
+func TestCommitLeftoversSkipsWhenMergeInProgress(t *testing.T) {
+	rec := &recordedStep{} // mergeInProgress: err == nil ⇒ маркер найден
+	var log bytes.Buffer
+
+	if err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run); err != nil {
+		t.Fatalf("commitLeftovers при незавершённом слиянии вернула ошибку: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Errorf("при незавершённом слиянии ожидался ровно один вызов (сама проверка), получено %d: %q",
+			len(rec.calls), rec.calls)
+	}
+	if log.Len() == 0 {
+		t.Error("пропуск подчистки из-за незавершённого слияния не отмечен в логе")
+	}
+}
+
+// Незакоммиченное найдено (mergeInProgress — не идёт, grep — код 0, step
+// отвечает nil) — commitLeftovers обязана добавить и закоммитить его
+// отдельной, не-агентской личностью (cloneSweepName/cloneSweepEmail, через
+// переменные окружения, а не -c — см. doc-комментарий), исключив dirs
+// pathspec'ом и передав primary позиционным аргументом, а не подставив
+// его в текст скрипта.
+func TestCommitLeftoversCommitsWhenDirty(t *testing.T) {
+	// call0: не идёт слияние. call1: дирти. call2: add — успех. call3: staged
+	// непусто (err != nil ⇒ есть что коммитить). call4: commit — успех (по умолчанию nil).
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, nil, errors.New("непусто")}}
+	var log bytes.Buffer
+
+	dirs := []string{".agent", ".comet/runtime"}
+	if err := commitLeftovers(context.Background(), &log, "office-x", "/primary", dirs, rec.run); err != nil {
+		t.Fatalf("commitLeftovers: %v", err)
+	}
+	if len(rec.calls) != 5 {
+		t.Fatalf("ожидалось 5 вызовов (merge + dirty + add + staged + commit), получено %d: %q",
+			len(rec.calls), rec.calls)
+	}
+
+	addCall := rec.calls[2]
+	if !slices.Contains(addCall, "/primary") {
+		t.Errorf("primary не передан add-вызову позиционным аргументом: %q", addCall)
+	}
+	for _, dir := range dirs {
+		if !slices.Contains(addCall, ":!"+dir) {
+			t.Errorf("исключение %q не передано add-вызову отдельным pathspec-аргументом: %q", ":!"+dir, addCall)
+		}
+	}
+
+	commitCall := rec.calls[4]
+	joined := strings.Join(commitCall, " ")
+	for _, want := range []string{
+		"commit", "--no-verify",
+		`GIT_AUTHOR_NAME="` + cloneSweepName + `"`, `GIT_AUTHOR_EMAIL="` + cloneSweepEmail + `"`,
+		`GIT_COMMITTER_NAME="` + cloneSweepName + `"`, `GIT_COMMITTER_EMAIL="` + cloneSweepEmail + `"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("коммит-вызов не содержит %q: %s", want, joined)
+		}
+	}
+	if !slices.Contains(commitCall, "/primary") {
+		t.Errorf("primary не передан commit-вызову позиционным аргументом: %q", commitCall)
+	}
+	if log.Len() == 0 {
+		t.Error("сохранённая незакоммиченная работа не отмечена в логе")
+	}
+}
+
+// Important-находка независимого ревью: `git status --porcelain` и `git add
+// -A -- . :!dir` смотрят на разные множества — то, что было грязным, не
+// обязано остаться застейдженным после pathspec-исключения (или не
+// стейджится add'ом вовсе, как указатель подмодуля). Без явной проверки
+// между add и commit это превращало совершенно здоровый прогон в ложный
+// провал синхронизации.
+func TestCommitLeftoversNoopWhenNothingStagedAfterFiltering(t *testing.T) {
+	// call0: не идёт слияние. call1: дирти. call2: add — успех.
+	// call3: staged пусто (err == nil ⇒ commitLeftovers должна остановиться).
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, nil, nil}}
+	var log bytes.Buffer
+
+	if err := commitLeftovers(context.Background(), &log, "office-x", "/primary", []string{".agent"}, rec.run); err != nil {
+		t.Fatalf("нечего коммитить после фильтрации не должно быть ошибкой: %v", err)
+	}
+	if len(rec.calls) != 4 {
+		t.Fatalf("ожидалось 4 вызова (merge + dirty + add + staged), без коммита, получено %d: %q",
+			len(rec.calls), rec.calls)
+	}
+	if log.Len() != 0 {
+		t.Errorf("сообщение о сохранении прозвучало, хотя коммита не было: %q", log.String())
+	}
+}
+
+// Неудача самого git add — настоящая ошибка: не добраться даже до вопроса,
+// есть ли что коммитить.
+func TestCommitLeftoversPropagatesAddFailure(t *testing.T) {
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, errors.New("git: index corrupt")}}
+	var log bytes.Buffer
+
+	err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run)
+	if err == nil {
+		t.Fatal("неудача git add прошла молча")
+	}
+	if log.Len() != 0 {
+		t.Errorf("лог не должен утверждать успех при провалившемся add: %q", log.String())
+	}
+}
+
+// Неудача самого commit (после того как есть что коммитить) — настоящая
+// ошибка, которую cloneSyncOut обязан пробросить дальше, а не проглотить
+// молча: цена та же, что у потери коммитов агента.
+func TestCommitLeftoversPropagatesCommitFailure(t *testing.T) {
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, nil, errors.New("непусто"), errors.New("git: identity unknown")}}
+	var log bytes.Buffer
+
+	err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run)
+	if err == nil {
+		t.Fatal("неудача коммита-подчистки прошла молча")
+	}
+	if log.Len() != 0 {
+		t.Errorf("лог не должен утверждать успех при провалившемся коммите: %q", log.String())
+	}
+}
+
+// cloneSyncOut обязана позвать commitLeftovers и пробросить её ошибку дальше
+// как cloneErr, а не проигнорировать: warnUncommitted раньше только
+// предупреждала и терялась в этом же месте была бы точно та потеря, которую
+// commitLeftovers существует, чтобы закрыть.
+func TestCloneSyncOutPropagatesCommitLeftoversFailure(t *testing.T) {
 	primary, fetchInto, name := setupCloneFixture(t)
 	l := &runner.Launch{
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"},
 	}
+	// Не идёт слияние, дирти найдено, add и staged в порядке, но сам коммит проваливается.
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, nil, errors.New("непусто"), errors.New("git: identity unknown")}}
 
-	t.Run("незакоммиченное найдено", func(t *testing.T) {
-		rec := &recordedStep{} // grep находит совпадение → step отвечает nil
-		var log bytes.Buffer
-		if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, &log); err != nil {
-			t.Fatalf("cloneSyncOut: %v", err)
-		}
-		if log.Len() == 0 {
-			t.Error("незакоммиченная работа осталась незамеченной в логе")
-		}
-	})
+	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
+		t.Fatal("неудача commitLeftovers не остановила cloneSyncOut")
+	}
+}
 
-	t.Run("дерево чистое", func(t *testing.T) {
-		rec := &recordedStep{errs: []error{errors.New("grep: нет совпадений")}}
-		var log bytes.Buffer
-		if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, &log); err != nil {
-			t.Fatalf("cloneSyncOut: %v", err)
+// Critical-находка независимого ревью: раньше commitLeftovers стояла перед
+// fetchBranch и, провалившись (например, .git/index.lock от прерванного
+// git commit роли), отменяла его совсем — настоящие коммиты агента
+// терялись вместе с песочницей ради того, чтобы не потерять объедки,
+// которых, возможно, и не было. fetchBranch обязан выполниться и подтянуть
+// реальный коммит независимо от исхода commitLeftovers — ошибка копится
+// и возвращается только после него.
+func TestCloneSyncOutFetchesRealCommitsEvenWhenCommitLeftoversFails(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+	source := runGitOutput(t, primary, "remote", "get-url", "sandbox-"+name)
+	commit(t, source, "настоящий коммит агента")
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"},
+	}
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, errors.New("git: identity unknown")}}
+
+	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
+		t.Fatal("неудача commitLeftovers не вернула ошибку")
+	}
+
+	got := runGitOutput(t, fetchInto, "rev-parse", "HEAD")
+	want := runGitOutput(t, source, "rev-parse", "HEAD")
+	if got != want {
+		t.Errorf("настоящий коммит агента не подтянут при провалившейся подчистке: fetchInto=%s source=%s", got, want)
+	}
+}
+
+// execStep исполняет вызовы вида exec <name> sh -c <скрипт> sh <args...>
+// по-настоящему, через sh — именно так зовут commitLeftovers и
+// mergeInProgress. Используется там, где тест должен проверить настоящий
+// эффект скрипта (кавычки, pathspec), а не только форму вызова.
+func execStep(t *testing.T) step {
+	t.Helper()
+	return func(ctx context.Context, args ...string) error {
+		if len(args) < 3 || args[0] != "exec" {
+			t.Fatalf("execStep умеет только exec <name> <argv...>: %q", args)
 		}
-		if log.Len() != 0 {
-			t.Errorf("предупреждение прозвучало на чистом дереве: %q", log.String())
+		cmd := exec.CommandContext(ctx, args[2], args[3:]...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %w\n%s", args, err, out)
 		}
-	})
+		return nil
+	}
+}
+
+// realSandboxStep — execStep, но с primary, подменённым на source: внутри
+// настоящей песочницы commitLeftovers видит primary как путь к собственному
+// клону песочницы (здесь — source), а не к одноразовому клону-источнику на
+// хосте, которым в этом файле является primary.
+func realSandboxStep(t *testing.T, primary, source string) step {
+	t.Helper()
+	inner := execStep(t)
+	return func(ctx context.Context, args ...string) error {
+		rewritten := append([]string(nil), args...)
+		for i, a := range rewritten {
+			if a == primary {
+				rewritten[i] = source
+			}
+		}
+		return inner(ctx, rewritten...)
+	}
+}
+
+// Важная находка независимого ревью (#7): предыдущие тесты проверяли только
+// форму вызова через recordedStep — здесь commitLeftovers прогоняется по
+// настоящему пути через fetchBranch до FetchInto, с настоящим git.
+func TestCommitLeftoversReachesFetchIntoThroughFetchBranch(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+	source := runGitOutput(t, primary, "remote", "get-url", "sandbox-"+name)
+
+	if err := os.WriteFile(filepath.Join(source, "leftover.txt"), []byte("забыли закоммитить\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"},
+	}
+
+	if err := cloneSyncOut(context.Background(), name, l, realSandboxStep(t, primary, source), nil, io.Discard); err != nil {
+		t.Fatalf("cloneSyncOut: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(fetchInto, "leftover.txt")); err != nil {
+		t.Fatalf("подчищенный файл не доехал до fetchInto: %v", err)
+	}
+	authorName := runGitOutput(t, fetchInto, "log", "-1", "--format=%an")
+	if authorName != cloneSweepName {
+		t.Errorf("коммит-подчистка приписан не той личности: %q, ожидалось %q", authorName, cloneSweepName)
+	}
+}
+
+// Регрессия на находку независимого ревью (#2): раньше primary был
+// подставлен в текст `sh -c` строкой, а не передан позиционным аргументом
+// — путь с пробелом молча ломал команду (git читал бы её как «cd в
+// /primary/my» с обрубленным «repo»), и commitLeftovers принимала эту
+// поломку за «дерево чистое», теряя реальную незакоммиченную работу без
+// единой строки в логе.
+func TestCommitLeftoversHandlesPathWithSpace(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "my repo")
+	if err := os.MkdirAll(primary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primary, "init", "-q", "-b", "master", ".")
+	commit(t, primary, "seed")
+	if err := os.WriteFile(filepath.Join(primary, "leftover.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var log bytes.Buffer
+	if err := commitLeftovers(context.Background(), &log, "office-x", primary, nil, execStep(t)); err != nil {
+		t.Fatalf("commitLeftovers на пути с пробелом: %v", err)
+	}
+
+	subject := runGitOutput(t, primary, "log", "-1", "--format=%s")
+	if !strings.Contains(subject, "preserve sandbox-local changes") {
+		t.Errorf("подчистка не закоммитила на пути с пробелом (HEAD: %q) — подстановка пути строкой сломала бы это молча", subject)
+	}
+}
+
+// Регрессия на находку независимого ревью (#6): даже если .git/info/exclude
+// внутри песочницы пуст (например, syncExcludeFile промолчала — источника
+// на хосте не нашлось), конверт обмена не должен уехать в коммит-подчистку.
+// Pathspec-исключение на самом `git add -A` не зависит от копии правил.
+func TestCommitLeftoversExcludesNamedDirsEvenWithoutGitExclude(t *testing.T) {
+	primary := t.TempDir()
+	runGit(t, primary, "init", "-q", "-b", "master", ".")
+	commit(t, primary, "seed")
+	if err := os.MkdirAll(filepath.Join(primary, ".agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(primary, ".agent", "result.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(primary, "leftover.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Намеренно без .git/info/exclude — это и есть регрессионный сценарий.
+
+	var log bytes.Buffer
+	if err := commitLeftovers(context.Background(), &log, "office-x", primary, []string{".agent"}, execStep(t)); err != nil {
+		t.Fatalf("commitLeftovers: %v", err)
+	}
+
+	tracked := runGitOutput(t, primary, "show", "--stat", "--format=", "HEAD")
+	if strings.Contains(tracked, ".agent") {
+		t.Errorf(".agent уехал в коммит-подчистку без git-исключений: %s", tracked)
+	}
+	if !strings.Contains(tracked, "leftover.txt") {
+		t.Errorf("leftover.txt не закоммичен: %s", tracked)
+	}
+}
+
+// Регрессия на находку независимого ревью (#3): незавершённое слияние не
+// должно попасть в коммит-подчистку — настоящий MERGE_HEAD/конфликтный
+// путь должен остановить commitLeftovers так же, как в
+// TestCommitLeftoversSkipsWhenMergeInProgress, но здесь через настоящий git.
+func TestCommitLeftoversSkipsRealMergeConflict(t *testing.T) {
+	base := initRepo(t)
+	commit(t, base, "seed")
+	runGit(t, base, "checkout", "-q", "-b", "a")
+	if err := os.WriteFile(filepath.Join(base, "f.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, base, "add", "f.txt")
+	commit(t, base, "a-версия")
+
+	runGit(t, base, "checkout", "-q", "master")
+	runGit(t, base, "checkout", "-q", "-b", "b")
+	if err := os.WriteFile(filepath.Join(base, "f.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, base, "add", "f.txt")
+	commit(t, base, "b-версия")
+
+	// Сливаем a в b — конфликт, MERGE_HEAD остаётся на месте.
+	mergeCmd := exec.Command("git", "-C", base, "merge", "a")
+	_ = mergeCmd.Run() // ожидаемо ненулевой код — конфликт
+
+	if _, err := os.Stat(filepath.Join(base, ".git", "MERGE_HEAD")); err != nil {
+		t.Fatalf("подготовка теста: конфликт слияния не начался: %v", err)
+	}
+
+	var log bytes.Buffer
+	if err := commitLeftovers(context.Background(), &log, "office-x", base, nil, execStep(t)); err != nil {
+		t.Fatalf("commitLeftovers при настоящем конфликте вернула ошибку: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(base, ".git", "MERGE_HEAD")); err != nil {
+		t.Error("MERGE_HEAD пропал — подчистка тронула незавершённое слияние")
+	}
+	if strings.Contains(runGitOutput(t, base, "log", "-1", "--format=%s"), "preserve sandbox-local changes") {
+		t.Error("конфликт слияния закоммичен подчисткой как будто он разрешён")
+	}
+}
+
+// Critical-находка узкого повторного ревью: конфликт бывает и без единого
+// файла-маркера слияния — конфликтующий `git stash pop` (implementer может
+// засташить перед сверкой) оставляет ровно те же неразрешённые записи
+// индекса, но ни MERGE_HEAD, ни rebase-merge/-apply не заводит. Проверка
+// по mergeInProgress (сейчас — git ls-files --unmerged) обязана поймать
+// именно эту разновидность конфликта, а не только «после git merge».
+func TestCommitLeftoversSkipsUnmergedStashConflict(t *testing.T) {
+	base := initRepo(t)
+	if err := os.WriteFile(filepath.Join(base, "f.txt"), []byte("база\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, base, "add", "f.txt")
+	commit(t, base, "seed")
+
+	if err := os.WriteFile(filepath.Join(base, "f.txt"), []byte("рабочая копия\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, base, "-c", "user.email=t@t", "-c", "user.name=t", "stash", "push", "-q", "-m", "wip")
+	if err := os.WriteFile(filepath.Join(base, "f.txt"), []byte("новый коммит\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, base, "add", "f.txt")
+	commit(t, base, "разошлось со stash")
+
+	// pop конфликтует с новым коммитом — ожидаемо ненулевой код.
+	popCmd := exec.Command("git", "-C", base, "stash", "pop")
+	_ = popCmd.Run()
+
+	status := runGitOutput(t, base, "status", "--porcelain")
+	if !strings.Contains(status, "UU") {
+		t.Fatalf("подготовка теста: неразрешённый конфликт stash pop не начался (status: %q)", status)
+	}
+	if _, err := os.Stat(filepath.Join(base, ".git", "MERGE_HEAD")); err == nil {
+		t.Fatal("подготовка теста: stash pop неожиданно завёл MERGE_HEAD — сценарий больше не отличим от обычного merge-конфликта")
+	}
+
+	var log bytes.Buffer
+	if err := commitLeftovers(context.Background(), &log, "office-x", base, nil, execStep(t)); err != nil {
+		t.Fatalf("commitLeftovers при конфликте stash pop вернула ошибку: %v", err)
+	}
+
+	subject := runGitOutput(t, base, "log", "-1", "--format=%s")
+	if strings.Contains(subject, "preserve sandbox-local changes") {
+		t.Error("конфликт stash pop закоммичен подчисткой как будто он разрешён (маркеры <<<<<<< теперь в истории)")
+	}
+}
+
+// Important-находка узкого повторного ревью: `git status --porcelain`
+// и `git add -A -- . :!dir» смотрят на разные множества — если всё грязное
+// отфильтровано pathspec-исключением, `add` отработает успешно, ничего не
+// застейджив, и без явной проверки это раньше превращалось в ложный отказ
+// commitLeftovers (а через неё — во всю выгрузку --clone) на совершенно
+// здоровом прогоне, которому просто нечего было спасать.
+func TestCommitLeftoversNoopWhenEverythingFilteredOutReal(t *testing.T) {
+	primary := t.TempDir()
+	runGit(t, primary, "init", "-q", "-b", "master", ".")
+	commit(t, primary, "seed")
+	if err := os.MkdirAll(filepath.Join(primary, ".agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(primary, ".agent", "result.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Никакого другого незакоммиченного — только то, что исключит pathspec.
+
+	var log bytes.Buffer
+	if err := commitLeftovers(context.Background(), &log, "office-x", primary, []string{".agent"}, execStep(t)); err != nil {
+		t.Fatalf("нечего коммитить после фильтрации не должно быть ошибкой: %v", err)
+	}
+
+	head := runGitOutput(t, primary, "rev-parse", "HEAD")
+	seedHead := runGitOutput(t, primary, "rev-list", "--max-parents=0", "HEAD")
+	if head != seedHead {
+		t.Error("появился лишний коммит, хотя коммитить было нечего")
+	}
+	if log.Len() != 0 {
+		t.Errorf("сообщение о сохранении прозвучало, хотя коммита не было: %q", log.String())
+	}
+}
+
+// execStepWithEnv — execStep, но со своим окружением у самого шелл-процесса.
+// Regression-находка узкого повторного ревью: сегодня у exec-вызовов
+// commitLeftovers нет чужого GIT_AUTHOR_NAME (identityVars идут --env
+// только на запуск самого агента, sbx.go execArgs, не на эти вызовы), но
+// свойство «переменные окружения commitScript побеждают унаследованное
+// окружение» должно оставаться верным и тогда, когда оно появится.
+func execStepWithEnv(t *testing.T, extraEnv []string) step {
+	t.Helper()
+	return func(ctx context.Context, args ...string) error {
+		if len(args) < 3 || args[0] != "exec" {
+			t.Fatalf("execStepWithEnv умеет только exec <name> <argv...>: %q", args)
+		}
+		cmd := exec.CommandContext(ctx, args[2], args[3:]...)
+		cmd.Env = append(os.Environ(), extraEnv...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %w\n%s", args, err, out)
+		}
+		return nil
+	}
+}
+
+func TestCommitLeftoversIdentityWinsOverAmbientEnv(t *testing.T) {
+	primary := t.TempDir()
+	runGit(t, primary, "init", "-q", "-b", "master", ".")
+	commit(t, primary, "seed")
+	if err := os.WriteFile(filepath.Join(primary, "leftover.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := []string{
+		"GIT_AUTHOR_NAME=agent-implementer", "GIT_AUTHOR_EMAIL=implementer@office.local",
+		"GIT_COMMITTER_NAME=agent-implementer", "GIT_COMMITTER_EMAIL=implementer@office.local",
+	}
+	var log bytes.Buffer
+	if err := commitLeftovers(context.Background(), &log, "office-x", primary, nil, execStepWithEnv(t, env)); err != nil {
+		t.Fatalf("commitLeftovers: %v", err)
+	}
+
+	got := runGitOutput(t, primary, "log", "-1", "--format=%an <%ae>")
+	want := cloneSweepName + " <" + cloneSweepEmail + ">"
+	if got != want {
+		t.Errorf("личность коммита-подчистки = %q, ожидалось %q — окружение роли её перебило", got, want)
+	}
 }
 
 func TestFetchBranchFastForwardsFetchInto(t *testing.T) {
