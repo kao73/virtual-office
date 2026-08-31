@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,87 @@ func TestMaterializeFixtureFailsWithoutFixtureDir(t *testing.T) {
 	if _, _, err := materializeFixture(caseDir); err == nil {
 		t.Error("отсутствие fixture/ не замечено")
 	}
+}
+
+// Найдено живым прогоном (задача 21): фикстуры вроде
+// capability-reads-brief-and-spec/capability-spot-defect предзаводят
+// .comet/runtime/native/changes/<name>/state.json с записанным на момент
+// авторства путём — он никогда не совпадёт с os.MkdirTemp-каталогом
+// настоящего материализованного прогона. Comet Native при таком
+// расхождении обновляет локальный кэш выполнения, но отказывается писать
+// длящееся portable-состояние (comet-state.yaml) — воспроизведено вживую
+// подменой пути на настоящий и повторным builder-handoff. Без починки пути
+// это заводит каждый прогон такой фикстуры в то же расхождение заново.
+func TestMaterializeFixtureRewritesLocalExecutionProjectRoot(t *testing.T) {
+	caseDir := t.TempDir()
+	fixtureSrc := filepath.Join(caseDir, "fixture")
+	stateDir := filepath.Join(fixtureSrc, ".comet/runtime/native/changes/eval-brief")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seed := map[string]any{
+		"schema": "comet.native.local-execution.v4",
+		"change": "eval-brief",
+		"workspace": map[string]any{
+			"projectRoot":  "/where/fixture/was/authored",
+			"worktreeRoot": "/where/fixture/was/authored",
+			"branch":       "main",
+		},
+		"execution": nil,
+	}
+	raw, err := json.Marshal(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "state.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fixtureDir, _, err := materializeFixture(caseDir)
+	if err != nil {
+		t.Fatalf("fixture не материализован: %v", err)
+	}
+	defer os.RemoveAll(fixtureDir)
+
+	got, err := os.ReadFile(filepath.Join(fixtureDir, ".comet/runtime/native/changes/eval-brief/state.json"))
+	if err != nil {
+		t.Fatalf("state.json не прочитан: %v", err)
+	}
+	var doc struct {
+		Workspace struct {
+			ProjectRoot  string `json:"projectRoot"`
+			WorktreeRoot string `json:"worktreeRoot"`
+		} `json:"workspace"`
+	}
+	if err := json.Unmarshal(got, &doc); err != nil {
+		t.Fatalf("state.json не разобран: %v", err)
+	}
+	if doc.Workspace.ProjectRoot != fixtureDir {
+		t.Errorf("projectRoot = %q, ожидался %q", doc.Workspace.ProjectRoot, fixtureDir)
+	}
+	if doc.Workspace.WorktreeRoot != fixtureDir {
+		t.Errorf("worktreeRoot = %q, ожидался %q", doc.Workspace.WorktreeRoot, fixtureDir)
+	}
+}
+
+// Фикстура без предзаведённого .comet/runtime — законный, куда более частый
+// случай (см. TestMaterializeFixtureCommitsFixtureTree): rewriteLocalExecutionPaths
+// не должна на нём спотыкаться.
+func TestMaterializeFixtureToleratesNoLocalExecutionState(t *testing.T) {
+	caseDir := t.TempDir()
+	fixtureSrc := filepath.Join(caseDir, "fixture")
+	if err := os.MkdirAll(fixtureSrc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixtureSrc, "hello.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fixtureDir, _, err := materializeFixture(caseDir)
+	if err != nil {
+		t.Fatalf("fixture без .comet/runtime не материализована: %v", err)
+	}
+	defer os.RemoveAll(fixtureDir)
 }
 
 func TestDiscoverFixtureTaskKeyFindsSeededChange(t *testing.T) {

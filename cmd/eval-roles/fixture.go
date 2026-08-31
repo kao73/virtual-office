@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,6 +27,9 @@ func materializeFixture(caseDir string) (fixtureDir, initialCommit string, err e
 	if err := os.CopyFS(fixtureDir, os.DirFS(fixtureSrc)); err != nil {
 		return "", "", fmt.Errorf("fixture/ не скопирован: %w", err)
 	}
+	if err := rewriteLocalExecutionPaths(fixtureDir); err != nil {
+		return "", "", err
+	}
 
 	for _, args := range [][]string{
 		{"init", "-q"},
@@ -46,6 +50,69 @@ func materializeFixture(caseDir string) (fixtureDir, initialCommit string, err e
 		return "", "", fmt.Errorf("HEAD не определён: %w: %s", err, exitStderr(err))
 	}
 	return fixtureDir, strings.TrimSpace(string(head)), nil
+}
+
+// rewriteLocalExecutionPaths чинит workspace.projectRoot/worktreeRoot
+// в каждом .comet/runtime/native/changes/*/state.json, который фикстура
+// принесла с собой предзаведённым (capability-reads-brief-and-spec,
+// capability-spot-defect и похожие — сделано так нарочно, чтобы первый же
+// настоящий вызов Comet CLI не «прогревался» вхолостую на пустой локальной
+// истории исполнения; см. комментарий diff_scope в соответствующих
+// expect.yaml).
+//
+// Путь, записанный в файле на момент авторства фикстуры, никогда не
+// совпадёт с os.MkdirTemp-каталогом настоящего материализованного прогона —
+// он уникален каждый раз. Comet Native при таком расхождении («workspace
+// differs from record», skills/comet-native/reference/recovery.md)
+// обновляет локальный кэш выполнения, но отказывается писать длящееся
+// portable-состояние (docs/comet/changes/<name>/comet-state.yaml) — CLI
+// отвечает на builder-handoff/dispatch-verifier так, будто фаза продвинулась
+// (в JSON-ответе phase: verify), но на диске comet-state.yaml остаётся
+// прежним. Golden-кейсы, чей fixture_tests не смотрит именно в этот файл
+// (capability-spot-defect грепает .agent/result.json), никогда не замечали
+// расхождения — capability-reads-brief-and-spec смотрит, и заметил
+// (живой прогон, задача 21, sbx --clone: диагностировано вживую подменой
+// пути на настоящий и повторным вызовом того же builder-handoff — после
+// подмены comet-state.yaml обновляется как положено).
+//
+// Не находка --clone: то же самое воспроизводится на bind-mount, только
+// раньше маскировалось конфликтом блокировки на bind-mount, который эта
+// же задача чинит отдельно.
+func rewriteLocalExecutionPaths(fixtureDir string) error {
+	matches, err := filepath.Glob(filepath.Join(fixtureDir, ".comet/runtime/native/changes/*/state.json"))
+	if err != nil {
+		return fmt.Errorf("файлы локального исполнения Comet Native не найдены: %w", err)
+	}
+
+	for _, path := range matches {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("%s не прочитан: %w", path, err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return fmt.Errorf("%s не разобран: %w", path, err)
+		}
+		workspace, ok := doc["workspace"].(map[string]any)
+		if !ok {
+			continue // не тот формат — не наше дело чинить
+		}
+		if _, ok := workspace["projectRoot"]; ok {
+			workspace["projectRoot"] = fixtureDir
+		}
+		if _, ok := workspace["worktreeRoot"]; ok {
+			workspace["worktreeRoot"] = fixtureDir
+		}
+
+		fixed, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return fmt.Errorf("%s не сериализован: %w", path, err)
+		}
+		if err := os.WriteFile(path, append(fixed, '\n'), 0o644); err != nil {
+			return fmt.Errorf("%s не перезаписан: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // discoverFixtureTaskKey ищет каталог изменения Comet Native, который

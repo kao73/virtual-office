@@ -2880,3 +2880,45 @@ A third review round was judged disproportionate to dispatch given the diminishi
 
 - [x] **Verify:** `go build/vet/test ./...` clean; two independent review rounds against the diff (2 Critical + 6 Important in round 1, 2 more Critical-grade in round 2), all fixed as documented above. Four self-run mutation tests across both rounds confirm the safety-critical fixes are real, not cosmetic.
 - [x] **Commit**
+
+Committed as `0b49599`.
+
+---
+
+## Task 16 resumption: live golden-case checkpoint with `--clone`
+
+`analyst/capability-basic-plan` and `reviewer/capability-spot-defect` — the two cases that had reliably hit `root-move.lock` conflicts on the bind-mount — both passed on the first live `--clone` run, no retries needed. `implementer/capability-reads-brief-and-spec` failed, but not on anything `--clone`-related.
+
+**Diagnosed live, no agent cost (`sbx exec` probes only):** `evals/implementer/capability-reads-brief-and-spec/fixture/.comet/runtime/native/changes/eval-brief/state.json` — pre-seeded on purpose (per its own `diff_scope` comment, "so a fresh materialized checkout doesn't silently no-op on the first Builder handoff call") — carries a `workspace.projectRoot`/`worktreeRoot` frozen at fixture-authoring time. `materializeFixture` copies it verbatim into a fresh `os.MkdirTemp` directory every run, so every single run starts with a path mismatch against Comet Native's own recorded workspace. Fixed generally, not just for this one fixture: new `rewriteLocalExecutionPaths` in `cmd/eval-roles/fixture.go`, called from `materializeFixture` right after copying the fixture tree (before the seed commit) — globs every `.comet/runtime/native/changes/*/state.json` a fixture brought with it and rewrites `projectRoot`/`worktreeRoot` to the real materialized path. `evals/reviewer/capability-spot-defect` pre-seeds the same way and has the identical latent bug; it just never surfaced because its own check (`grep -qE '\bA1\b' .agent/result.json`) never reads the durable YAML the mismatch affects. New `TestMaterializeFixtureRewritesLocalExecutionProjectRoot` and `TestMaterializeFixtureToleratesNoLocalExecutionState`; self-run mutation (dropped the call) confirmed the first test catches it.
+
+That fix alone did not make the case pass. Chased further, live, no agent cost: even with the path corrected, `docs/comet/changes/eval-brief/comet-state.yaml` — the file this case's `fixture_tests` check actually grepped for `phase: verify` — updates on disk *non-deterministically* after a real Builder handoff in `0.4.0-beta.20`. Five isolated probes (same payload, same `--clone`, same corrected path) split roughly evenly between the durable YAML updating immediately and not updating at all; a retried identical handoff on a stuck one **failed outright** ("Native candidate can only be submitted from active Build") — the local-execution cache had already advanced past Build while the durable YAML hadn't, a self-contradictory state neither call nor `doctor` resolved. `comet native status`/`doctor` themselves report the *advanced* phase from their own merged view even when the raw YAML file lags behind. Reads like the same class of internal coordinator/lock race already documented for `root-move.lock`, just on a different write path inside Comet Native itself — not a bug in `--clone`, the fixture, or this project's own code.
+
+User's call on how to handle this, given upfront that the golden-case suite itself was authored speculatively and is due its own pass later, and that what actually matters right now is confirming the role mechanics work: don't chase Comet's internal timing further, make the one check that was actually blocking honest about what it can reliably promise today. Fixed: `evals/implementer/capability-reads-brief-and-spec/expect.yaml`'s `fixture_tests` now checks that `basedOnStateVersion` in the local-execution cache moved off its seeded value (`2`) instead of grepping the flaky durable YAML — the one signal that advanced consistently in every probe, and it still catches the original failure mode the check was written for (a silent no-op handoff that never touches local state at all).
+
+Live-reran all five Comet-Native-dependent golden cases with `--clone` after both fixes:
+
+- [x] `analyst/capability-basic-plan` — PASS
+- [x] `reviewer/capability-spot-defect` — PASS
+- [x] `implementer/capability-reads-brief-and-spec` — PASS (after both fixes above)
+- [x] `reviewer/capability-clean-verify` — PASS
+- [x] `analyst/capability-resume-no-reinvoke` — PASS
+
+Full suite (`eval-roles --clone`, all 9 cases including the escalation-* and capability-basic-bugfix cases that don't touch Comet Native at all) run live as a background check to close out Task 16 fully:
+
+```
+PASS  analyst/capability-basic-plan
+PASS  analyst/capability-resume-no-reinvoke
+PASS  analyst/escalation-ambiguous-decision
+PASS  implementer/capability-basic-bugfix
+PASS  implementer/capability-reads-brief-and-spec
+PASS  implementer/escalation-ambiguous-task
+PASS  reviewer/capability-clean-verify
+PASS  reviewer/capability-spot-defect
+PASS  reviewer/escalation-ambiguous-task
+
+9 cases: 9 passed, 0 failed, 0 errored
+```
+
+All sandboxes cleaned up after every run (`sbx ls` empty throughout). Task 16's live golden-case checkpoint is closed: all three roles, both Comet-Native-dependent and plain paths, pass under `--clone`.
+
+- [x] **Commit** (`cmd/eval-roles/fixture.go`, `cmd/eval-roles/fixture_test.go`, `evals/implementer/capability-reads-brief-and-spec/expect.yaml`)
