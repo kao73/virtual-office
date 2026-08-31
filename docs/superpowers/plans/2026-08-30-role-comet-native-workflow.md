@@ -22,7 +22,7 @@ base-ref: 343cefa6c6c35cf277e53eff5cc78dc77f6d71c4
 - **One change, one plan — not split by role or file.** This is an explicit, already-confirmed decision. Do not propose splitting this plan; the many tasks below are internal sequencing of one plan, not separate changes.
 - **Comet Native (not Classic) drives the role pipeline.** This repository's own meta-development uses Comet Classic (the workflow that produced this very plan) — the two are unrelated tooling for unrelated purposes. Nothing in this plan touches `.comet/`, `.claude/rules/comet-workflow-guard.md`, or any Classic/Native tooling this repository uses on itself.
 - **Archive runs before the pull request opens, on the task's own branch**, not after a human merges it — a correction made during the Design phase (see design doc "Runner" section). Task 5 below implements Archive and the `prBody` root fix together, in the same task, because the design doc is explicit that Archive attaches to `openPR` and must not be treated as an afterthought bolted on later.
-- **The `sbx`/runner-host bootstrap of the `comet` npm CLI is a separate, only-partially-solved prerequisite.** Task 1 investigates and documents it early but does not block any later task's file-level work — every later task that needs a working `comet` CLI (vendoring, eval fixture authoring, the final live run) says so explicitly and can be executed once a developer has `comet` installed locally, independent of whether the *production sandbox* bootstrap is solved.
+- **The `sbx`/runner-host bootstrap of the `comet` npm CLI is a separate, only-partially-solved prerequisite.** Task 1 investigates and documents it early but does not block any later task's file-level work — every later task that needs a working `comet` CLI (vendoring, eval fixture authoring, the final live run) says so explicitly and can be executed once a developer has `comet` installed locally, independent of whether the *production sandbox* bootstrap is solved. **Resolved by Task 17**, added after the original 16 tasks and their final review closed: `sbx kit` (experimental, but present and working in `sbx` v0.38.0) bakes `comet` into a pinned local sandbox template, closing this gap without touching role-facing code. Task 16 Steps 2–6 should not be attempted until Task 17 is done — otherwise the new golden cases fail on a missing binary, not on their own logic, telling us nothing.
 - **`docs/changes/<KEY>/` is not retired by this plan, only demoted to a fallback** for the two runner call sites that read it (`prpass.go`'s `prBody`, `input.go`'s context line). No task deletes it or the code that serves it.
 - **`./bin/eval-roles` is manual-only and costs real money/subscription per run** (README.md, "Golden-кейсы ролей (eval-roles)") — no CI or git hook invokes it. Task 16 runs real, paid role invocations; every other task's own verification step is `go test`, `go build`, or reading fixture files — never a live agent run.
 - **Out of scope, not touched by any task below** (proposal.md "Impact"): `workflow.yaml`, the runner↔agent contract shape (`docs/contracts/agent-io.md`'s `result.json` schema itself — only its prose note about the change root changes), a fourth "archivist" role, and Comet Classic/OpenSpec tooling.
@@ -2499,3 +2499,206 @@ git add -A
 git status --short   # confirm the diff is exactly the fix, nothing stray
 git commit -m "fix: correct Comet Native assumptions found by the live golden-case run"
 ```
+
+---
+
+## Task 17: Bake `comet` into the `sbx` sandbox template
+
+Added after the original 16 tasks and their final review closed, at the user's explicit request to resolve the "sbx bootstrap" gap this plan's Global Constraints and the design doc's "Boundary Conditions Deliberately Left Open" both named and deliberately did not solve. Everything below was validated live against `sbx` v0.38.0 on this machine before being written down — not a proposal, a recorded working recipe. Mid-task, the user separately asked (a) whether Comet Native needs any of the other skills the npm package ships, and (b) to also vendor `openspec` so a future switch to Comet Classic doesn't hit this same bootstrap gap again — both folded in below rather than treated as a second task, since they land in the same kit and the same bake.
+
+**Files:**
+- Create: `bootstrap/sbx-kits/comet-cli/spec.yaml`
+- Create: `bootstrap/sbx-kits/comet-cli/.source.yaml` (same shape as `skills/comet/.source.yaml`, for `@rpamis/comet`)
+- Create: `bootstrap/sbx-kits/comet-cli/.source-openspec.yaml` (same shape, for `@fission-ai/openspec`)
+- Create: `bootstrap/sbx-kits/comet-cli/files/home/.comet-pkg/rpamis-comet-0.4.0-beta.18.tgz` (vendored `npm pack` tarball — same pin as `skills/comet/.source.yaml`/`skills/comet-native/.source.yaml`, ~6.3 MB binary blob committed to git, matching the existing precedent of vendoring `skills/comet/` at 2.1 MB unpacked)
+- Create: `bootstrap/sbx-kits/comet-cli/files/home/.comet-pkg/fission-ai-openspec-1.5.0.tgz` (~0.3 MB)
+- Create: `bootstrap/sbx-kits/README.md`
+- Edit: `internal/backends/sbx/sbx.go`
+- Edit: `internal/backends/sbx/sbx_test.go` (also adds `TestBakeScriptTagMatchesTemplate`, catching a `TAG`/`Template` drift the compiler and every other test are blind to — found in review, see Step 6)
+- Edit: `docs/notes/sbx.md` (close two of its "Открытые вопросы": image pinning and the `comet` CLI bootstrap gap)
+- Edit: `docs/superpowers/specs/2026-08-30-role-comet-native-workflow-design.md` (mark the "`sbx` bootstrap" boundary condition resolved, pointing here)
+- Edit: `docs/ONBOARDING.md` (found missing in review: the bake step has no A-dorozhka checkpoint, so a new machine sails through A5 green and only fails on the first real sandboxed role run — see Step 12)
+- Edit: `bootstrap/README.md` (its own top-of-file listing of what lives under `bootstrap/` didn't mention the new `sbx-kits/` — see Step 12)
+
+**Interfaces:** A new `Template` constant in `internal/backends/sbx/sbx.go`, consumed only by `createArgs`'s `--template` flag on `sbx create`. No change to `runner.Launch`, `role.yaml`, or any role-facing contract — this is entirely internal to the `sbx` backend and applies to every sandbox it creates, not just the three Comet Native roles (harmless for roles that never touch `comet`/`openspec`: two more binaries on `PATH`, nothing else changes).
+
+**Context, established live (do not re-derive):**
+- `comet` and `openspec` are both pure JS (`npm view <pkg> os cpu` — empty for both, no platform restriction; both packages' own dependencies are pure-JS too) — tarballs built on this macOS host run fine under the sandbox's Linux/aarch64 Node.
+- `sbx create --kit DIR` composes a "mixin" kit (declarative `spec.yaml`, optional `files/`) into the sandbox at creation time, before the agent starts. `commands.install` entries run synchronously, as root by default, before startup commands.
+- A local-tarball `npm install -g <path>.tgz` still resolves the package's own transitive dependencies from `registry.npmjs.org` — the tarball alone isn't enough. Under this machine's `deny-all` base network policy that returns `403 Forbidden`, exactly like the `pypi.org` case `docs/notes/sbx.md` already documents. The kit's own `network.allowedDomains: ["registry.npmjs.org"]` opens it — this is the same mechanism the built-in `claude` kit itself relies on to `curl` its own installer under a deny-all base policy (`docs/notes/sbx.md`, "Кит агента не открывает его собственный API"). **This is not a separate, install-time-only window** — checked directly (`sbx policy ls <sandbox> --wide`): the domain merges into the same per-sandbox allow rule as the built-in `claude` kit's own domains and persists for the sandbox's whole life. Only a non-issue here because production creates sandboxes from the baked `--template`, never `--kit` directly — a template-created sandbox carries no kit network rule at all (checked: `registry.npmjs.org` denied there). `sbx` warns this field is deprecated in favor of `caps.network.allow` (kit-spec v2) but still honors it under `schemaVersion: "1"`; not worth chasing v2 syntax for one field until this project pins a newer `sbx`.
+- With `--kit`, the two `commands.install` steps (`comet` then `openspec`) add ~24 s + ~4 s to `sbx create` (measured), against the usual 5–6 s — real but avoidable overhead, not a blocker in itself.
+- `sbx template save <sandbox> <tag>` (after `sbx stop <sandbox>` — it refuses to snapshot a running container, and non-interactively there's no TTY to answer its confirmation prompt) snapshots a stopped sandbox's container as a reusable local image; `sbx create --template <tag>` then creates from it with **no** kit-apply step at all — back to the usual 5–6 s, both CLIs already present. This also closes `docs/notes/sbx.md`'s pre-existing open question about pinning the agent image version (previously: "Версия claude в образе задаётся sbx… для воспроизводимости это открытый вопрос") — the baked template pins the whole image, not just `comet`.
+- The baked template lives in this host's local Docker/`sbx` image store only — it does not travel with the git repo and is not published anywhere. Each runner host bakes (or re-bakes, on a `comet`/`openspec`/base-image version bump) its own copy once, the same one-time-per-host category as `sbx policy init deny-all` already is.
+- **`comet native` does not need the other 9 skills the npm package ships, or `openspec`** — checked two ways: `skills/comet-native/SKILL.md` and its bundled runtime (`comet-native-runtime.mjs`/`comet-native-doctor.mjs`) contain zero references to any sibling skill name or to OpenSpec; and a live `comet native new`/`comet native status` run in a freshly baked sandbox succeeded cleanly (exit 0), with the JSON response's own `continuation.skill` field naming only `"comet-native"`. Running `comet native …` from a shell is a pure CLI/state-machine operation — it doesn't consult any project-mounted skill directory at all, since skills are Claude Code instructions for the *agent*, orthogonal to what the CLI binary itself does. `openspec` is vendored anyway, purely as insurance for a possible future switch of this role pipeline to Comet Classic — see the user's own request above, not a Native requirement.
+- `@fission-ai/openspec` being a *dependency* of `@rpamis/comet` does not put its `bin/openspec.js` on `PATH` for free — a global npm install only symlinks the top-level package's own declared `bin`, never a nested dependency's. `openspec` needs its own top-level `npm install -g`, which is why the kit has two `commands.install` entries, not one.
+
+- [x] **Step 1: Vendor both tarballs**
+
+```bash
+mkdir -p bootstrap/sbx-kits/comet-cli/files/home/.comet-pkg
+npm pack @rpamis/comet@0.4.0-beta.18 --pack-destination bootstrap/sbx-kits/comet-cli/files/home/.comet-pkg
+npm pack @fission-ai/openspec@1.5.0 --pack-destination bootstrap/sbx-kits/comet-cli/files/home/.comet-pkg
+```
+
+Reuse the tag/commit already resolved for `skills/comet/.source.yaml` (Task 7 Step 4) for `comet` rather than re-resolving:
+
+```bash
+cat skills/comet/.source.yaml
+```
+
+Write `bootstrap/sbx-kits/comet-cli/.source.yaml` with the same `repository`/`tag`/`commit`. For `openspec`, resolve independently (own repository, own release cadence) and write `bootstrap/sbx-kits/comet-cli/.source-openspec.yaml`:
+
+```bash
+npm view @fission-ai/openspec@1.5.0 repository.url
+git ls-remote --tags https://github.com/Fission-AI/OpenSpec.git | grep -i "1.5.0"
+```
+
+- [x] **Step 2: Write the kit spec**
+
+```yaml
+# bootstrap/sbx-kits/comet-cli/spec.yaml
+schemaVersion: "1"
+kind: mixin
+name: comet-cli
+displayName: Comet CLI suite
+description: "Vendored @rpamis/comet + @fission-ai/openspec CLIs for Comet Native workflow roles, with OpenSpec along for a future Comet Classic switch (office-side kit, not part of either upstream package)"
+network:
+  allowedDomains:
+    - "registry.npmjs.org"
+commands:
+  install:
+    - command: "npm install -g /home/agent/.comet-pkg/rpamis-comet-0.4.0-beta.18.tgz"
+      user: "agent"
+      description: "Install as agent, not root (Install commands default to root) — a root install leaves /usr/local/share/npm-global root-owned in the baked snapshot, breaking any later npm install -g run as agent with EACCES; confirmed live both ways. Root buys nothing here anyway (agent is already in the sudo group)."
+    - command: "npm install -g /home/agent/.comet-pkg/fission-ai-openspec-1.5.0.tgz"
+      user: "agent"
+      description: "Install the vendored openspec CLI globally — comet native itself never calls it (confirmed empirically), vendored only so a future Comet Classic switch does not need a fresh sandbox bootstrap"
+```
+
+**Do not use the default `user` (root) for install commands here** — caught by review after the first bake, not obvious up front: it silently root-owns `/usr/local/share/npm-global` in the snapshot, breaking every later `npm install -g` any future role might run as `agent` inside a sandbox from this template. `user: "agent"` avoids it and installs just as well (npm creates the prefix directories agent-owned on first use).
+
+Validate:
+
+```bash
+sbx kit validate bootstrap/sbx-kits/comet-cli
+```
+
+Expected: `VALID: bootstrap/sbx-kits/comet-cli (directory)`.
+
+- [x] **Step 3: Write the bake script**
+
+`bootstrap/sbx-kits/bake-comet-template.sh` — one-time (or version-bump-time) per host, mirroring the imperative style of `docs/notes/sbx.md`'s own documented one-off commands rather than adding new runner machinery for something that runs once per host. `sbx template save` refuses a running sandbox and there's no TTY non-interactively to answer its stop-confirmation prompt, so `sbx stop` first. `trap ... EXIT` cleans up the probe sandbox on any failure too — caught by review: without it, a mid-script failure (e.g. `sbx exec` after the network-open `sbx create` succeeds) leaves a live sandbox with `registry.npmjs.org` open behind, discoverable only via `sbx ls`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/../.."  # repo root
+
+KIT_DIR="bootstrap/sbx-kits/comet-cli"
+TAG="office-claude-comet:0.4.0-beta.18"
+PROBE="office-comet-bake-$$"
+
+trap 'sbx rm --force "$PROBE" >/dev/null 2>&1 || true' EXIT
+
+sbx create --name "$PROBE" --kit "$KIT_DIR" claude "$KIT_DIR" >&2
+sbx exec "$PROBE" comet --version >&2
+sbx exec "$PROBE" openspec --version >&2
+sbx stop "$PROBE" >&2
+sbx template save "$PROBE" "$TAG"
+
+echo "Baked $TAG — internal/backends/sbx.Template must match this tag exactly."
+```
+
+(The workspace path given to `sbx create` is thrown away — any readable directory works; `$KIT_DIR` itself is convenient and always present.)
+
+```bash
+chmod +x bootstrap/sbx-kits/bake-comet-template.sh
+```
+
+- [x] **Step 4: Run the bake script and confirm**
+
+```bash
+./bootstrap/sbx-kits/bake-comet-template.sh
+sbx template ls
+```
+
+Expected: `office-claude-comet:0.4.0-beta.18` listed, and the script's own `comet --version` line printed `0.4.0-beta.18` before saving.
+
+- [x] **Step 5: Point the backend at the template**
+
+In `internal/backends/sbx/sbx.go`, add a constant next to `Executable`/`Agent`:
+
+```go
+// Template — образ песочницы с запечённым внутрь comet CLI, испечённый один
+// раз на хосте bootstrap/sbx-kits/bake-comet-template.sh (bootstrap/sbx-kits/README.md).
+// Без него sbx create откажет "образ не найден": это не деградация, а
+// намеренный fail-closed — молча откатываться на образ без comet означало бы
+// проваливать роли Comet Native непонятно почему на первом же вызове CLI.
+const Template = "office-claude-comet:0.4.0-beta.18"
+```
+
+Add `"--template", Template` to `createArgs`, right after `"--name", name`, before the `Agent` positional argument. Keep `Agent` unconditional (this repo's `sbx` backend has never created a non-`claude` sandbox and this task does not change that).
+
+- [x] **Step 6: Update the test**
+
+`internal/backends/sbx/sbx_test.go`'s `TestCreateArgs` `want` slice gains `"--template", Template,` in the same position. Reference the constant, not a literal string, so a future version bump can't silently desync code and test.
+
+- [x] **Step 7: Verify against the real CLI once more, end to end**
+
+```bash
+go build ./... && go vet ./... && go test ./internal/backends/sbx/...
+sbx create --name office-comet-e2e --template office-claude-comet:0.4.0-beta.18 claude "$PWD" && sbx exec office-comet-e2e comet --version && sbx exec office-comet-e2e openspec --version && sbx rm --force office-comet-e2e
+```
+
+Expected: both versions printed with **no** `CONFIGURE AGENT`/install step in the `sbx create` output — confirms the template path, not a fresh `--kit` apply, is what ran. Additionally, confirm the skill-independence claim above directly rather than trusting the static grep alone:
+
+```bash
+sbx create --name office-comet-native-probe --template office-claude-comet:0.4.0-beta.18 claude "$PWD" \
+  && sbx exec office-comet-native-probe sh -c 'mkdir -p /tmp/nativetest && cd /tmp/nativetest && git init -q -b main && git config user.email t@t.com && git config user.name t && echo hi > README.md && git add . && git commit -qm init && comet native new probe-change --isolation current && comet native status probe-change --json' \
+  && sbx rm --force office-comet-native-probe
+```
+
+Expected: exit 0 throughout, and the `status --json` response's `continuation.skill` field reads `"comet-native"` — nothing else.
+
+- [x] **Step 8: Close the two `docs/notes/sbx.md` open questions**
+
+Edit the "Открытые вопросы" section: mark "Версия claude в образе задаётся sbx; как её закрепить — не разбирались" resolved (own baked template pins it), and rewrite the existing `## comet CLI bootstrap (role-comet-native-workflow)` section's stale "Conclusion" — it said installing `comet` into the image was "a separate prerequisite change outside this repository's control", which the `sbx kit` mechanism found here contradicts — with the actual recipe, the network/timing/permission findings above, and the skill-independence evidence.
+
+- [x] **Step 9: Resolve the design doc's boundary condition**
+
+In `docs/superpowers/specs/2026-08-30-role-comet-native-workflow-design.md`'s "Boundary Conditions Deliberately Left Open", edit the "`sbx` bootstrap" bullet to record that it is resolved, by what mechanism, and where (this task).
+
+- [x] **Step 10: `bootstrap/sbx-kits/README.md`**
+
+One-time host setup, in the same register as `bootstrap/README.md`'s own "Обвязка машины" framing: what the kit is (both CLIs, and why `openspec` is there despite Native not needing it), that it must be re-baked on a version bump of either package (and the tag in `sbx.go` updated to match `comet`'s), and that `sbx create` will fail — live text is `403 Forbidden: pull failed for image`, not an image-not-found message, and easy to mistake for a network-policy problem — on any host that skips this step.
+
+- [x] **Step 11: Independent code review, before the first commit**
+
+Dispatched `pr-review-toolkit:code-reviewer` against the full staged diff (this was written directly, not by a fresh implementer subagent, but this repo's own convention is to never skip review regardless of who wrote the diff). Found and fixed, all re-verified live:
+
+- **Critical: `user: "0"` in both `commands.install` entries root-owns `/usr/local/share/npm-global` in the baked snapshot**, breaking any later `npm install -g` a role runs as `agent` (`EACCES`) — root buys nothing here (`agent` is already in the sandbox's `sudo` group). Fixed: `user: "agent"` in `spec.yaml` (Step 2 above already shows the corrected version), template re-baked, `comet --version`/`openspec --version` re-confirmed from the re-baked template.
+- **Critical: the "kit network access is a separate, earlier window" claim in `docs/notes/sbx.md` was factually wrong** — `sbx policy ls <sandbox> --wide` shows the kit's `registry.npmjs.org` merged into the same per-sandbox allow rule as the built-in `claude` kit's domains, open for the sandbox's whole life, not just install time. Not a live issue today (production only ever uses the baked `--template`, never `--kit` directly, and a template-created sandbox carries no kit network rule — confirmed), but the false explanation risked misleading whoever next adds a domain to this `spec.yaml`. Fixed in `docs/notes/sbx.md`, `bootstrap/sbx-kits/README.md`, and this plan's Context bullets above.
+- **Important: `docs/ONBOARDING.md`'s dorozhka А has no checkpoint for the bake step** — a new machine would sail through A5 green and only discover the missing template on the first real sandboxed role run. Fixed: Step 12 below.
+- **Important: `docs/notes/sbx.md` said "Раннер сам печёт" — wrong, and contradicted `bootstrap/sbx-kits/README.md`'s own correct text in the same diff.** A human bakes once per host with the script; the runner only ever calls `sbx create --template`, unaware baking exists. Fixed.
+- **Important: `TAG` in `bake-comet-template.sh` and `Template` in `sbx.go` are two independent string literals with nothing but README discipline holding them equal**, and `TestCreateArgs` can't catch drift since it compares against the `Template` constant itself. Fixed: `TestBakeScriptTagMatchesTemplate` (Step 6 above) reads the script and asserts it contains `Template`'s exact value.
+- **Important: the bake script had no cleanup on failure and didn't check `openspec --version`.** A failure between `sbx create` (which opens `registry.npmjs.org` for that sandbox) and the final `sbx rm` left a live sandbox with that network hole open, discoverable only via `sbx ls`. Fixed: `trap ... EXIT` (Step 3 above already shows the corrected script) plus an `openspec --version` check alongside the existing `comet` one.
+
+A scoped re-review of this fix round confirmed all 6 above genuinely resolved (including re-running the mutation the drift test exists to catch, and independently re-verifying the network-persistence claim live), but found 4 more Important findings — all consistency residue the fix round's edits left behind, none of them a new functional bug:
+
+- `docs/notes/sbx.md`'s pre-existing "Версия агента в образе своя" paragraph still said "для воспроизводимости это открытый вопрос: у sbx есть `kit` и `template`, но мы их не трогали" — literally the thing this task now does, left unstruck. Fixed: struck through, pointing at "Открытые вопросы" and the bootstrap section.
+- This Context section's own network-persistence bullet (two above) was *not* actually updated when `docs/notes/sbx.md`/`bootstrap/sbx-kits/README.md` were — Step 11's first bullet claimed it was. Fixed here, now.
+- `bootstrap/sbx-kits/README.md` mixed English connective words/possessives into Russian prose (`— see spec.yaml's network`, `comet-native's own continuation.skill`) — against this repo's CLAUDE.md language rule (Russian prose, English only for identifiers/config keys). Fixed.
+- `docs/notes/sbx.md`'s "Node is confirmed present" paragraph still argued a root-run `npm install -g` is fine (readable/executable files) without flagging that the *directory* it creates is the actual problem, and cited "confirmed... after a kit-driven install" for a configuration the kit no longer has. Fixed: reframed as a trap, pointing at the ownership fix.
+
+- [ ] **Step 12: Onboarding and `bootstrap/README.md`**
+
+`docs/ONBOARDING.md`'s "A5. Проверка машины" gets a new checkbox: `sbx template ls` shows `office-claude-comet:<версия>` — missing means the default `sbx` backend will fail every role run with `403 Forbidden: pull failed for image`, not obviously a bootstrap problem; run `bootstrap/sbx-kits/bake-comet-template.sh` and re-check. `bootstrap/README.md`'s opening paragraph ("Здесь то, что стоит вокруг офиса…: задания планировщика … и локальная JIRA …") gets `sbx-kits/` added to what it lists.
+
+- [ ] **Step 13: Commit**
+
+```bash
+git add bootstrap/sbx-kits bootstrap/README.md docs/ONBOARDING.md internal/backends/sbx/sbx.go internal/backends/sbx/sbx_test.go docs/notes/sbx.md docs/superpowers/specs/2026-08-30-role-comet-native-workflow-design.md docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
+git commit -m "feat(sbx): bake comet + openspec CLIs into the sandbox template via sbx kit"
+```
+
+Task 16 Steps 2–6 (the paid live golden-case run) remain gated on the user's separate explicit go-ahead — this task only removes the environmental reason they were certain to fail.

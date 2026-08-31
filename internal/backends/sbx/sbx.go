@@ -30,6 +30,14 @@ const Executable = "sbx"
 // Agent — вид песочницы в терминах sbx: он определяет, что внутри стоит.
 const Agent = "claude"
 
+// Template — образ песочницы с запечённым внутрь comet CLI, испечённый один раз
+// на хосте bootstrap/sbx-kits/bake-comet-template.sh (bootstrap/sbx-kits/README.md).
+// Без него sbx create откажет — живьём код "403 Forbidden: pull failed for image",
+// а не «образ не найден»: это не деградация, а намеренный fail-closed — молча
+// откатываться на образ без comet означало бы проваливать роли Comet Native
+// непонятно почему на первом же вызове CLI.
+const Template = "office-claude-comet:0.4.0-beta.18"
+
 const (
 	createTimeout = 5 * time.Minute
 	policyTimeout = 1 * time.Minute
@@ -205,8 +213,8 @@ func (s Sandboxes) exec(args ...string) (string, error) {
 // createArgs собирает команду создания песочницы. Рабочие пространства идут
 // после имени агента; суффикс :ro означает монтирование только на чтение.
 func createArgs(name string, l *runner.Launch) []string {
-	args := make([]string, 0, 4+len(l.Workspaces))
-	args = append(args, "create", "--name", name, Agent)
+	args := make([]string, 0, 6+len(l.Workspaces))
+	args = append(args, "create", "--name", name, "--template", Template, Agent)
 	for _, ws := range l.Workspaces {
 		path := ws.Path
 		if ws.ReadOnly {

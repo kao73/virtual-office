@@ -376,12 +376,14 @@ fixture repo):
 
 ## Boundary Conditions Deliberately Left Open
 
-- **`sbx` bootstrap.** Whether/how the `comet` npm package reaches the sandbox image is explicitly
-  not solved here — `docs/notes/sbx.md` and this repo's `bootstrap/` show the image is entirely
-  external, with no local customization hook today. Node itself is very likely already present
-  (Claude Code ships via npm), narrowing the real gap to installing one more package, but that
-  installation mechanism itself may need a separate prerequisite change outside this repo's
-  control. Tracked as tasks.md item 1.1, not resolved by this design.
+- **`sbx` bootstrap.** ~~Whether/how the `comet` npm package reaches the sandbox image is explicitly
+  not solved here~~ — **Resolved, plan Task 17** (added after the original 16 tasks and their final
+  review closed, at the user's explicit request). `sbx kit` (experimental but present in `sbx`
+  v0.38.0) bakes `comet` — and, as insurance for a possible future switch to Comet Classic,
+  `openspec` — into a pinned local sandbox template (`bootstrap/sbx-kits/`), applied via
+  `internal/backends/sbx.Template`/`createArgs`. Confirmed live and empirically that `comet native`
+  needs neither the npm package's other nine bundled skills nor `openspec` to function — see
+  `docs/notes/sbx.md`'s "`comet` CLI bootstrap" section for the full recipe and evidence.
 - **`Write` vs. `Edit` asymmetry in the guard hook.** Confirmed directly: a brand-new file write is
   not blocked outside `build` phase, only editing an existing tracked file is. This is accepted as
   Comet's own design (its Shape phase legitimately needs unrestricted `Write` for its own

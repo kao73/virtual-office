@@ -2,6 +2,7 @@ package sbx
 
 import (
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -29,13 +30,28 @@ func TestCreateArgs(t *testing.T) {
 	got := createArgs("office-550e8400", fixtureLaunch())
 
 	want := []string{
-		"create", "--name", "office-550e8400", "claude",
+		"create", "--name", "office-550e8400", "--template", Template, "claude",
 		"/tmp/client",
 		"/tmp/office-run-1/role:ro",
 		"/tmp/office-run-1/config",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("команда создания\nполучена:  %q\nожидалась: %q", got, want)
+	}
+}
+
+// Скрипт печёт образ под тегом, который сам же и держит в отдельной переменной —
+// ничто не мешает ему разъехаться с Template, кроме дисциплины README. Тест хотя бы
+// ловит разъезд механически: без него TestCreateArgs зелёный при любом значении
+// константы, потому что сравнивает только с самой Template, а не с реальным тегом.
+func TestBakeScriptTagMatchesTemplate(t *testing.T) {
+	path := "../../../bootstrap/sbx-kits/bake-comet-template.sh"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("скрипт печи не прочитан: %v", err)
+	}
+	if !strings.Contains(string(data), `TAG="`+Template+`"`) {
+		t.Errorf("bake-comet-template.sh не печёт тег %q — разъехался с internal/backends/sbx.Template", Template)
 	}
 }
 

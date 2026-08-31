@@ -134,8 +134,10 @@ ARM aarch64, statically linked`. Статическая сборка снима�
 в `${OFFICE_HOME}/runs/` копится по-прежнему.
 
 **Версия агента в образе своя.** В песочнице был claude **2.1.221** при хостовом
-2.1.233. Версию образа задаёт sbx, а не мы. Для воспроизводимости это открытый вопрос:
-у sbx есть `kit` и `template`, но мы их не трогали.
+2.1.233. Версию образа задаёт sbx, а не мы. ~~Для воспроизводимости это открытый
+вопрос: у sbx есть `kit` и `template`, но мы их не трогали.~~ **Закрыто, задача 17** —
+`kit` и `template` теперь трогаем, и как именно: см. «Открытые вопросы» ниже
+и раздел «`comet` CLI bootstrap».
 
 ## Чего sbx не даёт
 
@@ -312,7 +314,14 @@ matches both an allow and a deny rule, the request is blocked».
 
 ## Открытые вопросы
 
-- Версия claude в образе задаётся sbx; как её закрепить — не разбирались.
+- ~~Версия claude в образе задаётся sbx; как её закрепить — не разбирались.~~
+  **Закрыто попутно, role-comet-native-workflow, задача 17.** Оператор печёт и
+  закрепляет образ вручную, один раз на хосте (`office-claude-comet:<версия>`,
+  скрипт `bootstrap/sbx-kits/bake-comet-template.sh`, см. раздел ниже) — раннер
+  об этом не знает, он просто зовёт `sbx create --template`, ожидая, что образ уже
+  есть. Версия `claude` внутри него теперь тоже зафиксирована моментом печи, не
+  «что сегодня отдаёт `sbx`». Открытый вопрос был про `comet`, а решение закрыло
+  и этот заодно.
 - ~~Сеть в песочнице пока обычная.~~ **Разобрано, этап 3, шаг 6** — см. раздел выше.
   Роль называет домены в `network.allow`, раннер выдаёт их своей песочнице правилом
   `sbx policy allow network --sandbox`. Закрытое умолчание ставится на машине один раз
@@ -343,24 +352,109 @@ own sandbox at runtime (their mounted `comet`/`comet-native` skills are inert
 markdown+script bundles without it), and the runner host itself separately needs
 the same CLI for the deterministic archive step (`internal/pipeline/archive.go`).
 
-**No local image-customization hook exists.** `bootstrap/` contains only the
-runner-service unit files and the unrelated Jira polygon Dockerfile — nothing that
-builds or extends the `sbx` image. The image is entirely external and versioned by
-`sbx` itself (v0.38.0 at last check); this repository has never had a documented way
-to add a package to it.
+**No local image-customization hook existed at the time of this note's first draft.**
+`bootstrap/` had only the runner-service unit files and the unrelated Jira polygon
+Dockerfile — nothing that built or extended the `sbx` image, and this repository had
+never had a documented way to add a package to it. **Resolved, task 17: `sbx kit` is
+that hook** — see below. The paragraph that used to sit here concluded this was "a
+separate prerequisite change outside this repository's control"; that conclusion was
+wrong, or at least incomplete — `sbx kit`, while marked experimental, is already
+shipped in `sbx` v0.38.0 and does exactly this.
 
-**Node is very likely already present** — Claude Code (`claude`, confirmed present
-inside the sandbox) ships via npm and needs a Node runtime — but this is not
-independently confirmed in this repository's own notes as of this investigation.
-Confirm with `sbx exec node --version` the next time `sbx` is available, and narrow
-this note once done.
+**Node is confirmed present**: `sbx exec node --version` → `v22.22.1` (satisfies
+`comet`'s `>=22`), `npm --version` → `9.2.0`. `npm config get prefix` inside the
+sandbox is `/usr/local/share/npm-global` (not the usual `/usr/local`), owned by
+`agent:agent` in the clean base image, with no `bin/` yet — npm creates it
+agent-owned on first `install -g`. A root-run install can still write there too
+(root bypasses Unix permission checks regardless of ownership) and the files it
+creates are individually readable/executable by `agent` at runtime without any
+extra `chmod` — but that observation is a trap, not a green light: root creates
+`lib/`/`bin/` themselves root-*owned*, which is the actual problem the kit hit and
+the point 2 fix below is about (directory ownership riding into the snapshot, not
+file permissions on what's already inside it). `/usr/local/share/npm-global/bin` is
+already on `PATH` for both `root` and `agent` — `claude` itself resolves via a
+different mechanism (`/home/agent/.local/bin/claude`, a symlink into
+`.local/share/claude/versions/…`), so the two don't collide.
 
-**Conclusion: installing `comet` into the sandbox image is a separate prerequisite
-change outside this repository's control**, most likely an `sbx`-side base-image
-update or an equivalent mechanism this repository does not yet have. It does not
-block writing role.yaml/role.md/adapter code that assumes `comet` is present at
-runtime (tasks.md items 2–7 of this change) — it blocks only the first real
-sandboxed run of the finished pipeline. A developer's own machine, for local
-`eval-roles` runs and for authoring the golden-case fixtures in this change, needs
-`comet` installed the ordinary way (`npm install -g @rpamis/comet@0.4.0-beta.18` or
-similar) — that is unaffected by this gap and does not require solving it.
+### Resolved: `sbx kit` bakes `comet` (and `openspec`) into a pinned template
+
+Recipe, validated live end-to-end (`sbx` v0.38.0) — implemented as
+`bootstrap/sbx-kits/comet-cli/` + `bootstrap/sbx-kits/bake-comet-template.sh`
+(`bootstrap/sbx-kits/README.md` has the operational how-to; this note keeps the why):
+
+1. `comet` is pure JS (`npm view @rpamis/comet@0.4.0-beta.18 os cpu` — empty; its own
+   dependencies are all pure-JS packages too) — a tarball built on macOS runs fine
+   under the sandbox's Linux/aarch64 Node. Same for `@fission-ai/openspec`.
+2. `sbx create --kit DIR` composes a declarative "mixin" kit (`spec.yaml` +
+   `files/`) into the sandbox at creation time, before the agent starts.
+   `commands.install` entries run synchronously, before startup commands, before
+   the agent is reachable. Default `user` is `"0"` (root) — **but our own kit
+   overrides it to `"agent"` explicitly, and that override matters, not just style**:
+   a clean `docker/sandbox-templates:claude-code-docker` image has
+   `/usr/local/share/npm-global`'s `lib` owned by `agent:agent` with no `bin/` yet
+   (npm creates it agent-owned on first `install -g`); installing as root instead
+   creates both **root-owned**, and that ownership rides into the `sbx template
+   save` snapshot verbatim. Every sandbox created from that snapshot afterward
+   would have an `agent` user unable to `npm install -g` anything else there
+   (`EACCES`) — confirmed live both ways (root install → later agent install
+   fails; agent install throughout → later agent install succeeds, ~50 ms). Root
+   buys nothing here anyway: `agent` is already in the `sudo` group inside this
+   sandbox, so it isn't a privilege boundary. `sbx kit validate DIR` checks the
+   spec without creating anything.
+3. **A local-tarball `npm install -g <path>.tgz` still hits the network** — the
+   tarball alone doesn't carry transitive dependencies, so npm still resolves
+   `comet`'s (and `openspec`'s) own deps from `registry.npmjs.org`. Under this
+   machine's `deny-all` base policy that's a `403 Forbidden`, exactly like the
+   `pypi.org` case documented above for `uv`. The kit's own
+   `network.allowedDomains: ["registry.npmjs.org"]` opens it — the same mechanism
+   the built-in `claude` kit itself relies on to `curl` its own installer under a
+   deny-all base policy (see "Кит агента не открывает его собственный API" above,
+   which was about the *running agent's* own API traffic — a different traffic
+   source, not a different time window). **This is not a separate, earlier window
+   that closes once install finishes** — checked directly: `sbx policy ls
+   <sandbox> --wide` after a `--kit`-created sandbox shows `registry.npmjs.org`
+   merged into the *same* per-sandbox allow rule as `claude.com`/
+   `downloads.claude.ai`/`mcp-proxy.anthropic.com`, and it stays there for the
+   sandbox's whole life — the same "правила кита" level the network-policy table
+   above already names. It's a non-issue in practice only because production
+   never calls `sbx create --kit` directly — `internal/backends/sbx.Template`
+   points at a *baked snapshot* instead, and a sandbox created from that snapshot
+   carries no kit network rule at all (checked: `registry.npmjs.org` denied
+   there). Anyone adding a domain to this `spec.yaml` for a future package should
+   assume it stays open for the sandbox's whole life if that kit is ever applied
+   via `--kit` directly rather than through the baked template. `sbx kit validate`
+   warns this field name is deprecated in favor of `caps.network.allow` (kit-spec
+   v2) but still honors it under `schemaVersion: "1"`.
+4. With `--kit`, the two `npm install -g` steps add ~24 s + ~4 s to `sbx create`
+   (measured), against the usual 5–6 s — real overhead, and *avoidable*:
+5. `sbx template save <sandbox> <tag>` (after `sbx stop <sandbox>` — it refuses to
+   snapshot a running container, and in a non-interactive shell there's no TTY to
+   answer its confirmation prompt) snapshots the container as a reusable local
+   image. `sbx create --template <tag>` then creates from it with **no** kit-apply
+   step at all — back to 5–6 s, `comet`/`openspec` already present. The template
+   lives only in this host's local Docker/`sbx` image store; it does not travel
+   with the git repo. Each runner host bakes its own copy once
+   (`bootstrap/sbx-kits/bake-comet-template.sh`), the same one-time-per-host
+   category `sbx policy init deny-all` already is.
+6. **`comet native` does not need the other 9 skills the npm package ships**
+   (`comet-any`, `comet-archive`, `comet-build`, `comet-classic`, `comet-design`,
+   `comet-hotfix`, `comet-open`, `comet-tweak`, `comet-verify`) **or `openspec`** —
+   checked two ways, not assumed: `skills/comet-native/SKILL.md` and its bundled
+   runtime (`comet-native-runtime.mjs`/`comet-native-doctor.mjs`) contain zero
+   references to any sibling skill name or to OpenSpec (the one string match,
+   `comet-archive-cas-…`, is Native's own internal backup-file naming, unrelated to
+   the `comet-archive` *skill*); and a live `comet native new`/`comet native status`
+   run in a freshly baked sandbox succeeded cleanly (exit 0), with the JSON
+   response's own `continuation.skill` field naming only `"comet-native"`. `comet`
+   is a pure CLI/state-machine tool here — running `comet native …` from a shell
+   doesn't consult any project-mounted skill directory at all; skills are Claude
+   Code instructions *for the agent*, orthogonal to what the CLI binary itself
+   does when invoked directly. `openspec` is vendored into the same kit anyway,
+   at the user's explicit request, purely as insurance for a possible future
+   switch of this role pipeline to Comet Classic — not because Native needs it.
+7. Both CLIs are ordinary top-level global npm installs — `@fission-ai/openspec`
+   being a *dependency* of `@rpamis/comet` does not put its `bin/openspec.js` on
+   `PATH` automatically; a global install exposes only a package's own declared
+   `bin`, not a nested dependency's. It has to be installed as its own top-level
+   package to get `openspec` on `PATH`, which is exactly what the kit's second
+   `commands.install` entry does.
