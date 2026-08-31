@@ -1,0 +1,12 @@
+{
+  "schema": "comet.native.local-execution.v4",
+  "change": "eval-spot-defect",
+  "basedOnStateVersion": 3,
+  "workspace": {
+    "projectRoot": "/private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/65c3e618-fc8f-42ab-a749-78187d2c4f6e/scratchpad/reseed-spot-defect.gL8AzA",
+    "worktreeRoot": "/private/tmp/claude-501/-Users-aleksejkolesnikov-IdeaProjects-virtual-office/65c3e618-fc8f-42ab-a749-78187d2c4f6e/scratchpad/reseed-spot-defect.gL8AzA",
+    "branch": "main"
+  },
+  "execution": null,
+  "checks": []
+}

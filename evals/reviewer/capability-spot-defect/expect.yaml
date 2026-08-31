@@ -11,12 +11,15 @@ checks:
     expect: done
     next_owner: implementer
   - kind: diff_scope
-    allow: []
+    allow:
+      - "docs/comet/changes/eval-spot-defect/comet-state.yaml"
+      - "docs/comet/changes/eval-spot-defect/verification.md"
   - kind: fixture_tests
     # A1 — реальный id критерия приёмки, который присвоил сам Comet Native
     # (подтверди через `comet native status eval-spot-defect --json` при
     # заведении фикстуры — литеральный префикс в тексте spec.md id не
-    # определяет); провалившийся вердикт по нему — точный сигнал, что
-    # ревьюер прошёл через dispatch-verifier/final-result, а не свободный
-    # разбор угадал слово "Max" в тексте.
-    command: "grep -qi 'A1' .agent/result.json"
+    # определяет). Слабая подсказка, не строгая проверка (см. README.md):
+    # упоминание "A1" в собственном тексте отчёта — не доказательство, что
+    # ревьюер прошёл через dispatch-verifier/final-result, но куда точнее
+    # прежнего грепа по слову "Max" из самой постановки.
+    command: "grep -qE '\\bA1\\b' .agent/result.json"

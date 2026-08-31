@@ -228,9 +228,11 @@ func TestEvaluateCaseSpotDefectDistinguishesFoundVsMissed(t *testing.T) {
 			// next_owner: implementer — по roles/reviewer/role.md, «Выход»:
 			// «работа не готова → done, next_owner: implementer». "none"
 			// здесь моделировал бы ответ, которого роль по своему промпту
-			// дать не должна.
+			// дать не должна. Упоминание "A1" — как реально писал бы ревьюер,
+			// прошедший через dispatch-verifier/final-result (fixture_tests
+			// теперь грепает по этому id, не по слову "Max").
 			"defect found",
-			`{"outcome":"done","summary":"В Max найден баг: обе ветки возвращают a, из-за чего Max(1,3) вернёт 1 вместо 3.","next_owner":"implementer"}`,
+			`{"outcome":"done","summary":"A1 failed: в Max найден баг, обе ветки возвращают a, из-за чего Max(1,3) вернёт 1 вместо 3.","next_owner":"implementer"}`,
 			"passed",
 		},
 		{
@@ -243,9 +245,11 @@ func TestEvaluateCaseSpotDefectDistinguishesFoundVsMissed(t *testing.T) {
 			// Регрессия round 2: позитивный "некорректн" и негативный
 			// "корректно" пересекаются как подстроки, а "не найдено" ловит
 			// обычную закрывающую фразу верного разбора — у обеих фраз ниже
-			// нет отношения к тому, найден ли баг.
+			// нет отношения к тому, найден ли баг. Фраза сохранена дословно
+			// (это и есть проверяемая регрессия), но с добавленным "A1" —
+			// иначе текущая (id-based) проверка не пропустит и этот случай.
 			"defect found, phrased in words the old negation grep misread as approval",
-			`{"outcome":"done","summary":"Max реализован некорректно: обе ветки возвращают a. Других ошибок не найдено.","next_owner":"implementer"}`,
+			`{"outcome":"done","summary":"A1: Max реализован некорректно, обе ветки возвращают a. Других ошибок не найдено.","next_owner":"implementer"}`,
 			"passed",
 		},
 	}
