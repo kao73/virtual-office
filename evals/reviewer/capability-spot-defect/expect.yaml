@@ -14,6 +14,13 @@ checks:
     allow:
       - "docs/comet/changes/eval-spot-defect/comet-state.yaml"
       - "docs/comet/changes/eval-spot-defect/verification.md"
+      # Comet's own local-execution bookkeeping: tracked in this fixture
+      # (see .comet/ below) so a fresh materialized checkout doesn't
+      # silently no-op on the first dispatch-verifier call — but that
+      # means it genuinely gets modified by a compliant reviewer's very
+      # first real CLI call, so it must be allowed here too, or every
+      # compliant run fails diff_scope on Comet's own state file.
+      - ".comet/runtime/native/changes/eval-spot-defect/state.json"
   - kind: fixture_tests
     # A1 — реальный id критерия приёмки, который присвоил сам Comet Native
     # (подтверди через `comet native status eval-spot-defect --json` при
