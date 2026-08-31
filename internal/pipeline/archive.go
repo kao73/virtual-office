@@ -92,6 +92,20 @@ func (o *Office) archiveIfReady(task tracker.Task, project tracker.Project) (ok 
 		return true, nil
 	}
 
+	// exit 0 самой команды не значит, что архивирование по-настоящему
+	// случилось: живой прогон при финальном ревью нашёл случай, когда
+	// `comet native archive --confirmed` в рабочей папке без
+	// .comet/runtime/**-состояния печатает "Rebuilt local execution from the
+	// portable boundary..." и завершается exit 0, но откатывает
+	// comet-state.yaml изменения обратно на прежнюю фазу и вовсе не
+	// переименовывает каталог изменения. Без этой проверки код ниже
+	// закоммитил и запушил бы этот откат как будто это успешное
+	// архивирование.
+	if ok, reason := archiveSucceeded(ws.Dir, name); !ok {
+		o.logf("%s: comet archive сообщил об успехе (exit 0), но %s — архивирование пропущено, коммит и push отменены", task.Key, reason)
+		return true, nil
+	}
+
 	// Под isolation: current (единственный режим, которым пользуются эти
 	// роли) `comet native archive --confirmed` делает голый fs.rename
 	// каталога изменения — без git add/commit (git-плюмбинг там есть только
@@ -112,6 +126,48 @@ func (o *Office) archiveIfReady(task tracker.Task, project tracker.Project) (ok 
 		o.logf("%s: архивирование %s не создало новых коммитов", task.Key, name)
 	}
 	return true, nil
+}
+
+// cometArchiveDestGlob — маска пути, куда `comet native archive --confirmed`
+// переименовывает каталог изменения при настоящем успехе:
+// docs/comet/archive/<дата>-<name> (дата — YYYY-MM-DD; формат подтверждён
+// живым прогоном при финальном ревью — `comet native archive eval-brief
+// --confirmed` напечатал "...docs/comet/archive/2026-08-31-eval-brief").
+// Дату заранее не предсказать — её на момент вызова решает сам CLI, отсюда
+// маска, а не точный путь.
+func cometArchiveDestGlob(name string) string {
+	return filepath.Join(cometArchiveScope, "archive", "*-"+name)
+}
+
+// archiveSucceeded проверяет постусловие успешного архивирования — не
+// доверяя одному exit 0 команды `comet native archive --confirmed`. Живой
+// прогон при финальном ревью нашёл случай, когда эта команда в рабочей
+// папке без .comet/runtime/**-состояния печатает сообщение о восстановлении
+// локального исполнения и завершается exit 0, но на самом деле откатывает
+// comet-state.yaml изменения обратно на прежнюю фазу и вовсе не
+// переименовывает каталог изменения — настоящего архивирования не было,
+// хотя exit-код утверждает обратное.
+//
+// Проверяются оба сигнала: под fs.rename (единственный способ, которым
+// `comet native archive` действует при isolation: current — см. комментарий
+// у cometArchiveScope ниже) они при настоящем успехе логически
+// эквивалентны, переименование атомарно, — но по отдельности каждый уже
+// ловит воспроизведённый живьём сбой: исходный каталог изменения остаётся
+// на месте, а каталог назначения не появляется вовсе.
+func archiveSucceeded(dir, name string) (ok bool, reason string) {
+	oldDir := filepath.Join(runner.CometChangesDir, name)
+	if info, err := os.Stat(filepath.Join(dir, oldDir)); err == nil && info.IsDir() {
+		return false, fmt.Sprintf("каталог изменения %s всё ещё существует — переименования не было", oldDir)
+	}
+	destGlob := cometArchiveDestGlob(name)
+	matches, err := filepath.Glob(filepath.Join(dir, destGlob))
+	if err != nil {
+		return false, fmt.Sprintf("маска каталога архива %s не разобрана: %v", destGlob, err)
+	}
+	if len(matches) == 0 {
+		return false, fmt.Sprintf("каталог архива по маске %s не найден", destGlob)
+	}
+	return true, ""
 }
 
 // cometNativeStatus разбирает `comet native status <name> --json`.
