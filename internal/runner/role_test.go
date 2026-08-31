@@ -285,8 +285,12 @@ func TestLoadRoleAcceptsPreToolUseHook(t *testing.T) {
 	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
 		t.Fatalf("каталог скрипта не создан: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(scriptDir, "comet-hook-router.mjs"), []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
+	scriptPath := filepath.Join(scriptDir, "comet-hook-router.mjs")
+	if err := os.WriteFile(scriptPath, []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
 		t.Fatalf("скрипт хука не записан: %v", err)
+	}
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		t.Fatalf("скрипт хука не сделан исполняемым: %v", err)
 	}
 
 	role, err := LoadRole(root, "tester")
@@ -302,6 +306,36 @@ func TestLoadRoleAcceptsPreToolUseHook(t *testing.T) {
 	}
 	if !strings.HasPrefix(got.Command, "skills/comet/scripts/comet-hook-router.mjs") {
 		t.Errorf("command=%q искажён при разборе", got.Command)
+	}
+}
+
+// Неисполняемый скрипт pre_tool_use — тот же провал, что и у Stop-хука: код 126
+// от неисполняемого файла Claude Code сочтёт неблокирующей ошибкой хука, и
+// фазовое ограждение перестанет ограждать беззвучно (ровно баг финального
+// ревью: comet-hook-router.mjs внутри самого пакета @rpamis/comet — тоже
+// mode 644, и наш адаптер обязан отловить это на загрузке роли, а не в проде).
+func TestLoadRoleRejectsNonExecutablePreToolUseHook(t *testing.T) {
+	yaml := strings.Replace(fixtureRoleYAML, "skills: []", "skills: [comet]", 1)
+	yaml = strings.Replace(yaml,
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+			"    - matcher: \"Write|Edit\"\n      command: skills/comet/scripts/comet-hook-router.mjs --platform claude --project-root \"$WORKDIR\"\n", 1)
+	root := fixtureOffice(t, yaml)
+	scriptDir := filepath.Join(root, "skills", "comet", "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("каталог скрипта не создан: %v", err)
+	}
+	// 0o644 нарочно: скрипт есть, не каталог, но не исполняемый.
+	if err := os.WriteFile(filepath.Join(scriptDir, "comet-hook-router.mjs"), []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
+		t.Fatalf("скрипт хука не записан: %v", err)
+	}
+
+	_, err := LoadRole(root, "tester")
+	if err == nil {
+		t.Fatal("скрипт хука неисполняемый, но роль принята")
+	}
+	if !strings.Contains(err.Error(), "не исполняемый") {
+		t.Errorf("ошибка не объясняет причину: %v", err)
 	}
 }
 

@@ -207,6 +207,13 @@ func (r Role) validate(dirName string) error {
 				errs = append(errs, fmt.Errorf("hooks.pre_tool_use[%d]: файл хука не найден: %w", i, err))
 			case fi.IsDir():
 				errs = append(errs, fmt.Errorf("hooks.pre_tool_use[%d]: %s — каталог, а не файл", i, script))
+			case fi.Mode()&0o111 == 0:
+				// Тот же провал, что и у Stop-хука выше: код 126 от неисполняемого
+				// файла Claude Code сочтёт неблокирующей ошибкой хука, и ограждение
+				// перестанет ограждать беззвучно. Комет не гарантирует mode 755 у
+				// вендоренного скрипта — пакет @rpamis/comet сам кладёт его 644.
+				errs = append(errs, fmt.Errorf(
+					"hooks.pre_tool_use[%d]: %s не исполняемый: ограждение не сработает и не пожалуется", i, script))
 			}
 		}
 	}
