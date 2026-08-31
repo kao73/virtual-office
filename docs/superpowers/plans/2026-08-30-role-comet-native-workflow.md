@@ -2449,7 +2449,7 @@ This is the manual, paid checkpoint — mirrors this repository's existing conve
 
 **Files:** None — verification only.
 
-- [ ] **Step 1: Full non-agent regression**
+- [x] **Step 1: Full non-agent regression**
 
 ```bash
 go build ./...
