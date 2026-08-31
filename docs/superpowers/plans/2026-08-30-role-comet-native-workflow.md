@@ -2794,3 +2794,25 @@ git commit -m "fix(eval-roles): pass --task-key so context.md names a fixture's 
 ```
 
 After this commit, resume Task 16 Steps 3–4 from the start of the affected list — the `--task-key` fix changes what `context.md` says for every case that seeds a Comet Native change, so cases that already passed under the old, broken behavior are worth re-running too, not just `capability-spot-defect`.
+
+---
+
+## Task 20: `role.md` must forbid loading the `comet` entry skill directly
+
+Found live, immediately after Task 19's fix, re-running `analyst/capability-basic-plan` (the simplest possible case — Shape only, no pre-seeded change) at the user's own go-ahead. Failed 2 of 3 attempts, each time differently, all traced to the same root behavior.
+
+**What happened, from `.agent/run.log` on both failed attempts:** the agent's very first move was loading the `comet` skill (not `comet-native`) via the `Skill` tool, then following that skill's own text verbatim — it opens with *"Immediately perform the entry resolution below; do not re-evaluate whether the task is suitable for Comet, and do not merely explain why it will not be used"* and instructs `comet workflow resolve . --activate --json` as step 1. That command reproducibly fails in this sandbox: `{"status":"failed","error":"ENOENT: no such file or directory, fstat"}` — confirmed with `--json`/without, with `DEBUG=*`, three consecutive attempts, `comet doctor` pointing at missing global state under `/home/agent`. Root cause of *that* failure: `comet workflow resolve --activate` is the generic `/comet` Native-vs-Classic dispatch entry point, and it wants global, per-project-independent Comet state this repo's `role.md` was always designed to never need — `analyst`/`implementer`/`reviewer` go straight to `comet native <subcommand>`, bypassing this entry point entirely by design (`skills/comet/` is mounted only because `comet-hook-router.mjs`, the guard script `hooks.pre_tool_use` needs, lives inside it). Nothing in `bootstrap/sbx-kits/` ever needed to set up that global state, because the design never calls the command that wants it — until the agent, on its own initiative, calls it anyway.
+
+**The one attempt that partially worked** went straight to `comet native new greet-shout --isolation current --json` per `role.md`'s actual instructions, and that succeeded — confirming the prescribed path works; only the unprescribed detour through the `comet` skill's own entry protocol fails. (That attempt then hit a separate, unrelated problem — a stale `root-move.lock` Comet Native's own lock coordinator left behind, requiring `comet native doctor --repair`; confirmed present in both `0.4.0-beta.18` and `0.4.0-beta.20`'s compiled `dist/`, so not a version-bump regression, and Comet's own `reference/recovery.md` names "a concurrency conflict" as an expected, recoverable case — not investigated further here, tracked as a known source of live-run flakiness, not fixed).
+
+**Fix:** an explicit, early warning in all three `roles/{analyst,implementer,reviewer}/role.md`, placed at the first point each role's text touches Comet Native (before any conditional branching), forbidding loading the `comet` skill via the `Skill` tool or running its entry-protocol commands (`comet workflow resolve`, `comet init`), naming the exact failure mode and pointing at `comet native <subcommand>` as the only path this pipeline uses. Prose-only change — no code, no schema, nothing for `go test` to check; the only real verification is a live re-run.
+
+**Files:** `roles/analyst/role.md`, `roles/implementer/role.md`, `roles/reviewer/role.md`.
+
+- [ ] **Verify:** re-run `analyst/capability-basic-plan` live and confirm the agent goes straight to `comet native new` without touching the `comet` skill's entry protocol.
+- [ ] **Commit**
+
+```bash
+git add roles/analyst/role.md roles/implementer/role.md roles/reviewer/role.md docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
+git commit -m "fix(roles): forbid loading the comet entry skill's own dispatch protocol"
+```
