@@ -2366,7 +2366,7 @@ git commit -m "test(evals): add implementer golden case reading a Comet Native b
 
 **Interfaces:** None new.
 
-- [ ] **Step 1: Augment `capability-spot-defect`'s fixture with a real verify-phase change**
+- [x] **Step 1: Augment `capability-spot-defect`'s fixture with a real verify-phase change**
 
 The existing fixture (`calc.go`/`calc_test.go`, a colleague's buggy `Max` implementation) stays exactly as-is as the *code under review*. Using the shared recipe, additionally seed a Comet Native change already in `verify` phase with an acceptance item the buggy `Max` violates:
 
@@ -2376,7 +2376,7 @@ The existing fixture (`calc.go`/`calc_test.go`, a colleague's buggy `Max` implem
 
 Update `evals/reviewer/capability-spot-defect/task.md` only if its current wording ("A colleague implemented the `Max` function... Review their work") no longer matches once a real acceptance ID exists to reference — if the existing wording still reads naturally, leave it unchanged.
 
-- [ ] **Step 2: Update `capability-spot-defect/expect.yaml`**
+- [x] **Step 2: Update `capability-spot-defect/expect.yaml`**
 
 The `next_owner`/`outcome` assertions are unchanged (still `done`/`implementer` — a failed acceptance routes back to the author, exactly as before). Only the weak `fixture_tests` grep, whose own comment already explains it as "a weak hint," gets a more precise replacement now that a real acceptance ID exists to check for:
 
@@ -2398,13 +2398,13 @@ checks:
     command: "grep -qi 'A1' .agent/result.json"
 ```
 
-- [ ] **Step 3: Author `capability-clean-verify`'s fixture using the shared recipe**
+- [x] **Step 3: Author `capability-clean-verify`'s fixture using the shared recipe**
 
 - Base fixture: a small, already-correct package (e.g. `calc.Max` implemented correctly this time), plus its test.
 - `<name>`: `eval-clean-verify`.
 - Seed through Shape confirmation, a Builder handoff (same shape/caveats as `capability-spot-defect` above), then a `dispatch-verifier` round (envelope: `{"kind": "dispatch-verifier", "checks": [...]}` — a bare array is rejected), then a passing `final-result` for the sole acceptance item, wrapped: `{"kind": "verifier-response", "response": {"kind": "final-result", "result": {"iteration": 1, "attempt": 1, "verdict": "pass", "acceptance": [{"id": "A1", "result": "passed", "reason": "..."}], "risks": [], "summary": "..."}}}` (confirm `A1` is really the assigned id first — see the shared recipe's correction note above). This moves the change to status `await-user`, not directly to `archive-ready` — submit one more `comet native next eval-clean-verify --summary "Verify confirmed for fixture" --confirmed` before checking the phase. Confirm via `--json` that `data.loop.stage` is now `archive-ready` — this is the exact state `internal/pipeline/archive.go` (Task 5) looks for.
 
-- [ ] **Step 4: Write `task.md` and `expect.yaml`**
+- [x] **Step 4: Write `task.md` and `expect.yaml`**
 
 `task.md`:
 ```markdown
@@ -2428,13 +2428,13 @@ checks:
 
 (Same tolerant-then-tighten note as Task 14 Step 3 applies to this `fixture_tests` command.)
 
-- [ ] **Step 5: Sanity-check without spending money**
+- [x] **Step 5: Sanity-check without spending money**
 
 ```bash
 find evals/reviewer/capability-spot-defect/fixture evals/reviewer/capability-clean-verify/fixture -type f | sort
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add evals/reviewer

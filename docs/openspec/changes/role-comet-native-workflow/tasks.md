@@ -29,4 +29,4 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Extend `evals/` with golden cases exercising the new Shape/Build/Verify flow through `cmd/eval-roles`
+- [x] 7.1 Extend `evals/` with golden cases exercising the new Shape/Build/Verify flow through `cmd/eval-roles`
