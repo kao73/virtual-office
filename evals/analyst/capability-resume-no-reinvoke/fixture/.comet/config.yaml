@@ -23,3 +23,8 @@ native:
   archive_confirmation: automatic
   # Maximum failed Verify outcomes allowed for one confirmed acceptance target before Native stops the completion loop.
   max_verify_failures: 5
+
+hook:
+  allow_paths:
+    - .agent
+    - STATE.md
