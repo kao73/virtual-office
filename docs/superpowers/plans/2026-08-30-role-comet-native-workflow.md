@@ -2976,4 +2976,4 @@ A third round was not dispatched: both rounds' findings are now independently co
 
 Verification: `go build ./... && go vet ./... && go test ./...` clean across every package after every round. Full test count in `internal/backends/sbx`: 27 tests touch this code path directly, including 7 that run real `git`/`sh` (no fake `step`) covering the space-in-path regression, the pathspec-exclusion-without-`.git/info/exclude` regression, the merge-conflict-via-marker-file regression, the merge-conflict-via-stash-pop regression, the everything-filtered-out-is-not-an-error regression, the identity-wins-over-ambient-env regression, and the full sweep-commit-reaches-`FetchInto`-through-`fetchBranch` path.
 
-- [ ] **Commit**
+- [x] **Commit** — `f599770`.
