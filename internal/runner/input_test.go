@@ -226,6 +226,52 @@ func TestExcludeAgentDirWorksInWorktree(t *testing.T) {
 	}
 }
 
+// `comet native new` не пишет собственного .gitignore, а .comet/current-change.json
+// и .comet/runtime/** — состояние одной рабочей папки, а не часть истории проекта:
+// без исключения worktree навсегда остаётся "грязным" (`?? .comet/`), и
+// sweepWorktrees считает его небезопасным для удаления. .comet/config.yaml —
+// наоборот, обычный трекируемый путь: без него `comet native status` не
+// восстановится в другой рабочей папке, и исключать его нельзя.
+func TestExcludeCometRuntimeExcludesOnlyMachineLocalParts(t *testing.T) {
+	workdir := gitRepo(t)
+
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(filepath.Join(cometDir, "runtime", "native", "changes", "demo"), 0o755); err != nil {
+		t.Fatalf("каталог .comet/runtime не создан: %v", err)
+	}
+	write := func(rel, content string) {
+		path := filepath.Join(cometDir, rel)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("%s не записан: %v", rel, err)
+		}
+	}
+	write("config.yaml", "schema: comet.project.v1\n")
+	write("current-change.json", `{"change":"demo"}`+"\n")
+	write(filepath.Join("runtime", "native", "changes", "demo", "state.json"), "{}\n")
+
+	// -uall: иначе git сворачивает смешанный (частично исключённый) неотслеживаемый
+	// каталог в одну строку `?? .comet/`, и по ней не сказать, что внутри уже
+	// исключено, а что нет — та же причина, что объясняется у WorktreeStatus.
+	if status := git(t, workdir, "status", "--porcelain", "-uall"); !strings.Contains(status, ".comet") {
+		t.Fatalf("подготовка теста неверна: git и так не видит .comet/:\n%s", status)
+	}
+
+	if err := ExcludeCometRuntime(workdir); err != nil {
+		t.Fatalf("исключение не записано: %v", err)
+	}
+
+	status := git(t, workdir, "status", "--porcelain", "-uall")
+	if strings.Contains(status, "current-change.json") {
+		t.Errorf("current-change.json всё ещё виден git:\n%s", status)
+	}
+	if strings.Contains(status, "runtime") {
+		t.Errorf("runtime/ всё ещё виден git:\n%s", status)
+	}
+	if !strings.Contains(status, "config.yaml") {
+		t.Errorf(".comet/config.yaml исчез из git, а обязан остаться обычным трекируемым путём:\n%s", status)
+	}
+}
+
 // Ветки агент сам узнать не может: в рабочей папке видно только HEAD, а от чего
 // он отведён — уже нет. Без базы `git diff` показывает не то, и reviewer'у неоткуда
 // взять свою работу.

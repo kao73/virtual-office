@@ -86,6 +86,13 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 	if err := ExcludeAgentDir(workdir); err != nil {
 		return err
 	}
+	// То же самое рассуждение, что и у конверта обмена: `comet native new`
+	// (запускает analyst) оставляет .comet/current-change.json и .comet/runtime/**
+	// незакоммиченными, и без исключения снимок статуса ниже увидел бы их как
+	// грязь этого прогона.
+	if err := ExcludeCometRuntime(workdir); err != nil {
+		return err
+	}
 	// Снимок статуса — последним: каталог обмена уже исключён из git, и в снимке
 	// его не видно. Иначе ограждение сравнивало бы дельту с собственным конвертом.
 	return writeBaseStatus(workdir)
@@ -228,6 +235,39 @@ const excludeComment = "# virtual-office: конверт обмена ранне
 // Каталог берётся общий: worktree читает info/exclude основного репозитория
 // и собственный игнорирует.
 func ExcludeAgentDir(workdir string) error {
+	return appendExcludeRules(workdir, excludeComment, []string{Dir + "/"})
+}
+
+// cometExcludeComment — как excludeComment, но про .comet/: поясняет, почему
+// исключены не все пути внутри каталога, а только эти два (см. ExcludeCometRuntime).
+const cometExcludeComment = "# virtual-office: машинно-локальные части .comet/ (config.yaml не исключён — коммитится ролью)"
+
+// ExcludeCometRuntime прячет от git машинно-локальные части каталога .comet/,
+// который заводит `comet native new`: current-change.json (что выбрано в этой
+// рабочей папке) и runtime/ (внутреннее состояние исполнения Comet Native). Оба —
+// состояние одной рабочей папки, а не часть истории проекта, и без исключения
+// worktree навсегда остаётся "грязным" (`?? .comet/`): sweepWorktrees сочтёт его
+// небезопасным для удаления, а PreToolUse-ограждение (comet-hook-router.mjs)
+// молча уйдёт в нейтраль в любой рабочей папке, где current-change.json не видно.
+//
+// .comet/config.yaml и сам каталог .comet/ — вне этого исключения нарочно:
+// config.yaml обязан остаться обычным трекируемым путём, иначе `comet native
+// status` не восстановится в другой рабочей папке или у другого раннер-хоста —
+// см. roles/analyst/role.md, "## Как коммитить".
+func ExcludeCometRuntime(workdir string) error {
+	return appendExcludeRules(workdir, cometExcludeComment, []string{
+		".comet/current-change.json",
+		".comet/runtime/",
+	})
+}
+
+// appendExcludeRules дописывает в info/exclude общего git-каталога рабочей папки
+// те строки из rules, которых там ещё нет — общий механизм для ExcludeAgentDir
+// и ExcludeCometRuntime. Каждое правило проверяется по отдельности (а не «весь
+// набор целиком»), чтобы повторный вызов с частично новым набором правил не
+// сломал идемпотентность уже записанных строк. Каталог берётся общий: worktree
+// читает info/exclude основного репозитория и собственный игнорирует.
+func appendExcludeRules(workdir, comment string, rules []string) error {
 	out, err := exec.Command("git", "-C", workdir, "rev-parse", "--git-common-dir").Output()
 	if err != nil {
 		return fmt.Errorf("workdir %s не похож на git-репозиторий: %w", workdir, err)
@@ -238,24 +278,43 @@ func ExcludeAgentDir(workdir string) error {
 	}
 
 	path := filepath.Join(common, "info", "exclude")
-	rule := Dir + "/"
 
 	existing, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%s не прочитан: %w", path, err)
 	}
-	for _, line := range strings.Split(string(existing), "\n") {
-		if strings.TrimSpace(line) == rule {
-			return nil // уже исключён, второй раз не дописываем
+	existingLines := strings.Split(string(existing), "\n")
+	already := func(rule string) bool {
+		for _, line := range existingLines {
+			if strings.TrimSpace(line) == rule {
+				return true
+			}
 		}
+		return false
+	}
+
+	var missing []string
+	for _, rule := range rules {
+		if !already(rule) {
+			missing = append(missing, rule)
+		}
+	}
+	if len(missing) == 0 {
+		return nil // все правила уже на месте, второй раз не дописываем
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("каталог %s не создан: %w", filepath.Dir(path), err)
 	}
-	addition := excludeComment + "\n" + rule + "\n"
+	var b strings.Builder
 	if len(existing) > 0 && !bytes.HasSuffix(existing, []byte("\n")) {
-		addition = "\n" + addition
+		b.WriteString("\n")
+	}
+	b.WriteString(comment)
+	b.WriteString("\n")
+	for _, rule := range missing {
+		b.WriteString(rule)
+		b.WriteString("\n")
 	}
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -263,7 +322,7 @@ func ExcludeAgentDir(workdir string) error {
 		return fmt.Errorf("%s не открыт на дозапись: %w", path, err)
 	}
 	defer f.Close()
-	if _, err := f.WriteString(addition); err != nil {
+	if _, err := f.WriteString(b.String()); err != nil {
 		return fmt.Errorf("%s не дописан: %w", path, err)
 	}
 	return nil

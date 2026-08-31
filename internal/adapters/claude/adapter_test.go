@@ -587,8 +587,13 @@ func TestBuildWiresPreToolUseHook(t *testing.T) {
 	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
 		t.Fatalf("каталог скрипта не создан: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(scriptDir, "comet-hook-router.mjs"), []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
+	scriptPath := filepath.Join(scriptDir, "comet-hook-router.mjs")
+	if err := os.WriteFile(scriptPath, []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
 		t.Fatalf("скрипт хука не записан: %v", err)
+	}
+	// LoadRole теперь проверяет исполняемый бит pre_tool_use хука (final-review Fix 1).
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		t.Fatalf("скрипт хука не сделан исполняемым: %v", err)
 	}
 
 	role, err := runner.LoadRole(root, "tester")
