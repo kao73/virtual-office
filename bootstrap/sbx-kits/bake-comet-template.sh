@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."  # repo root
 
 KIT_DIR="bootstrap/sbx-kits/comet-cli"
-TAG="office-claude-comet:0.4.0-beta.18"
+TAG="office-claude-comet:0.4.0-beta.20"
 PROBE="office-comet-bake-$$"
 
 # Всегда убрать пробную песочницу — даже при отказе на середине, иначе она

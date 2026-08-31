@@ -76,6 +76,10 @@ the vendored `comet`+`comet-native` skills mounted as a plugin) grounded every c
    Evidence base item 5) before `archive-ready` is actually reached. A failing/blocked verdict
    needs no such step; Native routes back to `build`/`repairing` on its own. See
    `roles/reviewer/role.md`'s corrected Verify-dispatch section for the fixed contract.
+   **Stale as of `0.4.0-beta.20` (plan Task 18):** this exact flag was split — `--confirmed`
+   now means only Shape self-confirmation, and this specific gate needs `--accept-result`
+   instead. `roles/reviewer/role.md` was updated; this Evidence-base paragraph is left as an
+   accurate account of what `0.4.0-beta.18` (item 10 below) actually did, not of current behavior.
 10. `comet` is `@rpamis/comet@0.4.0-beta.18` (npm, MIT, Node 22+, no daemon). A confirmed,
     unconditional bug in this exact version: `comet classic workspace prepare|resolve` fails with
     `"Classic command project context is unavailable"` (root cause: a missing

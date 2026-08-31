@@ -36,7 +36,7 @@ const Agent = "claude"
 // а не «образ не найден»: это не деградация, а намеренный fail-closed — молча
 // откатываться на образ без comet означало бы проваливать роли Comet Native
 // непонятно почему на первом же вызове CLI.
-const Template = "office-claude-comet:0.4.0-beta.18"
+const Template = "office-claude-comet:0.4.0-beta.20"
 
 const (
 	createTimeout = 5 * time.Minute

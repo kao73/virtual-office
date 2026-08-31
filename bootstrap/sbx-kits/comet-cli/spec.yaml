@@ -8,7 +8,7 @@ network:
     - "registry.npmjs.org"
 commands:
   install:
-    - command: "npm install -g /home/agent/.comet-pkg/rpamis-comet-0.4.0-beta.18.tgz"
+    - command: "npm install -g /home/agent/.comet-pkg/rpamis-comet-0.4.0-beta.20.tgz"
       user: "agent"
       description: "Install the vendored comet CLI globally as agent, not root (deps still resolve from the registry; the tarball itself is local). Root would create /usr/local/share/npm-global's lib/bin root-owned in the baked snapshot, breaking any later npm install -g run as agent (EACCES) — confirmed live; agent has no less privilege here anyway (already in the sudo group)."
     - command: "npm install -g /home/agent/.comet-pkg/fission-ai-openspec-1.5.0.tgz"
