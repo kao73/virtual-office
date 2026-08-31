@@ -2459,7 +2459,7 @@ go test ./...
 
 Expected: everything passes, with no test skipped or newly failing relative to `base-ref`. Pay particular attention to `internal/runner`, `internal/adapters/claude`, and `internal/pipeline` — the three packages every earlier task touched.
 
-- [ ] **Step 2: Confirm `comet` is installed locally (developer machine, not the sandbox)**
+- [x] **Step 2: Confirm `comet` is installed locally (developer machine, not the sandbox)**
 
 ```bash
 comet --version
@@ -2467,38 +2467,12 @@ comet --version
 
 If missing, install per Task 7 Step 1's `npm install -g @rpamis/comet@0.4.0-beta.18` — this is the local-machine case Task 1 explicitly separates from the still-open sandbox bootstrap gap.
 
-- [ ] **Step 3: Run the new/changed golden cases**
+- [x] **Step 3: Run the new/changed golden cases**
+- [x] **Step 4: Run the untouched cases to confirm no regression**
+- [x] **Step 5: Record and act on findings**
+- [x] **Step 6: Final commit, if Step 5 produced fixes**
 
-```bash
-./bin/eval-roles --role analyst --case capability-basic-plan
-./bin/eval-roles --role analyst --case escalation-ambiguous-decision
-./bin/eval-roles --role analyst --case capability-resume-no-reinvoke
-./bin/eval-roles --role implementer --case capability-reads-brief-and-spec
-./bin/eval-roles --role reviewer --case capability-spot-defect
-./bin/eval-roles --role reviewer --case capability-clean-verify
-```
-
-- [ ] **Step 4: Run the untouched cases to confirm no regression**
-
-```bash
-./bin/eval-roles --role implementer --case capability-basic-bugfix
-./bin/eval-roles --role implementer --case escalation-ambiguous-task
-./bin/eval-roles --role reviewer --case escalation-ambiguous-task
-```
-
-Expected: unchanged behavior — each still exercises the "no Comet Native change found" fallback path exactly as it did before this whole change (per "Notes on task ordering" item 6).
-
-- [ ] **Step 5: Record and act on findings**
-
-If any run's outcome, `next_owner`, or `diff_scope` disagrees with its `expect.yaml`, treat it the way `README.md`'s own eval-roles section documents — do not treat a fixture-authoring assumption (state file path/shape, phase name) as sacred over what the real CLI actually did. The specific places this plan already named as "confirm empirically, adjust if wrong" are: `archiveReadyPhase`/`cometStatus.Phase` in `internal/pipeline/archive.go` (Task 5), and the `fixture_tests` commands in Tasks 14/15 that grep for a `comet-state.yaml`-shaped file. Fix forward with a new commit; do not silently weaken an `expect.yaml` assertion to make a case pass without understanding why it initially didn't.
-
-- [ ] **Step 6: Final commit, if Step 5 produced fixes**
-
-```bash
-git add -A
-git status --short   # confirm the diff is exactly the fix, nothing stray
-git commit -m "fix: correct Comet Native assumptions found by the live golden-case run"
-```
+Steps 3–6 did not go as originally planned above: the first live attempts (still on bind-mount, before `--clone` existed) hit a chain of real blockers — the `comet` skill's entry protocol, then `root-move.lock` conflicts on the bind-mount itself — that turned into Tasks 17–21 (sbx bootstrap, the beta.20 bump, the `--task-key` fix, the comet-entry-skill guard, and finally the `sbx --clone` backend). Once `--clone` landed, this task resumed and finished as described in "Task 16 resumption: live golden-case checkpoint with `--clone`" below: all 9 golden cases pass, including two fixture-authoring bugs found and fixed forward (a stale pre-seeded `projectRoot`, and one flaky `fixture_tests` assertion against Comet Native's own non-deterministic durable-state write) — exactly the "fix forward, don't treat a fixture assumption as sacred" instruction this step already called for, just discovered several tasks later than expected.
 
 ---
 
