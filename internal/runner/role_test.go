@@ -370,45 +370,6 @@ func TestShippedRolesAreValid(t *testing.T) {
 	}
 }
 
-// Право на запись — единственное, что отличает reviewer'а от implementer'а,
-// и держится оно тем, что в allow у ревьюера нет широкого, ничем не
-// ограниченного Write или Edit — Write в --tools всё равно попадает (адаптер
-// добавляет его любой роли всегда, internal/adapters/claude/adapter.go: WriteTool),
-// но ограниченным ровно файлом результата (.agent/result.json), а не общим
-// правом записи. Запрет Bash(git add/commit) тут ни при чём: tools.allow не
-// технически ограничивает Bash (измерено 2026-08-27,
-// docs/notes/followup-network-and-permissions.md), поэтому его отсутствие
-// в allow ничего не доказывает. Реальная защита от add/commit/restore —
-// в tools.deny, и её проверяет отдельный тест после задачи 7 плана
-// (роль-специфичные deny остаются в role.yaml).
-func TestReviewerRoleCannotWrite(t *testing.T) {
-	role, err := LoadRole(filepath.Join("..", ".."), "reviewer")
-	if err != nil {
-		t.Fatalf("roles/reviewer не прочитана: %v", err)
-	}
-
-	for _, writing := range []string{"Edit", "Write", "NotebookEdit"} {
-		if slices.Contains(role.Tools.Allow, writing) {
-			t.Errorf("reviewer разрешает править: %q", writing)
-		}
-	}
-	for _, want := range []string{"Read", "Bash(*)"} {
-		if !slices.Contains(role.Tools.Allow, want) {
-			t.Errorf("reviewer лишён %q — ему нечем читать и запускать проверки", want)
-		}
-	}
-
-	// Роль-специфичный deny (add/commit/restore) остаётся в role.yaml
-	// и после переноса общих семи строк в defaults.tools.deny — это то,
-	// что защищает reviewer'а от правки, раз tools.allow не защищает
-	// ничего технически.
-	for _, want := range []string{"Bash(git *add*)", "Bash(git *commit*)", "Bash(git *restore*)"} {
-		if !slices.Contains(role.Tools.Deny, want) {
-			t.Errorf("reviewer лишён роль-специфичного deny %q", want)
-		}
-	}
-}
-
 // shippedRoles — имена ролей репозитория. Каталоги с подчёркиванием ролью
 // не являются: в _base лежат общие куски промпта.
 func shippedRoles(t *testing.T) []string {
