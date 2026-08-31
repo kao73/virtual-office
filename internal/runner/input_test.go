@@ -442,3 +442,28 @@ func TestPrepareInputRemovesResultOfPreviousRun(t *testing.T) {
 		t.Errorf("результат прошлого прогона пережил подготовку входа: %v", err)
 	}
 }
+
+// run.log лежит внутри Dir и в бэкенде sbx --clone едет туда-обратно
+// с остальным каталогом обмена (internal/backends/sbx/clone.go): чужой,
+// оставшийся от прошлого прогона лог, занесённый в песочницу раньше, чем
+// os.Create(logPath) его обрежет, приезжает назад поверх свежего и подменяет
+// собой то, что runagent.Execute потом читает для расхода и классификации
+// окончания прогона. Найдено ревью Task 21.
+func TestPrepareInputRemovesLogOfPreviousRun(t *testing.T) {
+	workdir, role := gitRepo(t), fixtureRole(t)
+	path := filepath.Join(workdir, Dir, FileLog)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("каталог обмена не создан: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("чужой лог прошлого прогона\n"), 0o644); err != nil {
+		t.Fatalf("лог прошлого прогона не записан: %v", err)
+	}
+
+	if err := PrepareInput(workdir, role, fixturePassport(), Input{Task: "Задача\n"}); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("лог прошлого прогона пережил подготовку входа: %v", err)
+	}
+}

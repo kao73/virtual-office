@@ -31,7 +31,7 @@ func TestRunRoleAgentParsesResult(t *testing.T) {
 	t.Setenv("FAKE_AGENT_RESULT", `{"outcome":"done","summary":"готово","next_owner":"none"}`)
 	t.Setenv("FAKE_AGENT_EXIT", "0")
 
-	result, code, err := runRoleAgent(bin, ".", "implementer", workdir, taskPath, "")
+	result, code, err := runRoleAgent(bin, ".", "implementer", workdir, taskPath, "", false)
 	if err != nil {
 		t.Fatalf("run-agent не разобран: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestRunRoleAgentPassesTaskKey(t *testing.T) {
 	}
 	t.Setenv("FAKE_AGENT_RESULT", `{"outcome":"done","summary":"готово","next_owner":"none"}`)
 
-	if _, _, err := runRoleAgent(bin, ".", "implementer", workdir, taskPath, "eval-brief"); err != nil {
+	if _, _, err := runRoleAgent(bin, ".", "implementer", workdir, taskPath, "eval-brief", false); err != nil {
 		t.Fatalf("run-agent не разобран: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestRunRoleAgentReportsInfraFailure(t *testing.T) {
 
 	t.Setenv("FAKE_AGENT_EXIT", "2")
 
-	_, code, err := runRoleAgent(bin, ".", "implementer", workdir, taskPath, "")
+	_, code, err := runRoleAgent(bin, ".", "implementer", workdir, taskPath, "", false)
 	if err == nil {
 		t.Fatal("инфраструктурная беда (код 2) не замечена")
 	}

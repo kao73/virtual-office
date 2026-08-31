@@ -169,6 +169,53 @@ func TestDryRunNamesCometChangeDirFromTaskKey(t *testing.T) {
 	}
 }
 
+// --clone меняет саму природу Workspaces (клон вместо бинд-маунта) — dry-run
+// обязан показать это тем же взглядом, каким показывает обычные рабочие
+// пространства, иначе выбор бэкенда остаётся невидим до настоящего платного
+// прогона.
+func TestDryRunCloneSetsCloneSync(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	branch := currentBranch(t, workdir)
+
+	code, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--clone", "--dry-run")
+	if code != 0 {
+		t.Fatalf("код %d, ожидался 0; вывод: %s", code, out)
+	}
+	// Полная отрендеренная строка, не подстрока: ".agent"/".comet" сами по
+	// себе не показательны — системный промпт implementer'а упоминает
+	// ".agent" и без --clone (проверено: без флага "каталоги:" в выводе нет
+	// вовсе, а голое ".agent" встречается 7 раз).
+	for _, want := range []string{
+		"ветка:      " + branch,
+		"вернуть в:  " + workdir,
+		"каталоги:   .agent, .comet/current-change.json, .comet/runtime",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("в выводе --clone нет %q:\n%s", want, out)
+		}
+	}
+}
+
+// --clone без ветки подтягивать некуда: отделённый HEAD — не тот случай,
+// когда можно молча продолжить и потерять работу агента при сносе песочницы.
+func TestCloneWithoutBranchFails(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	if out, err := exec.Command("git", "-C", workdir, "checkout", "-q", "--detach").CombinedOutput(); err != nil {
+		t.Fatalf("HEAD не отделён: %v: %s", err, out)
+	}
+
+	code, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--clone", "--dry-run")
+	if code != 2 {
+		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+	}
+}
+
 // Список доменов роли на бэкенде без песочницы не значит ничего. Промолчать
 // об этом — значит дать человеку поверить, что сеть закрыта: он читает role.yaml,
 // а не исходники бэкенда.

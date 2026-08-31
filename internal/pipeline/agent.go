@@ -35,6 +35,13 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (AgentRun, error) {
 		a.logf("%s: %s", req.Passport.TaskKey, notice)
 	}
 
+	// Options.Clone нарочно не выставляется: конвейер работает на паре
+	// bare-репозиторий+worktree (req.Mounts = ws.Mounts()), а --clone её
+	// не принимает — и то, и другое отвергает вживую (не bare, не worktree).
+	// Подключение этого пути (сперва обычный клон ветки задачи, потом
+	// фетч-мёрж в тот же worktree, что видит всё остальное этой функции)
+	// — отдельная, более рискованная задача, не сделанная пока: см.
+	// docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md, Task 21.
 	out, err := runagent.Execute(ctx, runagent.Options{
 		ConfigRoot: a.ConfigRoot,
 		Role:       req.Role,

@@ -83,6 +83,18 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 		return fmt.Errorf("результат прошлого прогона не убран: %w", err)
 	}
 
+	// Тем же рассуждением: run.log лежит внутри Dir и в бэкенде sbx --clone
+	// путешествует вместе с ним туда-обратно (internal/backends/sbx/clone.go)
+	// — чужой лог, занесённый в песочницу до того, как os.Create(logPath)
+	// его обрежет, приезжает назад поверх свежего и подменяет собой то, что
+	// runagent.Execute потом читает для расхода, классификации окончания
+	// и архива прогона. На бинд-маунте безобидно (os.Create и так обрезает
+	// единственный файл), но убирать здесь надёжнее, чем полагаться на то,
+	// какой бэкенд выбран.
+	if err := os.Remove(filepath.Join(agentDir, FileLog)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("лог прошлого прогона не убран: %w", err)
+	}
+
 	if err := ExcludeAgentDir(workdir); err != nil {
 		return err
 	}

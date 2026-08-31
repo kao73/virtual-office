@@ -56,8 +56,18 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 		return -1, err
 	}
 	// Песочницу сносим в любом исходе: брошенная песочница держит ресурсы
-	// и путается под ногами у следующего прогона.
+	// и путается под ногами у следующего прогона. При l.Clone это ещё
+	// и безвозвратный снос коммитов агента — sbx сам предупреждает об этом
+	// при rm, — поэтому синхронизация ниже обязана состояться раньше.
 	defer remove(name)
+
+	var presentOnEntry []string
+	if l.Clone != nil {
+		var err error
+		if presentOnEntry, err = cloneSyncIn(ctx, name, l, sbxRun); err != nil {
+			return -1, fmt.Errorf("каталоги обмена не занесены в песочницу %s: %w", name, err)
+		}
+	}
 
 	log, err := os.Create(logPath)
 	if err != nil {
@@ -77,20 +87,17 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 
 	runErr := cmd.Run()
 
-	if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
-		// Обёрнутая runner.ErrRunTimeout, а не просто текст: вышедшее время
-		// означает «работал и не успел», а прочие беды этой функции — «прогона
-		// не было». По коду -1 они неразличимы, по errors.Is — да.
-		return -1, runner.RunTimeout(l.Timeout, "песочница "+name)
+	// При l.Clone работа агента лежит только внутри песочницы: без этого
+	// шага её унесёт defer remove выше, даже если сам прогон формально
+	// удался. Синхронизируем при любом исходе — усечённый по таймауту или
+	// пределу шагов прогон по правилам роли не начинают заново, а продолжают
+	// с места, до которого дошли, и без него продолжать было бы не с чем.
+	var cloneErr error
+	if l.Clone != nil {
+		cloneErr = cloneSyncOut(ctx, name, l, sbxRun, presentOnEntry, log)
 	}
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
-		return exitErr.ExitCode(), nil
-	}
-	if runErr != nil {
-		return -1, fmt.Errorf("агент не запущен в песочнице %s: %w", name, runErr)
-	}
-	return 0, nil
+
+	return cloneOutcome(log, name, errors.Is(execCtx.Err(), context.DeadlineExceeded), l.Timeout, runErr, cloneErr)
 }
 
 // step — один вызов sbx. Подменяется в тестах: порядок шагов подготовки важен,
@@ -212,9 +219,18 @@ func (s Sandboxes) exec(args ...string) (string, error) {
 
 // createArgs собирает команду создания песочницы. Рабочие пространства идут
 // после имени агента; суффикс :ro означает монтирование только на чтение.
+//
+// При l.Clone первый Workspaces обязан остаться read/write (--clone требует
+// этого сам: «primary workspace must be read/write», измерено вживую) —
+// вызывающий это гарантирует, ставя туда одноразовый клон-источник, а не
+// каталог только на чтение.
 func createArgs(name string, l *runner.Launch) []string {
-	args := make([]string, 0, 6+len(l.Workspaces))
-	args = append(args, "create", "--name", name, "--template", Template, Agent)
+	args := make([]string, 0, 7+len(l.Workspaces))
+	args = append(args, "create", "--name", name, "--template", Template)
+	if l.Clone != nil {
+		args = append(args, "--clone")
+	}
+	args = append(args, Agent)
 	for _, ws := range l.Workspaces {
 		path := ws.Path
 		if ws.ReadOnly {

@@ -136,7 +136,7 @@ func TestEvaluateCaseAggregatesPassed(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 	if outcome.Status != "passed" {
 		t.Errorf("status=%q, ожидался passed: %+v", outcome.Status, outcome)
 	}
@@ -178,7 +178,7 @@ func TestEvaluateCaseDiffScopeIgnoresAgentDir(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 	if outcome.Status != "passed" {
 		t.Errorf("status=%q, ожидался passed (.agent/ должен быть исключён из diff_scope): %+v", outcome.Status, outcome)
 	}
@@ -200,7 +200,7 @@ func TestEvaluateCaseCatchesUnfixedBug(t *testing.T) {
 		t.Fatalf("случай не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 	if outcome.Status != "failed" {
 		t.Fatalf("status=%q, ожидался failed (баг в calc.go не исправлен, go test ./... обязан провалиться): %+v", outcome.Status, outcome)
 	}
@@ -256,7 +256,7 @@ func TestEvaluateCaseSpotDefectDistinguishesFoundVsMissed(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("FAKE_AGENT_RESULT", tc.summary)
-			outcome := evaluateCase(bin, ".", c, io.Discard, false)
+			outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 			if outcome.Status != tc.want {
 				t.Errorf("status=%q, ожидался %q: %+v", outcome.Status, tc.want, outcome)
 			}
@@ -278,7 +278,7 @@ func TestEvaluateCaseKeepsFixtureDirOnFailureWhenRequested(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	outcome := evaluateCase(bin, ".", c, &stderr, true)
+	outcome := evaluateCase(bin, ".", c, &stderr, true, false)
 	if outcome.Status != "failed" {
 		t.Fatalf("status=%q, ожидался failed: %+v", outcome.Status, outcome)
 	}
@@ -316,7 +316,7 @@ func TestEvaluateCaseRemovesFixtureDirOnFailureByDefault(t *testing.T) {
 		t.Fatalf("случай не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 	if outcome.Status != "failed" {
 		t.Fatalf("status=%q, ожидался failed: %+v", outcome.Status, outcome)
 	}
@@ -341,7 +341,7 @@ func TestEvaluateCaseErrorsOnMissingFixture(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase("/does/not/matter", ".", c, io.Discard, false)
+	outcome := evaluateCase("/does/not/matter", ".", c, io.Discard, false, false)
 	if outcome.Status != "errored" {
 		t.Errorf("status=%q, ожидался errored (нет fixture/)", outcome.Status)
 	}
