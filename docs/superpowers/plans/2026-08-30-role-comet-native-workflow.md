@@ -2664,11 +2664,11 @@ A scoped re-review of this fix round confirmed all 6 above genuinely resolved (i
 - `bootstrap/sbx-kits/README.md` mixed English connective words/possessives into Russian prose (`— see spec.yaml's network`, `comet-native's own continuation.skill`) — against this repo's CLAUDE.md language rule (Russian prose, English only for identifiers/config keys). Fixed.
 - `docs/notes/sbx.md`'s "Node is confirmed present" paragraph still argued a root-run `npm install -g` is fine (readable/executable files) without flagging that the *directory* it creates is the actual problem, and cited "confirmed... after a kit-driven install" for a configuration the kit no longer has. Fixed: reframed as a trap, pointing at the ownership fix.
 
-- [ ] **Step 12: Onboarding and `bootstrap/README.md`**
+- [x] **Step 12: Onboarding and `bootstrap/README.md`**
 
 `docs/ONBOARDING.md`'s "A5. Проверка машины" gets a new checkbox: `sbx template ls` shows `office-claude-comet:<версия>` — missing means the default `sbx` backend will fail every role run with `403 Forbidden: pull failed for image`, not obviously a bootstrap problem; run `bootstrap/sbx-kits/bake-comet-template.sh` and re-check. `bootstrap/README.md`'s opening paragraph ("Здесь то, что стоит вокруг офиса…: задания планировщика … и локальная JIRA …") gets `sbx-kits/` added to what it lists.
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit** — done as part of `1f443ee` (checkbox was left unticked by oversight; verified against the file content and commit history 2026-08-31).
 
 ```bash
 git add bootstrap/sbx-kits bootstrap/README.md docs/ONBOARDING.md internal/backends/sbx/sbx.go internal/backends/sbx/sbx_test.go docs/notes/sbx.md docs/superpowers/specs/2026-08-30-role-comet-native-workflow-design.md docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
@@ -2715,7 +2715,7 @@ Full `go build/vet/test` re-confirmed clean after the fix.
 
 A scoped re-review of just this fix drove the fixed command through a real, complete Shape→Build→Verify→Archive cycle (its own, independent of the first round's) and confirmed it now genuinely reaches `archive-ready` and archives — `internal/pipeline/archive.go`'s gate fires, `comet native archive` succeeds. It also read the live `commandAlternatives` response directly and found two minor wording problems in the new `role.md` prose, both fixed: it said "one object per each of the four flags," but the array holds exactly three entries at this gate (`--confirmed` is structurally excluded, never appears there); and it called the alternative's `commandArgs` "ready to run," when the `--summary` value is actually a literal `<summary>` placeholder the CLI does not itself catch if executed unsubstituted — the wording now says so explicitly. Nothing else from either round's fix was found wrong.
 
-- [ ] **Commit**
+- [x] **Commit** — done as part of `f32d953` (checkbox was left unticked by oversight; verified against role.md content and commit history 2026-08-31).
 
 ```bash
 git add skills/comet skills/comet-native bootstrap/sbx-kits/comet-cli internal/backends/sbx/sbx.go bootstrap/sbx-kits/bake-comet-template.sh roles/reviewer/role.md docs/superpowers/specs/2026-08-30-role-comet-native-workflow-design.md docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
@@ -2760,7 +2760,7 @@ Also noted by the review, informational rather than a defect: `context.md` for a
 
 Full repo `go build/vet/test -count=1` (fresh, not cached) clean after both fixes.
 
-- [ ] **Commit**
+- [x] **Commit** — done as part of `7996f51` (checkbox was left unticked by oversight; verified against commit history 2026-08-31).
 
 ```bash
 git add cmd/eval-roles cmd/run-agent docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md
@@ -2942,4 +2942,4 @@ Raised by the user directly, reasoning from their own `/pr-converge` skill in an
 
 Verification: `go build ./... && go vet ./... && go test ./...` clean across every package. Dry-run of `run-agent --role reviewer --backend sbx --dry-run` confirmed the rendered `--tools` includes `Edit,Write`, `permissions.allow` grants them broadly, and no `deny` block remains for reviewer — matching implementer/analyst's shape exactly.
 
-- [ ] **Commit**
+- [x] **Commit** — `3b20bec`.
