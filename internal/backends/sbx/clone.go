@@ -54,6 +54,15 @@ const excludeFile = ".git/info/exclude"
 // и кэш локального исполнения .comet/runtime/ исключены из git нарочно
 // (runner.ExcludeAgentDir, runner.ExcludeCometRuntime).
 //
+// containerRoot (l.Workspaces[0].Path) адресует только то, что sbx cp/sbx exec
+// видят ВНУТРИ песочницы — тот путь, куда sbx create --clone сам клонировал
+// свой источник. Всё, что читается с хоста (exclude-файл, содержимое Dirs),
+// идёт через l.Clone.FetchInto — настоящую рабочую папку задачи, которая
+// может не совпадать с containerRoot (пайплайновый клон-источник —
+// одноразовый и отдельный от неё; см. internal/workspace.CloneSource).
+// У сегодняшнего ручного `run-agent --clone` оба пути равны нарочно, и для
+// него поведение не меняется.
+//
 // Возвращает те из l.Clone.Dirs, что реально нашлись на хосте на момент
 // прогона: cloneSyncOut использует этот список, чтобы отличить «каталога
 // в песочнице не было и на входе — не наше упущение» от «агент должен был
@@ -62,34 +71,35 @@ func cloneSyncIn(ctx context.Context, name string, l *runner.Launch, run step) (
 	ctx, cancel := context.WithTimeout(ctx, cloneSyncTimeout)
 	defer cancel()
 
-	primary := l.Workspaces[0].Path
+	containerRoot := l.Workspaces[0].Path
 
-	if err := syncExcludeFile(ctx, name, primary, run); err != nil {
+	if err := syncExcludeFile(ctx, name, containerRoot, l.Clone.FetchInto, run); err != nil {
 		return nil, fmt.Errorf("правила git-исключения не занесены: %w", err)
 	}
 
 	var present, paths []string
 	for _, dir := range l.Clone.Dirs {
-		src := filepath.Join(primary, dir)
-		switch _, err := os.Stat(src); {
+		hostSrc := filepath.Join(l.Clone.FetchInto, dir)
+		containerDst := filepath.Join(containerRoot, dir)
+		switch _, err := os.Stat(hostSrc); {
 		case errors.Is(err, os.ErrNotExist):
 			continue // .comet/ бывает не заведён вовсе — задача без изменения Comet Native
 		case err != nil:
-			return nil, fmt.Errorf("%s не проверен: %w", src, err)
+			return nil, fmt.Errorf("%s не проверен: %w", hostSrc, err)
 		}
 		// .comet/ может не существовать внутри свежего клона вовсе (роль ещё
 		// не закоммитила .comet/config.yaml, и .comet/runtime/ тем более не
 		// заведён) — тогда sbx cp либо откажет, либо поведёт себя
 		// недокументированно. Заводим родителя явно, а не полагаемся на то,
 		// что цель уже есть.
-		if err := run(ctx, "exec", name, "mkdir", "-p", filepath.Dir(src)); err != nil {
-			return nil, fmt.Errorf("%s внутри песочницы не заведён: %w", filepath.Dir(src), err)
+		if err := run(ctx, "exec", name, "mkdir", "-p", filepath.Dir(containerDst)); err != nil {
+			return nil, fmt.Errorf("%s внутри песочницы не заведён: %w", filepath.Dir(containerDst), err)
 		}
-		if err := run(ctx, "cp", src, name+":"+filepath.Dir(src)+"/"); err != nil {
+		if err := run(ctx, "cp", hostSrc, name+":"+filepath.Dir(containerDst)+"/"); err != nil {
 			return nil, err
 		}
 		present = append(present, dir)
-		paths = append(paths, src)
+		paths = append(paths, containerDst)
 	}
 	if len(paths) == 0 {
 		return present, nil
@@ -97,12 +107,13 @@ func cloneSyncIn(ctx context.Context, name string, l *runner.Launch, run step) (
 
 	// sbx cp заносит каталог с хостовым владельцем (измерено вживую): без
 	// chown агент внутри песочницы (uid agent) не может в него писать.
+	// chown зовётся внутри песочницы, поэтому paths здесь — контейнерные пути.
 	args := append([]string{"exec", "-u", "root", name, "chown", "-R", "agent:agent"}, paths...)
 	if err := run(ctx, args...); err != nil {
 		return nil, err
 	}
 
-	if err := clearStaleCometLocks(ctx, name, primary, present, run); err != nil {
+	if err := clearStaleCometLocks(ctx, name, containerRoot, present, run); err != nil {
 		return nil, err
 	}
 	return present, nil
@@ -145,21 +156,62 @@ func clearStaleCometLocks(ctx context.Context, name, primary string, present []s
 	return nil
 }
 
-// syncExcludeFile переносит хостовые правила git-исключения (excludeFile)
-// внутрь свежего git-клона песочницы. Источника может не быть только если
-// эта рабочая папка никогда не проходила через runner.PrepareInput —
-// такого сегодня не бывает ни у одного вызывающего, но падать на этом
-// незачем: без файла агент просто увидит .agent/.comet как некомментированную
-// грязь, что не хуже сегодняшнего поведения без --clone вовсе.
-func syncExcludeFile(ctx context.Context, name, primary string, run step) error {
-	src := filepath.Join(primary, excludeFile)
+// resolveExcludeFile находит, где на хосте на самом деле лежат правила
+// git-исключения для hostRoot: у обычного репозитория это hostRoot/excludeFile
+// напрямую (быстрый путь, без обращения к git — сегодняшний единственный
+// вызывающий, cmd/run-agent --clone, всегда именно такой), а у worktree'а
+// .git — файл-ссылка, а не каталог, и общий git-каталог (где реально лежит
+// info/exclude) резолвится через `git rev-parse --git-common-dir`, тем же
+// приёмом, что уже применяют appendExcludeRules/removeExcludeRule
+// (internal/runner/input.go).
+func resolveExcludeFile(hostRoot string) (string, error) {
+	info, err := os.Stat(filepath.Join(hostRoot, ".git"))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// Хостовая папка ещё не git-репозиторий (сегодня такого не бывает
+		// ни у одного вызывающего) — путь всё равно возвращаем, дальнейший
+		// os.Stat в syncExcludeFile сам законно ответит «источника нет».
+		return filepath.Join(hostRoot, excludeFile), nil
+	case err != nil:
+		return "", fmt.Errorf("%s/.git не проверен: %w", hostRoot, err)
+	case info.IsDir():
+		return filepath.Join(hostRoot, excludeFile), nil
+	}
+
+	// .git — файл: hostRoot — worktree, общий git-каталог лежит не здесь.
+	out, err := exec.Command("git", "-C", hostRoot, "rev-parse", "--git-common-dir").Output()
+	if err != nil {
+		return "", fmt.Errorf("общий git-каталог %s не определён: %w", hostRoot, err)
+	}
+	common := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(hostRoot, common)
+	}
+	return filepath.Join(common, "info", "exclude"), nil
+}
+
+// syncExcludeFile переносит хостовые правила git-исключения внутрь свежего
+// git-клона песочницы. containerRoot — куда класть внутри песочницы (sbx
+// cp/sbx exec это видят); hostRoot — l.Clone.FetchInto, где эти правила
+// реально лежат на хосте (resolveExcludeFile разрешает worktree-случай).
+// Источника может не быть только если эта рабочая папка никогда не проходила
+// через runner.PrepareInput — такого сегодня не бывает ни у одного
+// вызывающего, но падать на этом незачем: без файла агент просто увидит
+// .agent/.comet как некомментированную грязь, что не хуже сегодняшнего
+// поведения без --clone вовсе.
+func syncExcludeFile(ctx context.Context, name, containerRoot, hostRoot string, run step) error {
+	src, err := resolveExcludeFile(hostRoot)
+	if err != nil {
+		return err
+	}
 	switch _, err := os.Stat(src); {
 	case errors.Is(err, os.ErrNotExist):
 		return nil
 	case err != nil:
 		return fmt.Errorf("%s не проверен: %w", src, err)
 	}
-	return run(ctx, "cp", src, name+":"+filepath.Dir(src)+"/")
+	dst := filepath.Join(containerRoot, excludeFile)
+	return run(ctx, "cp", src, name+":"+filepath.Dir(dst)+"/")
 }
 
 // notFoundInContainer — как sbx cp сообщает про путь, которого в песочнице
@@ -227,13 +279,13 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 	ctx, cancel := context.WithTimeout(context.Background(), cloneSyncTimeout)
 	defer cancel()
 
-	primary := l.Workspaces[0].Path
+	containerRoot := l.Workspaces[0].Path
 
-	sweepErr := commitLeftovers(ctx, log, name, primary, l.Clone.Dirs, run)
+	sweepErr := commitLeftovers(ctx, log, name, containerRoot, l.Clone.Dirs, run)
 	if sweepErr != nil {
 		fmt.Fprintf(log, "\nпесочница %s: подчистка незакоммиченного не удалась: %v\n", name, sweepErr)
 	}
-	if err := fetchBranch(ctx, name, primary, l.Clone); err != nil {
+	if err := fetchBranch(ctx, name, containerRoot, l.Clone); err != nil {
 		return err
 	}
 
@@ -244,11 +296,12 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 	// каталогов вместо коммитов. Сеть безопасности commitLeftovers не
 	// вправе отменять ни то, ни другое.
 	for _, dir := range l.Clone.Dirs {
-		dst := filepath.Join(primary, dir)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("%s на хосте не заведён: %w", filepath.Dir(dst), err)
+		containerSrc := filepath.Join(containerRoot, dir)
+		hostDst := filepath.Join(l.Clone.FetchInto, dir)
+		if err := os.MkdirAll(filepath.Dir(hostDst), 0o755); err != nil {
+			return fmt.Errorf("%s на хосте не заведён: %w", filepath.Dir(hostDst), err)
 		}
-		err := run(ctx, "cp", name+":"+dst, filepath.Dir(dst)+"/")
+		err := run(ctx, "cp", name+":"+containerSrc, filepath.Dir(hostDst)+"/")
 		if err == nil {
 			continue
 		}

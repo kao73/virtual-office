@@ -64,14 +64,16 @@ func primaryWithExclude(t *testing.T, dirs ...string) string {
 }
 
 func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
-	primary := primaryWithExclude(t, ".agent")
-	agentDir := filepath.Join(primary, ".agent")
+	hostRoot := primaryWithExclude(t, ".agent")
+	containerRoot := t.TempDir()
+	agentDirHost := filepath.Join(hostRoot, ".agent")
+	agentDirContainer := filepath.Join(containerRoot, ".agent")
 	// .comet намеренно не заводим: задача без активного изменения Comet Native
 	// его не имеет вовсе, и это законный случай, а не пропуск.
 
 	l := &runner.Launch{
-		Workspaces: []runner.Workspace{{Path: primary}},
-		Clone:      &runner.CloneSync{Dirs: []string{".agent", ".comet"}},
+		Workspaces: []runner.Workspace{{Path: containerRoot}},
+		Clone:      &runner.CloneSync{FetchInto: hostRoot, Dirs: []string{".agent", ".comet"}},
 	}
 	rec := &recordedStep{}
 
@@ -87,17 +89,17 @@ func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
 		t.Fatalf("ожидалось 4 вызова (exclude + mkdir + cp + chown), получено %d: %q", len(rec.calls), rec.calls)
 	}
 	excludeCall := rec.calls[0]
-	wantExclude := []string{"cp", filepath.Join(primary, excludeFile), "office-test:" + filepath.Join(primary, ".git/info") + "/"}
+	wantExclude := []string{"cp", filepath.Join(hostRoot, excludeFile), "office-test:" + filepath.Join(containerRoot, ".git/info") + "/"}
 	if !slices.Equal(excludeCall, wantExclude) {
 		t.Errorf("перенос exclude\nполучено:  %q\nожидалось: %q", excludeCall, wantExclude)
 	}
 	mkdir := rec.calls[1]
-	wantMkdir := []string{"exec", "office-test", "mkdir", "-p", primary}
+	wantMkdir := []string{"exec", "office-test", "mkdir", "-p", containerRoot}
 	if !slices.Equal(mkdir, wantMkdir) {
 		t.Errorf("mkdir -p\nполучено:  %q\nожидалось: %q", mkdir, wantMkdir)
 	}
 	cp := rec.calls[2]
-	wantCP := []string{"cp", agentDir, "office-test:" + primary + "/"}
+	wantCP := []string{"cp", agentDirHost, "office-test:" + containerRoot + "/"}
 	if !slices.Equal(cp, wantCP) {
 		t.Errorf("cp\nполучено:  %q\nожидалось: %q", cp, wantCP)
 	}
@@ -105,8 +107,8 @@ func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
 	if chown[0] != "exec" || chown[1] != "-u" || chown[2] != "root" {
 		t.Fatalf("chown не запущен от root: %q", chown)
 	}
-	if !slices.Contains(chown, agentDir) {
-		t.Errorf("chown не назвал %s: %q", agentDir, chown)
+	if !slices.Contains(chown, agentDirContainer) {
+		t.Errorf("chown не назвал %s: %q", agentDirContainer, chown)
 	}
 	if slices.ContainsFunc(chown, func(s string) bool { return strings.Contains(s, ".comet") }) {
 		t.Errorf("chown зацепил несуществующий .comet: %q", chown)
@@ -121,8 +123,9 @@ func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
 // «Находки живого прогона EXP-2»). Свежая песочница обязана начинать
 // с чистыми locks — остальной .comet/runtime переносится как есть.
 func TestCloneSyncInClearsStaleLocksFromCometRuntime(t *testing.T) {
-	primary := primaryWithExclude(t, ".comet/runtime")
-	locksDir := filepath.Join(primary, ".comet/runtime/native/locks")
+	hostRoot := primaryWithExclude(t, ".comet/runtime")
+	containerRoot := t.TempDir()
+	locksDir := filepath.Join(hostRoot, ".comet/runtime/native/locks")
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +134,8 @@ func TestCloneSyncInClearsStaleLocksFromCometRuntime(t *testing.T) {
 	}
 
 	l := &runner.Launch{
-		Workspaces: []runner.Workspace{{Path: primary}},
-		Clone:      &runner.CloneSync{Dirs: []string{".comet/runtime"}},
+		Workspaces: []runner.Workspace{{Path: containerRoot}},
+		Clone:      &runner.CloneSync{FetchInto: hostRoot, Dirs: []string{".comet/runtime"}},
 	}
 	rec := &recordedStep{}
 
@@ -141,18 +144,19 @@ func TestCloneSyncInClearsStaleLocksFromCometRuntime(t *testing.T) {
 	}
 
 	last := rec.calls[len(rec.calls)-1]
-	want := []string{"exec", "office-test", "rm", "-rf", locksDir}
+	want := []string{"exec", "office-test", "rm", "-rf", filepath.Join(containerRoot, runner.CometRuntimeLocksRel)}
 	if !slices.Equal(last, want) {
 		t.Errorf("устаревшие locks не убраны последним вызовом\nполучено:  %q\nожидалось: %q", last, want)
 	}
 }
 
 func TestCloneSyncInNoopWhenNothingToSync(t *testing.T) {
-	primary := t.TempDir() // ни .git/info/exclude, ни .agent, ни .comet не заведены
+	hostRoot := t.TempDir() // ни .git/info/exclude, ни .agent, ни .comet не заведены
+	containerRoot := t.TempDir()
 
 	l := &runner.Launch{
-		Workspaces: []runner.Workspace{{Path: primary}},
-		Clone:      &runner.CloneSync{Dirs: []string{".agent", ".comet"}},
+		Workspaces: []runner.Workspace{{Path: containerRoot}},
+		Clone:      &runner.CloneSync{FetchInto: hostRoot, Dirs: []string{".agent", ".comet"}},
 	}
 	rec := &recordedStep{}
 
@@ -169,11 +173,12 @@ func TestCloneSyncInNoopWhenNothingToSync(t *testing.T) {
 }
 
 func TestCloneSyncInPropagatesCPFailure(t *testing.T) {
-	primary := primaryWithExclude(t, ".agent")
+	hostRoot := primaryWithExclude(t, ".agent")
+	containerRoot := t.TempDir()
 
 	l := &runner.Launch{
-		Workspaces: []runner.Workspace{{Path: primary}},
-		Clone:      &runner.CloneSync{Dirs: []string{".agent"}},
+		Workspaces: []runner.Workspace{{Path: containerRoot}},
+		Clone:      &runner.CloneSync{FetchInto: hostRoot, Dirs: []string{".agent"}},
 	}
 	// Первый вызов — перенос exclude, он должен пройти; второй — mkdir -p,
 	// тоже должен пройти; беда — на самом cp каталога.
@@ -192,30 +197,78 @@ func TestCloneSyncInPropagatesCPFailure(t *testing.T) {
 // git-исключения агент внутри увидел бы .agent/.comet как обычную грязь
 // рабочего дерева, а не как исключённое — role.md обещает роли обратное.
 func TestSyncExcludeFileCopiesHostRules(t *testing.T) {
-	primary := primaryWithExclude(t)
+	hostRoot := primaryWithExclude(t)
+	containerRoot := t.TempDir()
 	rec := &recordedStep{}
 
-	if err := syncExcludeFile(context.Background(), "office-test", primary, rec.run); err != nil {
+	if err := syncExcludeFile(context.Background(), "office-test", containerRoot, hostRoot, rec.run); err != nil {
 		t.Fatalf("syncExcludeFile: %v", err)
 	}
 	if len(rec.calls) != 1 {
 		t.Fatalf("ожидался 1 вызов, получено %d: %q", len(rec.calls), rec.calls)
 	}
-	want := []string{"cp", filepath.Join(primary, excludeFile), "office-test:" + filepath.Join(primary, ".git/info") + "/"}
+	want := []string{"cp", filepath.Join(hostRoot, excludeFile), "office-test:" + filepath.Join(containerRoot, ".git/info") + "/"}
 	if !slices.Equal(rec.calls[0], want) {
 		t.Errorf("получено:  %q\nожидалось: %q", rec.calls[0], want)
 	}
 }
 
 func TestSyncExcludeFileNoopWithoutSource(t *testing.T) {
-	primary := t.TempDir() // .git/info/exclude не заведён
+	hostRoot := t.TempDir() // .git/info/exclude не заведён
+	containerRoot := t.TempDir()
 	rec := &recordedStep{}
 
-	if err := syncExcludeFile(context.Background(), "office-test", primary, rec.run); err != nil {
+	if err := syncExcludeFile(context.Background(), "office-test", containerRoot, hostRoot, rec.run); err != nil {
 		t.Fatalf("syncExcludeFile: %v", err)
 	}
 	if len(rec.calls) != 0 {
 		t.Errorf("sbx позван без источника: %q", rec.calls)
+	}
+}
+
+// Задача 3 (docs/superpowers/specs/2026-09-02-pipeline-clone-wiring-design.md):
+// хостовой источник exclude-правил теперь — l.Clone.FetchInto, и в
+// конвейерном случае это настоящий git worktree, а не обычный репозиторий.
+// У worktree'а .git — файл-ссылка, а не каталог, и info/exclude лежит
+// не рядом с рабочей копией, а в общем git-каталоге основного репозитория.
+func TestSyncExcludeFileResolvesRealWorktree(t *testing.T) {
+	// EvalSymlinks: на macOS TMPDIR лежит под /var, который сам — симлинк на
+	// /private/var, а `git rev-parse --git-common-dir` (внутри resolveExcludeFile)
+	// печатает уже разрешённый, канонический путь. Без этого сравнение путей
+	// ниже ложно падает на macOS, хотя реализация нашла ровно верный файл.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainRepo := filepath.Join(root, "main")
+	if out, err := exec.Command("git", "init", "-q", "-b", "master", mainRepo).CombinedOutput(); err != nil {
+		t.Fatalf("репозиторий не создан: %v\n%s", err, out)
+	}
+	runGit(t, mainRepo, "commit", "-q", "--allow-empty", "-m", "начало")
+
+	worktree := filepath.Join(root, "worktree")
+	runGit(t, mainRepo, "worktree", "add", "-q", "-b", "agent/OFF-1", worktree)
+
+	commonExclude := filepath.Join(mainRepo, ".git", "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(commonExclude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(commonExclude, []byte("/.agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	containerRoot := t.TempDir()
+	rec := &recordedStep{}
+
+	if err := syncExcludeFile(context.Background(), "office-test", containerRoot, worktree, rec.run); err != nil {
+		t.Fatalf("syncExcludeFile: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Fatalf("ожидался 1 вызов, получено %d: %q", len(rec.calls), rec.calls)
+	}
+	want := []string{"cp", commonExclude, "office-test:" + filepath.Join(containerRoot, ".git/info") + "/"}
+	if !slices.Equal(rec.calls[0], want) {
+		t.Errorf("worktree-источник не разрешён верно\nполучено:  %q\nожидалось: %q", rec.calls[0], want)
 	}
 }
 
@@ -297,6 +350,38 @@ func TestCloneSyncOutFailsWhenExpectedDirMissingOnExit(t *testing.T) {
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err == nil {
 		t.Fatal("пропажа каталога, который сама же занесла cloneSyncIn, прошла молча")
+	}
+}
+
+// Задача 3: Workspaces[0].Path (одноразовый клон-источник) и l.Clone.FetchInto
+// (настоящая рабочая папка задачи) — теперь разные пути, и Dirs обязана
+// адресовать песочницу через первый, а хост — через второй.
+func TestCloneSyncOutDirsUseContainerRootAndFetchIntoSeparately(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
+	}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
+
+	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err != nil {
+		t.Fatalf("cloneSyncOut: %v", err)
+	}
+
+	wantSrc := name + ":" + filepath.Join(primary, ".agent")
+	wantDst := filepath.Dir(filepath.Join(fetchInto, ".agent")) + "/"
+	var found bool
+	for _, call := range rec.calls {
+		if len(call) == 3 && call[0] == "cp" && call[1] == wantSrc {
+			found = true
+			if call[2] != wantDst {
+				t.Errorf("host-сторона cp = %q, ожидалось %q (FetchInto, не Workspaces[0].Path)", call[2], wantDst)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("cp .agent с сандбокс-стороной %q не позван: %q", wantSrc, rec.calls)
 	}
 }
 
