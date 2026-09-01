@@ -1,9 +1,11 @@
+# role-native-workflow Specification
+
 ## Purpose
 Gives `analyst`, `implementer`, and `reviewer` one shared, git-resumable Comet Native change
 (Shape/Build/Verify/Archive) to drive a task through, in place of each role's previously unrelated
 planning/build/review mechanism, with Archive left to deterministic runner code rather than a role.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Phase-to-role boundary
 Each role SHALL drive exactly the Comet Native phase(s) assigned to it and SHALL end its run at
@@ -21,13 +23,14 @@ that phase's boundary without performing the work of another role's phase.
 
 ### Requirement: Archive is deterministic runner code, not a role
 The system SHALL execute Comet Native's Archive step (`comet native archive --confirmed --finish
-keep`) as part of the runner's own deterministic post-merge processing, without dispatching any
-role or agent to perform it.
+keep`) as part of the runner's own deterministic pre-PR processing, before the task's pull request
+is opened, without dispatching any role or agent to perform it.
 
-#### Scenario: Archive runs after human PR merge with no agent invocation
-- **WHEN** the runner detects that a task's pull request has been merged
-- **THEN** the runner itself calls `comet native archive` for that task's change, and no role's
-  `.agent/task.md` is ever generated for the purpose of archiving
+#### Scenario: Archive runs before the pull request opens, with no agent invocation
+- **WHEN** the runner is about to open a task's pull request
+- **THEN** the runner itself calls `comet native archive` for that task's change on the task's own
+  branch before calling `OpenPR`, and no role's `.agent/task.md` is ever generated for the purpose
+  of archiving
 
 ### Requirement: Cross-run resumability through git-committed state
 A role resuming a task already in progress SHALL continue the same Comet Native change from its

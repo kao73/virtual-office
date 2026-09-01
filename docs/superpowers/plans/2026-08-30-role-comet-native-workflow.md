@@ -2,6 +2,7 @@
 change: role-comet-native-workflow
 design-doc: docs/superpowers/specs/2026-08-30-role-comet-native-workflow-design.md
 base-ref: 343cefa6c6c35cf277e53eff5cc78dc77f6d71c4
+archived-with: 2026-09-02-role-comet-native-workflow
 ---
 
 # Comet Native Role Workflow Implementation Plan

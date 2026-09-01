@@ -2,6 +2,8 @@
 comet_change: role-comet-native-workflow
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-02-role-comet-native-workflow
+status: final
 ---
 
 # role-comet-native-workflow — Technical Design
