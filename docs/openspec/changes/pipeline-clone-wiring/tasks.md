@@ -11,10 +11,10 @@
 
 ## 3. Split "container path root" from "host path root" in `internal/backends/sbx/clone.go`
 
-- [ ] 3.1 Change `cloneSyncIn`/`cloneSyncOut` to use `l.Workspaces[0].Path` only for the in-container path root (what `sbx cp`/`sbx exec` addresses inside the sandbox) and `l.Clone.FetchInto` for every host-side read/write (exclude-file source, `Dirs` sources and destinations).
-- [ ] 3.2 Resolve `syncExcludeFile`'s source path against `FetchInto` in a worktree-safe way (e.g. `git rev-parse --git-common-dir`), keeping the current direct `.git/info/exclude` lookup as a fast path when the host source is confirmed not a worktree.
-- [ ] 3.3 Update `clone_test.go`'s fakes/table-driven tests to cover `Workspaces[0].Path != FetchInto`, asserting the sandbox-side argument stays anchored to `Workspaces[0].Path` and the host-side argument moves to `FetchInto`.
-- [ ] 3.4 Add a test with `FetchInto` pointed at a real `git worktree` (not a plain repo) covering the exclude-file resolution from 3.2.
+- [x] 3.1 Change `cloneSyncIn`/`cloneSyncOut` to use `l.Workspaces[0].Path` only for the in-container path root (what `sbx cp`/`sbx exec` addresses inside the sandbox) and `l.Clone.FetchInto` for every host-side read/write (exclude-file source, `Dirs` sources and destinations).
+- [x] 3.2 Resolve `syncExcludeFile`'s source path against `FetchInto` in a worktree-safe way (e.g. `git rev-parse --git-common-dir`), keeping the current direct `.git/info/exclude` lookup as a fast path when the host source is confirmed not a worktree.
+- [x] 3.3 Update `clone_test.go`'s fakes/table-driven tests to cover `Workspaces[0].Path != FetchInto`, asserting the sandbox-side argument stays anchored to `Workspaces[0].Path` and the host-side argument moves to `FetchInto`.
+- [x] 3.4 Add a test with `FetchInto` pointed at a real `git worktree` (not a plain repo) covering the exclude-file resolution from 3.2.
 
 ## 4. Sync `comet-state.yaml` unconditionally
 

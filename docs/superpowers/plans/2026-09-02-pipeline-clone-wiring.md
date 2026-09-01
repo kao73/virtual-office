@@ -594,7 +594,7 @@ git commit -m "feat(pipeline): wire sbx --clone into SandboxAgent.Run via dispos
 - Consumes: `runner.Launch.Workspaces[0].Path` (unchanged type), `runner.Launch.Clone.FetchInto`/`.Dirs` (unchanged types, from Task 2's caller).
 - Produces: `resolveExcludeFile(hostRoot string) (string, error)` — new unexported helper, worktree-safe resolution of the host `info/exclude` path (fast path for an ordinary repo, `git rev-parse --git-common-dir` for a worktree). `syncExcludeFile`'s signature changes to `func syncExcludeFile(ctx context.Context, name, containerRoot, hostRoot string, run step) error`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `internal/backends/sbx/clone_test.go`, add a new test for worktree-safe exclude-file resolution (this exercises the not-yet-existing new `syncExcludeFile` signature — 4 args instead of 3 — so it won't compile until Step 3 lands):
 
@@ -675,12 +675,12 @@ func TestCloneSyncOutDirsUseContainerRootAndFetchIntoSeparately(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/backends/sbx/... -run 'TestSyncExcludeFileResolvesRealWorktree|TestCloneSyncOutDirsUseContainerRootAndFetchIntoSeparately' -v`
 Expected: FAIL to compile (`syncExcludeFile` called with 5 args, current signature takes 4) — `TestSyncExcludeFileResolvesRealWorktree` won't build until Step 3. `TestCloneSyncOutDirsUseContainerRootAndFetchIntoSeparately` compiles today (same 5-arg `cloneSyncOut` signature) but currently PASSES for the wrong reason (today `Workspaces[0].Path` happens to be what `Dirs` still reads on both sides in this exact assertion shape) — re-run it after Step 3 specifically to confirm it exercises the real split; note in the commit that this second test is a routing *regression guard* landing green from Step 3 onward, not a red-then-green case on its own until the full `cloneSyncIn` split (this task) makes `primary`/`containerRoot` genuinely diverge in the rest of the suite.
 
-- [ ] **Step 3: Implement the split in `internal/backends/sbx/clone.go`**
+- [x] **Step 3: Implement the split in `internal/backends/sbx/clone.go`**
 
 Replace `cloneSyncIn` (currently lines 61-109):
 
@@ -862,7 +862,7 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 
 Leave `commitLeftovers`, `mergeInProgress`, `clearStaleCometLocks`, and `fetchBranch` bodies and their own `primary` parameter names untouched — every operation inside them addresses the sandbox (`sbx exec`) or reads `c.FetchInto` already (`fetchBranch`); only the value now passed in at the call site (`containerRoot`, formerly `primary`) changed name.
 
-- [ ] **Step 4: Update the existing `cloneSyncIn`/`syncExcludeFile` tests for the two-root split**
+- [x] **Step 4: Update the existing `cloneSyncIn`/`syncExcludeFile` tests for the two-root split**
 
 These tests currently construct `Launch{Workspaces: [{Path: primary}], Clone: &runner.CloneSync{Dirs: ...}}` without `FetchInto`, and `cloneSyncIn`'s Dirs loop now reads the host side from `FetchInto` instead of `Workspaces[0].Path` — every one of these tests needs a distinct `containerRoot` and must set `FetchInto` to what was previously the sole `primary`. Replace each in `internal/backends/sbx/clone_test.go`:
 
@@ -1020,7 +1020,7 @@ func TestSyncExcludeFileNoopWithoutSource(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./internal/backends/sbx/... -v`
 Expected: PASS, all tests in the package green, including the two new tests from Step 1 and the six rewritten tests from Step 4.
@@ -1028,7 +1028,7 @@ Expected: PASS, all tests in the package green, including the two new tests from
 Run: `go build ./... && go vet ./...`
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/backends/sbx/clone.go internal/backends/sbx/clone_test.go
