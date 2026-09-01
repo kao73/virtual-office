@@ -164,7 +164,13 @@ func clearStaleCometLocks(ctx context.Context, name, primary string, present []s
 // info/exclude) резолвится через `git rev-parse --git-common-dir`, тем же
 // приёмом, что уже применяют appendExcludeRules/removeExcludeRule
 // (internal/runner/input.go).
-func resolveExcludeFile(hostRoot string) (string, error) {
+//
+// ctx — тот же, под которым уже идёт cloneSyncIn/cloneSyncOut (cloneSyncTimeout):
+// hostRoot задаёт вызывающий (l.Clone.FetchInto), и в принципе это может быть
+// подвисшая точка монтирования — rev-parse обязан подчиняться общему
+// таймауту прогона так же, как и sbx cp/exec рядом, а не звать git вслепую
+// через exec.Command без возможности его оборвать (независимое ревью).
+func resolveExcludeFile(ctx context.Context, hostRoot string) (string, error) {
 	info, err := os.Stat(filepath.Join(hostRoot, ".git"))
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -179,7 +185,7 @@ func resolveExcludeFile(hostRoot string) (string, error) {
 	}
 
 	// .git — файл: hostRoot — worktree, общий git-каталог лежит не здесь.
-	out, err := exec.Command("git", "-C", hostRoot, "rev-parse", "--git-common-dir").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", hostRoot, "rev-parse", "--git-common-dir").Output()
 	if err != nil {
 		return "", fmt.Errorf("общий git-каталог %s не определён: %w", hostRoot, err)
 	}
@@ -200,7 +206,7 @@ func resolveExcludeFile(hostRoot string) (string, error) {
 // .agent/.comet как некомментированную грязь, что не хуже сегодняшнего
 // поведения без --clone вовсе.
 func syncExcludeFile(ctx context.Context, name, containerRoot, hostRoot string, run step) error {
-	src, err := resolveExcludeFile(hostRoot)
+	src, err := resolveExcludeFile(ctx, hostRoot)
 	if err != nil {
 		return err
 	}

@@ -272,6 +272,37 @@ func TestSyncExcludeFileResolvesRealWorktree(t *testing.T) {
 	}
 }
 
+// Ревью на Задачу 3: cloneSyncIn/cloneSyncOut оборачиваются в cloneSyncTimeout
+// именно затем, чтобы зависший подпроцесс не повесил прогон навсегда — но
+// resolveExcludeFile звала `git rev-parse --git-common-dir` через
+// exec.Command (не exec.CommandContext) и вовсе не принимала ctx, так что
+// отмена внешнего таймаута до неё не доставала. hostRoot (l.Clone.FetchInto)
+// — путь, заданный вызывающим, и в принципе может лежать на подвисшей
+// точке монтирования. Здесь это проверяется без реального зависания:
+// заранее отменённый контекст обязан остановить git немедленно, а не
+// провалиться на реальный тайм-аут где-то в другом месте.
+func TestResolveExcludeFileRespectsContext(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainRepo := filepath.Join(root, "main")
+	if out, err := exec.Command("git", "init", "-q", "-b", "master", mainRepo).CombinedOutput(); err != nil {
+		t.Fatalf("репозиторий не создан: %v\n%s", err, out)
+	}
+	runGit(t, mainRepo, "commit", "-q", "--allow-empty", "-m", "начало")
+
+	worktree := filepath.Join(root, "worktree")
+	runGit(t, mainRepo, "worktree", "add", "-q", "-b", "agent/OFF-2", worktree)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // отменяем заранее — resolveExcludeFile обязана это заметить, а не звать git вслепую
+
+	if _, err := resolveExcludeFile(ctx, worktree); err == nil {
+		t.Fatal("отменённый контекст не остановил git rev-parse — resolveExcludeFile не читает ctx")
+	}
+}
+
 // Часть l.Clone.Dirs в действительности лежит и в git (roles/analyst/role.md
 // велит коммитить .comet/config.yaml) — выгрузи её на хост раньше слияния,
 // и следующий git merge --ff-only откажет: "your local changes... would be
