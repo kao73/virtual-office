@@ -226,13 +226,16 @@ func TestExcludeAgentDirWorksInWorktree(t *testing.T) {
 	}
 }
 
-// `comet native new` не пишет собственного .gitignore, а .comet/current-change.json
-// и .comet/runtime/** — состояние одной рабочей папки, а не часть истории проекта:
-// без исключения worktree навсегда остаётся "грязным" (`?? .comet/`), и
-// sweepWorktrees считает его небезопасным для удаления. .comet/config.yaml —
-// наоборот, обычный трекируемый путь: без него `comet native status` не
-// восстановится в другой рабочей папке, и исключать его нельзя.
-func TestExcludeCometRuntimeExcludesOnlyMachineLocalParts(t *testing.T) {
+// `comet native new` не пишет собственного .gitignore, а .comet/runtime/** —
+// кэш локального исполнения этой конкретной песочницы (абсолютные хостовые
+// пути внутри state.json, живой прогон это подтвердил): без исключения
+// worktree навсегда остаётся "грязным" (`?? .comet/runtime/`), и
+// sweepWorktrees считает его небезопасным для удаления. .comet/config.yaml
+// и .comet/current-change.json — наоборот, обычные трекируемые пути: без
+// них `comet native status` не восстановится в другой рабочей папке,
+// а следующая роль не найдёт каталог изменения через context.md — исключать
+// их нельзя.
+func TestExcludeCometRuntimeExcludesOnlyRuntimeCache(t *testing.T) {
 	workdir := gitRepo(t)
 
 	cometDir := filepath.Join(workdir, ".comet")
@@ -261,14 +264,70 @@ func TestExcludeCometRuntimeExcludesOnlyMachineLocalParts(t *testing.T) {
 	}
 
 	status := git(t, workdir, "status", "--porcelain", "-uall")
-	if strings.Contains(status, "current-change.json") {
-		t.Errorf("current-change.json всё ещё виден git:\n%s", status)
-	}
 	if strings.Contains(status, "runtime") {
 		t.Errorf("runtime/ всё ещё виден git:\n%s", status)
 	}
 	if !strings.Contains(status, "config.yaml") {
 		t.Errorf(".comet/config.yaml исчез из git, а обязан остаться обычным трекируемым путём:\n%s", status)
+	}
+	if !strings.Contains(status, "current-change.json") {
+		t.Errorf("current-change.json исчез из git, а обязан остаться обычным трекируемым путём:\n%s", status)
+	}
+}
+
+// Регрессия на живой прогон (demo-3, второй заход): рабочая папка, уже
+// тронутая версией ExcludeCometRuntime до этой правки, несёт в info/exclude
+// устаревшее правило на current-change.json — appendExcludeRules только
+// дописывает, само оно не удаляет ничего. git reset --hard такую папку не
+// чистит: info/exclude — метаданные git, не часть дерева. Без миграции
+// analyst, честно следуя новой инструкции role.md, получал бы ровно ту же
+// ошибку git add, что и cloneSweep до фикса addScript: «paths are ignored
+// by one of your .gitignore files».
+func TestExcludeCometRuntimeMigratesAwayStaleCurrentChangeRule(t *testing.T) {
+	workdir := gitRepo(t)
+
+	// Правило на current-change.json, как его писала прежняя версия
+	// ExcludeCometRuntime — то же appendExcludeRules, чтобы не разойтись
+	// форматом строки с настоящим кодом миграции.
+	if err := appendExcludeRules(workdir, cometExcludeComment, []string{
+		".comet/current-change.json",
+		".comet/runtime/",
+	}); err != nil {
+		t.Fatalf("подготовка теста: устаревшее правило не записано: %v", err)
+	}
+
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cometDir, "current-change.json"), []byte(`{"change":"demo"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if status := git(t, workdir, "status", "--porcelain", "-uall"); status != "" {
+		t.Fatalf("подготовка теста неверна: current-change.json уже виден git до миграции:\n%s", status)
+	}
+
+	if err := ExcludeCometRuntime(workdir); err != nil {
+		t.Fatalf("исключение не записано: %v", err)
+	}
+
+	status := git(t, workdir, "status", "--porcelain", "-uall")
+	if !strings.Contains(status, "current-change.json") {
+		t.Errorf("устаревшее правило не убрано — current-change.json всё ещё невидим git:\n%s", status)
+	}
+
+	// Живой сценарий: тот же git add, которым роль коммитит файл — обязан
+	// пройти без «paths are ignored», а не только «файл виден git status».
+	git(t, workdir, "add", ".comet/current-change.json")
+
+	// Повторный вызов идемпотентен: правило уже убрано, второй раз чистить
+	// нечего, и runtime/ остаётся исключённым как обычно.
+	if err := ExcludeCometRuntime(workdir); err != nil {
+		t.Fatalf("повторное исключение не записано: %v", err)
+	}
+	if status := git(t, workdir, "status", "--porcelain", "-uall"); strings.Contains(status, "runtime") {
+		t.Errorf("runtime/ перестал быть исключён после повторного вызова:\n%s", status)
 	}
 }
 
@@ -417,6 +476,43 @@ func TestContextPrefersCometChangeDirOverLegacy(t *testing.T) {
 	}
 	if strings.Contains(context, "Каталог изменения: "+ChangeDirRel(passport.TaskKey)) {
 		t.Errorf("старый корень не должен побеждать новый, когда оба есть:\n%s", context)
+	}
+}
+
+// Регрессия на живой прогон (demo-3): аналитик завёл изменение "stats-median"
+// при task-key "demo-3" — угаданный по ключу каталог docs/comet/changes/demo-3
+// не существовал, и следующая роль осталась без единой строки "Каталог
+// изменения", хотя изменение было и стояло в фазе build.
+// .comet/current-change.json называет реально выбранное имя точно и обязан
+// победить угадывание по task-key, когда они расходятся.
+func TestContextPrefersCurrentChangeFileOverTaskKeyGuess(t *testing.T) {
+	workdir, role := gitRepo(t), fixtureRole(t)
+	passport := fixturePassport()
+	passport.TaskKey = "demo-3"
+
+	selected := filepath.Join(workdir, CometChangeDirRel("stats-median"))
+	if err := os.MkdirAll(selected, 0o755); err != nil {
+		t.Fatalf("каталог реально выбранного изменения не создан: %v", err)
+	}
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatalf(".comet не создан: %v", err)
+	}
+	selection := `{"schema":"comet.selection.v2","workflow":"native","change":"stats-median","branch":null}` + "\n"
+	if err := os.WriteFile(filepath.Join(cometDir, "current-change.json"), []byte(selection), 0o644); err != nil {
+		t.Fatalf("current-change.json не записан: %v", err)
+	}
+
+	if err := PrepareInput(workdir, role, passport, Input{Task: "Задача\n"}); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+	context := read(t, workdir, FileContext)
+
+	if !strings.Contains(context, "Каталог изменения: "+CometChangeDirRel("stats-median")) {
+		t.Errorf("current-change.json не победил угадывание по task-key:\n%s", context)
+	}
+	if strings.Contains(context, "Каталог изменения: "+CometChangeDirRel(passport.TaskKey)) {
+		t.Errorf("угаданный по task-key (несуществующий) каталог не должен появиться в контексте:\n%s", context)
 	}
 }
 

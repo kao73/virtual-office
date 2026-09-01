@@ -98,10 +98,11 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 	if err := ExcludeAgentDir(workdir); err != nil {
 		return err
 	}
-	// То же самое рассуждение, что и у конверта обмена: `comet native new`
-	// (запускает analyst) оставляет .comet/current-change.json и .comet/runtime/**
-	// незакоммиченными, и без исключения снимок статуса ниже увидел бы их как
-	// грязь этого прогона.
+	// То же самое рассуждение, что и у конверта обмена, но уже только для
+	// .comet/runtime/**: `comet native new` (запускает analyst) оставляет его
+	// незакоммиченным, и без исключения снимок статуса ниже увидел бы это как
+	// грязь этого прогона. .comet/current-change.json — не здесь: обычный
+	// трекируемый путь наравне с config.yaml, роль коммитит его сама.
 	if err := ExcludeCometRuntime(workdir); err != nil {
 		return err
 	}
@@ -186,13 +187,30 @@ func composeContext(workdir string, role Role, run Run, in Input) (string, error
 	if in.BaseBranch != "" {
 		fmt.Fprintf(&b, "- Базовая ветка: %s\n", in.BaseBranch)
 	}
-	// Новый корень Comet Native проверяется первым: задача, которую ведёт
-	// analyst через этот конвейер, найдётся там. Старый docs/changes/<KEY>
-	// остаётся вторым источником — для задач, чью Shape-фазу analyst прошёл
-	// ещё до этого перехода. "План: <путь>/tasks.md" имеет смысл только у
-	// старого корня: изменения Comet Native такого файла не пишут вовсе, и
-	// строка там просто не появится — это не пробел, а точный ответ.
+	// Каталог изменения угадывается по task-key, но .comet/current-change.json
+	// — если он уже есть — называет его точно: это то же имя, что сам Comet
+	// Native считает выбранным именно в этой рабочей папке, и оно не обязано
+	// совпадать с CometChangeName(task-key), если аналитик назвал изменение
+	// иначе (живой прогон, задача demo-3: аналитик завёл "stats-median" при
+	// task-key "demo-3" — угаданный по ключу каталог не существовал, и
+	// implementer остался без единой строки "Каталог изменения", хотя
+	// изменение было и стояло в fase build). Файл побеждает угадывание —
+	// не наоборот: угадывание по task-key остаётся единственным способом
+	// узнать каталог до самого первого `comet native new` этого прогона,
+	// когда current-change.json ещё не существует нигде.
+	//
+	// Старый docs/changes/<KEY> — второй источник, для задач, чью Shape-фазу
+	// analyst прошёл ещё до перехода на Comet Native: current-change.json
+	// он не заводит, туда попасть не может, и тут остаётся угадывание.
+	// "План: <путь>/tasks.md" имеет смысл только у старого корня: изменения
+	// Comet Native такого файла не пишут вовсе, и строка там просто не
+	// появится — это не пробел, а точный ответ.
 	dir := CometChangeDirRel(run.TaskKey)
+	if name := currentChangeName(workdir); name != "" {
+		if selected := CometChangeDirRel(name); exists(filepath.Join(workdir, selected)) {
+			dir = selected
+		}
+	}
 	if !exists(filepath.Join(workdir, dir)) {
 		if legacy := ChangeDirRel(run.TaskKey); exists(filepath.Join(workdir, legacy)) {
 			dir = legacy
@@ -239,6 +257,25 @@ func exists(path string) bool {
 	return err == nil
 }
 
+// currentChangeName читает CometCurrentChangeFile и возвращает поле "change",
+// если файла нет, он повреждён или поле пусто — "", тем же принципом лучших
+// усилий, что и exists: не найти файл здесь так же нормально, как не найти
+// каталог изменения (самый первый прогон по задаче, или задача всё ещё на
+// старом корне docs/changes).
+func currentChangeName(workdir string) string {
+	data, err := os.ReadFile(filepath.Join(workdir, CometCurrentChangeFile))
+	if err != nil {
+		return ""
+	}
+	var selection struct {
+		Change string `json:"change"`
+	}
+	if err := json.Unmarshal(data, &selection); err != nil {
+		return ""
+	}
+	return selection.Change
+}
+
 // excludeComment помечает происхождение строки в чужом файле исключений.
 const excludeComment = "# virtual-office: конверт обмена раннера с агентом"
 
@@ -251,26 +288,87 @@ func ExcludeAgentDir(workdir string) error {
 }
 
 // cometExcludeComment — как excludeComment, но про .comet/: поясняет, почему
-// исключены не все пути внутри каталога, а только эти два (см. ExcludeCometRuntime).
-const cometExcludeComment = "# virtual-office: машинно-локальные части .comet/ (config.yaml не исключён — коммитится ролью)"
+// исключён не весь каталог, а только runtime/ (см. ExcludeCometRuntime).
+const cometExcludeComment = "# virtual-office: кэш локального исполнения .comet/runtime/ (остальное .comet/ коммитится ролью)"
 
-// ExcludeCometRuntime прячет от git машинно-локальные части каталога .comet/,
-// который заводит `comet native new`: current-change.json (что выбрано в этой
-// рабочей папке) и runtime/ (внутреннее состояние исполнения Comet Native). Оба —
-// состояние одной рабочей папки, а не часть истории проекта, и без исключения
-// worktree навсегда остаётся "грязным" (`?? .comet/`): sweepWorktrees сочтёт его
-// небезопасным для удаления, а PreToolUse-ограждение (comet-hook-router.mjs)
-// молча уйдёт в нейтраль в любой рабочей папке, где current-change.json не видно.
+// ExcludeCometRuntime прячет от git .comet/runtime/ — внутреннее состояние
+// исполнения Comet Native, которое заводит `comet native new`/`next`. Это
+// кэш конкретной песочницы, а не часть истории проекта: живой прогон нашёл
+// в state.json абсолютные хостовые пути (projectRoot/worktreeRoot) этой
+// самой рабочей папки — закоммить их, и следующая роль в другой песочнице
+// унаследует чужой, неверный путь вместо своего. Без исключения worktree
+// к тому же навсегда остаётся "грязным" (`?? .comet/runtime/`): sweepWorktrees
+// сочтёт его небезопасным для удаления.
 //
-// .comet/config.yaml и сам каталог .comet/ — вне этого исключения нарочно:
-// config.yaml обязан остаться обычным трекируемым путём, иначе `comet native
-// status` не восстановится в другой рабочей папке или у другого раннер-хоста —
-// см. roles/analyst/role.md, "## Как коммитить".
+// .comet/current-change.json и .comet/config.yaml — вне этого исключения
+// нарочно: оба обязаны остаться обычными трекируемыми путями, иначе
+// `comet native status` не восстановится в другой рабочей папке или
+// у другого раннер-хоста, а следующая роль не найдёт каталог изменения
+// через context.md (currentChangeName ниже) — см. roles/analyst/role.md,
+// "## Как коммитить".
+//
+// staleCurrentChangeExclude чистится первым делом: до этой правки
+// ExcludeCometRuntime писала правило и на current-change.json тоже, а
+// appendExcludeRules только дописывает — сама она никогда ничего не
+// удаляет. В рабочей папке, уже тронутой прежней версией, это правило
+// оставалось бы в info/exclude навсегда и ловило бы analyst на той же
+// ошибке git add, что и в commitLeftovers (клиентский прогон, задача
+// demo-3, второй заход): «paths are ignored by one of your .gitignore
+// files» — на этот раз не от cloneSweep, а прямо от роли, честно
+// следующей новой инструкции role.md «git add .comet/current-change.json».
+const staleCurrentChangeExclude = ".comet/current-change.json"
+
 func ExcludeCometRuntime(workdir string) error {
+	if err := removeExcludeRule(workdir, staleCurrentChangeExclude); err != nil {
+		return err
+	}
 	return appendExcludeRules(workdir, cometExcludeComment, []string{
-		".comet/current-change.json",
 		".comet/runtime/",
 	})
+}
+
+// removeExcludeRule убирает ровно одну строку rule из info/exclude общего
+// git-каталога, если она там есть — обратная операция к appendExcludeRules,
+// нужная только для миграции устаревших правил (см. вызывающего). Отсутствие
+// файла или отсутствие строки — не ошибка, тот же принцип лучших усилий,
+// что и у appendExcludeRules: рабочая папка без истории этого правила
+// в починке не нуждается.
+func removeExcludeRule(workdir, rule string) error {
+	out, err := exec.Command("git", "-C", workdir, "rev-parse", "--git-common-dir").Output()
+	if err != nil {
+		return fmt.Errorf("workdir %s не похож на git-репозиторий: %w", workdir, err)
+	}
+	common := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(workdir, common)
+	}
+	path := filepath.Join(common, "info", "exclude")
+
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("%s не прочитан: %w", path, err)
+	}
+
+	lines := strings.Split(string(existing), "\n")
+	kept := lines[:0]
+	changed := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == rule {
+			changed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !changed {
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+		return fmt.Errorf("%s не переписан: %w", path, err)
+	}
+	return nil
 }
 
 // appendExcludeRules дописывает в info/exclude общего git-каталога рабочей папки

@@ -199,16 +199,16 @@ func execute() (int, error) {
 		// прогона (проверено вживую), — так что дописать в него после
 		// прогона безопасно.
 		//
-		// Dirs называет только то, что действительно не в git: .comet/config.yaml
-		// роль коммитит (roles/analyst/role.md), а current-change.json и runtime/ —
-		// нет (ExcludeCometRuntime в internal/runner/input.go). Занеси весь
-		// .comet/ каталогами, а не этими двумя путями, — и cloneSyncOut
-		// (internal/backends/sbx/clone.go) положила бы отслеживаемый config.yaml
-		// на хост раньше git-слияния, а оно бы отказало.
+		// Dirs называет только то, что действительно не в git: .comet/runtime/ —
+		// нет (ExcludeCometRuntime в internal/runner/input.go), а .comet/config.yaml
+		// и .comet/current-change.json роль коммитит сама (roles/analyst/role.md).
+		// Занеси весь .comet/ целиком, а не этим одним путём, — и cloneSyncOut
+		// (internal/backends/sbx/clone.go) положила бы отслеживаемые config.yaml
+		// и current-change.json на хост раньше git-слияния, а оно бы отказало.
 		opts.Clone = &runner.CloneSync{
 			FetchInto: workdir,
 			Branch:    branch,
-			Dirs:      []string{runner.Dir, ".comet/current-change.json", ".comet/runtime"},
+			Dirs:      []string{runner.Dir, ".comet/runtime"},
 		}
 	}
 

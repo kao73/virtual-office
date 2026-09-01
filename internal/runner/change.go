@@ -53,6 +53,16 @@ func ChangeDir(workdir, taskKey string) string {
 // комет-конвейера.
 const CometChangesDir = "docs/comet/changes"
 
+// CometCurrentChangeFile — куда `comet native new`/`comet state select` пишет,
+// какое изменение сейчас выбрано в этой рабочей папке. Обычный трекируемый
+// путь, как и .comet/config.yaml — роль коммитит его сама (roles/analyst/
+// role.md, «Как коммитить»), а cloneSweep (internal/backends/sbx/clone.go,
+// commitLeftovers) страхует, если она забыла. Это и делает файл источником
+// истины для composeContext (см. currentChangeName в input.go): в отличие от
+// имени изменения, угаданного по task-key, он не может разойтись с тем, что
+// сам Comet Native считает активным именно в этой рабочей папке.
+const CometCurrentChangeFile = ".comet/current-change.json"
+
 // CometChangeName — <name> изменения Comet Native задачи: используется и
 // путём в git (CometChangeDirRel), и самой командой `comet native ... <name>`,
 // которой каталог, а не только имя, ни к чему.

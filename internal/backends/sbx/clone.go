@@ -51,7 +51,7 @@ const excludeFile = ".git/info/exclude"
 // cloneSyncIn заносит в песочницу --clone то, чего не видно git-клону:
 // правила git-исключения каталога обмена (excludeFile) и сами каталоги вне
 // git (l.Clone.Dirs) — git-клон копирует только закоммиченное, а .agent
-// и машинно-локальные части .comet/ исключены из git нарочно
+// и кэш локального исполнения .comet/runtime/ исключены из git нарочно
 // (runner.ExcludeAgentDir, runner.ExcludeCometRuntime).
 //
 // Возвращает те из l.Clone.Dirs, что реально нашлись на хосте на момент
@@ -78,8 +78,8 @@ func cloneSyncIn(ctx context.Context, name string, l *runner.Launch, run step) (
 			return nil, fmt.Errorf("%s не проверен: %w", src, err)
 		}
 		// .comet/ может не существовать внутри свежего клона вовсе (роль ещё
-		// не закоммитила .comet/config.yaml) — тогда sbx cp либо откажет, либо
-		// (для одиночного файла вроде current-change.json) поведёт себя
+		// не закоммитила .comet/config.yaml, и .comet/runtime/ тем более не
+		// заведён) — тогда sbx cp либо откажет, либо поведёт себя
 		// недокументированно. Заводим родителя явно, а не полагаемся на то,
 		// что цель уже есть.
 		if err := run(ctx, "exec", name, "mkdir", "-p", filepath.Dir(src)); err != nil {
@@ -127,8 +127,8 @@ func syncExcludeFile(ctx context.Context, name, primary string, run step) error 
 const notFoundInContainer = "not found in container"
 
 // cloneSyncOut подтягивает ветку задачи из песочницы в l.Clone.FetchInto
-// и забирает каталоги обмена (агент мог дописать в них: .agent/result.json,
-// .comet/current-change.json при первом comet native new).
+// и забирает каталоги вне git (агент мог дописать в них: .agent/result.json,
+// .comet/runtime/ при первом comet native new).
 //
 // Порядок — commitLeftovers, потом fetchBranch, потом каталоги — и это
 // не произвольный порядок, а два независимых ограничения разом:
@@ -243,18 +243,35 @@ const (
 // — шаги commitLeftovers, каждый своим exec-вызовом, а не одним большим
 // скриптом: между add и commit нужен настоящий Go-условный переход (см.
 // commitLeftovers), которого одна строка shell не даёт без потери точности
-// лога. $1 — путь (primary) везде; addScript получает вдобавок $2.. —
-// pathspec-исключения вида «:!dir» (см. dirs у commitLeftovers). Путь и
-// исключения — позиционные аргументы шелла, не подставлены в текст
-// скрипта конкатенацией: конкатенация ломается на путях с пробелом или
-// другим спецсимволом шелла — раньше это молча превращало «дерево
+// лога. $1 — путь (primary) везде; addScript получает вдобавок $2.. — имена
+// dirs (см. dirs у commitLeftovers), которые нужно исключить из коммита-
+// подчистки. Путь и имена — позиционные аргументы шелла, не подставлены
+// в текст скрипта конкатенацией: конкатенация ломается на путях с пробелом
+// или другим спецсимволом шелла — раньше это молча превращало «дерево
 // грязное» в «дерево чистое» (независимое ревью, живой сценарий с путём
 // вроде «/Users/x/my repo»), а не только теоретический риск инъекции
 // (сам путь задаёт не агент).
+//
+// add -A -- . затем reset -q -- на dirs, а не `add -A -- . :!dir`: то же
+// исключение, что и pathspec-негация даёт для уже отслеживаемых путей, но
+// без её слепого пятна. dirs — как раз то, что ExcludeAgentDir/
+// ExcludeCometRuntime заносят в .git/info/exclude в настоящем прогоне;
+// у git «add» с пathspec, буквально называющим уже игнорируемый путь
+// (даже в исключающей форме «:!path»), падает с ненулевым кодом и
+// «paths are ignored by one of your .gitignore files» — не предупреждение,
+// а настоящий отказ, `advice.addIgnoredFile=false` его не лечит (только
+// прячет текст). Живой прогон на demo-3 воспроизвёл это: add на
+// «.agent»/«.comet/current-change.json»/«.comet/runtime», уже сидящих
+// в info/exclude, валил всю подчистку. add -A -- . без явных имён путей
+// такого не делает — тихо пропускает уже игнорируемое, как обычно; reset
+// следом снимает из индекса то немногое, что осталось не проигнорированным
+// (сценарий «защиты в глубину» ниже, когда info/exclude почему-то пуст) —
+// «reset -q» на путь, которого нет в индексе или вовсе на диске, безвреден
+// (код 0, см. TestCommitLeftoversExcludesNamedDirsEvenWithoutGitExclude).
 const (
 	mergeCheckScript  = `git -C "$1" ls-files --unmerged | grep -q .`
 	dirtyCheckScript  = `git -C "$1" status --porcelain | grep -q .`
-	addScript         = `primary=$1; shift; git -C "$primary" add -A -- . "$@"`
+	addScript         = `primary=$1; shift; git -C "$primary" add -A -- . && { [ "$#" -eq 0 ] || git -C "$primary" reset -q -- "$@"; }`
 	stagedCheckScript = `git -C "$1" diff --cached --quiet`
 )
 
@@ -292,22 +309,23 @@ func mergeInProgress(ctx context.Context, name, primary string, run step) bool {
 // предупреждая об этом в log (warnUncommitted), не спасая.
 //
 // dirs — то же самое, что l.Clone.Dirs (конверт обмена: .agent,
-// .comet/current-change.json, .comet/runtime), явным pathspec-исключением
-// на самом `git add -A`, а не косвенно через `.git/info/exclude`. Раньше
-// на это исключение полагались только через syncExcludeFile, копию,
-// которая тиха и необязательна (пустой источник хоста — не ошибка) и
-// резолвит путь иначе, чем ExcludeAgentDir (`git rev-parse
-// --git-common-dir»); независимое ревью нашло, что расхождение этих двух
-// путей молча оставляет .git/info/exclude в песочнице пустым — тогда
-// pathspec-исключение здесь остаётся единственным, что не даёт системному
-// промпту, паспорту прогона и `.agent/result.json» уехать в коммит ветки
-// задачи клиентского проекта.
+// .comet/runtime), явным исключением из
+// коммита-подчистки (add -A -- . затем reset -q -- на dirs — см.
+// doc-комментарий addScript выше), а не косвенно через
+// `.git/info/exclude`. Раньше на это исключение полагались только через
+// syncExcludeFile, копию, которая тиха и необязательна (пустой источник
+// хоста — не ошибка) и резолвит путь иначе, чем ExcludeAgentDir (`git
+// rev-parse --git-common-dir»); независимое ревью нашло, что расхождение
+// этих двух путей молча оставляет .git/info/exclude в песочнице пустым —
+// тогда явное исключение здесь остаётся единственным, что не даёт
+// системному промпту, паспорту прогона и `.agent/result.json» уехать
+// в коммит ветки задачи клиентского проекта.
 //
 // Между add и «нечего коммитить» — отдельный шаг (stagedCheckScript), а не
 // просто «commit и посмотреть на код возврата»: то, что было грязным по
-// `git status`, не обязано остаться застейдженным после `git add -A --
-// . :!dir` — pathspec мог отфильтровать его целиком (именно тот случай,
-// ради которого добавлено исключение выше), или изменение вовсе не
+// `git status`, не обязано остаться застейдженным после add -A -- . плюс
+// reset на dirs — reset мог снять со стейджа всё целиком (именно тот
+// случай, ради которого добавлено исключение выше), или изменение вовсе не
 // стейджится добавлением (например, только указатель подмодуля).
 // Независимое ревью нашло оба сценария живьём: без этого шага `git commit`
 // выходил с «nothing to commit», commitLeftovers превращала это в ошибку,
@@ -330,10 +348,7 @@ func commitLeftovers(ctx context.Context, log io.Writer, name, primary string, d
 		return nil // нечего сохранять
 	}
 
-	addArgs := []string{"exec", name, "sh", "-c", addScript, "sh", primary}
-	for _, dir := range dirs {
-		addArgs = append(addArgs, ":!"+dir)
-	}
+	addArgs := append([]string{"exec", name, "sh", "-c", addScript, "sh", primary}, dirs...)
 	if err := run(ctx, addArgs...); err != nil {
 		return fmt.Errorf("незакоммиченная работа внутри песочницы %s не занесена в индекс: %w", name, err)
 	}

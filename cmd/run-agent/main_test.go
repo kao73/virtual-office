@@ -191,7 +191,7 @@ func TestDryRunCloneSetsCloneSync(t *testing.T) {
 	for _, want := range []string{
 		"ветка:      " + branch,
 		"вернуть в:  " + workdir,
-		"каталоги:   .agent, .comet/current-change.json, .comet/runtime",
+		"каталоги:   .agent, .comet/runtime",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("в выводе --clone нет %q:\n%s", want, out)

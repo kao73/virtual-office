@@ -313,9 +313,9 @@ func TestCommitLeftoversSkipsWhenMergeInProgress(t *testing.T) {
 // Незакоммиченное найдено (mergeInProgress — не идёт, grep — код 0, step
 // отвечает nil) — commitLeftovers обязана добавить и закоммитить его
 // отдельной, не-агентской личностью (cloneSweepName/cloneSweepEmail, через
-// переменные окружения, а не -c — см. doc-комментарий), исключив dirs
-// pathspec'ом и передав primary позиционным аргументом, а не подставив
-// его в текст скрипта.
+// переменные окружения, а не -c — см. doc-комментарий), исключив dirs через
+// add+reset (см. doc-комментарий addScript) и передав primary позиционным
+// аргументом, а не подставив его в текст скрипта.
 func TestCommitLeftoversCommitsWhenDirty(t *testing.T) {
 	// call0: не идёт слияние. call1: дирти. call2: add — успех. call3: staged
 	// непусто (err != nil ⇒ есть что коммитить). call4: commit — успех (по умолчанию nil).
@@ -336,8 +336,8 @@ func TestCommitLeftoversCommitsWhenDirty(t *testing.T) {
 		t.Errorf("primary не передан add-вызову позиционным аргументом: %q", addCall)
 	}
 	for _, dir := range dirs {
-		if !slices.Contains(addCall, ":!"+dir) {
-			t.Errorf("исключение %q не передано add-вызову отдельным pathspec-аргументом: %q", ":!"+dir, addCall)
+		if !slices.Contains(addCall, dir) {
+			t.Errorf("исключение %q не передано add-вызову отдельным аргументом: %q", dir, addCall)
 		}
 	}
 
@@ -361,9 +361,9 @@ func TestCommitLeftoversCommitsWhenDirty(t *testing.T) {
 }
 
 // Important-находка независимого ревью: `git status --porcelain` и `git add
-// -A -- . :!dir` смотрят на разные множества — то, что было грязным, не
-// обязано остаться застейдженным после pathspec-исключения (или не
-// стейджится add'ом вовсе, как указатель подмодуля). Без явной проверки
+// -A -- .` плюс `reset -q -- dirs` смотрят на разные множества — то, что
+// было грязным, не обязано остаться застейдженным после исключения dirs
+// (или не стейджится add'ом вовсе, как указатель подмодуля). Без явной проверки
 // между add и commit это превращало совершенно здоровый прогон в ложный
 // провал синхронизации.
 func TestCommitLeftoversNoopWhenNothingStagedAfterFiltering(t *testing.T) {
@@ -560,7 +560,7 @@ func TestCommitLeftoversHandlesPathWithSpace(t *testing.T) {
 // Регрессия на находку независимого ревью (#6): даже если .git/info/exclude
 // внутри песочницы пуст (например, syncExcludeFile промолчала — источника
 // на хосте не нашлось), конверт обмена не должен уехать в коммит-подчистку.
-// Pathspec-исключение на самом `git add -A` не зависит от копии правил.
+// add+reset на dirs (см. doc-комментарий addScript) не зависит от копии правил.
 func TestCommitLeftoversExcludesNamedDirsEvenWithoutGitExclude(t *testing.T) {
 	primary := t.TempDir()
 	runGit(t, primary, "init", "-q", "-b", "master", ".")
@@ -681,9 +681,9 @@ func TestCommitLeftoversSkipsUnmergedStashConflict(t *testing.T) {
 }
 
 // Important-находка узкого повторного ревью: `git status --porcelain`
-// и `git add -A -- . :!dir» смотрят на разные множества — если всё грязное
-// отфильтровано pathspec-исключением, `add` отработает успешно, ничего не
-// застейджив, и без явной проверки это раньше превращалось в ложный отказ
+// и `git add -A -- .` плюс `reset -q -- dirs» смотрят на разные множества —
+// если всё грязное отфильтровано исключением dirs, после reset ничего не
+// останется застейдженным, и без явной проверки это раньше превращалось в ложный отказ
 // commitLeftovers (а через неё — во всю выгрузку --clone) на совершенно
 // здоровом прогоне, которому просто нечего было спасать.
 func TestCommitLeftoversNoopWhenEverythingFilteredOutReal(t *testing.T) {
