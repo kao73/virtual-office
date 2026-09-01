@@ -95,7 +95,20 @@ func (o *Office) openPR(task tracker.Task) error {
 			project.Branch(task.Key), project.DefaultBranch))
 	case merge.Conflict:
 		return o.prConflict(task, project, "")
-	case project.Forge == "":
+	}
+
+	// Архивирование — свойство изменения, а не forge: без него он не собран
+	// только для того, чтобы открыть pull request, а не для того, чтобы
+	// зафиксировать переход Comet Native в docs/comet/archive/**. Раньше эта
+	// ветка возвращалась через prSkipped выше архивирования — на обоих
+	// текущих полигонах forge вообще не настроен, и Archive был недостижим
+	// целиком.
+	if project.Forge == "" {
+		if ok, err := o.archiveIfReady(task, project); err != nil {
+			return err
+		} else if !ok {
+			return nil
+		}
 		return o.prSkipped(task, project)
 	}
 
@@ -103,6 +116,19 @@ func (o *Office) openPR(task tracker.Task) error {
 	if !known {
 		o.logf("%s: forge %q не собран, задача остаётся на месте", task.Key, project.Forge)
 		return nil
+	}
+
+	// prBody — раньше archiveIfReady, а не после: она читает brief.md из
+	// docs/comet/changes/<name>/ на только что запушенном HEAD, а
+	// archiveIfReady переименовывает этот каталог в docs/comet/archive/**
+	// и пушит переименование. В обратном порядке независимое ревью нашло,
+	// что prBody промахивается по обоим корням (новому — переименован,
+	// legacy — его никогда не было для Comet-нативной задачи) и молча
+	// подставляет сырой текст тикета вместо brief'а — ровно для тех задач,
+	// что дошли до архивирования.
+	title, body, err := o.prBody(task, repo, project)
+	if err != nil {
+		return err
 	}
 
 	if ok, err := o.archiveIfReady(task, project); err != nil {
@@ -113,10 +139,6 @@ func (o *Office) openPR(task tracker.Task) error {
 		return nil
 	}
 
-	title, body, err := o.prBody(task, repo, project)
-	if err != nil {
-		return err
-	}
 	url, err := impl.OpenPR(task.Project, project.Branch(task.Key), project.DefaultBranch, title, body)
 	switch {
 	case errors.Is(err, forge.ErrRefused):
@@ -303,8 +325,22 @@ func (o *Office) clone(task tracker.Task) (tracker.Project, string, error) {
 func (o *Office) prBody(task tracker.Task, repo string, project tracker.Project) (string, string, error) {
 	title := fmt.Sprintf("%s %s", task.Key, task.Summary)
 
+	// .comet/current-change.json на ветке называет изменение точно, если
+	// аналитик его завёл — угаданное по task-key имя может разойтись с тем,
+	// что аналитик реально выбрал (живой случай: задача demo-3, изменение
+	// stats-median). Тот же приём, что и archiveIfReady в archive.go, но
+	// через Show — у прохода без рабочей папки файла на диске нет.
+	changeDir := runner.CometChangeDirRel(task.Key)
+	if data, found, err := o.Workspaces.Show(repo, project.Branch(task.Key), runner.CometCurrentChangeFile); err != nil {
+		return "", "", err
+	} else if found {
+		if name := runner.ParseCurrentChangeName([]byte(data)); name != "" {
+			changeDir = runner.CometChangeDirForName(name)
+		}
+	}
+
 	brief, found, err := o.Workspaces.Show(repo, project.Branch(task.Key),
-		filepath.Join(runner.CometChangeDirRel(task.Key), runner.FileBrief))
+		filepath.Join(changeDir, runner.FileBrief))
 	if err != nil {
 		return "", "", err
 	}

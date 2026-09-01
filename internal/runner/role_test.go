@@ -370,6 +370,27 @@ func TestShippedRolesAreValid(t *testing.T) {
 	}
 }
 
+// implementer и reviewer больше не держат границу записи фазой Comet
+// Native через tools.allow/deny (TestReviewerRoleCannotWrite проверяла
+// именно это и была удалена вместе с правкой roles/reviewer/role.yaml,
+// давшей reviewer'у Edit/Write) — теперь единственная техническая граница
+// это hooks.pre_tool_use. Без этого теста забытый или случайно снятый
+// pre_tool_use в role.yaml не ловится ничем на уровне Go: Role.validate()
+// принимает роль без него как совершенно законную (поле необязательно), и
+// единственный, кто это заметит, — живой прогон, ломающийся посреди Verify.
+func TestShippedImplementerAndReviewerDeclarePhaseGuardHook(t *testing.T) {
+	for _, name := range []string{"implementer", "reviewer"} {
+		role, err := LoadRole(filepath.Join("..", ".."), name)
+		if err != nil {
+			t.Fatalf("roles/%s не загружена: %v", name, err)
+		}
+		if len(role.Hooks.PreToolUse) == 0 {
+			t.Errorf("roles/%s/role.yaml не объявляет hooks.pre_tool_use — "+
+				"фазовое ограждение записи Comet Native снято незаметно для go test", name)
+		}
+	}
+}
+
 // shippedRoles — имена ролей репозитория. Каталоги с подчёркиванием ролью
 // не являются: в _base лежат общие куски промпта.
 func shippedRoles(t *testing.T) []string {

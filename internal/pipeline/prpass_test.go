@@ -225,6 +225,30 @@ func TestPRPassBodyPrefersCometChangeOverLegacy(t *testing.T) {
 	}
 }
 
+// Независимое ревью: имя изменения, угаданное по task-key, может разойтись
+// с тем, что аналитик реально выбрал (живой случай: задача demo-3, изменение
+// stats-median) — prBody обязана резолвить имя через .comet/current-change.json
+// первым делом, тем же способом, что и archiveIfReady в archive.go, а не
+// только угадыванием.
+func TestPRPassBodyResolvesNameFromCurrentChangeFile(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/21", state: forge.Open})
+	o.agent.work = func(req Request) {
+		writes(runner.CometCurrentChangeFile, `{"change":"stats-median"}`+"\n")(req)
+		writes(filepath.Join(runner.CometChangeDirForName("stats-median"), runner.FileBrief),
+			"Цель: имя изменения расходится с угаданным по task-key.\n")(req)
+	}
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t)
+
+	got := f.opened[0].body
+	if !strings.Contains(got, "Цель: имя изменения расходится с угаданным по task-key") {
+		t.Errorf("brief.md по настоящему имени изменения не найден — prBody осталась на угаданном off-1:\n%s", got)
+	}
+}
+
 // Задача, которую analyst вёл до перехода на Comet Native, хранит постановку
 // в старом корне — prBody не должен молча забыть про неё только потому, что
 // нового корня нет.
@@ -240,6 +264,101 @@ func TestPRPassBodyFallsBackToLegacyChangeDir(t *testing.T) {
 
 	if !strings.Contains(f.opened[0].body, "Цель: старая постановка ещё жива") {
 		t.Errorf("старая постановка не подхвачена как fallback:\n%s", f.opened[0].body)
+	}
+}
+
+// fakeCometArchivesForReal подкладывает подложный `comet`, чей "native
+// archive ... --confirmed" по-настоящему переименовывает каталог изменения
+// (mv, а не только mkdir каталога назначения, как в archive_test.go's
+// fakeComet) — так, что archiveSucceeded находит источник действительно
+// исчезнувшим и archiveIfReady доходит до настоящего коммита и push.
+// Нужен отдельно от fakeComet: там источник остаётся на месте нарочно,
+// и archiveSucceeded в этом тесте отказал бы, так и не дойдя до push,
+// а этому тесту важно проверить именно то, что происходит на ветке после
+// push.
+func fakeCometArchivesForReal(t *testing.T, name string) {
+	t.Helper()
+	binDir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"case \"$2\" in\n" +
+		"  status) echo '{\"command\":\"status\",\"exitCode\":0,\"data\":{\"phase\":\"archive\",\"loop\":{\"stage\":\"" + archiveReadyStage + "\"}}}' ;;\n" +
+		"  archive) mkdir -p " + cometArchiveScope + "/archive && mv " + cometArchiveScope + "/changes/" + name + " " + cometArchiveScope + "/archive/0000-00-00-" + name + " ;;\n" +
+		"  *) exit 1 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(binDir, "comet"), []byte(script), 0o755); err != nil {
+		t.Fatalf("подложный comet не записан: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// Независимое ревью (Критично #1): archiveIfReady переименовывает и пушит
+// docs/comet/changes/<name> в docs/comet/archive/<date>-<name> — до правки
+// это происходило РАНЬШЕ prBody, и prBody, читая brief.md по старому пути
+// на уже обновлённом HEAD, промахивалась мимо него и молча подставляла
+// сырой текст тикета вместо постановки — ровно для тех задач, что дошли до
+// архивирования в один проход. Этот тест воспроизводит именно такую задачу:
+// изменение уже в archive-ready, и pull request всё равно обязан получить
+// содержимое brief.md, а не текст тикета.
+func TestPRPassBodyCarriesBriefEvenWhenArchivedInSamePass(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/20", state: forge.Open})
+	name := runner.CometChangeName("OFF-1")
+	fakeCometArchivesForReal(t, name)
+	o.agent.work = writes(filepath.Join(runner.CometChangeDirRel("OFF-1"), runner.FileBrief),
+		"Цель: архивная постановка обязана дойти до pull request.\n")
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t)
+
+	if len(f.opened) != 1 {
+		t.Fatalf("открыто pull request: %d", len(f.opened))
+	}
+	got := f.opened[0].body
+	if !strings.Contains(got, "Цель: архивная постановка обязана дойти до pull request") {
+		t.Errorf("brief.md не попал в тело — архивирование опередило чтение постановки:\n%s", got)
+	}
+	if strings.Contains(got, "Сделать что-нибудь полезное") {
+		t.Errorf("тело откатилось на сырой текст тикета вместо brief.md:\n%s", got)
+	}
+}
+
+// Независимое ревью (Важно #2): архивирование — свойство изменения, а не
+// forge — но archiveIfReady стояло после ветки "project.Forge == ''" в
+// switch, и на проекте без forge (оба текущих полигона живут именно так)
+// Archive был недостижим целиком. Тест воспроизводит проект без forge
+// (дефолт newOffice, o.withForge здесь нарочно не зовётся) и проверяет,
+// что архивный коммит всё равно уезжает в ветку.
+func TestOpenPRArchivesEvenWithoutForge(t *testing.T) {
+	o := newOffice(t)
+	name := runner.CometChangeName("OFF-1")
+	fakeCometArchivesForReal(t, name)
+	o.agent.work = writes(filepath.Join(runner.CometChangeDirRel("OFF-1"), runner.FileBrief),
+		"Цель: архивировать даже без forge.\n")
+	o.agent.commit = "работа автора"
+	task := o.approved(t, "OFF-1")
+	project := o.Projects["OFF"]
+	if project.Forge != "" {
+		t.Fatalf("подготовка теста неверна: у проекта уже есть forge %q", project.Forge)
+	}
+
+	if err := o.openPR(task); err != nil {
+		t.Fatalf("openPR: %v", err)
+	}
+
+	ws, err := o.Workspaces.Ensure(task.Ref(), project)
+	if err != nil {
+		t.Fatalf("рабочая папка не открыта для проверки: %v", err)
+	}
+	defer ws.Unlock()
+
+	subject, err := exec.Command("git", "-C", ws.Dir, "log", "-1", "--format=%s").Output()
+	if err != nil {
+		t.Fatalf("git log: %v", err)
+	}
+	wantSubject := "chore: archive Comet Native change " + name
+	if got := strings.TrimSpace(string(subject)); got != wantSubject {
+		t.Errorf("архивный коммит не найден на проекте без forge: получено %q, ожидалось %q", got, wantSubject)
 	}
 }
 

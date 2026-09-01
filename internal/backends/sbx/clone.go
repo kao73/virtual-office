@@ -101,7 +101,48 @@ func cloneSyncIn(ctx context.Context, name string, l *runner.Launch, run step) (
 	if err := run(ctx, args...); err != nil {
 		return nil, err
 	}
+
+	if err := clearStaleCometLocks(ctx, name, primary, present, run); err != nil {
+		return nil, err
+	}
 	return present, nil
+}
+
+// cometRuntimeDir — то же самое имя, которым l.Clone.Dirs называет .comet/
+// runtime (cmd/run-agent/main.go), и одновременно то, куда `comet native`
+// внутри пишет собственное состояние исполнения (native-loop-runtime.js,
+// nativeRoot/runtimeDir: ".comet/runtime/native", обнаружено разбором
+// вендоренного бандла).
+const cometRuntimeDir = ".comet/runtime"
+
+// cometLocksRel — где под cometRuntimeDir лежат lock- и coordinator-claim
+// файлы Comet Native (native-loop-runtime.js: locksDir внутри runtimeDir,
+// .coordinator — подкаталог самого locksDir).
+const cometLocksRel = "native/locks"
+
+// clearStaleCometLocks убирает locks/.coordinator, занесённые cloneSyncIn
+// вместе с остальным .comet/runtime, прежде чем в свежей песочнице стартует
+// агент.
+//
+// Независимое ревью нашло: эти файлы несут pid+hostname песочницы, которая
+// их создала, координатор их живость не проверяет и отказывает навсегда,
+// пока кто-то не удалит файл руками (docs/notes/stage-5-live-backlog.md,
+// «Находки живого прогона EXP-2», воспроизведено вживую четыре раза подряд,
+// `exit 73`). Это дефект самого CLI comet — но перенос .comet/runtime
+// между эфемерными песочницами именно этим кодом и есть то, что превращает
+// одну мёртвую блокировку одной снесённой песочницы в постоянную блокировку
+// для всех последующих прогонов той же рабочей папки. Остальной .comet/
+// runtime (changes/, transactions/) переносится как есть — это то самое
+// исполнение, ради которого --clone вообще существует; локи — не оно.
+func clearStaleCometLocks(ctx context.Context, name, primary string, present []string, run step) error {
+	if !slices.Contains(present, cometRuntimeDir) {
+		return nil // .comet/runtime не заносился этим прогоном
+	}
+	locks := filepath.Join(primary, cometRuntimeDir, cometLocksRel)
+	if err := run(ctx, "exec", name, "rm", "-rf", locks); err != nil {
+		return fmt.Errorf("устаревшие блокировки Comet Native (%s) не убраны из свежей песочницы: %w", locks, err)
+	}
+	return nil
 }
 
 // syncExcludeFile переносит хостовые правила git-исключения (excludeFile)
@@ -169,14 +210,18 @@ const notFoundInContainer = "not found in container"
 // commitLeftovers ниже это чинит общим приёмом, а не точечно под один файл.
 //
 // Неудача commitLeftovers копится в sweepErr и возвращается только после
-// fetchBranch, а не вместо него: сеть безопасности не вправе отменить
-// подтяжку настоящих коммитов агента — независимое ревью нашло живьём
+// fetchBranch И после цикла по l.Clone.Dirs ниже, а не вместо них: сеть
+// безопасности не вправе отменить ни подтяжку настоящих коммитов агента,
+// ни подтяжку .agent/result.json — независимое ревью нашло живьём
 // воспроизводимый сценарий (усечение по таймауту прямо посреди `git
 // commit` роли оставляет `.git/index.lock`, из-за которого сама подчистка
-// не может даже начать `git add`), где обратный порядок стирал бы час
-// честной работы агента ради спасения объедков, которых, возможно, и не
-// было. fetchBranch тем самым остаётся безусловным — ровно тем свойством,
-// которого требует его собственный doc-комментарий («зовётся при любом
+// не может даже начать `git add`), где ранний return sweepErr стирал бы
+// час честной работы агента ради спасения объедков, которых, возможно, и не
+// было — и отдельно нашло, что до этой правки тот же ранний return ещё
+// и терял настоящий result.json уже состоявшегося прогона, превращая
+// здоровый исход в синтетический `failed` на runagent.ReadResult. fetchBranch
+// и цикл по Dirs тем самым остаются безусловными — ровно тем свойством,
+// которого требует doc-комментарий fetchBranch («зовётся при любом
 // исходе прогона»).
 func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, presentOnEntry []string, log io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cloneSyncTimeout)
@@ -191,10 +236,13 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 	if err := fetchBranch(ctx, name, primary, l.Clone); err != nil {
 		return err
 	}
-	if sweepErr != nil {
-		return sweepErr
-	}
 
+	// sweepErr возвращается только после этого цикла, а не раньше него:
+	// независимое ревью нашло, что прежний ранний return sweepErr здесь
+	// пропускал и подтяжку .agent/result.json — того же рода потеря, что
+	// и у самой fetchBranch выше (см. её doc-комментарий), только для
+	// каталогов вместо коммитов. Сеть безопасности commitLeftovers не
+	// вправе отменять ни то, ни другое.
 	for _, dir := range l.Clone.Dirs {
 		dst := filepath.Join(primary, dir)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -216,7 +264,7 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 		}
 		return err
 	}
-	return nil
+	return sweepErr
 }
 
 // cloneSweepName/cloneSweepEmail — личность коммита, которым commitLeftovers
@@ -297,7 +345,31 @@ const commitScript = `GIT_AUTHOR_NAME="` + cloneSweepName + `" GIT_AUTHOR_EMAIL=
 // стандартного файла-маркера слияния. `ls-files --unmerged` смотрит на сам
 // индекс, а не на то, какая команда его туда довела, — шире и вернее.
 func mergeInProgress(ctx context.Context, name, primary string, run step) bool {
-	return run(ctx, "exec", name, "sh", "-c", mergeCheckScript, "sh", primary) == nil
+	err := run(ctx, "exec", name, "sh", "-c", mergeCheckScript, "sh", primary)
+	if err == nil {
+		return true // grep нашёл неразрешённые записи
+	}
+	// Пайп в grep -q . несёт код выхода grep, а не git: настоящий отказ
+	// git ls-files (побитый индекс, ENOSPC, унесённый primary) даёт grep
+	// пустой ввод — тот же код 1, что и у легитимного «слияния нет».
+	// Независимое ревью воспроизвело это вживую (fatal-сообщение git
+	// в комбинированном выводе при коде выхода 1). Различаем по тексту,
+	// не по коду: gitCheckFailed ищет «fatal:» — то, что git пишет в свой
+	// собственный stderr независимо от того, что делает с его stdout пайп.
+	// Настоящую беду считаем «слияние идёт» — портить ветку хуже, чем лишний
+	// раз пропустить подчистку (см. doc-комментарий выше).
+	return gitCheckFailed(err)
+}
+
+// gitCheckFailed отличает настоящий отказ git-команды внутри mergeCheckScript/
+// dirtyCheckScript от их штатного «не найдено» (grep -q . без совпадений):
+// оба дают одинаковый ненулевой код выхода самого скрипта — пайп несёт код
+// именно grep, а не git, — но fatal-текст настоящей ошибки git всё равно
+// доходит до stderr нетронутым и попадает в комбинированный вывод, которым
+// sbxRun оборачивает ошибку (см. её doc-комментарий). Тот же приём string-
+// matching, что и notFoundInContainer выше в этом файле.
+func gitCheckFailed(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "fatal:")
 }
 
 // commitLeftovers сохраняет то, что агент оставил незакоммиченным внутри
@@ -345,6 +417,14 @@ func commitLeftovers(ctx context.Context, log io.Writer, name, primary string, d
 	}
 
 	if err := run(ctx, "exec", name, "sh", "-c", dirtyCheckScript, "sh", primary); err != nil {
+		// Та же пайп-неоднозначность, что у mergeCheckScript (см.
+		// gitCheckFailed): настоящий отказ git status здесь раньше молча
+		// читался как «дерево чистое» и терял работу агента без единой
+		// строки в логе. Настоящую беду пробрасываем дальше как ошибку —
+		// не тише, чем неудача самого add/commit ниже.
+		if gitCheckFailed(err) {
+			return fmt.Errorf("рабочее дерево внутри песочницы %s не проверено: %w", name, err)
+		}
 		return nil // нечего сохранять
 	}
 

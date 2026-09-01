@@ -80,6 +80,42 @@ func fakeCometArchiveRegression(t *testing.T, name string) (archivedMarker strin
 	return archivedMarker
 }
 
+// Независимое ревью: имя изменения, угаданное по task-key
+// (runner.CometChangeName), может разойтись с тем, что аналитик реально
+// выбрал (живой случай: задача demo-3, изменение stats-median) —
+// archiveIfReady обязана резолвить имя через .comet/current-change.json
+// первым делом, тем же способом, что и composeContext (internal/runner/
+// input.go). Подложный comet здесь принимает ТОЛЬКО "stats-median" — если
+// бы archiveIfReady звала его с угаданным "off-1", он бы отказал.
+func TestArchiveIfReadyResolvesNameFromCurrentChangeFile(t *testing.T) {
+	o := newOffice(t)
+	binDir := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "archived")
+	script := "#!/bin/sh\n" +
+		"case \"$2 $3\" in\n" +
+		"  \"status stats-median\") echo '{\"command\":\"status\",\"exitCode\":0,\"data\":{\"phase\":\"archive\",\"loop\":{\"stage\":\"" + archiveReadyStage + "\"}}}' ;;\n" +
+		"  \"archive stats-median\") : > \"" + marker + "\"; mkdir -p " + cometArchiveScope + "/archive/0000-00-00-stats-median ;;\n" +
+		"  *) exit 1 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(binDir, "comet"), []byte(script), 0o755); err != nil {
+		t.Fatalf("подложный comet не записан: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	o.agent.work = writes(runner.CometCurrentChangeFile, `{"change":"stats-median"}`+"\n")
+	o.agent.commit = "работа автора"
+	task := o.approved(t, "OFF-1")
+
+	ok, err := o.archiveIfReady(task, o.Projects["OFF"])
+	if err != nil || !ok {
+		t.Fatalf("archiveIfReady = %v, %v", ok, err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("comet native archive не вызван с настоящим именем stats-median "+
+			"(угаданное по task-key off-1 не должно было пройти подложный comet): %v", err)
+	}
+}
+
 func TestArchiveIfReadyRunsArchiveWhenStageMatches(t *testing.T) {
 	o := newOffice(t)
 	marker := fakeComet(t, archiveReadyStage)

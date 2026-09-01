@@ -88,6 +88,39 @@ func TestEnsureCreatesWorktreeFromDefaultBranch(t *testing.T) {
 	}
 }
 
+// Независимое ревью: archiveIfReady (internal/pipeline/archive.go) берёт
+// рабочую папку через Ensure/hold без единого прогона роли — PrepareInput,
+// где ExcludeCometRuntime раньше заводилась только явно, здесь не зовётся
+// вовсе, — а `comet native status`/`archive` заводят .comet/runtime/** и
+// в такой папке (archive.go, «Rebuilt local execution from the portable
+// boundary»). Без исключения это состояние держит worktree вечно "грязным"
+// для sweepWorktrees. hold() обязана исключать .comet/runtime/ сама, тем
+// же приёмом, что и для .agent/.
+func TestEnsureExcludesCometRuntimeCache(t *testing.T) {
+	m, project, task := setup(t)
+
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	defer ws.Unlock()
+
+	// Тем же способом, каким `comet native status`/`archive` заводят кэш
+	// локального исполнения в рабочей папке, не тронутой ни одним прогоном
+	// роли (archive.go, doc-комментарий archiveIfReady).
+	runtimeState := filepath.Join(ws.Dir, ".comet", "runtime", "native", "changes", "demo", "state.json")
+	if err := os.MkdirAll(filepath.Dir(runtimeState), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtimeState, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if status := gitT(t, ws.Dir, "status", "--porcelain", "-uall"); strings.Contains(status, "runtime") {
+		t.Errorf(".comet/runtime/ не исключён сразу после Ensure — worktree выглядит грязным:\n%s", status)
+	}
+}
+
 // Пути обязаны быть каноническими. git записывает в файл .git разрешённый путь
 // к каталогу репозитория, и если раннер отдаст песочнице путь через симлинк
 // (/tmp против /private/tmp на macOS), внутри git скажет «not a git repository».

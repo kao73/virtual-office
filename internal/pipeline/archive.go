@@ -77,7 +77,16 @@ func (o *Office) archiveIfReady(task tracker.Task, project tracker.Project) (ok 
 	}
 	defer o.unlock(task.Key, ws)
 
-	name := runner.CometChangeName(task.Key)
+	// .comet/current-change.json называет изменение точно, если аналитик его
+	// уже завёл — тем же способом, что и composeContext в internal/runner/
+	// input.go, и по той же причине: угаданное по task-key имя может
+	// разойтись с тем, что аналитик реально выбрал (живой случай: задача
+	// demo-3, изменение stats-median). Угадывание остаётся резервом только
+	// для рабочей папки, где current-change.json ещё не появился.
+	name := runner.CurrentChangeName(ws.Dir)
+	if name == "" {
+		name = runner.CometChangeName(task.Key)
+	}
 	status, err := cometNativeStatus(ws.Dir, name)
 	if err != nil {
 		o.logf("%s: comet native status не прочитан, архивирование пропущено: %v", task.Key, err)

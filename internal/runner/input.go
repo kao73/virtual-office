@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -104,6 +105,9 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 	// грязь этого прогона. .comet/current-change.json — не здесь: обычный
 	// трекируемый путь наравне с config.yaml, роль коммитит его сама.
 	if err := ExcludeCometRuntime(workdir); err != nil {
+		return err
+	}
+	if err := EnsureCometHookAllowPaths(workdir); err != nil {
 		return err
 	}
 	// Снимок статуса — последним: каталог обмена уже исключён из git, и в снимке
@@ -206,7 +210,7 @@ func composeContext(workdir string, role Role, run Run, in Input) (string, error
 	// Comet Native такого файла не пишут вовсе, и строка там просто не
 	// появится — это не пробел, а точный ответ.
 	dir := CometChangeDirRel(run.TaskKey)
-	if name := currentChangeName(workdir); name != "" {
+	if name := CurrentChangeName(workdir); name != "" {
 		if selected := CometChangeDirRel(name); exists(filepath.Join(workdir, selected)) {
 			dir = selected
 		}
@@ -257,16 +261,30 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// currentChangeName читает CometCurrentChangeFile и возвращает поле "change",
-// если файла нет, он повреждён или поле пусто — "", тем же принципом лучших
-// усилий, что и exists: не найти файл здесь так же нормально, как не найти
-// каталог изменения (самый первый прогон по задаче, или задача всё ещё на
-// старом корне docs/changes).
-func currentChangeName(workdir string) string {
+// CurrentChangeName читает CometCurrentChangeFile на диске рабочей папки и
+// возвращает поле "change", если файла нет, он повреждён или поле пусто —
+// "", тем же принципом лучших усилий, что и exists: не найти файл здесь так
+// же нормально, как не найти каталог изменения (самый первый прогон по
+// задаче, или задача всё ещё на старом корне docs/changes). Экспортирована:
+// internal/pipeline (archive.go) резолвит имя изменения тем же способом,
+// а не угадыванием по task-key — независимое ревью нашло живой случай
+// (задача demo-3, изменение stats-median), где эти имена расходятся.
+func CurrentChangeName(workdir string) string {
 	data, err := os.ReadFile(filepath.Join(workdir, CometCurrentChangeFile))
 	if err != nil {
 		return ""
 	}
+	return ParseCurrentChangeName(data)
+}
+
+// ParseCurrentChangeName разбирает уже прочитанное содержимое
+// CometCurrentChangeFile и возвращает поле "change" — тем же принципом
+// лучших усилий, что и CurrentChangeName: повреждённый JSON или пустое поле
+// дают "", а не ошибку. Отдельная от CurrentChangeName функция: internal/
+// pipeline.prBody читает этот же файл не с диска, а из bare-клона
+// (Workspaces.Show, `git show origin/<ветка>:...`) — у задачи без рабочей
+// папки файла на диске нет вовсе.
+func ParseCurrentChangeName(data []byte) string {
 	var selection struct {
 		Change string `json:"change"`
 	}
@@ -304,7 +322,7 @@ const cometExcludeComment = "# virtual-office: кэш локального ис�
 // нарочно: оба обязаны остаться обычными трекируемыми путями, иначе
 // `comet native status` не восстановится в другой рабочей папке или
 // у другого раннер-хоста, а следующая роль не найдёт каталог изменения
-// через context.md (currentChangeName ниже) — см. roles/analyst/role.md,
+// через context.md (CurrentChangeName ниже) — см. roles/analyst/role.md,
 // "## Как коммитить".
 //
 // staleCurrentChangeExclude чистится первым делом: до этой правки
@@ -325,6 +343,58 @@ func ExcludeCometRuntime(workdir string) error {
 	return appendExcludeRules(workdir, cometExcludeComment, []string{
 		".comet/runtime/",
 	})
+}
+
+// cometHookAllowPathsBlock — что EnsureCometHookAllowPaths дописывает в
+// .comet/config.yaml. Без него хук-роутер (comet-hook-router.mjs,
+// hooks.pre_tool_use) технически блокирует и .agent/result.json, и
+// STATE.md как «правку реализации» вне фазы build, а на фазе verify запись
+// .agent/result.json не блокируется, а молча переводит изменение обратно
+// в build — проверено живым прогоном (roles/analyst/role.md).
+const cometHookAllowPathsBlock = "hook:\n  allow_paths:\n    - .agent\n    - STATE.md\n"
+
+// cometHookKeyPattern узнаёт уже существующий верхнеуровневый ключ `hook:`
+// в .comet/config.yaml — построчным сопоставлением, не разбором YAML: тот же
+// приём, каким analyst раньше искал этот ключ руками (role.md, «Если в
+// .comet/config.yaml ещё нет блока hook:»), только детерминированный.
+var cometHookKeyPattern = regexp.MustCompile(`(?m)^hook:\s*$`)
+
+// EnsureCometHookAllowPaths гарантирует блок hook.allow_paths в
+// .comet/config.yaml для любой роли, а не только для той, что решила его
+// проверить: независимое ревью нашло, что этот блок был описан только
+// в roles/analyst/role.md — implementer и reviewer о нём не знали вовсе,
+// и для reviewer это молча и незаметно ломало Verify (запись result.json
+// откатывала изменение в build, archiveIfReady не находил archive-ready,
+// а reviewer как ни в чём не бывало отчитывался done). Отсутствие
+// .comet/config.yaml — не ошибка, тот же принцип лучших усилий, что и
+// у ExcludeCometRuntime: у задачи может не быть активного изменения
+// Comet Native вовсе.
+func EnsureCometHookAllowPaths(workdir string) error {
+	path := filepath.Join(workdir, CometConfigFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("%s не прочитан: %w", path, err)
+	}
+	if cometHookKeyPattern.Match(data) {
+		return nil // блок hook: уже есть — не трогаем существующие ключи
+	}
+
+	addition := cometHookAllowPathsBlock
+	if len(data) > 0 && !bytes.HasSuffix(data, []byte("\n")) {
+		addition = "\n" + addition
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("%s не открыт на дозапись: %w", path, err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(addition); err != nil {
+		return fmt.Errorf("%s не дописан: %w", path, err)
+	}
+	return nil
 }
 
 // removeExcludeRule убирает ровно одну строку rule из info/exclude общего

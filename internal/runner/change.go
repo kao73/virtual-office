@@ -58,10 +58,15 @@ const CometChangesDir = "docs/comet/changes"
 // путь, как и .comet/config.yaml — роль коммитит его сама (roles/analyst/
 // role.md, «Как коммитить»), а cloneSweep (internal/backends/sbx/clone.go,
 // commitLeftovers) страхует, если она забыла. Это и делает файл источником
-// истины для composeContext (см. currentChangeName в input.go): в отличие от
+// истины для composeContext (см. CurrentChangeName в input.go): в отличие от
 // имени изменения, угаданного по task-key, он не может разойтись с тем, что
 // сам Comet Native считает активным именно в этой рабочей папке.
 const CometCurrentChangeFile = ".comet/current-change.json"
+
+// CometConfigFile — конфиг Comet Native, который заводит `comet native new`
+// и который EnsureCometHookAllowPaths (input.go) правит, чтобы гарантировать
+// блок hook.allow_paths.
+const CometConfigFile = ".comet/config.yaml"
 
 // CometChangeName — <name> изменения Comet Native задачи: используется и
 // путём в git (CometChangeDirRel), и самой командой `comet native ... <name>`,
@@ -77,6 +82,14 @@ func CometChangeName(taskKey string) string {
 // называть одно и то же изменение.
 func CometChangeDirRel(taskKey string) string {
 	return filepath.Join(CometChangesDir, cometSafeName(taskKey))
+}
+
+// CometChangeDirForName — каталог изменения Comet Native по уже известному,
+// а не угаданному имени (например, прочитанному из CometCurrentChangeFile):
+// без повторной санитизации через cometSafeName — оно уже прошло её один раз,
+// когда `comet native new` заводило изменение под этим именем.
+func CometChangeDirForName(name string) string {
+	return filepath.Join(CometChangesDir, name)
 }
 
 // cometNativeNamePattern — то, что реальный Native CLI принимает как <name>

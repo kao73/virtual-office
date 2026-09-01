@@ -145,6 +145,15 @@ type Outcome struct {
 // Prepare собирает запуск: ограждение под платформу бэкенда, промпты, настройки,
 // командную строку. Ничего не исполняет.
 func Prepare(opts Options) (Launch, error) {
+	// Options.Clone и Options.Mounts несовместимы (см. док-комментарий обоих
+	// полей выше) — до сих пор это держалось только тем, что ни один
+	// вызывающий не выставлял оба сразу. Проверка здесь превращает это в
+	// громкий отказ на месте, а не в непонятную ошибку внешнего `sbx create
+	// --clone` тремя вызовами глубже, если это правило когда-нибудь нарушат.
+	if opts.Clone != nil && len(opts.Mounts) > 0 {
+		return Launch{}, fmt.Errorf("--clone несовместим с Mounts: --clone сам берёт первый Workspaces")
+	}
+
 	_, target, err := backendByName(opts.Backend)
 	if err != nil {
 		return Launch{}, err

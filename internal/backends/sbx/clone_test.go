@@ -104,6 +104,40 @@ func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
 	}
 }
 
+// Независимое ревью: .comet/runtime несёт с собой locks/.coordinator
+// Comet Native, а координатор не проверяет живость записанного там pid —
+// перенос этого состояния между эфемерными песочницами превращает мёртвую
+// блокировку одной снесённой песочницы в постоянную для всех последующих
+// прогонов той же рабочей папки (docs/notes/stage-5-live-backlog.md,
+// «Находки живого прогона EXP-2»). Свежая песочница обязана начинать
+// с чистыми locks — остальной .comet/runtime переносится как есть.
+func TestCloneSyncInClearsStaleLocksFromCometRuntime(t *testing.T) {
+	primary := primaryWithExclude(t, ".comet/runtime")
+	locksDir := filepath.Join(primary, ".comet/runtime/native/locks")
+	if err := os.MkdirAll(locksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locksDir, "root-move.lock"), []byte("stale pid"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{Dirs: []string{".comet/runtime"}},
+	}
+	rec := &recordedStep{}
+
+	if _, err := cloneSyncIn(context.Background(), "office-test", l, rec.run); err != nil {
+		t.Fatalf("cloneSyncIn: %v", err)
+	}
+
+	last := rec.calls[len(rec.calls)-1]
+	want := []string{"exec", "office-test", "rm", "-rf", locksDir}
+	if !slices.Equal(last, want) {
+		t.Errorf("устаревшие locks не убраны последним вызовом\nполучено:  %q\nожидалось: %q", last, want)
+	}
+}
+
 func TestCloneSyncInNoopWhenNothingToSync(t *testing.T) {
 	primary := t.TempDir() // ни .git/info/exclude, ни .agent, ни .comet не заведены
 
@@ -310,6 +344,43 @@ func TestCommitLeftoversSkipsWhenMergeInProgress(t *testing.T) {
 	}
 }
 
+// Настоящий отказ git внутри mergeCheckScript (не «нет несовпадений» от
+// grep, а реальный fatal git ls-files, например побитый индекс или унесённый
+// primary) обязан читаться как «слияние идёт» — не тише, чем легитимный
+// незавершённый merge: gitCheckFailed отличает его от штатного «код 1» по
+// тексту fatal-ошибки в комбинированном выводе, который несёт обёрнутая
+// ошибка step.
+func TestMergeInProgressFailsClosedOnRealGitFailure(t *testing.T) {
+	rec := &recordedStep{errs: []error{errors.New("sbx exec office-x sh -c ...: exit status 1\n" +
+		"fatal: cannot change to '/primary': No such file or directory")}}
+
+	if !mergeInProgress(context.Background(), "office-x", "/primary", rec.run) {
+		t.Fatal("настоящий отказ git ls-files принят за «слияния нет»")
+	}
+}
+
+// Тот же настоящий отказ git на dirtyCheckScript обязан стать видимой
+// ошибкой commitLeftovers, а не молчаливым «нечего сохранять» — до этой
+// правки оба случая (grep не нашёл совпадений и git реально упал) давали
+// один и тот же ненулевой код выхода скрипта под sh, и настоящая беда
+// терялась без единой строки в логе.
+func TestCommitLeftoversSurfacesRealGitFailureOnDirtyCheck(t *testing.T) {
+	rec := &recordedStep{errs: []error{
+		errors.New("не идёт"), // mergeInProgress: слияния нет
+		errors.New("sbx exec office-x sh -c ...: exit status 1\n" +
+			"fatal: index file corrupt"), // dirtyCheckScript: настоящий отказ git
+	}}
+	var log bytes.Buffer
+
+	err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run)
+	if err == nil {
+		t.Fatal("настоящий отказ git status принят за «дерево чистое»")
+	}
+	if !strings.Contains(err.Error(), "не проверено") {
+		t.Errorf("ошибка не называет причину: %v", err)
+	}
+}
+
 // Незакоммиченное найдено (mergeInProgress — не идёт, grep — код 0, step
 // отвечает nil) — commitLeftovers обязана добавить и закоммитить его
 // отдельной, не-агентской личностью (cloneSweepName/cloneSweepEmail, через
@@ -459,6 +530,39 @@ func TestCloneSyncOutFetchesRealCommitsEvenWhenCommitLeftoversFails(t *testing.T
 	want := runGitOutput(t, source, "rev-parse", "HEAD")
 	if got != want {
 		t.Errorf("настоящий коммит агента не подтянут при провалившейся подчистке: fetchInto=%s source=%s", got, want)
+	}
+}
+
+// Важная находка независимого ревью: до этой правки sweepErr возвращался
+// сразу после fetchBranch и до цикла по l.Clone.Dirs, так что провалившаяся
+// подчистка отменяла и подтяжку .agent/result.json уже состоявшегося
+// прогона — здоровый прогон читался бы дальше по цепочке (runagent.
+// ReadResult) как синтетический `failed`. С Dirs: nil (как в
+// TestCloneSyncOutFetchesRealCommitsEvenWhenCommitLeftoversFails выше) эта
+// потеря не видна — цикл пуст в обоих случаях.
+func TestCloneSyncOutRetrievesDirsEvenWhenCommitLeftoversFails(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+	source := runGitOutput(t, primary, "remote", "get-url", "sandbox-"+name)
+	commit(t, source, "настоящий коммит агента")
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
+	}
+	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, errors.New("git: identity unknown")}}
+
+	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
+		t.Fatal("неудача commitLeftovers не вернула ошибку")
+	}
+
+	var sawCopy bool
+	for _, call := range rec.calls {
+		if len(call) > 0 && call[0] == "cp" {
+			sawCopy = true
+		}
+	}
+	if !sawCopy {
+		t.Error(".agent не подтянут после провалившейся подчистки — sweepErr отменил retrieval")
 	}
 }
 

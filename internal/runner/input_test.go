@@ -331,6 +331,80 @@ func TestExcludeCometRuntimeMigratesAwayStaleCurrentChangeRule(t *testing.T) {
 	}
 }
 
+// Без активного изменения Comet Native (.comet/config.yaml ещё нет) —
+// нечего дописывать, тот же принцип лучших усилий, что и у ExcludeCometRuntime.
+func TestEnsureCometHookAllowPathsNoopWithoutConfig(t *testing.T) {
+	workdir := gitRepo(t)
+
+	if err := EnsureCometHookAllowPaths(workdir); err != nil {
+		t.Fatalf("EnsureCometHookAllowPaths: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, ".comet", "config.yaml")); !os.IsNotExist(err) {
+		t.Errorf(".comet/config.yaml заведён из ничего: %v", err)
+	}
+}
+
+// Независимое ревью: этот блок был описан только в roles/analyst/role.md —
+// implementer и reviewer о нём не знали, и для reviewer отсутствие блока
+// молча ломало Verify (запись result.json откатывала изменение в build).
+// EnsureCometHookAllowPaths гарантирует блок для любой роли, не полагаясь
+// на то, что его допишет только аналитик.
+func TestEnsureCometHookAllowPathsAppendsMissingBlock(t *testing.T) {
+	workdir := gitRepo(t)
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(cometDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("schema: comet.project.v1\nlanguage: en\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureCometHookAllowPaths(workdir); err != nil {
+		t.Fatalf("EnsureCometHookAllowPaths: %v", err)
+	}
+
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(got)
+	if !strings.Contains(content, "schema: comet.project.v1") || !strings.Contains(content, "language: en") {
+		t.Errorf("существующие ключи задеты:\n%s", content)
+	}
+	if !strings.Contains(content, "hook:") || !strings.Contains(content, "allow_paths:") ||
+		!strings.Contains(content, ".agent") || !strings.Contains(content, "STATE.md") {
+		t.Errorf("блок hook.allow_paths не дописан:\n%s", content)
+	}
+}
+
+// Повторный вызов не дублирует блок и не трогает существующий (в т.ч. если
+// он расширен вручную сверх .agent/STATE.md).
+func TestEnsureCometHookAllowPathsIdempotent(t *testing.T) {
+	workdir := gitRepo(t)
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(cometDir, "config.yaml")
+	original := "schema: comet.project.v1\nhook:\n  allow_paths:\n    - .agent\n    - STATE.md\n    - notes.md\n"
+	if err := os.WriteFile(configPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureCometHookAllowPaths(workdir); err != nil {
+		t.Fatalf("EnsureCometHookAllowPaths: %v", err)
+	}
+
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Errorf("существующий блок hook: изменён\nбыло:  %q\nстало: %q", original, string(got))
+	}
+}
+
 // Ветки агент сам узнать не может: в рабочей папке видно только HEAD, а от чего
 // он отведён — уже нет. Без базы `git diff` показывает не то, и reviewer'у неоткуда
 // взять свою работу.
