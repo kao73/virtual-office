@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/kao73/virtual-office/internal/forge"
@@ -372,8 +373,16 @@ func (o *Office) prBody(task tracker.Task, repo string, project tracker.Project)
 		if lerr != nil {
 			return "", "", lerr
 		}
+		// Полный якорь по дате, не HasSuffix("-"+name): независимое ревью
+		// (раунд 2) нашло, что простой суффикс совпал бы и с чужим архивом,
+		// чьё имя случайно оканчивается тем же хвостом (например, name
+		// "median" и чужой каталог "2026-08-31-stats-median" — оба
+		// оканчиваются на "-median"). cometArchiveDestGlob в archive.go той
+		// же слабостью не страдает: там маска применяется к заведомо
+		// своему каталогу, а не ищется среди чужих.
+		archiveDirPattern := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-` + regexp.QuoteMeta(name) + `$`)
 		for _, entry := range entries {
-			if !strings.HasSuffix(entry, "-"+name) {
+			if !archiveDirPattern.MatchString(entry) {
 				continue
 			}
 			brief, found, err = o.Workspaces.Show(repo, project.Branch(task.Key),

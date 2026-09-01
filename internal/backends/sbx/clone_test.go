@@ -242,7 +242,7 @@ func TestCloneSyncOutStopsAtDirsWhenFetchFails(t *testing.T) {
 	// Не идёт слияние (mergeInProgress), дерево чистое (grep не находит
 	// совпадений) — commitLeftovers ограничится двумя проверками и не
 	// полезет коммитить.
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("несовпадение веток не замечено — слияние не должно было даже начаться")
@@ -273,7 +273,7 @@ func TestCloneSyncOutTreatsMissingContainerPathAsNotFatalOnlyWhenAbsentOnEntry(t
 	// доходит); дальше — .agent синхронизировался штатно (значит,
 	// presentOnEntry его называет), .comet в песочнице не заведён — sbx cp
 	// отвечает так, как отвечает вживую (см. notFoundInContainer в clone.go).
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений"), nil, errors.New(`ERROR: path ".../.comet" not found in container`)}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), nil, errors.New(`ERROR: path ".../.comet" not found in container`)}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err != nil {
 		t.Fatalf("отсутствие .comet в песочнице (не занесённого на входе) не должно проваливать выгрузку: %v", err)
@@ -293,7 +293,7 @@ func TestCloneSyncOutFailsWhenExpectedDirMissingOnExit(t *testing.T) {
 	// .agent был занесён на входе (presentOnEntry его называет), но на
 	// выходе почему-то пропал — это уже не «роль его не завела», а беда.
 	// Первые два вызова — commitLeftovers (дерево чистое), дальше — сам упавший cp.
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений"), errors.New(`ERROR: path ".../.agent" not found in container`)}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), errors.New(`ERROR: path ".../.agent" not found in container`)}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err == nil {
 		t.Fatal("пропажа каталога, который сама же занесла cloneSyncIn, прошла молча")
@@ -308,7 +308,7 @@ func TestCloneSyncOutPropagatesRealCPFailure(t *testing.T) {
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
 	}
 	// Первые два вызова — commitLeftovers (дерево чистое), дальше — сам упавший cp.
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений"), errors.New("sbx cp: connection refused")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), errors.New("sbx cp: connection refused")}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("настоящая неудача sbx cp растворилась в допущении «каталога не было»")
@@ -319,7 +319,7 @@ func TestCloneSyncOutPropagatesRealCPFailure(t *testing.T) {
 // когда слияние не идёт, а grep внутри песочницы ничего не находит (код 1,
 // step оборачивает в ошибку) — молчит и возвращает nil без третьего вызова.
 func TestCommitLeftoversNoopWhenClean(t *testing.T) {
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), errors.New("grep: нет совпадений")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
 	var log bytes.Buffer
 
 	if err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run); err != nil {
@@ -374,8 +374,8 @@ func TestMergeInProgressFailsClosedOnRealGitFailure(t *testing.T) {
 // терялась без единой строки в логе.
 func TestCommitLeftoversSurfacesRealGitFailureOnDirtyCheck(t *testing.T) {
 	rec := &recordedStep{errs: []error{
-		errors.New("не идёт"), // mergeInProgress: слияния нет
-		exitErrWithCode(2),    // dirtyCheckScript: настоящий отказ git
+		exitErrWithCode(1), // mergeInProgress: слияния нет (легитимный код 1)
+		exitErrWithCode(2), // dirtyCheckScript: настоящий отказ git
 	}}
 	var log bytes.Buffer
 
@@ -388,19 +388,26 @@ func TestCommitLeftoversSurfacesRealGitFailureOnDirtyCheck(t *testing.T) {
 	}
 }
 
-// gitCheckFailed различает по номеру кода выхода (2 — git внутри скрипта
-// упала), а не по тексту — ни голая errors.New (не-exec ошибка, включая
-// «сама sbx exec не нашла команду»), ни легитимный код 1 (grep/[ ] не
-// нашёл) не должны читаться как отказ git-команды.
-func TestGitCheckFailedIgnoresUnrelatedErrors(t *testing.T) {
-	if gitCheckFailed(errors.New("sbx exec office-x: command not found")) {
-		t.Error("не связанная с git-проверкой ошибка ошибочно принята за отказ git-команды")
+// gitCheckFailed узнаёт по номеру кода выхода, а не по тексту — и
+// полярность у неё «отказ, если НЕ ровно легитимный код 1», а не «отказ,
+// если ровно код 2»: независимое ревью (раунд 2) нашло, что первая версия
+// («== 2») сужала родовой баг («любой не-git отказ читается как чисто»)
+// с уровня git до уровня sbx exec/sh/сигнала/таймаута, а не закрывала его.
+// Легитимно «не найдено» — только код 1; всё остальное, включая
+// голую errors.New (не-exec ошибка вроде «сама sbx exec не нашла команду»)
+// и код 2, — отказ.
+func TestGitCheckFailedInvertedPolarity(t *testing.T) {
+	if !gitCheckFailed(errors.New("sbx exec office-x: command not found")) {
+		t.Error("не-exec ошибка (например, отказ самой sbx exec) не распознана как отказ")
 	}
 	if gitCheckFailed(exitErrWithCode(1)) {
 		t.Error("легитимный код 1 (не найдено) принят за отказ git-команды")
 	}
-	if gitCheckFailed(exitErrWithCode(2)) != true {
+	if !gitCheckFailed(exitErrWithCode(2)) {
 		t.Error("код 2 не распознан как отказ git-команды")
+	}
+	if !gitCheckFailed(exitErrWithCode(127)) {
+		t.Error("код 127 (например, sh не найден внутри песочницы) не распознан как отказ")
 	}
 	if gitCheckFailed(nil) {
 		t.Error("nil принят за отказ")
@@ -416,7 +423,7 @@ func TestGitCheckFailedIgnoresUnrelatedErrors(t *testing.T) {
 func TestCommitLeftoversCommitsWhenDirty(t *testing.T) {
 	// call0: не идёт слияние. call1: дирти. call2: add — успех. call3: staged
 	// непусто (err != nil ⇒ есть что коммитить). call4: commit — успех (по умолчанию nil).
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, nil, errors.New("непусто")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), nil, nil, errors.New("непусто")}}
 	var log bytes.Buffer
 
 	dirs := []string{".agent", ".comet/runtime"}
@@ -466,7 +473,7 @@ func TestCommitLeftoversCommitsWhenDirty(t *testing.T) {
 func TestCommitLeftoversNoopWhenNothingStagedAfterFiltering(t *testing.T) {
 	// call0: не идёт слияние. call1: дирти. call2: add — успех.
 	// call3: staged пусто (err == nil ⇒ commitLeftovers должна остановиться).
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, nil, nil}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), nil, nil, nil}}
 	var log bytes.Buffer
 
 	if err := commitLeftovers(context.Background(), &log, "office-x", "/primary", []string{".agent"}, rec.run); err != nil {
@@ -484,7 +491,7 @@ func TestCommitLeftoversNoopWhenNothingStagedAfterFiltering(t *testing.T) {
 // Неудача самого git add — настоящая ошибка: не добраться даже до вопроса,
 // есть ли что коммитить.
 func TestCommitLeftoversPropagatesAddFailure(t *testing.T) {
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, errors.New("git: index corrupt")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), nil, errors.New("git: index corrupt")}}
 	var log bytes.Buffer
 
 	err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run)
@@ -500,7 +507,7 @@ func TestCommitLeftoversPropagatesAddFailure(t *testing.T) {
 // ошибка, которую cloneSyncOut обязан пробросить дальше, а не проглотить
 // молча: цена та же, что у потери коммитов агента.
 func TestCommitLeftoversPropagatesCommitFailure(t *testing.T) {
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, nil, errors.New("непусто"), errors.New("git: identity unknown")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), nil, nil, errors.New("непусто"), errors.New("git: identity unknown")}}
 	var log bytes.Buffer
 
 	err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run)
@@ -523,7 +530,7 @@ func TestCloneSyncOutPropagatesCommitLeftoversFailure(t *testing.T) {
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"},
 	}
 	// Не идёт слияние, дирти найдено, add и staged в порядке, но сам коммит проваливается.
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, nil, errors.New("непусто"), errors.New("git: identity unknown")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), nil, nil, errors.New("непусто"), errors.New("git: identity unknown")}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("неудача commitLeftovers не остановила cloneSyncOut")
@@ -546,7 +553,7 @@ func TestCloneSyncOutFetchesRealCommitsEvenWhenCommitLeftoversFails(t *testing.T
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"},
 	}
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, errors.New("git: identity unknown")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), nil, errors.New("git: identity unknown")}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("неудача commitLeftovers не вернула ошибку")
@@ -575,7 +582,7 @@ func TestCloneSyncOutRetrievesDirsEvenWhenCommitLeftoversFails(t *testing.T) {
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
 	}
-	rec := &recordedStep{errs: []error{errors.New("не идёт"), nil, errors.New("git: identity unknown")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), nil, errors.New("git: identity unknown")}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("неудача commitLeftovers не вернула ошибку")

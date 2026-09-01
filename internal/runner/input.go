@@ -361,10 +361,14 @@ func ExcludeCometRuntime(workdir string) error {
 // и следующий прогон той же задачи блокируется навсегда (exit 73) — ровно
 // тот отказ, что стоит за EXP-2 (docs/notes/stage-5-live-backlog.md).
 //
-// Безопасно вызывать здесь: PrepareInput зовётся только на уже захваченной
-// через workspace.Manager.hold() рабочей папке — barrier гарантирует, что
-// параллельного живого прогона над теми же locks быть не может, а
-// значит любой найденный здесь лок обязательно чужой и мёртвый.
+// Безопасно вызывать здесь: раннер зовёт PrepareInput только на уже
+// захваченной через workspace.Manager.hold() рабочей папке — barrier
+// гарантирует, что параллельного живого прогона над теми же locks быть не
+// может, а значит любой найденный здесь лок обязательно чужой и мёртвый.
+// Исключение — cmd/run-agent (ручной инструмент, вызывает PrepareInput
+// напрямую, без hold()): барьера там нет вовсе, но и параллельного прогона
+// над той же рабочей папкой там тоже никто не гарантирует — тот же риск,
+// что и у любой ручной команды над общей папкой, не новый для этой функции.
 //
 // Отсутствие .comet/runtime/** — не ошибка, тот же принцип лучших усилий,
 // что и у ExcludeCometRuntime: задача может не иметь активного изменения
@@ -457,16 +461,34 @@ func EnsureCometHookAllowPaths(workdir string) error {
 		return fmt.Errorf("%s не дописан: %w", path, err)
 	}
 
+	// Независимое ревью (раунд 2): голый `git commit` без pathspec фиксирует
+	// весь индекс, а не только эту правку — рабочая папка переиспользуется
+	// без reset/clean между прогонами (workspace.Ensure), и там мог
+	// остаться застейдженный кусок чужой, ещё не докоммиченной работы (или
+	// вовсе неразрешённые записи от конфликта). Pathspec прямо на commit
+	// (не только на add) — это git commit --only по сути: фиксирует
+	// изменения только по названному пути, что бы ещё ни было в индексе
+	// (проверено вживую: `git commit -m ... -- <path>` оставляет прочий
+	// застейдженный файл на месте нетронутым). Неудачу самой правки (не
+	// нашла .comet/config.yaml, не смогла дописать) это не касается —
+	// та по-прежнему возвращается выше как настоящая ошибка.
 	if err := gitInWorkdir(workdir, "add", "--", CometConfigFile); err != nil {
-		return fmt.Errorf("%s не занесён в индекс: %w", CometConfigFile, err)
+		return nil // best-effort: файл уже дописан и защита уже действует, коммит не обязателен для корректности этого прогона
 	}
 	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0",
 		"GIT_AUTHOR_NAME="+hookConfigCommitName, "GIT_AUTHOR_EMAIL="+hookConfigCommitEmail,
 		"GIT_COMMITTER_NAME="+hookConfigCommitName, "GIT_COMMITTER_EMAIL="+hookConfigCommitEmail)
-	if err := gitInWorkdirWithEnv(workdir, env, "commit", "-q", "--no-verify",
-		"-m", "chore: add hook.allow_paths to .comet/config.yaml"); err != nil {
-		return fmt.Errorf("%s не закоммичен: %w", CometConfigFile, err)
-	}
+	// Ошибка коммита (тоже best-effort, та же причина) — например,
+	// «cannot do a partial commit during a merge» на рабочей папке
+	// с настоящим незавершённым слиянием (воспроизведено вживую) — не
+	// возвращается наверх: до появления этого самокоммита вся правка
+	// .comet/config.yaml была best-effort, и превращать её в обязательное
+	// условие запуска роли (PrepareInput отказал бы целиком) — обменять
+	// редкий, терпимый случай (правка осталась незакоммиченной до
+	// следующего раза) на куда более тяжёлый (задача не стартует, пока
+	// человек не почистит рабочую папку руками).
+	_ = gitInWorkdirWithEnv(workdir, env, "commit", "-q", "--no-verify",
+		"-m", "chore: add hook.allow_paths to .comet/config.yaml", "--", CometConfigFile)
 	return nil
 }
 

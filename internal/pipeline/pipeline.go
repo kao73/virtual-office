@@ -421,6 +421,22 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		return err
 	}
 
+	// PrepareInput могла подвинуть HEAD собственным системным коммитом
+	// (EnsureCometHookAllowPaths, internal/runner/input.go) — пересчитываем
+	// base уже после неё, а не полагаемся на снятое до неё значение:
+	// независимое ревью (раунд 2) нашло, что иначе прогон, где агент не
+	// сделал вовсе ничего (0 шагов, нет результата), всё равно показал бы
+	// коммит между base и HEAD и классифицировался бы как errored, а не
+	// not_started (runner.LeftTrace/hasCommits, opts.Passport.BaseCommit
+	// в runagent.terminationOf) — попытка тратилась бы не за агентскую
+	// работу. run.json на диске уже написан со старым значением этой же
+	// функцией — там нужен снимок обвязки на момент подготовки, а не точка
+	// отсчёта для более позднего учёта, так что переписывать файл не нужно.
+	if base, err = runner.HeadCommit(ws.Dir); err != nil {
+		return err
+	}
+	passport.BaseCommit = base
+
 	// Аренда продлевается, пока агент работает: иначе долгая задача досталась бы
 	// reaper'у прямо посреди прогона.
 	stop := o.keepLease(ctx, task.Key, runID, role)

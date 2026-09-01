@@ -77,6 +77,23 @@ func (o *Office) archiveIfReady(task tracker.Task, project tracker.Project) (ok 
 	}
 	defer o.unlock(task.Key, ws)
 
+	// Независимое ревью (раунд 2): archiveIfReady никогда не проходит через
+	// PrepareInput — она не прогон роли, а детерминированный шаг раннера
+	// (см. doc-комментарий выше), и берёт рабочую папку напрямую через
+	// Ensure/hold. ClearStaleCometLocks в PrepareInput её поэтому не
+	// защищает вовсе — а мёртвый лок здесь оставляет не только усечённый
+	// прогон роли, а ЛЮБОЙ: песочница сносится при teardown независимо от
+	// исхода, claim с её pid+hostname остаётся в этой рабочей папке на
+	// хосте, и archiveIfReady, дойдя досюда следующим проходом, натыкается
+	// на то же exit 73 — «comet native status не прочитан, архивирование
+	// пропущено» — уже навсегда: Archive — последний шаг, PrepareInput для
+	// этой задачи больше не случится. Тот же барьер worktree (hold() выше),
+	// то же обоснование, что и в doc-комментарии ClearStaleCometLocks.
+	if err := runner.ClearStaleCometLocks(ws.Dir); err != nil {
+		o.logf("%s: устаревшие блокировки Comet Native не убраны: %v", task.Key, err)
+		return true, nil
+	}
+
 	// .comet/current-change.json называет изменение точно, если аналитик его
 	// уже завёл — тем же способом, что и composeContext в internal/runner/
 	// input.go, и по той же причине: угаданное по task-key имя может

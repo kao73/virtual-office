@@ -403,6 +403,65 @@ func TestPRPassBodyFindsBriefInArchiveOnRetriedPass(t *testing.T) {
 	}
 }
 
+// Независимое ревью (раунд 2): суффиксное совпадение (strings.HasSuffix,
+// первая версия фикса) находило бы и ЧУЖОЙ архивный каталог, чьё имя
+// случайно оканчивается тем же хвостом — "median" совпал бы и с
+// "2026-08-30-stats-median". Полный якорь по дате обязан отвергнуть такой
+// декой: у него нет собственного архива вовсе, и тело обязано откатиться
+// на текст тикета, а не подхватить чужую постановку.
+func TestPRPassBodyArchiveLookupRejectsSuffixCollision(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/23", state: forge.Open})
+	o.agent.work = func(req Request) {
+		writes(runner.CometCurrentChangeFile, `{"change":"median"}`+"\n")(req)
+		writes(filepath.Join(runner.CometChangeDirForName("stats-median"), runner.FileBrief),
+			"Цель: чужая постановка stats-median — подхватывать её нельзя.\n")(req)
+	}
+	o.agent.commit = "работа автора"
+	// "median" (наше изменение) в docs/comet/changes не заводим вовсе —
+	// его нет ни в новом, ни в старом корне, ни в архиве: только decoy
+	// "stats-median" рядом, чьё имя оканчивается тем же хвостом "-median".
+	// Переносим "stats-median" прямо в архив, минуя настоящее архивирование —
+	// нужен только сам факт совпадения суффикса, а не то, как оно туда попало.
+	o.agent.act = nil
+	task := o.approved(t, "OFF-1")
+
+	ws, err := o.Workspaces.Ensure(task.Ref(), o.Projects["OFF"])
+	if err != nil {
+		t.Fatalf("рабочая папка не открыта: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(ws.Dir, cometArchiveScope, "archive"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(
+		filepath.Join(ws.Dir, runner.CometChangeDirForName("stats-median")),
+		filepath.Join(ws.Dir, cometArchiveScope, "archive", "2026-08-30-stats-median"),
+	); err != nil {
+		t.Fatalf("decoy не перемещён в архив: %v", err)
+	}
+	gitIn(ws.Dir, "add", "-A")
+	gitIn(ws.Dir, "commit", "-q", "-m", "имитация архивирования decoy")
+	if _, err := o.Workspaces.Push(ws); err != nil {
+		t.Fatalf("ветка не опубликована: %v", err)
+	}
+	if err := ws.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+
+	o.pass(t)
+
+	if len(f.opened) != 1 {
+		t.Fatalf("открыто pull request: %d", len(f.opened))
+	}
+	got := f.opened[0].body
+	if strings.Contains(got, "чужая постановка stats-median") {
+		t.Errorf("подхвачен чужой архивный каталог по совпадению суффикса:\n%s", got)
+	}
+	if !strings.Contains(got, "Сделать что-нибудь полезное") {
+		t.Errorf("тело не откатилось на текст тикета там, где своего архива нет:\n%s", got)
+	}
+}
+
 // Запись об открытии без адреса второго pull request не порождает: комментарий
 // могли поправить руками, и молча удвоить PR офис не вправе.
 func TestPRPassKeepsSilenceOnRecordWithoutURL(t *testing.T) {

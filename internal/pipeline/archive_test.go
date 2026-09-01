@@ -116,6 +116,46 @@ func TestArchiveIfReadyResolvesNameFromCurrentChangeFile(t *testing.T) {
 	}
 }
 
+// Независимое ревью (раунд 2): archiveIfReady никогда не проходит через
+// PrepareInput (она не прогон роли), так что ClearStaleCometLocks, вызванная
+// оттуда, её не защищает вовсе — а лок здесь оставляет ЛЮБОЙ прогон роли,
+// не только усечённый: песочница сносится при teardown независимо от
+// исхода. Archive — последний шаг, и без собственного вызова
+// ClearStaleCometLocks здесь застрявший лок блокировал бы архивирование
+// этой задачи навсегда.
+func TestArchiveIfReadyClearsStaleLocksBeforeCallingComet(t *testing.T) {
+	o := newOffice(t)
+	marker := fakeComet(t, archiveReadyStage)
+	task := o.approved(t, "OFF-1")
+	project := o.Projects["OFF"]
+
+	ws, err := o.Workspaces.Ensure(task.Ref(), project)
+	if err != nil {
+		t.Fatalf("рабочая папка не открыта для подготовки: %v", err)
+	}
+	locksDir := filepath.Join(ws.Dir, runner.CometRuntimeLocksRel)
+	if err := os.MkdirAll(locksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locksDir, "root-move.lock"), []byte("pid: 16810\nhostname: office-dead\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := o.archiveIfReady(task, project)
+	if err != nil || !ok {
+		t.Fatalf("archiveIfReady = %v, %v", ok, err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("comet native archive не вызван — устаревший лок не убран перед archiveIfReady: %v", err)
+	}
+	if _, err := os.Stat(locksDir); !os.IsNotExist(err) {
+		t.Errorf("locks/ не убран перед archiveIfReady: %v", err)
+	}
+}
+
 func TestArchiveIfReadyRunsArchiveWhenStageMatches(t *testing.T) {
 	o := newOffice(t)
 	marker := fakeComet(t, archiveReadyStage)

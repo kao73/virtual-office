@@ -95,6 +95,49 @@ func TestHeadCommit(t *testing.T) {
 	}
 }
 
+// Независимое ревью (раунд 2): PrepareInput сама может подвинуть HEAD —
+// EnsureCometHookAllowPaths коммитит свою правку .comet/config.yaml —
+// и это тот самый факт, из-за которого internal/pipeline/pipeline.go
+// пересчитывает base (используемый потом в runner.LeftTrace/hasCommits для
+// решения, потратил ли прогон попытку) уже ПОСЛЕ PrepareInput, а не до неё:
+// иначе прогон, где агент не сделал вовсе ничего, всё равно показал бы
+// коммит между base и HEAD. Этот тест пинует сам факт («PrepareInput может
+// подвинуть HEAD»), а не порядок строк в pipeline.go, который существующим
+// fakeAgent-харнессом пакета pipeline не проверить — тот подделывает Agent
+// целиком и не проходит через настоящий runagent.terminationOf.
+func TestPrepareInputCanMoveHeadCommit(t *testing.T) {
+	workdir := gitRepo(t)
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cometDir, "config.yaml"), []byte("schema: comet.project.v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, workdir, "add", ".")
+	git(t, workdir, "-c", "user.email=t@example.test", "-c", "user.name=test",
+		"commit", "-q", "-m", "заводит изменение без hook:")
+
+	before, err := HeadCommit(workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	role, passport := fixtureRole(t), fixturePassport()
+	if err := PrepareInput(workdir, role, passport, Input{Task: "Сделай хорошо.\n"}); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	after, err := HeadCommit(workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("PrepareInput не подвинула HEAD, хотя должна была закоммитить hook.allow_paths — " +
+			"проверьте, не устарел ли этот тест вместе с EnsureCometHookAllowPaths")
+	}
+}
+
 func TestPrepareInputWritesExchange(t *testing.T) {
 	workdir := gitRepo(t)
 	role, passport := fixtureRole(t), fixturePassport()
@@ -490,6 +533,99 @@ func TestEnsureCometHookAllowPathsSkipsCommitWhenNoop(t *testing.T) {
 	after := git(t, workdir, "log", "-1", "--format=%H")
 	if before != after {
 		t.Error("создан лишний коммит там, где дописывать было нечего")
+	}
+}
+
+// Независимое ревью (раунд 2): голый `git commit` без pathspec фиксирует
+// весь индекс, а не только .comet/config.yaml — рабочая папка переиспользуется
+// без reset/clean между прогонами, и в индексе мог остаться застейдженный
+// кусок чужой, ещё не докоммиченной работы прошлого, усечённого прогона.
+// Коммит правки hook.allow_paths не должен прихватывать его с собой.
+func TestEnsureCometHookAllowPathsCommitsOnlyItsOwnFile(t *testing.T) {
+	workdir := gitRepo(t)
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cometDir, "config.yaml"), []byte("schema: comet.project.v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "leftover.txt"), []byte("незакоммиченная чужая работа\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, workdir, "add", ".")
+	git(t, workdir, "-c", "user.email=t@example.test", "-c", "user.name=test",
+		"commit", "-q", "-m", "заводит изменение")
+	// leftover.txt застейджен, но НЕ закоммичен — имитирует незавершённую
+	// работу прошлого, усечённого прогона роли, оставшуюся в индексе.
+	if err := os.WriteFile(filepath.Join(workdir, "leftover.txt"), []byte("правка того же прогона\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, workdir, "add", "leftover.txt")
+
+	if err := EnsureCometHookAllowPaths(workdir); err != nil {
+		t.Fatalf("EnsureCometHookAllowPaths: %v", err)
+	}
+
+	tracked := git(t, workdir, "show", "--stat", "--format=", "HEAD")
+	if strings.Contains(tracked, "leftover.txt") {
+		t.Errorf("чужая застейдженная работа уехала в коммит-правку конфига:\n%s", tracked)
+	}
+	if !strings.Contains(tracked, "config.yaml") {
+		t.Errorf("сама правка config.yaml не закоммичена:\n%s", tracked)
+	}
+	status := git(t, workdir, "status", "--porcelain")
+	if !strings.Contains(status, "leftover.txt") {
+		t.Errorf("leftover.txt должен остаться застейдженным, а не пропасть:\n%s", status)
+	}
+}
+
+// Независимое ревью (раунд 2): настоящий незавершённый merge (неразрешённые
+// записи индекса) не должен превращать best-effort правку hook.allow_paths
+// в фатальный отказ всего PrepareInput — до появления самокоммита эта
+// правка была best-effort, и обязательным условием запуска роли становиться
+// не должна.
+func TestEnsureCometHookAllowPathsToleratesUnmergedIndex(t *testing.T) {
+	base := t.TempDir()
+	git(t, base, "init", "-q", "-b", "master")
+	if err := os.WriteFile(filepath.Join(base, "f.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, base, "add", ".")
+	git(t, base, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "seed")
+	git(t, base, "checkout", "-q", "-b", "a")
+	if err := os.WriteFile(filepath.Join(base, "f.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, base, "add", ".")
+	git(t, base, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "a")
+	git(t, base, "checkout", "-q", "master")
+	git(t, base, "checkout", "-q", "-b", "b")
+	if err := os.WriteFile(filepath.Join(base, "f.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, base, "add", ".")
+	git(t, base, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "b")
+	exec.Command("git", "-C", base, "merge", "-q", "a").Run() // конфликт, код не важен
+
+	cometDir := filepath.Join(base, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cometDir, "config.yaml"), []byte("schema: comet.project.v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureCometHookAllowPaths(base); err != nil {
+		t.Fatalf("EnsureCometHookAllowPaths вернула ошибку на незавершённом слиянии: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(cometDir, "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "hook:") {
+		t.Error("блок hook.allow_paths не дописан даже при недоступном коммите")
 	}
 }
 
