@@ -1346,3 +1346,57 @@ func TestSyncCometStatePropagatesRealCPFailure(t *testing.T) {
 		t.Fatal("настоящая неудача sbx cp растворилась в допущении «изменений нет»")
 	}
 }
+
+// syncCometState — присутствие: настоящий sbx cp кладёт содержимое
+// docs/comet/changes внутри scratch-каталога под собственным basename
+// ("changes"), а не прямо в scratch, — то же допущение, на котором негласно
+// стоит и цикл по Dirs (см. его собственный cp в cloneSyncOut). Ни
+// TestCopyCometStateMatchesCopiesEachMatch (гонит copyCometStateMatches
+// напрямую с уже готовым каталогом), ни оба теста syncCometState выше (их cp
+// либо отвечает «не найдено», либо падает по-настоящему — ни один не
+// добирается до настоящего вызова copyCometStateMatches) не проверяли эту
+// раскладку: если бы она когда-нибудь разошлась с тем, что реально
+// откладывает sbx cp, comet-state.yaml пропадал бы молча при всех зелёных
+// тестах. Здесь step-подделка имитирует именно настоящую раскладку sbx cp
+// (comet-state.yaml внутри scratch/changes/demo/, а не в scratch/demo/), и
+// весь путь до fetchInto проходит через настоящий syncCometState.
+func TestSyncCometStateCopiesCometStateOnRealCPSuccess(t *testing.T) {
+	fetchInto := t.TempDir()
+	containerRoot := "/container/primary"
+	wantSrc := "office-test:" + filepath.Join(containerRoot, runner.CometChangesDir)
+
+	var calls [][]string
+	fakeCP := func(_ context.Context, args ...string) error {
+		calls = append(calls, args)
+		if len(args) != 3 || args[0] != "cp" || args[1] != wantSrc {
+			t.Fatalf("неожиданный вызов cp: %q", args)
+		}
+		// Настоящий `sbx cp <name>:<containerRoot>/docs/comet/changes <scratch>/`
+		// откладывает содержимое под <scratch>/changes/, а не прямо в <scratch>/.
+		scratchArg := strings.TrimSuffix(args[2], "/")
+		changeDir := filepath.Join(scratchArg, filepath.Base(runner.CometChangesDir), "demo")
+		if err := os.MkdirAll(changeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(changeDir, "comet-state.yaml"), []byte("phase: build\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return nil
+	}
+
+	if err := syncCometState(context.Background(), "office-test", containerRoot, fetchInto, fakeCP); err != nil {
+		t.Fatalf("syncCometState: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("ожидался ровно 1 вызов cp, получено %d: %q", len(calls), calls)
+	}
+
+	want := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	got, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("comet-state.yaml не появился в FetchInto: %v", err)
+	}
+	if string(got) != "phase: build\n" {
+		t.Errorf("содержимое = %q, ожидалось %q", got, "phase: build\n")
+	}
+}
