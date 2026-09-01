@@ -151,13 +151,38 @@
   на месте. Возврат — не исключительный случай на бумаге, а тот, что остаётся всякий раз,
   когда ты не уверен, что чинишь точно то, что имел в виду автор.
 
-**С активным изменением Comet Native** правка технически возможна только в фазе `build`
-— хук (`comet-hook-router.mjs`) отклоняет `Write`/`Edit` в `verify`. Единственный вход
-в `build` отсюда — `fail` у затронутого критерия в `final-result` (шаг 5 выше) или
-`--revise-implementation` на шаге `accept-result`, если поводом стало что-то, не привязанное
-ни к одному критерию (например, стиль). После починки прогони относящиеся тесты сам,
-закоммить и продолжи цикл verify (`dispatch-verifier` → `final-result`) заново — Runtime
-это уже умеет засчитывать вторым проходом (`loop.iteration`/`loop.attempt`).
+**С активным изменением Comet Native — не начинай точечный фикс, не отправив
+`fail`/`--revise-implementation` сначала.** Хук (`comet-hook-router.mjs`)
+`Write`/`Edit` вне фазы `build` не отклоняет — он их пропускает и молча
+переводит изменение обратно в `build` (`Native candidate was invalidated
+and returned to Build iteration ...`), обнуляя текущего Builder-кандидата.
+Роль, полагающаяся на «хук меня остановит», получит незамеченную правку
+вместо честного отказа. Входа в `build` без явной команды тоже два — `fail`
+у затронутого критерия в `final-result` (шаг 5 выше) или
+`--revise-implementation` на шаге `accept-result`, если поводом стало
+что-то, не привязанное ни к одному критерию (например, стиль).
+
+Дальше — обязательный шаг, которого раньше здесь не было: обнулённого
+Builder-кандидата надо восстановить самому, тем же Builder handoff, что
+использует implementer (`roles/implementer/role.md`, «Когда работа сделана»),
+иначе следующий `dispatch-verifier` откажет («Native Skill coordination has
+no current Builder candidate»). После починки, прогона относящихся тестов
+и коммита:
+
+    cat > /tmp/builder-handoff.json <<'EOF'
+    {
+      "kind": "builder-handoff",
+      "summary": "точечный фикс: ...",
+      "addressed_acceptance_ids": ["..."],
+      "checks": [{"name": "...", "result": "passed"|"failed"|"blocked", "note": null}],
+      "known_limits": []
+    }
+    EOF
+    comet native next <name> --runner-input /tmp/builder-handoff.json
+
+и только потом — снова цикл verify (`dispatch-verifier` → `final-result`),
+как в шагах 2 и 5 выше; Runtime уже умеет засчитывать это вторым проходом
+(`loop.iteration`/`loop.attempt`).
 
 **Без активного изменения** (легаси-путь) — хук не действует, чини и коммить сразу, без
 отдельного шага.
