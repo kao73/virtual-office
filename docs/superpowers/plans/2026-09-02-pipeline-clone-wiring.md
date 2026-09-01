@@ -1047,7 +1047,7 @@ git commit -m "refactor(sbx): split container path root from host path root in -
 - Consumes: `runner.CometChangesDir` (`"docs/comet/changes"`), `runner.CometChangeDirForName(name string) string` (both already exist in `internal/runner/change.go`).
 - Produces: `copyCometStateMatches(fromChangesDir, fetchInto string) error` — pure, real-filesystem function: globs `fromChangesDir/*/comet-state.yaml` and copies each match to `fetchInto/docs/comet/changes/<name>/comet-state.yaml`. `syncCometState(ctx context.Context, name, containerRoot, fetchInto string, run step) error` — pulls the whole `docs/comet/changes` directory out of the sandbox into a scratch temp dir via `run`, then calls `copyCometStateMatches`; a "not found in container" error from the `cp` is a legitimate no-op (no active Comet Native change).
 
-- [ ] **Step 1: Write the failing tests for the new functions**
+- [x] **Step 1: Write the failing tests for the new functions**
 
 Add to `internal/backends/sbx/clone_test.go`:
 
@@ -1132,12 +1132,12 @@ func TestSyncCometStatePropagatesRealCPFailure(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/backends/sbx/... -run 'TestCopyCometStateMatches|TestSyncCometState' -v`
 Expected: FAIL to compile — `copyCometStateMatches` and `syncCometState` don't exist yet.
 
-- [ ] **Step 3: Implement `copyCometStateMatches` and `syncCometState`, wire into `cloneSyncOut`**
+- [x] **Step 3: Implement `copyCometStateMatches` and `syncCometState`, wire into `cloneSyncOut`**
 
 Add to `internal/backends/sbx/clone.go`, after `fetchBranch`/`gitOutput` and before `cloneOutcome`:
 
@@ -1223,7 +1223,7 @@ Wire it into `cloneSyncOut`, right after the `fetchBranch` call and before the `
 	for _, dir := range l.Clone.Dirs {
 ```
 
-- [ ] **Step 4: Fix existing `cloneSyncOut` tests whose call sequencing shifts**
+- [x] **Step 4: Fix existing `cloneSyncOut` tests whose call sequencing shifts**
 
 The new `syncCometState` call issues one extra `run()` call between `commitLeftovers` and the `Dirs` loop on every `cloneSyncOut` invocation where `fetchBranch` succeeds. Three `recordedStep`-based tests hard-code `errs` indices that now shift by one; update them in `internal/backends/sbx/clone_test.go`:
 
@@ -1361,7 +1361,7 @@ And change `TestCommitLeftoversReachesFetchIntoThroughFetchBranch`'s call from `
 	}
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./internal/backends/sbx/... -v`
 Expected: PASS, every test in the package green — the four new tests from Step 1, and every previously-existing test (including the four fixed in Step 4 and the two carried over unchanged from Task 3).
@@ -1369,7 +1369,7 @@ Expected: PASS, every test in the package green — the four new tests from Step
 Run: `go build ./... && go vet ./...`
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/backends/sbx/clone.go internal/backends/sbx/clone_test.go

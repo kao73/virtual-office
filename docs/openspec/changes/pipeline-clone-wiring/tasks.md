@@ -18,9 +18,9 @@
 
 ## 4. Sync `comet-state.yaml` unconditionally
 
-- [ ] 4.1 After `fetchBranch` in `cloneSyncOut`, locate `docs/comet/changes/*/comet-state.yaml` inside the sandbox (by glob, or via the already-synced `.comet/current-change.json` when present) and copy each match to the corresponding path under `FetchInto`.
-- [ ] 4.2 Handle the "no active Comet Native change" case as a legitimate no-op, consistent with how `Dirs` already treats a missing `.comet/runtime`.
-- [ ] 4.3 Unit-test both the present and absent cases.
+- [x] 4.1 After `fetchBranch` in `cloneSyncOut`, locate `docs/comet/changes/*/comet-state.yaml` inside the sandbox (by glob, or via the already-synced `.comet/current-change.json` when present) and copy each match to the corresponding path under `FetchInto`.
+- [x] 4.2 Handle the "no active Comet Native change" case as a legitimate no-op, consistent with how `Dirs` already treats a missing `.comet/runtime`.
+- [x] 4.3 Unit-test both the present and absent cases.
 
 ## 5. End-to-end verification
 
