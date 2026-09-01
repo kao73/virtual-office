@@ -393,6 +393,22 @@ func events(task tracker.Task) []string {
 
 // Учёт ведётся всегда и ничего не решает: строка на прогон в реестре появляется
 // независимо от того, настроены ли лимиты.
+// Задача 2 (docs/superpowers/specs/2026-09-02-pipeline-clone-wiring-design.md):
+// SandboxAgent.Run строит одноразовый клон-источник --clone от той же ветки,
+// на которой стоит рабочая папка задачи, — work() обязана донести её агенту
+// в Request.Branch, а не заставлять его снова спрашивать об этом трекер.
+func TestWorkPassesTaskBranchToAgent(t *testing.T) {
+	o := newOffice(t)
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу")
+	}
+
+	if o.agent.seen.Branch != "agent/OFF-1" {
+		t.Errorf("Request.Branch = %q, ожидалась agent/OFF-1", o.agent.seen.Branch)
+	}
+}
+
 func TestTickRecordsRunInLedger(t *testing.T) {
 	o := newOffice(t)
 	o.agent.usage = runner.Usage{CostUSD: 0.25, DurationMS: 18258, Turns: 3}

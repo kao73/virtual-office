@@ -55,6 +55,12 @@ type Request struct {
 	Workdir  string
 	Passport runner.Run
 	Mounts   []runner.Workspace
+	// Branch — ветка задачи, на которой стоит рабочая папка (то же значение,
+	// что PrepareInput уже отдавал контексту через runner.Input.Branch).
+	// SandboxAgent.Run использует её для одноразового клона-источника
+	// --clone (internal/workspace.CloneSource) — см. docs/superpowers/specs/
+	// 2026-09-02-pipeline-clone-wiring-design.md.
+	Branch string
 }
 
 // Sandboxes — уборка песочниц прогонов, не переживших своего раннера.
@@ -441,7 +447,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	// reaper'у прямо посреди прогона.
 	stop := o.keepLease(ctx, task.Key, runID, role)
 	run, runErr := o.Agent.Run(ctx, Request{
-		Role: role, Workdir: ws.Dir, Passport: passport, Mounts: ws.Mounts(),
+		Role: role, Workdir: ws.Dir, Passport: passport, Mounts: ws.Mounts(), Branch: ws.Branch,
 	})
 	stop()
 
