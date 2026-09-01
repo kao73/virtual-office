@@ -107,6 +107,9 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 	if err := ExcludeCometRuntime(workdir); err != nil {
 		return err
 	}
+	if err := ClearStaleCometLocks(workdir); err != nil {
+		return err
+	}
 	if err := EnsureCometHookAllowPaths(workdir); err != nil {
 		return err
 	}
@@ -345,6 +348,35 @@ func ExcludeCometRuntime(workdir string) error {
 	})
 }
 
+// ClearStaleCometLocks убирает CometRuntimeLocksRel перед каждым прогоном —
+// тот же приём и по той же причине, что и clearStaleCometLocks в
+// internal/backends/sbx/clone.go, только для обычного бинд-маунта:
+// продовый конвейер (internal/pipeline/agent.go) worktree переиспользует
+// (workspace.Manager.Ensure), а не заводит эфемерную песочницу на каждый
+// прогон, и .comet/runtime/native/locks в нём переживает прогон точно так
+// же, как переживал бы перенос между песочницами --clone. Второе,
+// независимое ревью нашло: усечённый по таймауту/пределу шагов прогон —
+// штатный, не исключительный случай — оставляет лок с pid+hostname
+// текущего процесса; координатор Comet Native его живость не проверяет
+// и следующий прогон той же задачи блокируется навсегда (exit 73) — ровно
+// тот отказ, что стоит за EXP-2 (docs/notes/stage-5-live-backlog.md).
+//
+// Безопасно вызывать здесь: PrepareInput зовётся только на уже захваченной
+// через workspace.Manager.hold() рабочей папке — barrier гарантирует, что
+// параллельного живого прогона над теми же locks быть не может, а
+// значит любой найденный здесь лок обязательно чужой и мёртвый.
+//
+// Отсутствие .comet/runtime/** — не ошибка, тот же принцип лучших усилий,
+// что и у ExcludeCometRuntime: задача может не иметь активного изменения
+// Comet Native вовсе.
+func ClearStaleCometLocks(workdir string) error {
+	locks := filepath.Join(workdir, CometRuntimeLocksRel)
+	if err := os.RemoveAll(locks); err != nil {
+		return fmt.Errorf("устаревшие блокировки Comet Native (%s) не убраны: %w", locks, err)
+	}
+	return nil
+}
+
 // cometHookAllowPathsBlock — что EnsureCometHookAllowPaths дописывает в
 // .comet/config.yaml. Без него хук-роутер (comet-hook-router.mjs,
 // hooks.pre_tool_use) технически блокирует и .agent/result.json, и
@@ -357,7 +389,24 @@ const cometHookAllowPathsBlock = "hook:\n  allow_paths:\n    - .agent\n    - STA
 // в .comet/config.yaml — построчным сопоставлением, не разбором YAML: тот же
 // приём, каким analyst раньше искал этот ключ руками (role.md, «Если в
 // .comet/config.yaml ещё нет блока hook:»), только детерминированный.
-var cometHookKeyPattern = regexp.MustCompile(`(?m)^hook:\s*$`)
+//
+// Без якоря конца строки нарочно: независимое ревью нашло, что `^hook:\s*$`
+// не узнаёт `hook: {}` или `hook:  # комментарий` (что угодно после
+// двоеточия) — блок дописался бы второй раз, дав дублирующийся верхне-
+// уровневый ключ hook: в YAML. "hooks:" (другой ключ, множественное число)
+// этот паттерн по-прежнему не ловит: после "hook" там не двоеточие, а "s".
+var cometHookKeyPattern = regexp.MustCompile(`(?m)^hook:`)
+
+// hookConfigCommitName/hookConfigCommitEmail — личность коммита, которым
+// EnsureCometHookAllowPaths сама фиксирует свою правку .comet/config.yaml,
+// тем же приёмом, что и archiveCommitName/archiveCommitEmail
+// (internal/pipeline/archive.go) и cloneSweepName/cloneSweepEmail
+// (internal/backends/sbx/clone.go): это решение обвязки, а не роли, и в git
+// blame это обязано быть видно.
+const (
+	hookConfigCommitName  = "comet-hook-config"
+	hookConfigCommitEmail = "comet-hook-config@office.local"
+)
 
 // EnsureCometHookAllowPaths гарантирует блок hook.allow_paths в
 // .comet/config.yaml для любой роли, а не только для той, что решила его
@@ -369,6 +418,16 @@ var cometHookKeyPattern = regexp.MustCompile(`(?m)^hook:\s*$`)
 // .comet/config.yaml — не ошибка, тот же принцип лучших усилий, что и
 // у ExcludeCometRuntime: у задачи может не быть активного изменения
 // Comet Native вовсе.
+//
+// Коммитит свою правку сама, а не оставляет её роли: .comet/config.yaml —
+// обычный трекируемый путь, и коммитить его умеет только analyst (roles/
+// analyst/role.md, «Как коммитить») — если блок допишется на прогоне
+// implementer'а или reviewer'а (например, изменение заведено более старым
+// прогоном до этой правки), никто из них его не закоммитит, и рабочая
+// папка останется "грязной" навсегда — sweepWorktrees её не уберёт
+// (независимое ревью). Раздельный коммит от чужой работы этого прогона —
+// то же рассуждение, что у commitLeftovers/archiveIfReady: обвязка правит
+// служебный файл, роль об этом может даже не знать.
 func EnsureCometHookAllowPaths(workdir string) error {
 	path := filepath.Join(workdir, CometConfigFile)
 	data, err := os.ReadFile(path)
@@ -390,9 +449,41 @@ func EnsureCometHookAllowPaths(workdir string) error {
 	if err != nil {
 		return fmt.Errorf("%s не открыт на дозапись: %w", path, err)
 	}
-	defer f.Close()
 	if _, err := f.WriteString(addition); err != nil {
+		f.Close()
 		return fmt.Errorf("%s не дописан: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("%s не дописан: %w", path, err)
+	}
+
+	if err := gitInWorkdir(workdir, "add", "--", CometConfigFile); err != nil {
+		return fmt.Errorf("%s не занесён в индекс: %w", CometConfigFile, err)
+	}
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0",
+		"GIT_AUTHOR_NAME="+hookConfigCommitName, "GIT_AUTHOR_EMAIL="+hookConfigCommitEmail,
+		"GIT_COMMITTER_NAME="+hookConfigCommitName, "GIT_COMMITTER_EMAIL="+hookConfigCommitEmail)
+	if err := gitInWorkdirWithEnv(workdir, env, "commit", "-q", "--no-verify",
+		"-m", "chore: add hook.allow_paths to .comet/config.yaml"); err != nil {
+		return fmt.Errorf("%s не закоммичен: %w", CometConfigFile, err)
+	}
+	return nil
+}
+
+// gitInWorkdir/gitInWorkdirWithEnv — git-вызов раннера в рабочей папке,
+// с выводом в ошибку при неудаче. --no-verify на коммите — та же причина,
+// что у commitScript в internal/backends/sbx/clone.go: клиентский
+// репозиторий мог обзавестись pre-commit-хуками, которым не место между
+// ролью и служебной правкой обвязки.
+func gitInWorkdir(workdir string, args ...string) error {
+	return gitInWorkdirWithEnv(workdir, os.Environ(), args...)
+}
+
+func gitInWorkdirWithEnv(workdir string, env []string, args ...string) error {
+	cmd := exec.Command("git", append([]string{"-C", workdir}, args...)...)
+	cmd.Env = env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, out)
 	}
 	return nil
 }

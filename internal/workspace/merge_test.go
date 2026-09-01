@@ -147,6 +147,38 @@ func TestShowReadsFromClone(t *testing.T) {
 	}
 }
 
+// ListDir нужен prBody (internal/pipeline/prpass.go), чтобы найти каталог
+// архивирования Comet Native (docs/comet/archive/<дата>-<name>) — точное
+// имя которого заранее не предсказать, дату решает сам CLI при архивировании
+// (см. cometArchiveDestGlob в internal/pipeline/archive.go).
+func TestListDirReadsFromClone(t *testing.T) {
+	m, project, task := setup(t)
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(ws.Dir, "docs/comet/archive/2026-08-31-off-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, ws.Dir, "docs/comet/archive/2026-08-31-off-1/brief.md", "Цель.\n", "архивирование")
+	if _, err := m.Push(ws); err != nil {
+		t.Fatalf("ветка не опубликована: %v", err)
+	}
+
+	names, err := m.ListDir(ws.Repo, ws.Branch, "docs/comet/archive")
+	if err != nil {
+		t.Fatalf("ListDir: %v", err)
+	}
+	if len(names) != 1 || names[0] != "2026-08-31-off-1" {
+		t.Errorf("names = %q, ожидалось [2026-08-31-off-1]", names)
+	}
+
+	// Каталога нет вовсе — не ошибка обвязки, тот же принцип, что у Show.
+	if names, err := m.ListDir(ws.Repo, ws.Branch, "docs/comet/archive/nonexistent"); err != nil || len(names) != 0 {
+		t.Errorf("несуществующий каталог: names=%q err=%v", names, err)
+	}
+}
+
 // Уборка берёт замок уже существующей папки, не создавая её: в папке,
 // где работает агент, ей делать нечего.
 func TestTryLockRespectsRunningAgent(t *testing.T) {

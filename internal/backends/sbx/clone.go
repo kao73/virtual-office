@@ -109,16 +109,8 @@ func cloneSyncIn(ctx context.Context, name string, l *runner.Launch, run step) (
 }
 
 // cometRuntimeDir — то же самое имя, которым l.Clone.Dirs называет .comet/
-// runtime (cmd/run-agent/main.go), и одновременно то, куда `comet native`
-// внутри пишет собственное состояние исполнения (native-loop-runtime.js,
-// nativeRoot/runtimeDir: ".comet/runtime/native", обнаружено разбором
-// вендоренного бандла).
+// runtime (cmd/run-agent/main.go).
 const cometRuntimeDir = ".comet/runtime"
-
-// cometLocksRel — где под cometRuntimeDir лежат lock- и coordinator-claim
-// файлы Comet Native (native-loop-runtime.js: locksDir внутри runtimeDir,
-// .coordinator — подкаталог самого locksDir).
-const cometLocksRel = "native/locks"
 
 // clearStaleCometLocks убирает locks/.coordinator, занесённые cloneSyncIn
 // вместе с остальным .comet/runtime, прежде чем в свежей песочнице стартует
@@ -134,11 +126,19 @@ const cometLocksRel = "native/locks"
 // для всех последующих прогонов той же рабочей папки. Остальной .comet/
 // runtime (changes/, transactions/) переносится как есть — это то самое
 // исполнение, ради которого --clone вообще существует; локи — не оно.
+//
+// Второе, независимое ревью нашло, что это лечит только путь --clone —
+// сегодняшний продовый конвейер идёт бинд-маунтом (internal/pipeline/
+// agent.go, «Options.Clone нарочно не выставляется») с переиспользуемым
+// worktree (workspace.Manager.Ensure), а не эфемерной песочницей: тот же
+// класс мёртвого лока там чистит runner.ClearStaleCometLocks
+// (internal/runner/input.go), вызванная из PrepareInput под тем же барьером
+// worktree, что и здесь — под замком sbx.
 func clearStaleCometLocks(ctx context.Context, name, primary string, present []string, run step) error {
 	if !slices.Contains(present, cometRuntimeDir) {
 		return nil // .comet/runtime не заносился этим прогоном
 	}
-	locks := filepath.Join(primary, cometRuntimeDir, cometLocksRel)
+	locks := filepath.Join(primary, runner.CometRuntimeLocksRel)
 	if err := run(ctx, "exec", name, "rm", "-rf", locks); err != nil {
 		return fmt.Errorf("устаревшие блокировки Comet Native (%s) не убраны из свежей песочницы: %w", locks, err)
 	}
@@ -316,9 +316,22 @@ const (
 // (сценарий «защиты в глубину» ниже, когда info/exclude почему-то пуст) —
 // «reset -q» на путь, которого нет в индексе или вовсе на диске, безвреден
 // (код 0, см. TestCommitLeftoversExcludesNamedDirsEvenWithoutGitExclude).
+// mergeCheckScript/dirtyCheckScript отвечают тремя разными кодами выхода,
+// а не двумя: 0 — найдено (unmerged-записи / грязное дерево), 1 — легитимное
+// «нет» (git отработала, но ничего не нашла), 2 — сама git-команда упала
+// (побитый индекс, ENOSPC, унесённый primary), а не просто ничего не нашла.
+// Первая версия пыталась различать эти «1» и «2» по тексту (искала «fatal:»,
+// потом — свой собственный маркер в выводе) — оба раза ошибочно: текст «fatal:»
+// не покрывает «error: ...» и не-git отказы, а собственный маркер оказывается
+// частью текста САМОГО СКРИПТА и потому виден в обёрнутой ошибке (sbxRun/
+// execStep кладут туда и args, откуда исполнялась команда) при ЛЮБОМ отказе —
+// не только когда его напечатал echo. Явный, отдельный код выхода этой
+// путаницы не знает: gitCheckFailed ниже читает его через errors.As, а не
+// сравнивает текст.
 const (
-	mergeCheckScript  = `git -C "$1" ls-files --unmerged | grep -q .`
-	dirtyCheckScript  = `git -C "$1" status --porcelain | grep -q .`
+	mergeCheckScript = `out=$(git -C "$1" ls-files --unmerged) || exit 2; [ -n "$out" ]`
+	dirtyCheckScript = `out=$(git -C "$1" status --porcelain) || exit 2; [ -n "$out" ]`
+
 	addScript         = `primary=$1; shift; git -C "$primary" add -A -- . && { [ "$#" -eq 0 ] || git -C "$primary" reset -q -- "$@"; }`
 	stagedCheckScript = `git -C "$1" diff --cached --quiet`
 )
@@ -347,29 +360,30 @@ const commitScript = `GIT_AUTHOR_NAME="` + cloneSweepName + `" GIT_AUTHOR_EMAIL=
 func mergeInProgress(ctx context.Context, name, primary string, run step) bool {
 	err := run(ctx, "exec", name, "sh", "-c", mergeCheckScript, "sh", primary)
 	if err == nil {
-		return true // grep нашёл неразрешённые записи
+		return true // найдены неразрешённые записи
 	}
-	// Пайп в grep -q . несёт код выхода grep, а не git: настоящий отказ
-	// git ls-files (побитый индекс, ENOSPC, унесённый primary) даёт grep
-	// пустой ввод — тот же код 1, что и у легитимного «слияния нет».
-	// Независимое ревью воспроизвело это вживую (fatal-сообщение git
-	// в комбинированном выводе при коде выхода 1). Различаем по тексту,
-	// не по коду: gitCheckFailed ищет «fatal:» — то, что git пишет в свой
-	// собственный stderr независимо от того, что делает с его stdout пайп.
-	// Настоящую беду считаем «слияние идёт» — портить ветку хуже, чем лишний
-	// раз пропустить подчистку (см. doc-комментарий выше).
+	// mergeCheckScript само различает «неразрешённых записей нет» (код 1,
+	// $out пуст) от «git ls-files сама упала» (побитый индекс, ENOSPC,
+	// унесённый primary — код 2): независимое ревью нашло, что более ранняя
+	// версия на `| grep -q .` не различала их вовсе, а её первая замена
+	// различала только по тексту («fatal:», затем свой маркер) — оба раза
+	// ошибочно, см. doc-комментарий gitCheckFailed. Настоящую беду считаем
+	// «слияние идёт» — портить ветку хуже, чем лишний раз пропустить
+	// подчистку (см. doc-комментарий выше).
 	return gitCheckFailed(err)
 }
 
-// gitCheckFailed отличает настоящий отказ git-команды внутри mergeCheckScript/
-// dirtyCheckScript от их штатного «не найдено» (grep -q . без совпадений):
-// оба дают одинаковый ненулевой код выхода самого скрипта — пайп несёт код
-// именно grep, а не git, — но fatal-текст настоящей ошибки git всё равно
-// доходит до stderr нетронутым и попадает в комбинированный вывод, которым
-// sbxRun оборачивает ошибку (см. её doc-комментарий). Тот же приём string-
-// matching, что и notFoundInContainer выше в этом файле.
+// gitCheckFailed различает код выхода 2 (mergeCheckScript/dirtyCheckScript
+// сами дают его только когда git внутри упала) от кода 1 (легитимное «не
+// найдено») по номеру, не по тексту: sbxRun и execStep (clone_test.go) оба
+// оборачивают исходный `*exec.ExitError` через `%w`, errors.As достаёт его
+// сквозь обёртку. Текстовый маркер (более ранняя версия) для этого не
+// годился в принципе: он живёт в самом ТЕКСТЕ СКРИПТА, а sbxRun/execStep
+// оба кладут в текст ошибки не только вывод команды, но и её args — где
+// маркер тем самым виден при любом отказе, напечатал его echo или нет.
 func gitCheckFailed(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "fatal:")
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 2
 }
 
 // commitLeftovers сохраняет то, что агент оставил незакоммиченным внутри

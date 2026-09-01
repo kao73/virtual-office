@@ -362,6 +362,47 @@ func TestOpenPRArchivesEvenWithoutForge(t *testing.T) {
 	}
 }
 
+// Независимое ревью (второй проход, после фикса #1): фикс однопроходного
+// случая не закрывал повторный проход — если архивирование состоялось в
+// одном проходе, а pull request не открылся (сеть, forge, отказ человека)
+// и задача вернулась в очередь, следующий проход промахивался мимо обоих
+// корней brief.md (новый переименован, старого никогда не было) и снова
+// откатывался на сырой текст тикета. Этот тест воспроизводит именно
+// повторный проход: первый архивирует, но не открывает PR (сеть), второй
+// обязан найти brief уже в docs/comet/archive/**.
+func TestPRPassBodyFindsBriefInArchiveOnRetriedPass(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{
+		url: "https://github.test/kao73/client/pull/22", state: forge.Open,
+		openErr: errors.New("сеть недоступна"),
+	})
+	name := runner.CometChangeName("OFF-1")
+	fakeCometArchivesForReal(t, name)
+	o.agent.work = writes(filepath.Join(runner.CometChangeDirRel("OFF-1"), runner.FileBrief),
+		"Цель: найти brief в архиве на повторном проходе.\n")
+	o.agent.commit = "работа автора"
+	task := o.approved(t, "OFF-1")
+
+	if err := o.openPR(task); err != nil {
+		t.Fatalf("openPR (первый проход, сеть недоступна): %v", err)
+	}
+	if len(f.opened) != 1 {
+		t.Fatalf("попыток открыть после первого прохода: %d, ожидалась одна (неудачная)", len(f.opened))
+	}
+
+	f.openErr = nil
+	if err := o.openPR(task); err != nil {
+		t.Fatalf("openPR (второй проход): %v", err)
+	}
+	if len(f.opened) != 2 {
+		t.Fatalf("попыток открыть: %d, ожидалось две", len(f.opened))
+	}
+	got := f.opened[1].body
+	if !strings.Contains(got, "Цель: найти brief в архиве на повторном проходе") {
+		t.Errorf("brief не найден в docs/comet/archive на повторном проходе:\n%s", got)
+	}
+}
+
 // Запись об открытии без адреса второго pull request не порождает: комментарий
 // могли поправить руками, и молча удвоить PR офис не вправе.
 func TestPRPassKeepsSilenceOnRecordWithoutURL(t *testing.T) {

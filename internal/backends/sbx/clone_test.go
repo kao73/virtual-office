@@ -33,6 +33,15 @@ func (r *recordedStep) run(_ context.Context, args ...string) error {
 	return nil
 }
 
+// exitErrWithCode — настоящий *exec.ExitError с заданным кодом выхода: и
+// sbxRun, и execStep (ниже) оборачивают именно такую ошибку через `%w`,
+// поэтому только она годится для проверки gitCheckFailed, которая достаёт
+// код через errors.As, а не сравнивает текст.
+func exitErrWithCode(code int) error {
+	cmd := exec.Command("sh", "-c", "exit "+strconv.Itoa(code))
+	return cmd.Run()
+}
+
 // primaryWithExclude заводит каталог с .git/info/exclude (как оставляет
 // runner.PrepareInput на настоящей рабочей папке) и, опционально, дописанные
 // каталоги обмена — так cloneSyncIn находит на входе именно то, что нашла бы
@@ -351,8 +360,7 @@ func TestCommitLeftoversSkipsWhenMergeInProgress(t *testing.T) {
 // тексту fatal-ошибки в комбинированном выводе, который несёт обёрнутая
 // ошибка step.
 func TestMergeInProgressFailsClosedOnRealGitFailure(t *testing.T) {
-	rec := &recordedStep{errs: []error{errors.New("sbx exec office-x sh -c ...: exit status 1\n" +
-		"fatal: cannot change to '/primary': No such file or directory")}}
+	rec := &recordedStep{errs: []error{exitErrWithCode(2)}}
 
 	if !mergeInProgress(context.Background(), "office-x", "/primary", rec.run) {
 		t.Fatal("настоящий отказ git ls-files принят за «слияния нет»")
@@ -367,8 +375,7 @@ func TestMergeInProgressFailsClosedOnRealGitFailure(t *testing.T) {
 func TestCommitLeftoversSurfacesRealGitFailureOnDirtyCheck(t *testing.T) {
 	rec := &recordedStep{errs: []error{
 		errors.New("не идёт"), // mergeInProgress: слияния нет
-		errors.New("sbx exec office-x sh -c ...: exit status 1\n" +
-			"fatal: index file corrupt"), // dirtyCheckScript: настоящий отказ git
+		exitErrWithCode(2),    // dirtyCheckScript: настоящий отказ git
 	}}
 	var log bytes.Buffer
 
@@ -378,6 +385,25 @@ func TestCommitLeftoversSurfacesRealGitFailureOnDirtyCheck(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "не проверено") {
 		t.Errorf("ошибка не называет причину: %v", err)
+	}
+}
+
+// gitCheckFailed различает по номеру кода выхода (2 — git внутри скрипта
+// упала), а не по тексту — ни голая errors.New (не-exec ошибка, включая
+// «сама sbx exec не нашла команду»), ни легитимный код 1 (grep/[ ] не
+// нашёл) не должны читаться как отказ git-команды.
+func TestGitCheckFailedIgnoresUnrelatedErrors(t *testing.T) {
+	if gitCheckFailed(errors.New("sbx exec office-x: command not found")) {
+		t.Error("не связанная с git-проверкой ошибка ошибочно принята за отказ git-команды")
+	}
+	if gitCheckFailed(exitErrWithCode(1)) {
+		t.Error("легитимный код 1 (не найдено) принят за отказ git-команды")
+	}
+	if gitCheckFailed(exitErrWithCode(2)) != true {
+		t.Error("код 2 не распознан как отказ git-команды")
+	}
+	if gitCheckFailed(nil) {
+		t.Error("nil принят за отказ")
 	}
 }
 

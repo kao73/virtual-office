@@ -331,6 +331,57 @@ func TestExcludeCometRuntimeMigratesAwayStaleCurrentChangeRule(t *testing.T) {
 	}
 }
 
+// Независимое ревью: продовый конвейер (internal/pipeline/agent.go) идёт
+// бинд-маунтом с переиспользуемым worktree (workspace.Manager.Ensure), а
+// не эфемерной песочницей --clone — усечённый по таймауту прогон оставляет
+// lock/.coordinator с pid+hostname текущего процесса, координатор Comet
+// Native их живость не проверяет, и следующий прогон той же задачи
+// блокируется навсегда (exit 73, тот же отказ, что и в EXP-2). Остальное
+// .comet/runtime (реальное состояние исполнения — changes/, transactions/)
+// обязано пережить чистку нетронутым.
+func TestClearStaleCometLocksRemovesLocksKeepsExecutionState(t *testing.T) {
+	workdir := gitRepo(t)
+	cometDir := filepath.Join(workdir, ".comet", "runtime", "native")
+
+	locksDir := filepath.Join(cometDir, "locks")
+	if err := os.MkdirAll(filepath.Join(locksDir, ".coordinator"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locksDir, "root-move.lock"), []byte("pid: 16810\nhostname: office-e677f34a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locksDir, ".coordinator", "abc.claim"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statePath := filepath.Join(cometDir, "changes", "demo", "state.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{"phase":"build"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ClearStaleCometLocks(workdir); err != nil {
+		t.Fatalf("ClearStaleCometLocks: %v", err)
+	}
+
+	if _, err := os.Stat(locksDir); !os.IsNotExist(err) {
+		t.Errorf("locks/ не убран: %v", err)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Errorf("реальное состояние исполнения задето чисткой: %v", err)
+	}
+}
+
+func TestClearStaleCometLocksNoopWithoutCometRuntime(t *testing.T) {
+	workdir := gitRepo(t)
+
+	if err := ClearStaleCometLocks(workdir); err != nil {
+		t.Fatalf("ClearStaleCometLocks: %v", err)
+	}
+}
+
 // Без активного изменения Comet Native (.comet/config.yaml ещё нет) —
 // нечего дописывать, тот же принцип лучших усилий, что и у ExcludeCometRuntime.
 func TestEnsureCometHookAllowPathsNoopWithoutConfig(t *testing.T) {
@@ -378,6 +429,70 @@ func TestEnsureCometHookAllowPathsAppendsMissingBlock(t *testing.T) {
 	}
 }
 
+// Независимое ревью: .comet/config.yaml коммитить умеет только analyst
+// (roles/analyst/role.md, «Как коммитить») — если блок допишется на
+// прогоне implementer'а или reviewer'а, никто из них его не закоммитит,
+// и рабочая папка останется "грязной" навсегда (sweepWorktrees её не
+// уберёт). EnsureCometHookAllowPaths обязана закоммитить свою правку сама.
+func TestEnsureCometHookAllowPathsCommitsItsOwnEdit(t *testing.T) {
+	workdir := gitRepo(t)
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(cometDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("schema: comet.project.v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, workdir, "add", ".")
+	git(t, workdir, "-c", "user.email=t@example.test", "-c", "user.name=test",
+		"commit", "-q", "-m", "заводит изменение")
+
+	if err := EnsureCometHookAllowPaths(workdir); err != nil {
+		t.Fatalf("EnsureCometHookAllowPaths: %v", err)
+	}
+
+	if status := git(t, workdir, "status", "--porcelain"); status != "" {
+		t.Errorf("правка hook.allow_paths осталась незакоммиченной:\n%s", status)
+	}
+	subject := strings.TrimSpace(git(t, workdir, "log", "-1", "--format=%s"))
+	if subject != "chore: add hook.allow_paths to .comet/config.yaml" {
+		t.Errorf("тема коммита = %q", subject)
+	}
+	authorName := strings.TrimSpace(git(t, workdir, "log", "-1", "--format=%an"))
+	if authorName != hookConfigCommitName {
+		t.Errorf("автор коммита = %q, ожидалось %q — не должно выглядеть работой роли", authorName, hookConfigCommitName)
+	}
+}
+
+// Ничего не дописывалось (блок hook: уже был) — коммита тоже быть не
+// должно: EnsureCometHookAllowPaths не создаёт пустых системных коммитов.
+func TestEnsureCometHookAllowPathsSkipsCommitWhenNoop(t *testing.T) {
+	workdir := gitRepo(t)
+	cometDir := filepath.Join(workdir, ".comet")
+	if err := os.MkdirAll(cometDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(cometDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("hook:\n  allow_paths:\n    - .agent\n    - STATE.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, workdir, "add", ".")
+	git(t, workdir, "-c", "user.email=t@example.test", "-c", "user.name=test",
+		"commit", "-q", "-m", "заводит изменение с уже полным конфигом")
+
+	before := git(t, workdir, "log", "-1", "--format=%H")
+
+	if err := EnsureCometHookAllowPaths(workdir); err != nil {
+		t.Fatalf("EnsureCometHookAllowPaths: %v", err)
+	}
+
+	after := git(t, workdir, "log", "-1", "--format=%H")
+	if before != after {
+		t.Error("создан лишний коммит там, где дописывать было нечего")
+	}
+}
+
 // Повторный вызов не дублирует блок и не трогает существующий (в т.ч. если
 // он расширен вручную сверх .agent/STATE.md).
 func TestEnsureCometHookAllowPathsIdempotent(t *testing.T) {
@@ -402,6 +517,40 @@ func TestEnsureCometHookAllowPathsIdempotent(t *testing.T) {
 	}
 	if string(got) != original {
 		t.Errorf("существующий блок hook: изменён\nбыло:  %q\nстало: %q", original, string(got))
+	}
+}
+
+// Независимое ревью: cometHookKeyPattern раньше требовал, чтобы после
+// "hook:" до конца строки не было ничего, кроме пробелов — "hook: {}" или
+// "hook:  # комментарий" не узнавались бы вовсе, и блок дописался бы
+// второй раз, дав дублирующийся верхнеуровневый ключ hook: в YAML.
+func TestEnsureCometHookAllowPathsRecognizesInlineHookKey(t *testing.T) {
+	cases := []string{
+		"schema: comet.project.v1\nhook: {}\n",
+		"schema: comet.project.v1\nhook:  # заполним позже\n",
+	}
+	for _, original := range cases {
+		workdir := gitRepo(t)
+		cometDir := filepath.Join(workdir, ".comet")
+		if err := os.MkdirAll(cometDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		configPath := filepath.Join(cometDir, "config.yaml")
+		if err := os.WriteFile(configPath, []byte(original), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := EnsureCometHookAllowPaths(workdir); err != nil {
+			t.Fatalf("EnsureCometHookAllowPaths: %v", err)
+		}
+
+		got, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := strings.Count(string(got), "hook:"); n != 1 {
+			t.Errorf("hook: с инлайн-содержимым не узнан — верхнеуровневый ключ встречается %d раз(а), ожидался 1:\n%s", n, got)
+		}
 	}
 }
 

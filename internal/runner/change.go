@@ -68,6 +68,15 @@ const CometCurrentChangeFile = ".comet/current-change.json"
 // блок hook.allow_paths.
 const CometConfigFile = ".comet/config.yaml"
 
+// CometRuntimeLocksRel — где под .comet/runtime/ лежат lock- и coordinator-
+// claim файлы Comet Native (native-loop-runtime.js: locksDir внутри
+// runtimeDir=".comet/runtime/native", .coordinator — подкаталог самого
+// locksDir; обнаружено разбором вендоренного бандла). Общая константа для
+// internal/backends/sbx (--clone, clearStaleCometLocks) и ClearStaleCometLocks
+// ниже (обычный бинд-маунт) — оба чистят один и тот же путь по одной и той
+// же причине, см. её doc-комментарий.
+const CometRuntimeLocksRel = ".comet/runtime/native/locks"
+
 // CometChangeName — <name> изменения Comet Native задачи: используется и
 // путём в git (CometChangeDirRel), и самой командой `comet native ... <name>`,
 // которой каталог, а не только имя, ни к чему.

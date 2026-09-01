@@ -347,12 +347,41 @@ func (o *Office) prBody(task tracker.Task, repo string, project tracker.Project)
 	if !found {
 		// Новый корень Comet Native пуст — задача либо старше этого перехода
 		// (analyst вёл её через прежний docs/changes/<KEY>), либо пришла мимо
-		// аналитика вовсе. Второй, старый корень остаётся источником, пока
-		// первый не подтвердил свою пустоту, а не наоборот.
+		// аналитика вовсе, либо уже архивирована (следующая проверка). Второй,
+		// старый корень остаётся источником, пока первый не подтвердил свою
+		// пустоту, а не наоборот.
 		brief, found, err = o.Workspaces.Show(repo, project.Branch(task.Key),
 			filepath.Join(runner.ChangeDirRel(task.Key), runner.FileBrief))
 		if err != nil {
 			return "", "", err
+		}
+	}
+	if !found {
+		// Изменение уже архивировано — не этим проходом (тот читает brief
+		// раньше своего archiveIfReady, см. её вызывающего), а каким-то из
+		// прошлых: сеть при OpenPR, ещё не собранный forge или человеческий
+		// ErrRefused вернули задачу в очередь уже после того, как archiveIfReady
+		// переименовала docs/comet/changes/<name> в docs/comet/archive/<дата>-
+		// <name>. Без этой проверки повторный проход промахивался бы мимо
+		// обоих корней выше и откатывался на сырой текст тикета — независимое
+		// ревью нашло эту дыру уже после первого фикса той же дыры для
+		// однопроходного случая. Дата в имени каталога заранее не предсказуема
+		// (см. cometArchiveDestGlob в archive.go) — ищем по суффиксу имени.
+		name := filepath.Base(changeDir)
+		entries, lerr := o.Workspaces.ListDir(repo, project.Branch(task.Key), filepath.Join(cometArchiveScope, "archive"))
+		if lerr != nil {
+			return "", "", lerr
+		}
+		for _, entry := range entries {
+			if !strings.HasSuffix(entry, "-"+name) {
+				continue
+			}
+			brief, found, err = o.Workspaces.Show(repo, project.Branch(task.Key),
+				filepath.Join(cometArchiveScope, "archive", entry, runner.FileBrief))
+			if err != nil {
+				return "", "", err
+			}
+			break
 		}
 	}
 	if !found {

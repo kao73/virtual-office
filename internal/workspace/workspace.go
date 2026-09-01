@@ -145,6 +145,30 @@ func (m *Manager) Show(repo, branch, path string) (string, bool, error) {
 	}
 }
 
+// ListDir перечисляет имена прямых записей каталога dir в ветке — тем же
+// bare-клоном и той же веткой origin, что и Show, и по той же причине
+// (рабочей папки может не быть). Каталога нет вовсе, как и отсутствующего
+// файла у Show, — не ошибка обвязки: он появляется не для каждой задачи.
+func (m *Manager) ListDir(repo, branch, dir string) ([]string, error) {
+	cmd := exec.Command("git", "-C", repo, "ls-tree", "--name-only", "origin/"+branch+":"+dir)
+	cmd.Env = gitEnv()
+	out, err := cmd.CombinedOutput()
+	switch {
+	case err == nil:
+		var names []string
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line != "" {
+				names = append(names, line)
+			}
+		}
+		return names, nil
+	case isExitCode(err, 128):
+		return nil, nil // нет ни каталога, ни ветки
+	default:
+		return nil, fmt.Errorf("каталог %s ветки %s не прочитан: %w\n%s", dir, branch, err, out)
+	}
+}
+
 // Push публикует ветку задачи, если на ней есть неопубликованные коммиты.
 // Возвращает, состоялся ли пуш.
 //
