@@ -352,18 +352,24 @@ func TestCloneSyncOutTreatsMissingContainerPathAsNotFatalOnlyWhenAbsentOnEntry(t
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent", ".comet"}},
 	}
-	// Первые два вызова, до fetchBranch, — commitLeftovers (mergeInProgress,
-	// потом git status внутри песочницы; дерево чистое, до коммита дело не
-	// доходит); дальше — .agent синхронизировался штатно (значит,
+	// Первые два вызова, до fetchBranch, — commitLeftovers (дерево чистое, до
+	// коммита дело не доходит); третий — syncCometState: в песочнице нет
+	// docs/comet/changes вовсе, sbx cp отвечает так же, как на любой другой
+	// отсутствующий путь; дальше — .agent синхронизировался штатно (значит,
 	// presentOnEntry его называет), .comet в песочнице не заведён — sbx cp
 	// отвечает так, как отвечает вживую (см. notFoundInContainer в clone.go).
-	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), nil, errors.New(`ERROR: path ".../.comet" not found in container`)}}
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+		nil,
+		errors.New(`ERROR: path ".../.comet" not found in container`),
+	}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err != nil {
 		t.Fatalf("отсутствие .comet в песочнице (не занесённого на входе) не должно проваливать выгрузку: %v", err)
 	}
-	if len(rec.calls) != 4 {
-		t.Fatalf("ожидалось 4 вызова (commitLeftovers x2 + 2 cp), получено %d: %q", len(rec.calls), rec.calls)
+	if len(rec.calls) != 5 {
+		t.Fatalf("ожидалось 5 вызовов (commitLeftovers x2 + syncCometState + 2 cp), получено %d: %q", len(rec.calls), rec.calls)
 	}
 }
 
@@ -376,8 +382,13 @@ func TestCloneSyncOutFailsWhenExpectedDirMissingOnExit(t *testing.T) {
 	}
 	// .agent был занесён на входе (presentOnEntry его называет), но на
 	// выходе почему-то пропал — это уже не «роль его не завела», а беда.
-	// Первые два вызова — commitLeftovers (дерево чистое), дальше — сам упавший cp.
-	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), errors.New(`ERROR: path ".../.agent" not found in container`)}}
+	// Первые два вызова — commitLeftovers (дерево чистое), третий —
+	// syncCometState (законный no-op), дальше — сам упавший cp.
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+		errors.New(`ERROR: path ".../.agent" not found in container`),
+	}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err == nil {
 		t.Fatal("пропажа каталога, который сама же занесла cloneSyncIn, прошла молча")
@@ -423,8 +434,13 @@ func TestCloneSyncOutPropagatesRealCPFailure(t *testing.T) {
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
 	}
-	// Первые два вызова — commitLeftovers (дерево чистое), дальше — сам упавший cp.
-	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), errors.New("sbx cp: connection refused")}}
+	// Первые два вызова — commitLeftovers (дерево чистое), третий —
+	// syncCometState (законный no-op), дальше — сам упавший cp.
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+		errors.New("sbx cp: connection refused"),
+	}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("настоящая неудача sbx cp растворилась в допущении «каталога не было»")
@@ -731,9 +747,10 @@ func TestCloneSyncOutRetrievesDirsEvenWhenCommitLeftoversFails(t *testing.T) {
 		t.Fatal("неудача commitLeftovers не вернула ошибку")
 	}
 
+	wantAgentSrc := name + ":" + filepath.Join(primary, ".agent")
 	var sawCopy bool
 	for _, call := range rec.calls {
-		if len(call) > 0 && call[0] == "cp" {
+		if len(call) == 3 && call[0] == "cp" && call[1] == wantAgentSrc {
 			sawCopy = true
 		}
 	}
@@ -779,6 +796,23 @@ func realSandboxStep(t *testing.T, primary, source string) step {
 	}
 }
 
+// realSandboxStepNoCometState — realSandboxStep, но отвечает «не найдено» на
+// любой cp-вызов вместо того, чтобы пытаться исполнить его по-настоящему:
+// source в тестах этого файла — голый репозиторий без docs/comet/changes,
+// и настоящий sbx cp на таком пути ответил бы тем же текстом. realSandboxStep
+// сама умеет только exec, поэтому syncCometState's cp здесь нуждается
+// в отдельном перехвате, а не в расширении realSandboxStep под cp вообще.
+func realSandboxStepNoCometState(t *testing.T, primary, source string) step {
+	t.Helper()
+	inner := realSandboxStep(t, primary, source)
+	return func(ctx context.Context, args ...string) error {
+		if len(args) == 3 && args[0] == "cp" {
+			return errors.New(`ERROR: path ".../docs/comet/changes" not found in container`)
+		}
+		return inner(ctx, args...)
+	}
+}
+
 // Важная находка независимого ревью (#7): предыдущие тесты проверяли только
 // форму вызова через recordedStep — здесь commitLeftovers прогоняется по
 // настоящему пути через fetchBranch до FetchInto, с настоящим git.
@@ -795,7 +829,7 @@ func TestCommitLeftoversReachesFetchIntoThroughFetchBranch(t *testing.T) {
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"},
 	}
 
-	if err := cloneSyncOut(context.Background(), name, l, realSandboxStep(t, primary, source), nil, io.Discard); err != nil {
+	if err := cloneSyncOut(context.Background(), name, l, realSandboxStepNoCometState(t, primary, source), nil, io.Discard); err != nil {
 		t.Fatalf("cloneSyncOut: %v", err)
 	}
 
@@ -1232,4 +1266,83 @@ func runGitOutput(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s: %v\n%s", full, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// copyCometStateMatches — присутствие: изменение "demo" нашлось в снимке,
+// синхронизация переносит только comet-state.yaml, а не соседние файлы того
+// же каталога изменения (их несёт git-слияние, а не эта маска).
+func TestCopyCometStateMatchesCopiesEachMatch(t *testing.T) {
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	demoDir := filepath.Join(scratch, "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(demoDir, "comet-state.yaml"), []byte("phase: verify\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(demoDir, "brief.md"), []byte("# бриф\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyCometStateMatches(scratch, fetchInto); err != nil {
+		t.Fatalf("copyCometStateMatches: %v", err)
+	}
+
+	want := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	got, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("comet-state.yaml не появился в FetchInto: %v", err)
+	}
+	if string(got) != "phase: verify\n" {
+		t.Errorf("содержимое = %q, ожидалось %q", got, "phase: verify\n")
+	}
+	if _, err := os.Stat(filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "brief.md")); err == nil {
+		t.Error("brief.md скопирован — синхронизация обязана трогать только comet-state.yaml")
+	}
+}
+
+// copyCometStateMatches — отсутствие: снимок без единого изменения не должен
+// быть ошибкой и не должен ничего создать в FetchInto.
+func TestCopyCometStateMatchesNoopWhenNoMatches(t *testing.T) {
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	if err := copyCometStateMatches(scratch, fetchInto); err != nil {
+		t.Fatalf("отсутствие совпадений не должно быть ошибкой: %v", err)
+	}
+	entries, err := os.ReadDir(fetchInto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("в FetchInto появилось лишнее: %v", entries)
+	}
+}
+
+// syncCometState — отсутствие: docs/comet/changes нет в песочнице вовсе
+// (нет активного изменения Comet Native) — тот же принцип, что уже есть
+// у Dirs' отсутствующего .comet/runtime.
+func TestSyncCometStateNoopWhenChangesDirMissing(t *testing.T) {
+	fetchInto := t.TempDir()
+	rec := &recordedStep{errs: []error{errors.New(`ERROR: path ".../docs/comet/changes" not found in container`)}}
+
+	if err := syncCometState(context.Background(), "office-test", "/container/primary", fetchInto, rec.run); err != nil {
+		t.Fatalf("отсутствие docs/comet/changes не должно быть ошибкой: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Errorf("ожидался ровно 1 вызов (сам cp), получено %d: %q", len(rec.calls), rec.calls)
+	}
+}
+
+// syncCometState — настоящая неудача sbx cp обязана дойти до вызывающего,
+// а не раствориться в допущении «изменений нет».
+func TestSyncCometStatePropagatesRealCPFailure(t *testing.T) {
+	fetchInto := t.TempDir()
+	rec := &recordedStep{errs: []error{errors.New("sbx cp: connection refused")}}
+
+	if err := syncCometState(context.Background(), "office-test", "/container/primary", fetchInto, rec.run); err == nil {
+		t.Fatal("настоящая неудача sbx cp растворилась в допущении «изменений нет»")
+	}
 }

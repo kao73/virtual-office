@@ -294,6 +294,12 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 	if err := fetchBranch(ctx, name, containerRoot, l.Clone); err != nil {
 		return err
 	}
+	// Длящееся состояние Comet Native роль не коммитит — та же потеря данных,
+	// что и неудача fetchBranch выше, если её пропустить молча, и трактуется
+	// так же: немедленный возврат, до цикла по Dirs.
+	if err := syncCometState(ctx, name, containerRoot, l.Clone.FetchInto, run); err != nil {
+		return fmt.Errorf("длящееся состояние Comet Native не подтянуто из песочницы %s: %w", name, err)
+	}
 
 	// sweepErr возвращается только после этого цикла, а не раньше него:
 	// независимое ревью нашло, что прежний ранний return sweepErr здесь
@@ -592,6 +598,70 @@ func gitOutput(ctx context.Context, dir string, args ...string) (string, error) 
 		return "", fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, out)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// copyCometStateMatches переносит из fromChangesDir (снимок docs/comet/changes,
+// уже выгруженный из песочницы на хост — см. syncCometState) только файлы
+// comet-state.yaml, по одному на найденное изменение, в fetchInto/docs/comet/
+// changes/<name>/comet-state.yaml. Соседние файлы того же каталога изменения
+// (brief.md, tasks.md, design.md, spec.md) сюда не идут: их несёт обычное
+// git-слияние (fetchBranch выше), а comet-state.yaml — единственное, что роль
+// не коммитит и что comet native правит прямыми CLI-вызовами как побочный
+// эффект протокола.
+//
+// Отсутствие совпадений — законный случай (нет ни одного изменения Comet
+// Native), не ошибка.
+func copyCometStateMatches(fromChangesDir, fetchInto string) error {
+	matches, err := filepath.Glob(filepath.Join(fromChangesDir, "*", "comet-state.yaml"))
+	if err != nil {
+		return fmt.Errorf("маска comet-state.yaml не разобрана: %w", err)
+	}
+	for _, match := range matches {
+		name := filepath.Base(filepath.Dir(match))
+		dst := filepath.Join(fetchInto, runner.CometChangeDirForName(name), "comet-state.yaml")
+		data, err := os.ReadFile(match)
+		if err != nil {
+			return fmt.Errorf("%s не прочитан: %w", match, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("%s на хосте не заведён: %w", filepath.Dir(dst), err)
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return fmt.Errorf("%s не записан: %w", dst, err)
+		}
+	}
+	return nil
+}
+
+// syncCometState подтягивает длящееся состояние Comet Native
+// (docs/comet/changes/<name>/comet-state.yaml) из песочницы в fetchInto —
+// шагом, независимым от git: роль этот файл не коммитит (comet native правит
+// им напрямую как побочным эффектом своих CLI-вызовов), а имя <name>
+// изменения заранее не известно, поэтому используется маска по всему
+// docs/comet/changes, а не явное имя, как у Dirs.
+//
+// Выгружает docs/comet/changes целиком в одноразовый хостовой каталог одним
+// sbx cp (тем же приёмом, каким Dirs уже выгружает .comet/runtime), затем
+// copyCometStateMatches забирает из этого снимка только comet-state.yaml.
+// Отсутствие docs/comet/changes в песочнице — законный no-op (нет активного
+// изменения Comet Native вовсе), тем же принципом, что уже есть у Dirs'
+// отсутствующего .comet/runtime.
+func syncCometState(ctx context.Context, name, containerRoot, fetchInto string, run step) error {
+	scratch, err := os.MkdirTemp("", "clone-comet-state-*")
+	if err != nil {
+		return fmt.Errorf("временный каталог для comet-state.yaml не заведён: %w", err)
+	}
+	defer os.RemoveAll(scratch)
+
+	src := filepath.Join(containerRoot, runner.CometChangesDir)
+	if err := run(ctx, "cp", name+":"+src, scratch+"/"); err != nil {
+		if strings.Contains(err.Error(), notFoundInContainer) {
+			return nil
+		}
+		return fmt.Errorf("%s не выгружен из песочницы: %w", src, err)
+	}
+
+	return copyCometStateMatches(filepath.Join(scratch, filepath.Base(runner.CometChangesDir)), fetchInto)
 }
 
 // cloneOutcome решает код возврата и ошибку Run по трём независимым
