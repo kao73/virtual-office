@@ -239,9 +239,9 @@ func TestCloneSyncOutStopsAtDirsWhenFetchFails(t *testing.T) {
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
 	}
-	// Не идёт слияние (mergeInProgress), дерево чистое (grep не находит
-	// совпадений) — commitLeftovers ограничится двумя проверками и не
-	// полезет коммитить.
+	// Не идёт слияние (mergeInProgress), дерево чистое (dirtyCheckScript
+	// вернул пустой вывод) — commitLeftovers ограничится двумя проверками
+	// и не полезет коммитить.
 	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
@@ -316,8 +316,9 @@ func TestCloneSyncOutPropagatesRealCPFailure(t *testing.T) {
 }
 
 // commitLeftovers не роняет прогон на пустом месте и не лезет коммитить,
-// когда слияние не идёт, а grep внутри песочницы ничего не находит (код 1,
-// step оборачивает в ошибку) — молчит и возвращает nil без третьего вызова.
+// когда слияние не идёт, а dirtyCheckScript внутри песочницы отвечает
+// пустым выводом (код 1, step оборачивает в ошибку) — молчит и возвращает
+// nil без третьего вызова.
 func TestCommitLeftoversNoopWhenClean(t *testing.T) {
 	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
 	var log bytes.Buffer
@@ -353,25 +354,30 @@ func TestCommitLeftoversSkipsWhenMergeInProgress(t *testing.T) {
 	}
 }
 
-// Настоящий отказ git внутри mergeCheckScript (не «нет несовпадений» от
-// grep, а реальный fatal git ls-files, например побитый индекс или унесённый
-// primary) обязан читаться как «слияние идёт» — не тише, чем легитимный
-// незавершённый merge: gitCheckFailed отличает его от штатного «код 1» по
-// тексту fatal-ошибки в комбинированном выводе, который несёт обёрнутая
-// ошибка step.
-func TestMergeInProgressFailsClosedOnRealGitFailure(t *testing.T) {
+// Настоящий отказ git внутри mergeCheckScript (не легитимный пустой вывод
+// git ls-files, а реальный fatal, например побитый индекс или унесённый
+// primary) обязан стать видимой ошибкой, а не молчаливым «слияние идёт» —
+// иначе один и тот же лог обозначал бы и настоящий неразрешённый конфликт,
+// и снесённую песочницу/таймаут, хотя это разные вещи для того, кто читает
+// лог: gitCheckFailed отличает настоящий отказ от штатного «код 1» по тексту
+// fatal-ошибки в комбинированном выводе, который несёт обёрнутая ошибка step.
+func TestMergeInProgressSurfacesRealGitFailure(t *testing.T) {
 	rec := &recordedStep{errs: []error{exitErrWithCode(2)}}
 
-	if !mergeInProgress(context.Background(), "office-x", "/primary", rec.run) {
+	merging, err := mergeInProgress(context.Background(), "office-x", "/primary", rec.run)
+	if err == nil {
 		t.Fatal("настоящий отказ git ls-files принят за «слияния нет»")
+	}
+	if merging {
+		t.Error("настоящий отказ вернул merging=true вместе с ошибкой")
 	}
 }
 
 // Тот же настоящий отказ git на dirtyCheckScript обязан стать видимой
 // ошибкой commitLeftovers, а не молчаливым «нечего сохранять» — до этой
-// правки оба случая (grep не нашёл совпадений и git реально упал) давали
-// один и тот же ненулевой код выхода скрипта под sh, и настоящая беда
-// терялась без единой строки в логе.
+// правки оба случая (легитимный пустой git status и настоящий отказ git)
+// давали один и тот же ненулевой код выхода скрипта под sh, и настоящая
+// беда терялась без единой строки в логе.
 func TestCommitLeftoversSurfacesRealGitFailureOnDirtyCheck(t *testing.T) {
 	rec := &recordedStep{errs: []error{
 		exitErrWithCode(1), // mergeInProgress: слияния нет (легитимный код 1)
@@ -385,6 +391,27 @@ func TestCommitLeftoversSurfacesRealGitFailureOnDirtyCheck(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "не проверено") {
 		t.Errorf("ошибка не называет причину: %v", err)
+	}
+}
+
+// Настоящий отказ git на самом mergeCheckScript обязан стать видимой ошибкой
+// commitLeftovers — тем же способом, каким уже проверен сосед,
+// dirtyCheckScript, выше: молчаливое «считаем слиянием» здесь раньше давало
+// один лог и на настоящий конфликт, и на снесённую песочницу или таймаут.
+func TestCommitLeftoversSurfacesRealGitFailureOnMergeCheck(t *testing.T) {
+	rec := &recordedStep{errs: []error{exitErrWithCode(2)}} // mergeInProgress: настоящий отказ git
+	var log bytes.Buffer
+
+	err := commitLeftovers(context.Background(), &log, "office-x", "/primary", nil, rec.run)
+	if err == nil {
+		t.Fatal("настоящий отказ git ls-files принят за «слияния нет»")
+	}
+	if !strings.Contains(err.Error(), "не проверено") {
+		t.Errorf("ошибка не называет причину: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Errorf("при настоящем отказе ожидался ровно один вызов (сама проверка), получено %d: %q",
+			len(rec.calls), rec.calls)
 	}
 }
 
@@ -414,8 +441,8 @@ func TestGitCheckFailedInvertedPolarity(t *testing.T) {
 	}
 }
 
-// Незакоммиченное найдено (mergeInProgress — не идёт, grep — код 0, step
-// отвечает nil) — commitLeftovers обязана добавить и закоммитить его
+// Незакоммиченное найдено (mergeInProgress — не идёт, dirtyCheckScript —
+// код 0, step отвечает nil) — commitLeftovers обязана добавить и закоммитить его
 // отдельной, не-агентской личностью (cloneSweepName/cloneSweepEmail, через
 // переменные окружения, а не -c — см. doc-комментарий), исключив dirs через
 // add+reset (см. doc-комментарий addScript) и передав primary позиционным

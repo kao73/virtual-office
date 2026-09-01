@@ -357,19 +357,25 @@ const commitScript = `GIT_AUTHOR_NAME="` + cloneSweepName + `" GIT_AUTHOR_EMAIL=
 // оставляет ровно те же неразрешённые записи индекса, но ни одного
 // стандартного файла-маркера слияния. `ls-files --unmerged` смотрит на сам
 // индекс, а не на то, какая команда его туда довела, — шире и вернее.
-func mergeInProgress(ctx context.Context, name, primary string, run step) bool {
+func mergeInProgress(ctx context.Context, name, primary string, run step) (bool, error) {
 	err := run(ctx, "exec", name, "sh", "-c", mergeCheckScript, "sh", primary)
 	if err == nil {
-		return true // найдены неразрешённые записи
+		return true, nil // найдены неразрешённые записи
 	}
 	// Код 1 — легитимное «неразрешённых записей нет» (mergeCheckScript сама
 	// так отвечает, когда git ls-files отработала штатно и ничего не
 	// нашла); что угодно другое — от кода 2 (git внутри упала) до кода
 	// самой sbx exec на снесённой песочнице — gitCheckFailed теперь
 	// считает отказом (см. её doc-комментарий про инверсию полярности).
-	// Настоящую беду считаем «слияние идёт» — портить ветку хуже, чем
-	// лишний раз пропустить подчистку (см. doc-комментарий выше).
-	return gitCheckFailed(err)
+	// Настоящую беду пробрасываем вызывающему как ошибку — так же, как
+	// сосед dirtyCheckScript уже делает свою (см. её обработку в
+	// commitLeftovers): молчаливое «считаем слиянием» здесь раньше давало
+	// одинаковый лог для настоящего конфликта и для снесённой песочницы
+	// или таймаута, хотя это разные вещи для того, кто читает лог.
+	if gitCheckFailed(err) {
+		return false, err
+	}
+	return false, nil
 }
 
 // gitCheckFailed узнаёт легитимное «не найдено» по номеру кода выхода, не
@@ -441,7 +447,11 @@ func gitCheckFailed(err error) bool {
 // doc-комментарий) — цена та же, что у потери коммитов агента, которую
 // fetchBranch тоже не прощает молча.
 func commitLeftovers(ctx context.Context, log io.Writer, name, primary string, dirs []string, run step) error {
-	if mergeInProgress(ctx, name, primary, run) {
+	merging, err := mergeInProgress(ctx, name, primary, run)
+	if err != nil {
+		return fmt.Errorf("слияние внутри песочницы %s не проверено: %w", name, err)
+	}
+	if merging {
 		fmt.Fprintf(log, "\nпесочница %s: незавершённое слияние — подчистка пропущена, чтобы не "+
 			"закоммитить конфликтные маркеры как разрешённые\n", name)
 		return nil

@@ -486,9 +486,19 @@ func EnsureCometHookAllowPaths(workdir string) error {
 	// условие запуска роли (PrepareInput отказал бы целиком) — обменять
 	// редкий, терпимый случай (правка осталась незакоммиченной до
 	// следующего раза) на куда более тяжёлый (задача не стартует, пока
-	// человек не почистит рабочую папку руками).
-	_ = gitInWorkdirWithEnv(workdir, env, "commit", "-q", "--no-verify",
-		"-m", "chore: add hook.allow_paths to .comet/config.yaml", "--", CometConfigFile)
+	// человек не почистит рабочую папку руками). Но не молча: до этой
+	// правки неудача коммита не оставляла в логе раннера ни строки, хотя
+	// staleCurrentChangeExclude (выше) — прецедент ровно такого же класса
+	// git-отказа, случившегося на живом прогоне. Незакоммиченный `add`
+	// сбрасывается тем же командой: иначе застейдженный .comet/config.yaml
+	// пережил бы неудачу и попал бы в следующий коммит роли как будто
+	// сделанный ею.
+	if err := gitInWorkdirWithEnv(workdir, env, "commit", "-q", "--no-verify",
+		"-m", "chore: add hook.allow_paths to .comet/config.yaml", "--", CometConfigFile); err != nil {
+		fmt.Fprintf(os.Stderr, "runner: правка hook.allow_paths в %s дописана, но не закоммичена (%v) — застейджено сброшено, следующий прогон попробует снова\n",
+			CometConfigFile, err)
+		_ = gitInWorkdir(workdir, "reset", "-q", "--", CometConfigFile)
+	}
 	return nil
 }
 

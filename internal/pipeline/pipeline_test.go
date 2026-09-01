@@ -319,6 +319,57 @@ func TestTickDoneMovesTaskToReview(t *testing.T) {
 	}
 }
 
+// Независимое ревью (раунд 3): предыдущий раунд отклонил эту проверку как
+// непроверяемую на этом уровне, сославшись на то, что fakeAgent обходит
+// runagent.terminationOf — тот код, который в проде решает по BaseCommit,
+// «начинал ли прогон работу». Это была ошибка именно в этой части: работа
+// не обязана заходить так далеко, чтобы проверить сам пересчёт. work()
+// кладёт пересчитанный passport.BaseCommit прямо в Request, который получает
+// Agent.Run, а fakeAgent.seen фиксирует этот Request как есть — значит
+// значение видно тесту напрямую, до всякого terminationOf.
+//
+// .comet/config.yaml без блока hook: в origin — так же, как делает живая
+// задача, заведшая изменение Comet Native, но ещё не подобранная
+// implementer'ом или reviewer'ом (EnsureCometHookAllowPaths, роль об этом
+// блоке может не знать вовсе). PrepareInput сама допишет и закоммитит этот
+// блок при подготовке входа — и именно этот коммит обязан попасть
+// в BaseCommit вместо снятого раньше.
+func TestWorkRecomputesBaseCommitAfterPrepareInputCommit(t *testing.T) {
+	o := newOffice(t)
+
+	clone := t.TempDir()
+	if out, err := exec.Command("git", "clone", "-q", o.origin, clone).CombinedOutput(); err != nil {
+		t.Fatalf("клон origin не создан: %v\n%s", err, out)
+	}
+	if err := os.MkdirAll(filepath.Join(clone, ".comet"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(clone, ".comet", "config.yaml"), []byte("schema: comet.project.v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(clone, "add", ".")
+	gitIn(clone, "commit", "-q", "-m", "заводит .comet/config.yaml без hook:")
+	gitIn(clone, "push", "-q", "origin", "master")
+	configCommit := gitIn(clone, "rev-parse", "HEAD")
+
+	o.tick(t)
+
+	got := o.agent.seen.Passport.BaseCommit
+	if got == "" {
+		t.Fatal("BaseCommit не заполнен")
+	}
+	if got == configCommit {
+		t.Fatalf("BaseCommit не пересчитан после PrepareInput: остался равен коммиту до её служебной правки (%s)", configCommit)
+	}
+	subject := gitIn(o.agent.seen.Workdir, "show", "-s", "--format=%s", got)
+	if subject != "chore: add hook.allow_paths to .comet/config.yaml" {
+		t.Errorf("BaseCommit указывает не на коммит EnsureCometHookAllowPaths: тема %q", subject)
+	}
+	if parent := gitIn(o.agent.seen.Workdir, "rev-parse", got+"^"); parent != configCommit {
+		t.Errorf("коммит BaseCommit не идёт сразу за посевным коммитом .comet/config.yaml: родитель %s, ожидался %s", parent, configCommit)
+	}
+}
+
 // spend — сколько уже потрачено по реестру офиса.
 func (o *office) spend(t *testing.T, f ledger.Filter) ledger.Total {
 	t.Helper()

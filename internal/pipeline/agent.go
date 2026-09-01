@@ -41,7 +41,7 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (AgentRun, error) {
 	// Подключение этого пути (сперва обычный клон ветки задачи, потом
 	// фетч-мёрж в тот же worktree, что видит всё остальное этой функции)
 	// — отдельная, более рискованная задача, не сделанная пока: см.
-	// docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md, Task 21.
+	// docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md, Task 22.
 	out, err := runagent.Execute(ctx, runagent.Options{
 		ConfigRoot: a.ConfigRoot,
 		Role:       req.Role,
