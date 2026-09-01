@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "docs/openspec/changes/pipeline-clone-wiring/proposal.md",
+  "openspec_design": "docs/openspec/changes/pipeline-clone-wiring/design.md",
+  "openspec_tasks": "docs/openspec/changes/pipeline-clone-wiring/tasks.md",
+  "openspec_delta_spec": "docs/openspec/changes/pipeline-clone-wiring/specs/pipeline-clone-isolation/spec.md",
+  "handoff_context": "docs/openspec/changes/pipeline-clone-wiring/.comet/handoff/design-context.json",
+  "handoff_markdown": "docs/openspec/changes/pipeline-clone-wiring/.comet/handoff/design-context.md"
+}

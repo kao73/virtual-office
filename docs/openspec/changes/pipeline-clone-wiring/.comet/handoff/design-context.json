@@ -1,0 +1,14 @@
+{
+  "change": "pipeline-clone-wiring",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "7a95bff660387383d2ec1721564bf0b6402e0482bfed73ae14be31bfdbf3d0c9",
+  "files": [
+    { "path": "docs/openspec/changes/pipeline-clone-wiring/proposal.md", "sha256": "7dd8e814462e0146983893c119f0104c0cd669d783fbfe51ee4fd9fc53415360" },
+    { "path": "docs/openspec/changes/pipeline-clone-wiring/design.md", "sha256": "992f78cafd928172ed85da45c7e85e77dd6686610f6c8d432a45b1aa32df8042" },
+    { "path": "docs/openspec/changes/pipeline-clone-wiring/tasks.md", "sha256": "3be2841be28de495ea78a9a8ba4051fd2075bf6436ef6fddf9bd43b35bb9860b" },
+    { "path": "docs/openspec/changes/pipeline-clone-wiring/specs/pipeline-clone-isolation/spec.md", "sha256": "2cd1bee7f183475e04e11e4fda73d9609a3ce388be99035c7cbc56cdf2c77629" }
+  ]
+}
