@@ -1384,7 +1384,7 @@ git commit -m "feat(sbx): sync comet-state.yaml out of --clone sandboxes uncondi
 
 **Interfaces:** none new.
 
-- [ ] **Step 1: Full build/vet/test pass**
+- [x] **Step 1: Full build/vet/test pass**
 
 Run from the repo root:
 
