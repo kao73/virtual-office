@@ -235,7 +235,7 @@ git commit -m "feat(workspace): add disposable clone-source step for pipeline --
 - Consumes: `workspace.CloneSource(dir, branch string) (string, func() error, error)` (Task 1).
 - Produces: `Request.Branch string` field, read by `SandboxAgent.Run`. `cloneOptionsFor(backend string, req Request) (workdir string, clone *runner.CloneSync, cleanup func() error, err error)` — unexported helper in `internal/pipeline`, used by `Run` and directly unit-tested.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/pipeline/agent_test.go`:
 
@@ -378,12 +378,12 @@ func TestWorkPassesTaskBranchToAgent(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/pipeline/... -run 'TestCloneOptionsFor|TestWorkPassesTaskBranchToAgent' -v`
 Expected: FAIL to compile — `cloneOptionsFor` is undefined, and `Request` has no field `Branch`.
 
-- [ ] **Step 3: Add `Branch` to `Request` and thread it through `work()`**
+- [x] **Step 3: Add `Branch` to `Request` and thread it through `work()`**
 
 In `internal/pipeline/pipeline.go`, modify the `Request` struct (around line 51-58):
 
@@ -412,7 +412,7 @@ In `work()` (around line 443-445), add `Branch: ws.Branch` to the `Request{...}`
 	})
 ```
 
-- [ ] **Step 4: Rewrite `internal/pipeline/agent.go`**
+- [x] **Step 4: Rewrite `internal/pipeline/agent.go`**
 
 Replace the whole file:
 
@@ -560,7 +560,7 @@ func (a SandboxAgent) logf(format string, args ...any) {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./internal/pipeline/... -run 'TestCloneOptionsFor|TestWorkPassesTaskBranchToAgent' -v`
 Expected: PASS for all four new tests.
@@ -575,7 +575,7 @@ Then confirm the whole repo still builds and vets clean (agent.go now imports `r
 Run: `go build ./... && go vet ./...`
 Expected: clean, no errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/pipeline/agent.go internal/pipeline/agent_test.go internal/pipeline/pipeline.go internal/pipeline/pipeline_test.go

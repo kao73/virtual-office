@@ -5,9 +5,9 @@
 
 ## 2. Wire `--clone` into `SandboxAgent.Run`
 
-- [ ] 2.1 Add a `Branch string` field to `pipeline.Request`, populated from `ws.Branch` in `pipeline.go`'s `work()` (reuses info the pipeline already has). In `internal/pipeline/agent.go`, after `runagent.Execute`'s prerequisites are ready but using the same request flow, create the disposable clone source from `req.Workdir` (post-`PrepareInput` state, so it captures any system commit `PrepareInput` made) when `a.Backend` is `sbx`, and build `runagent.Options.Clone` with `FetchInto: req.Workdir`, `Branch: req.Branch`, and the existing `Dirs` list.
-- [ ] 2.2 Ensure the clone source is removed on every return path (success, non-zero exit, timeout, exec error), matching `cloneSyncOut`'s "always called" discipline. If clone-source creation itself fails, fail the run outright (no silent bind-mount fallback) — the task stays leased and the reaper reclaims it on its next sweep.
-- [ ] 2.3 Confirm `runagent.CloneNotice` still fires correctly when `a.Backend` is `local` (Clone is still constructed but the `local` backend ignores it per `Launch.Clone`'s existing contract).
+- [x] 2.1 Add a `Branch string` field to `pipeline.Request`, populated from `ws.Branch` in `pipeline.go`'s `work()` (reuses info the pipeline already has). In `internal/pipeline/agent.go`, after `runagent.Execute`'s prerequisites are ready but using the same request flow, create the disposable clone source from `req.Workdir` (post-`PrepareInput` state, so it captures any system commit `PrepareInput` made) when `a.Backend` is `sbx`, and build `runagent.Options.Clone` with `FetchInto: req.Workdir`, `Branch: req.Branch`, and the existing `Dirs` list.
+- [x] 2.2 Ensure the clone source is removed on every return path (success, non-zero exit, timeout, exec error), matching `cloneSyncOut`'s "always called" discipline. If clone-source creation itself fails, fail the run outright (no silent bind-mount fallback) — the task stays leased and the reaper reclaims it on its next sweep.
+- [x] 2.3 Confirm `runagent.CloneNotice` still fires correctly when `a.Backend` is `local` (Clone is still constructed but the `local` backend ignores it per `Launch.Clone`'s existing contract).
 
 ## 3. Split "container path root" from "host path root" in `internal/backends/sbx/clone.go`
 
