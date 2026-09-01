@@ -3004,4 +3004,4 @@ User's diagnosis, once shown `.comet/current-change.json`'s content (`{"change":
 
 Verification: `go build ./... && go vet ./... && go test ./...` clean across every package (`internal/pipeline`, `internal/workspace`, `cmd/eval-roles` included — nothing in the shared `internal/runner`/`clone.go` changes broke an unrelated caller). All new/changed assertions mutation-tested against real `git` execution, not just the fake-`step`/table-driven paths.
 
-- [ ] **Commit**
+- [x] **Commit** — `71dd511`.
