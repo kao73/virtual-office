@@ -50,6 +50,21 @@ func NetworkNotice(backend string, allow []string) string {
 		BackendLocal, strings.Join(allow, ", "))
 }
 
+// CloneNotice — что сказать о --clone перед прогоном на бэкенде, который его
+// не поддерживает. Пусто — сказать нечего.
+//
+// --clone меняет саму природу изоляции (клон вместо бинд-маунта или её
+// полного отсутствия), и это ничем не отличается от NetworkNotice выше:
+// бэкенд local поле Options.Clone/Launch.Clone просто не смотрит — молчаливое
+// неприменение читалось бы как применённое.
+func CloneNotice(backend string, clone bool) string {
+	if backend != BackendLocal || !clone {
+		return ""
+	}
+	return "бэкенд " + BackendLocal + " --clone не поддерживает: у него нет песочницы, которую можно " +
+		"клонировать, — агент бежит прямо в рабочей папке, как обычно"
+}
+
 // NetworkAudit — что сказать о базовой политике машины перед прогоном.
 // Пусто — сказать нечего: сеть закрыта, и обещание «только по списку роли» держится.
 //
@@ -87,7 +102,17 @@ type Options struct {
 
 	// Mounts — что отдать изоляции сверх рабочей папки. Для worktree сюда идёт
 	// bare-репозиторий: без него git внутри песочницы не заводится.
+	//
+	// С Clone несовместимо: bare-репозиторий и worktree --clone принимать
+	// отказывается (см. internal/backends/sbx/clone.go), а свой единственный
+	// путь --clone берёт готовым первым Workspaces, который собирает claude.Build.
 	Mounts []runner.Workspace
+
+	// Clone включает режим sbx --clone для этого прогона: Workdir обязан быть
+	// обычным git-репозиторием (не bare, не worktree) — тем самым, что примет
+	// --clone. Пусто (nil) — обычный бинд-маунт; бэкенд local это поле
+	// игнорирует.
+	Clone *runner.CloneSync
 }
 
 // Launch — подготовленный, но не исполненный запуск. Им пользуется --dry-run:
@@ -120,6 +145,15 @@ type Outcome struct {
 // Prepare собирает запуск: ограждение под платформу бэкенда, промпты, настройки,
 // командную строку. Ничего не исполняет.
 func Prepare(opts Options) (Launch, error) {
+	// Options.Clone и Options.Mounts несовместимы (см. док-комментарий обоих
+	// полей выше) — до сих пор это держалось только тем, что ни один
+	// вызывающий не выставлял оба сразу. Проверка здесь превращает это в
+	// громкий отказ на месте, а не в непонятную ошибку внешнего `sbx create
+	// --clone` тремя вызовами глубже, если это правило когда-нибудь нарушат.
+	if opts.Clone != nil && len(opts.Mounts) > 0 {
+		return Launch{}, fmt.Errorf("--clone несовместим с Mounts: --clone сам берёт первый Workspaces")
+	}
+
 	_, target, err := backendByName(opts.Backend)
 	if err != nil {
 		return Launch{}, err
@@ -137,6 +171,7 @@ func Prepare(opts Options) (Launch, error) {
 		return Launch{}, err
 	}
 	launch.Workspaces = append(launch.Workspaces, opts.Mounts...)
+	launch.Clone = opts.Clone
 
 	return Launch{Launch: launch, Platform: target, Validator: validator}, nil
 }

@@ -1,0 +1,47 @@
+role: implementer
+checks:
+  - kind: outcome
+    expect: done
+    next_owner: reviewer
+  - kind: diff_scope
+    allow:
+      - "calc/calc.go"
+      - "calc/calc_test.go"
+      - "docs/comet/changes/**"
+      # Comet's own local-execution bookkeeping: tracked in this fixture
+      # (see .comet/ below) so a fresh materialized checkout doesn't
+      # silently no-op on the first Builder handoff call — but that means
+      # it genuinely gets modified by a compliant implementer's very first
+      # real CLI call, so it must be allowed here too, or every compliant
+      # run fails diff_scope on Comet's own state file (same pattern as
+      # evals/reviewer/capability-spot-defect).
+      - ".comet/runtime/native/changes/eval-brief/state.json"
+  - kind: fixture_tests
+    # Was: grep phase: verify / stage: verify-ready straight from
+    # docs/comet/changes/eval-brief/comet-state.yaml. Dropped (Task 21,
+    # live investigation): that durable file's own update after a Builder
+    # handoff is NOT deterministic in 0.4.0-beta.20 — five isolated,
+    # no-agent-cost probes (sbx exec, same payload, same --clone, same
+    # corrected workspace path) split roughly evenly between the YAML
+    # updating immediately and not updating at all, independent of --clone,
+    # independent of committed-vs-uncommitted local state, independent of
+    # calling `status` first. `comet native status`/`doctor` themselves
+    # report the advanced phase from their own merged view even when the
+    # raw YAML lags. This reads like the same class of internal
+    # coordinator/lock race already documented for root-move.lock, just on
+    # a different write path — not a bug in this fixture, this backend, or
+    # this task's own code.
+    #
+    # basedOnStateVersion in the local-execution cache
+    # (.comet/runtime/native/changes/eval-brief/state.json) was the one
+    # signal that advanced consistently in every probe. Checking that it
+    # moved off its seeded value (2) still catches the original failure
+    # mode this check was written for (a silent no-op handoff that never
+    # touches local state at all) without depending on the flaky durable
+    # write. Golden-case mechanics are known to be under-baked project-wide
+    # and are due their own pass later — this keeps the check honest about
+    # what it can actually promise today rather than blocking on Comet's
+    # own internal timing.
+    command: >-
+      go test ./... &&
+      ! grep -q '"basedOnStateVersion": 2,' .comet/runtime/native/changes/eval-brief/state.json

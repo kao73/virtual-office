@@ -52,3 +52,36 @@ func TestNetworkAuditSkipsLocalBackend(t *testing.T) {
 		t.Errorf("сказано лишнее: %s", notice)
 	}
 }
+
+// --clone меняет саму природу изоляции ровно как список сети — молчаливое
+// неприменение читалось бы как применённое (та же причина, что у
+// TestNetworkNoticeWarnsOnLocalBackend).
+func TestCloneNoticeWarnsOnLocalBackend(t *testing.T) {
+	notice := CloneNotice(BackendLocal, true)
+
+	if notice == "" {
+		t.Fatal("о неприменённом --clone не сказано ни слова")
+	}
+	if !strings.Contains(notice, BackendLocal) {
+		t.Errorf("в предупреждении нет %q: %s", BackendLocal, notice)
+	}
+}
+
+func TestCloneNoticeSilentWhereNothingIsLost(t *testing.T) {
+	cases := map[string]struct {
+		backend string
+		clone   bool
+	}{
+		"песочница применяет --clone": {DefaultBackend, true},
+		"бэкенд по умолчанию":         {"", true},
+		"--clone не просили":          {BackendLocal, false},
+		"--clone не просили, sbx":     {DefaultBackend, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if notice := CloneNotice(tc.backend, tc.clone); notice != "" {
+				t.Errorf("сказано лишнее: %s", notice)
+			}
+		})
+	}
+}

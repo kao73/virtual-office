@@ -5,4 +5,13 @@ checks:
     questions_not_empty: true
     next_owner: human
   - kind: diff_scope
-    allow: ["docs/superpowers/**"]
+    allow:
+      - "docs/comet/changes/**"
+      # Same reasoning as capability-basic-plan/expect.yaml: comet native new
+      # (roles/analyst/role.md step 1 runs it before any escalation decision)
+      # writes .comet/config.yaml and .comet/current-change.json, and analyst
+      # commits both even on the needs_human path. Confirmed live
+      # (final-review fix round 1, Fix 5; current-change.json addition —
+      # role-comet-native-workflow plan).
+      - ".comet/config.yaml"
+      - ".comet/current-change.json"

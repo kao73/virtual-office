@@ -4,8 +4,19 @@ checks:
     expect: done
     next_owner: implementer
   - kind: diff_scope
-    allow: ["docs/superpowers/**"]
+    allow:
+      - "docs/comet/changes/**"
+      # comet native new (Fix 2b) writes two trackable files inside .comet/,
+      # and analyst's role.md now explicitly git-adds both on a new change —
+      # confirmed live (final-review fix round 1, Fix 5; current-change.json
+      # exclusion later dropped, live demo-3 run, role-comet-native-workflow
+      # plan). PrepareInput's ExcludeCometRuntime excludes only
+      # .comet/runtime/** via info/exclude — that one never shows up as
+      # changed at all, but .comet/config.yaml and .comet/current-change.json
+      # do (both deliberately left trackable).
+      - ".comet/config.yaml"
+      - ".comet/current-change.json"
   - kind: fixture_tests
     command: >-
-      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/superpowers/specs | grep -q '\.md$' &&
-      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/superpowers/plans | grep -q '\.md$'
+      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/comet/changes | grep -q 'brief\.md$' &&
+      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/comet/changes | grep -q 'spec\.md$'

@@ -6,42 +6,40 @@ prompt: role.md
 includes:
   - ../_base/base.md
 
-skills: []
+skills: [comet, comet-native]
 
 # Синтаксис правил — как у claude: пробел перед * значим,
 # Bash(git *diff*) поймал бы и git diff-index, и git -c x diff.
 tools:
-  # tools.allow не защищает (измерено 2026-08-27, «Находка 2»,
+  # tools.allow не защищает технически (измерено 2026-08-27, «Находка 2»,
   # docs/notes/followup-network-and-permissions.md) — единственная реальная
-  # граница ниже, в tools.deny, и в defaults.tools.deny (projects.yaml).
-  # Write в --tools ревьюера всё же попадает: адаптер добавляет его любой
-  # роли всегда, безусловно (internal/adapters/claude/adapter.go, Build, WriteTool).
-  # Но это не общий инструмент записи — buildSettings скоупит его ровно
-  # одним путём, файлом результата (.agent/result.json), отдельным правилом
-  # permissions.allow, а не даёт неограниченный Write. Реальная защита от
-  # правки кода — то, что здесь, в allow, нет ШИРОКОГО, ничем не
-  # ограниченного Write или Edit (это и проверяет TestReviewerRoleCannotWrite,
-  # internal/runner/role_test.go): не даётся не Write вообще, а именно нескоупленный,
-  # широкий Write.
+  # граница про запись всегда была в tools.deny/defaults.tools.deny, не здесь.
+  # До живого прогона Задачи 22 (docs/superpowers/plans/2026-08-30-role-comet-native-workflow.md)
+  # reviewer не получал Edit/Write в allow вовсе — «не пишет код» держалось
+  # запретом git add/commit/restore ниже. Пересмотрено: reviewer теперь тоже
+  # умеет точечно чинить и коммитить (roles/reviewer/role.md, «Точечный фикс
+  # вместо возврата») — тем же путём, что implementer/analyst, границу держит
+  # текст role.md, а не ACL. Технической разницы между тремя ролями по записи
+  # больше нет: она вся в том, что каждой role.md разрешает по смыслу.
   allow:
     - Read
     - Grep
     - Glob
+    - Edit
+    - Write
     - "Bash(*)"
 
-  # Общие для всех ролей — в defaults.tools.deny (projects.yaml). Здесь —
-  # то, что специфично ревьюеру: он читает и запускает, но не правит.
-  # Широкого Write ему и так не даётся составом --tools (см. allow выше —
-  # только скоупленный на result.json), но add/commit/restore — команды
-  # Bash, не файловый инструмент, и состав --tools их не остановит.
-  deny:
-    - "Bash(git *add*)"
-    - "Bash(git *commit*)"
-    - "Bash(git *restore*)"
+  # Общие для всех ролей (push/branch/checkout/rebase/reset и т.д.) —
+  # в defaults.tools.deny (projects.yaml). Роль-специфичного deny у reviewer'а
+  # больше нет: add/commit/restore, что раньше стояли здесь, разрешены —
+  # см. комментарий у tools.allow выше.
 
 hooks:
   stop:
     - hooks/require-result.sh   # не даёт завершиться без валидного result.json
+  pre_tool_use:
+    - matcher: "Write|Edit"
+      command: skills/comet/scripts/comet-hook-router.mjs --platform claude --project-root "$WORKDIR"
 
 # Пределы те же, что у implementer'а — теперь уже по замеру, а не по незнанию.
 # Предположение было «разбор дешевле работы»; шестнадцать живых разборов (шаг 7,

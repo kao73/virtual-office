@@ -26,6 +26,9 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 	roleFlag := fs.String("role", "", "прогнать кейсы только этой роли")
 	caseFlag := fs.String("case", "", "прогнать только этот кейс (требует --role)")
 	keepFailedFlag := fs.Bool("keep-failed", false, "не удалять рабочий каталог не-passed кейсов — путь печатается в stderr")
+	cloneFlag := fs.Bool("clone", false, "запускать роль через run-agent --clone (бэкенд sbx): "+
+		"агент работает на клоне фикстуры внутри песочницы вместо бинд-маунта — лечит разлад "+
+		"блокировок Comet Native с бинд-маунтом sbx")
 	if err := fs.Parse(args); err != nil {
 		return 0, err
 	}
@@ -79,7 +82,7 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 
 	outcomes := make([]CaseOutcome, 0, len(cases))
 	for _, c := range cases {
-		outcomes = append(outcomes, evaluateCase(runAgentBin, repoRoot, c, stderr, *keepFailedFlag))
+		outcomes = append(outcomes, evaluateCase(runAgentBin, repoRoot, c, stderr, *keepFailedFlag, *cloneFlag))
 	}
 
 	printSummary(stdout, outcomes)

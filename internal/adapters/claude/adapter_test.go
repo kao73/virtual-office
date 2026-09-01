@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -550,6 +551,89 @@ func TestBuildAddsSkillToolWhenRoleUsesSkills(t *testing.T) {
 	}
 	if !slices.Contains(launch.Argv, "--plugin-dir") {
 		t.Errorf("скиллы объявлены, но плагин не передан: %q", launch.Argv)
+	}
+}
+
+const preToolUseRoleYAML = `name: tester
+prompt: role.md
+includes:
+  - ../_base/base.md
+skills: [comet]
+tools:
+  allow: ["Read", "Write", "Bash(git *)"]
+  deny: []
+hooks:
+  stop:
+    - hooks/require-result.sh
+  pre_tool_use:
+    - matcher: "Write|Edit"
+      command: skills/comet/scripts/comet-hook-router.mjs --platform claude --project-root "$WORKDIR"
+limits:
+  max_turns: 5
+  timeout_sec: 60
+result_file: .agent/result.json
+`
+
+// Хук-роутер Comet enforces фазовые границы записи технически (design doc
+// "Phase-scoped writes are hook-enforced"), и адаптер обязан передать его
+// агенту с уже разрешённым абсолютным путём — внутри собранного плагина
+// голая команда "skills/comet/..." не значит ничего для шелла.
+func TestBuildWiresPreToolUseHook(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "ключ")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	root := fixtureOffice(t, preToolUseRoleYAML, "comet")
+	scriptDir := filepath.Join(root, "skills", "comet", "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("каталог скрипта не создан: %v", err)
+	}
+	scriptPath := filepath.Join(scriptDir, "comet-hook-router.mjs")
+	if err := os.WriteFile(scriptPath, []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
+		t.Fatalf("скрипт хука не записан: %v", err)
+	}
+	// LoadRole теперь проверяет исполняемый бит pre_tool_use хука (final-review Fix 1).
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		t.Fatalf("скрипт хука не сделан исполняемым: %v", err)
+	}
+
+	role, err := runner.LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль не загружена: %v", err)
+	}
+	workdir := t.TempDir()
+	launch, err := Build(role, workdir, runner.Run{RunID: "id", Role: "tester"}, stubValidator(t))
+	if err != nil {
+		t.Fatalf("запуск не собран: %v", err)
+	}
+	t.Cleanup(func() { _ = launch.Cleanup() })
+
+	var s settingsFile
+	if err := json.Unmarshal([]byte(launch.Settings), &s); err != nil {
+		t.Fatalf("настройки не разобраны: %v", err)
+	}
+	matchers, found := s.Hooks["PreToolUse"]
+	if !found || len(matchers) != 1 || len(matchers[0].Hooks) != 1 {
+		t.Fatalf("хука PreToolUse нет в настройках:\n%s", launch.Settings)
+	}
+	if matchers[0].Matcher != "Write|Edit" {
+		t.Errorf("matcher=%q, ожидался Write|Edit", matchers[0].Matcher)
+	}
+
+	command := matchers[0].Hooks[0].Command
+	pluginDir := argValue(t, launch.Argv, "--plugin-dir")
+	wantScript := filepath.Join(pluginDir, "skills", "comet", "scripts", "comet-hook-router.mjs")
+	if !strings.Contains(command, wantScript) {
+		t.Errorf("команда хука не указывает на собранный плагин:\nхотели %s\nполучили %s", wantScript, command)
+	}
+	if !strings.Contains(command, workdir) {
+		t.Errorf("$WORKDIR не подставлен: %s", command)
+	}
+	if strings.Contains(command, "$WORKDIR") {
+		t.Errorf("литеральный $WORKDIR остался в команде: %s", command)
+	}
+	// Stop-хук остаётся на месте — новый тип не вытесняет старый.
+	if _, found := s.Hooks["Stop"]; !found {
+		t.Error("PreToolUse вытеснил Stop из настроек")
 	}
 }
 

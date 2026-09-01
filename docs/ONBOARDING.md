@@ -140,6 +140,13 @@ mkdir -p "${OFFICE_HOME:-$HOME/.office}"
 - [ ] `go test ./...` — зелёный. Прогонов агента он не делает и денег не стоит.
 - [ ] `./bin/runner ledger` отвечает «прогонов нет» и называет путь к реестру.
       Этим проверяется, что раннер собирается и видит своё хозяйство.
+- [ ] На бэкенде `sbx` (по умолчанию) — `sbx template ls` показывает
+      `office-claude-comet:<версия>`. Без него роли Comet Native (`analyst`,
+      `implementer`, `reviewer`) откажут на первом же прогоне кодом
+      `403 Forbidden: pull failed for image` — на глаз неотличимо от сетевого
+      отказа политики, а причина другая: образ с запечённым `comet` не испечён
+      на этой машине. Печётся один раз: `./bootstrap/sbx-kits/bake-comet-template.sh`
+      (`bootstrap/sbx-kits/README.md`). На бэкенде `local` шаг не нужен.
 
 Без машинной половины проектов работают `ledger`, `worktree ls` и `mock ls` —
 им нужно только хозяйство. (Именно `worktree ls`: `worktree rm` собирает офис

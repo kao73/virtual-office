@@ -39,8 +39,25 @@ func buildRunAgent(repoRoot, binDir string) (string, error) {
 // run-agent для инфраструктурной беды) сообщается как ошибка; коды 0 и 1 оба
 // идут дальше к чтению результата — 1 это законный прогон с outcome=failed,
 // на который может как раз проверять outcome-проверка.
-func runRoleAgent(binPath, repoRoot, role, workdir, taskPath string) (runner.Result, int, error) {
-	cmd := exec.Command(binPath, "--role", role, "--workdir", workdir, "--task", taskPath, "--eval")
+//
+// taskKey, если не пуст, идёт в --task-key: без него run-agent, как при
+// обычном ручном запуске, не подставит трекерный ключ, а composeContext
+// (internal/runner/input.go) без него не отличит каталог изменения фикстуры
+// от «его нет» — строка «Каталог изменения» в context.md не появится вовсе,
+// даже если фикстура его честно завела (см. discoverFixtureTaskKey).
+//
+// clone включает --clone бэкенда sbx (см. run-agent --clone): фикстура —
+// уже обычный git-репозиторий, не bare и не worktree, поэтому её можно
+// клонировать в песочницу как есть, без отдельной подготовки.
+func runRoleAgent(binPath, repoRoot, role, workdir, taskPath, taskKey string, clone bool) (runner.Result, int, error) {
+	args := []string{"--role", role, "--workdir", workdir, "--task", taskPath, "--eval"}
+	if taskKey != "" {
+		args = append(args, "--task-key", taskKey)
+	}
+	if clone {
+		args = append(args, "--clone")
+	}
+	cmd := exec.Command(binPath, args...)
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "OFFICE_CONFIG_ROOT="+repoRoot)
 	out, runErr := cmd.CombinedOutput()

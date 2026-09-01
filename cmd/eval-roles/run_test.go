@@ -136,7 +136,7 @@ func TestEvaluateCaseAggregatesPassed(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 	if outcome.Status != "passed" {
 		t.Errorf("status=%q, ожидался passed: %+v", outcome.Status, outcome)
 	}
@@ -178,7 +178,7 @@ func TestEvaluateCaseDiffScopeIgnoresAgentDir(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 	if outcome.Status != "passed" {
 		t.Errorf("status=%q, ожидался passed (.agent/ должен быть исключён из diff_scope): %+v", outcome.Status, outcome)
 	}
@@ -200,7 +200,7 @@ func TestEvaluateCaseCatchesUnfixedBug(t *testing.T) {
 		t.Fatalf("случай не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 	if outcome.Status != "failed" {
 		t.Fatalf("status=%q, ожидался failed (баг в calc.go не исправлен, go test ./... обязан провалиться): %+v", outcome.Status, outcome)
 	}
@@ -228,9 +228,11 @@ func TestEvaluateCaseSpotDefectDistinguishesFoundVsMissed(t *testing.T) {
 			// next_owner: implementer — по roles/reviewer/role.md, «Выход»:
 			// «работа не готова → done, next_owner: implementer». "none"
 			// здесь моделировал бы ответ, которого роль по своему промпту
-			// дать не должна.
+			// дать не должна. Упоминание "A1" — как реально писал бы ревьюер,
+			// прошедший через dispatch-verifier/final-result (fixture_tests
+			// теперь грепает по этому id, не по слову "Max").
 			"defect found",
-			`{"outcome":"done","summary":"В Max найден баг: обе ветки возвращают a, из-за чего Max(1,3) вернёт 1 вместо 3.","next_owner":"implementer"}`,
+			`{"outcome":"done","summary":"A1 failed: в Max найден баг, обе ветки возвращают a, из-за чего Max(1,3) вернёт 1 вместо 3.","next_owner":"implementer"}`,
 			"passed",
 		},
 		{
@@ -243,16 +245,18 @@ func TestEvaluateCaseSpotDefectDistinguishesFoundVsMissed(t *testing.T) {
 			// Регрессия round 2: позитивный "некорректн" и негативный
 			// "корректно" пересекаются как подстроки, а "не найдено" ловит
 			// обычную закрывающую фразу верного разбора — у обеих фраз ниже
-			// нет отношения к тому, найден ли баг.
+			// нет отношения к тому, найден ли баг. Фраза сохранена дословно
+			// (это и есть проверяемая регрессия), но с добавленным "A1" —
+			// иначе текущая (id-based) проверка не пропустит и этот случай.
 			"defect found, phrased in words the old negation grep misread as approval",
-			`{"outcome":"done","summary":"Max реализован некорректно: обе ветки возвращают a. Других ошибок не найдено.","next_owner":"implementer"}`,
+			`{"outcome":"done","summary":"A1: Max реализован некорректно, обе ветки возвращают a. Других ошибок не найдено.","next_owner":"implementer"}`,
 			"passed",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("FAKE_AGENT_RESULT", tc.summary)
-			outcome := evaluateCase(bin, ".", c, io.Discard, false)
+			outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 			if outcome.Status != tc.want {
 				t.Errorf("status=%q, ожидался %q: %+v", outcome.Status, tc.want, outcome)
 			}
@@ -274,7 +278,7 @@ func TestEvaluateCaseKeepsFixtureDirOnFailureWhenRequested(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	outcome := evaluateCase(bin, ".", c, &stderr, true)
+	outcome := evaluateCase(bin, ".", c, &stderr, true, false)
 	if outcome.Status != "failed" {
 		t.Fatalf("status=%q, ожидался failed: %+v", outcome.Status, outcome)
 	}
@@ -312,7 +316,7 @@ func TestEvaluateCaseRemovesFixtureDirOnFailureByDefault(t *testing.T) {
 		t.Fatalf("случай не разобран: %v", err)
 	}
 
-	outcome := evaluateCase(bin, ".", c, io.Discard, false)
+	outcome := evaluateCase(bin, ".", c, io.Discard, false, false)
 	if outcome.Status != "failed" {
 		t.Fatalf("status=%q, ожидался failed: %+v", outcome.Status, outcome)
 	}
@@ -337,7 +341,7 @@ func TestEvaluateCaseErrorsOnMissingFixture(t *testing.T) {
 		t.Fatalf("case не разобран: %v", err)
 	}
 
-	outcome := evaluateCase("/does/not/matter", ".", c, io.Discard, false)
+	outcome := evaluateCase("/does/not/matter", ".", c, io.Discard, false, false)
 	if outcome.Status != "errored" {
 		t.Errorf("status=%q, ожидался errored (нет fixture/)", outcome.Status)
 	}

@@ -137,6 +137,27 @@ func TestLoadRoleRejects(t *testing.T) {
 			yaml:     fixtureRoleYAML + "write_scope:\n  dir: change_dir\n",
 			wantPart: "не разобран",
 		},
+		"pre_tool_use без matcher": {
+			yaml: strings.Replace(fixtureRoleYAML,
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+					"    - matcher: \"\"\n      command: skills/comet/scripts/comet-hook-router.mjs\n", 1),
+			wantPart: "matcher пуст",
+		},
+		"pre_tool_use без command": {
+			yaml: strings.Replace(fixtureRoleYAML,
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+					"    - matcher: \"Write|Edit\"\n      command: \"\"\n", 1),
+			wantPart: "command пуст",
+		},
+		"pre_tool_use ссылается на неподключённый скилл": {
+			yaml: strings.Replace(fixtureRoleYAML,
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+				"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+					"    - matcher: \"Write|Edit\"\n      command: skills/comet/scripts/comet-hook-router.mjs\n", 1),
+			wantPart: "нет в skills",
+		},
 	}
 
 	for name, tc := range cases {
@@ -222,6 +243,102 @@ func TestLoadRoleRejectsNonExecutableHook(t *testing.T) {
 	}
 }
 
+// Скрипт хука существует, но подключённого скилла, к которому он относится,
+// в roleYAML нет вовсе — SkillDirs() его даже не проверяет, потому что о нём
+// не знает список skills:. Отдельный тест: табличный TestLoadRoleRejects выше
+// не создаёт файлов сверх стандартной фикстуры, а этому нужен настоящий
+// каталог скилла без самого файла скрипта внутри него.
+func TestLoadRoleRejectsPreToolUseMissingScript(t *testing.T) {
+	yaml := strings.Replace(fixtureRoleYAML, "skills: []", "skills: [comet]", 1)
+	yaml = strings.Replace(yaml,
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+			"    - matcher: \"Write|Edit\"\n      command: skills/comet/scripts/comet-hook-router.mjs\n", 1)
+	root := fixtureOffice(t, yaml)
+	// Каталог скилла существует (иначе SkillDirs() отверг бы роль раньше и по
+	// другой причине), а самого скрипта внутри — нет.
+	if err := os.MkdirAll(filepath.Join(root, "skills", "comet"), 0o755); err != nil {
+		t.Fatalf("каталог скилла не создан: %v", err)
+	}
+
+	_, err := LoadRole(root, "tester")
+	if err == nil {
+		t.Fatal("скрипт хука отсутствует, но роль принята")
+	}
+	if !strings.Contains(err.Error(), "файл хука не найден") {
+		t.Errorf("ошибка не объясняет причину: %v", err)
+	}
+}
+
+// Хук-роутер Comet enforces фазовые границы записи технически, а не только
+// текстом role.md (design doc "Phase-scoped writes are hook-enforced") — и
+// корректно объявленный hooks.pre_tool_use обязан разбираться, а не только
+// отвергаться.
+func TestLoadRoleAcceptsPreToolUseHook(t *testing.T) {
+	yaml := strings.Replace(fixtureRoleYAML, "skills: []", "skills: [comet]", 1)
+	yaml = strings.Replace(yaml,
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+			"    - matcher: \"Write|Edit\"\n      command: skills/comet/scripts/comet-hook-router.mjs --platform claude --project-root \"$WORKDIR\"\n", 1)
+	root := fixtureOffice(t, yaml)
+	scriptDir := filepath.Join(root, "skills", "comet", "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("каталог скрипта не создан: %v", err)
+	}
+	scriptPath := filepath.Join(scriptDir, "comet-hook-router.mjs")
+	if err := os.WriteFile(scriptPath, []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
+		t.Fatalf("скрипт хука не записан: %v", err)
+	}
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		t.Fatalf("скрипт хука не сделан исполняемым: %v", err)
+	}
+
+	role, err := LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("корректный pre_tool_use хук отвергнут: %v", err)
+	}
+	if len(role.Hooks.PreToolUse) != 1 {
+		t.Fatalf("hooks.pre_tool_use не разобран: %+v", role.Hooks)
+	}
+	got := role.Hooks.PreToolUse[0]
+	if got.Matcher != "Write|Edit" {
+		t.Errorf("matcher=%q, ожидался Write|Edit", got.Matcher)
+	}
+	if !strings.HasPrefix(got.Command, "skills/comet/scripts/comet-hook-router.mjs") {
+		t.Errorf("command=%q искажён при разборе", got.Command)
+	}
+}
+
+// Неисполняемый скрипт pre_tool_use — тот же провал, что и у Stop-хука: код 126
+// от неисполняемого файла Claude Code сочтёт неблокирующей ошибкой хука, и
+// фазовое ограждение перестанет ограждать беззвучно (ровно баг финального
+// ревью: comet-hook-router.mjs внутри самого пакета @rpamis/comet — тоже
+// mode 644, и наш адаптер обязан отловить это на загрузке роли, а не в проде).
+func TestLoadRoleRejectsNonExecutablePreToolUseHook(t *testing.T) {
+	yaml := strings.Replace(fixtureRoleYAML, "skills: []", "skills: [comet]", 1)
+	yaml = strings.Replace(yaml,
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n",
+		"hooks:\n  stop:\n    - hooks/require-result.sh\n  pre_tool_use:\n"+
+			"    - matcher: \"Write|Edit\"\n      command: skills/comet/scripts/comet-hook-router.mjs --platform claude --project-root \"$WORKDIR\"\n", 1)
+	root := fixtureOffice(t, yaml)
+	scriptDir := filepath.Join(root, "skills", "comet", "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("каталог скрипта не создан: %v", err)
+	}
+	// 0o644 нарочно: скрипт есть, не каталог, но не исполняемый.
+	if err := os.WriteFile(filepath.Join(scriptDir, "comet-hook-router.mjs"), []byte("#!/usr/bin/env node\n"), 0o644); err != nil {
+		t.Fatalf("скрипт хука не записан: %v", err)
+	}
+
+	_, err := LoadRole(root, "tester")
+	if err == nil {
+		t.Fatal("скрипт хука неисполняемый, но роль принята")
+	}
+	if !strings.Contains(err.Error(), "не исполняемый") {
+		t.Errorf("ошибка не объясняет причину: %v", err)
+	}
+}
+
 // Запрет Write целиком отнимает у роли право записать собственный результат:
 // запреты сильнее разрешений, и точечное разрешение обвязки погибнет вместе с ним.
 // Прогон такой роли не может закончиться ничем, кроме синтетического failed.
@@ -253,41 +370,23 @@ func TestShippedRolesAreValid(t *testing.T) {
 	}
 }
 
-// Право на запись — единственное, что отличает reviewer'а от implementer'а,
-// и держится оно тем, что в allow у ревьюера нет широкого, ничем не
-// ограниченного Write или Edit — Write в --tools всё равно попадает (адаптер
-// добавляет его любой роли всегда, internal/adapters/claude/adapter.go: WriteTool),
-// но ограниченным ровно файлом результата (.agent/result.json), а не общим
-// правом записи. Запрет Bash(git add/commit) тут ни при чём: tools.allow не
-// технически ограничивает Bash (измерено 2026-08-27,
-// docs/notes/followup-network-and-permissions.md), поэтому его отсутствие
-// в allow ничего не доказывает. Реальная защита от add/commit/restore —
-// в tools.deny, и её проверяет отдельный тест после задачи 7 плана
-// (роль-специфичные deny остаются в role.yaml).
-func TestReviewerRoleCannotWrite(t *testing.T) {
-	role, err := LoadRole(filepath.Join("..", ".."), "reviewer")
-	if err != nil {
-		t.Fatalf("roles/reviewer не прочитана: %v", err)
-	}
-
-	for _, writing := range []string{"Edit", "Write", "NotebookEdit"} {
-		if slices.Contains(role.Tools.Allow, writing) {
-			t.Errorf("reviewer разрешает править: %q", writing)
+// implementer и reviewer больше не держат границу записи фазой Comet
+// Native через tools.allow/deny (TestReviewerRoleCannotWrite проверяла
+// именно это и была удалена вместе с правкой roles/reviewer/role.yaml,
+// давшей reviewer'у Edit/Write) — теперь единственная техническая граница
+// это hooks.pre_tool_use. Без этого теста забытый или случайно снятый
+// pre_tool_use в role.yaml не ловится ничем на уровне Go: Role.validate()
+// принимает роль без него как совершенно законную (поле необязательно), и
+// единственный, кто это заметит, — живой прогон, ломающийся посреди Verify.
+func TestShippedImplementerAndReviewerDeclarePhaseGuardHook(t *testing.T) {
+	for _, name := range []string{"implementer", "reviewer"} {
+		role, err := LoadRole(filepath.Join("..", ".."), name)
+		if err != nil {
+			t.Fatalf("roles/%s не загружена: %v", name, err)
 		}
-	}
-	for _, want := range []string{"Read", "Bash(*)"} {
-		if !slices.Contains(role.Tools.Allow, want) {
-			t.Errorf("reviewer лишён %q — ему нечем читать и запускать проверки", want)
-		}
-	}
-
-	// Роль-специфичный deny (add/commit/restore) остаётся в role.yaml
-	// и после переноса общих семи строк в defaults.tools.deny — это то,
-	// что защищает reviewer'а от правки, раз tools.allow не защищает
-	// ничего технически.
-	for _, want := range []string{"Bash(git *add*)", "Bash(git *commit*)", "Bash(git *restore*)"} {
-		if !slices.Contains(role.Tools.Deny, want) {
-			t.Errorf("reviewer лишён роль-специфичного deny %q", want)
+		if len(role.Hooks.PreToolUse) == 0 {
+			t.Errorf("roles/%s/role.yaml не объявляет hooks.pre_tool_use — "+
+				"фазовое ограждение записи Comet Native снято незаметно для go test", name)
 		}
 	}
 }

@@ -50,6 +50,24 @@ type Tools struct {
 
 type Hooks struct {
 	Stop []string `yaml:"stop"`
+	// PreToolUse — фазовые ограждения записи. В отличие от Stop, скрипт хука
+	// не копируется адаптером отдельно: он живёт внутри скилла, который роль
+	// и так подключает (Command называет путь вида "skills/<скилл>/...",
+	// проверяется ниже), и адаптер лишь подставляет его абсолютный путь
+	// внутри собранного плагина в момент запуска (internal/adapters/claude).
+	PreToolUse []PreToolUseHook `yaml:"pre_tool_use"`
+}
+
+// PreToolUseHook — один matcher/command из hooks.pre_tool_use.
+//
+// Command — это то, что в итоге исполнит шелл, только с двумя подстановками
+// позже, уже в адаптере: первое слово (путь вида "skills/<скилл>/...")
+// становится абсолютным путём внутри собранного плагина, а буквальная
+// подстрока "$WORKDIR" — реальным workdir запуска. Ни то, ни другое здесь ещё
+// не подставляется: role.yaml не знает ни каталога плагина, ни workdir.
+type PreToolUseHook struct {
+	Matcher string `yaml:"matcher"`
+	Command string `yaml:"command"`
 }
 
 type Limits struct {
@@ -160,6 +178,46 @@ func (r Role) validate(dirName string) error {
 		}
 	}
 
+	// hooks.pre_tool_use ссылается на файл внутри скилла, а не внутри hooks/:
+	// сам скрипт (comet-hook-router.mjs) — часть вендоренного скилла, который
+	// роль и так обязана подключить (design doc: "A role that declares
+	// hooks.pre_tool_use without mounting the referenced skill is a config
+	// error the loader should reject at role-load time").
+	for i, h := range r.Hooks.PreToolUse {
+		switch {
+		case strings.TrimSpace(h.Matcher) == "":
+			errs = append(errs, fmt.Errorf("hooks.pre_tool_use[%d].matcher пуст", i))
+		case strings.TrimSpace(h.Command) == "":
+			errs = append(errs, fmt.Errorf("hooks.pre_tool_use[%d].command пуст", i))
+		default:
+			script, _, _ := strings.Cut(h.Command, " ")
+			skill, ok := skillFromHookScript(script)
+			if !ok {
+				errs = append(errs, fmt.Errorf(
+					"hooks.pre_tool_use[%d].command=%q: путь должен начинаться с %s/<скилл>/",
+					i, h.Command, SkillsDir))
+				continue
+			}
+			if !slices.Contains(r.Skills, skill) {
+				errs = append(errs, fmt.Errorf(
+					"hooks.pre_tool_use[%d] ссылается на скилл %q, а его нет в skills:", i, skill))
+			}
+			switch fi, err := os.Stat(filepath.Join(r.configRoot, script)); {
+			case err != nil:
+				errs = append(errs, fmt.Errorf("hooks.pre_tool_use[%d]: файл хука не найден: %w", i, err))
+			case fi.IsDir():
+				errs = append(errs, fmt.Errorf("hooks.pre_tool_use[%d]: %s — каталог, а не файл", i, script))
+			case fi.Mode()&0o111 == 0:
+				// Тот же провал, что и у Stop-хука выше: код 126 от неисполняемого
+				// файла Claude Code сочтёт неблокирующей ошибкой хука, и ограждение
+				// перестанет ограждать беззвучно. Комет не гарантирует mode 755 у
+				// вендоренного скрипта — пакет @rpamis/comet сам кладёт его 644.
+				errs = append(errs, fmt.Errorf(
+					"hooks.pre_tool_use[%d]: %s не исполняемый: ограждение не сработает и не пожалуется", i, script))
+			}
+		}
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -212,6 +270,17 @@ func (r Role) HookFiles() []string {
 		paths = append(paths, filepath.Join(r.configRoot, h))
 	}
 	return paths
+}
+
+// skillFromHookScript достаёт имя скилла из пути вида "skills/<имя>/...".
+// Второе возвращаемое значение — false, если путь не такой формы вообще
+// (не начинается с SkillsDir).
+func skillFromHookScript(path string) (string, bool) {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	if len(parts) < 2 || parts[0] != SkillsDir {
+		return "", false
+	}
+	return parts[1], true
 }
 
 // SystemPrompt собирает системный промпт: includes, промпт роли и спецификация

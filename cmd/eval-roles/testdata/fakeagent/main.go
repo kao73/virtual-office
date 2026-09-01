@@ -22,6 +22,7 @@ func main() {
 	_ = flag.String("role", "", "")
 	_ = flag.String("task", "", "")
 	_ = flag.Bool("eval", false, "")
+	taskKey := flag.String("task-key", "", "")
 	flag.Parse()
 
 	if *workdir == "" {
@@ -38,6 +39,24 @@ func main() {
 	if err := runner.ExcludeAgentDir(*workdir); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeagent:", err)
 		os.Exit(2)
+	}
+
+	// Записываем полученный --task-key, чтобы тест, вызвавший fakeagent
+	// вместо настоящего run-agent, мог проверить, что eval-roles его вообще
+	// передал (см. cmd/eval-roles/fixture.go: discoverFixtureTaskKey). Внутрь
+	// .agent/, не в корень рабочей папки: тот уже исключён из git тем же
+	// ExcludeAgentDir выше, а корень — нет, и маркер там сам бы попадал
+	// в diff_scope как изменение вне allow (ровно так это и нашлось).
+	if *taskKey != "" {
+		agentDir := filepath.Join(*workdir, ".agent")
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, "fakeagent:", err)
+			os.Exit(2)
+		}
+		if err := os.WriteFile(filepath.Join(agentDir, ".fake-task-key"), []byte(*taskKey), 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "fakeagent:", err)
+			os.Exit(2)
+		}
 	}
 
 	result := os.Getenv("FAKE_AGENT_RESULT")

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/kao73/virtual-office/internal/forge"
@@ -95,7 +96,20 @@ func (o *Office) openPR(task tracker.Task) error {
 			project.Branch(task.Key), project.DefaultBranch))
 	case merge.Conflict:
 		return o.prConflict(task, project, "")
-	case project.Forge == "":
+	}
+
+	// Архивирование — свойство изменения, а не forge: без него он не собран
+	// только для того, чтобы открыть pull request, а не для того, чтобы
+	// зафиксировать переход Comet Native в docs/comet/archive/**. Раньше эта
+	// ветка возвращалась через prSkipped выше архивирования — на обоих
+	// текущих полигонах forge вообще не настроен, и Archive был недостижим
+	// целиком.
+	if project.Forge == "" {
+		if ok, err := o.archiveIfReady(task, project); err != nil {
+			return err
+		} else if !ok {
+			return nil
+		}
 		return o.prSkipped(task, project)
 	}
 
@@ -105,10 +119,27 @@ func (o *Office) openPR(task tracker.Task) error {
 		return nil
 	}
 
+	// prBody — раньше archiveIfReady, а не после: она читает brief.md из
+	// docs/comet/changes/<name>/ на только что запушенном HEAD, а
+	// archiveIfReady переименовывает этот каталог в docs/comet/archive/**
+	// и пушит переименование. В обратном порядке независимое ревью нашло,
+	// что prBody промахивается по обоим корням (новому — переименован,
+	// legacy — его никогда не было для Comet-нативной задачи) и молча
+	// подставляет сырой текст тикета вместо brief'а — ровно для тех задач,
+	// что дошли до архивирования.
 	title, body, err := o.prBody(task, repo, project)
 	if err != nil {
 		return err
 	}
+
+	if ok, err := o.archiveIfReady(task, project); err != nil {
+		return err
+	} else if !ok {
+		// Рабочая папка занята прямо сейчас — pull request подождёт
+		// следующего прохода, а не откроется без архивирования.
+		return nil
+	}
+
 	url, err := impl.OpenPR(task.Project, project.Branch(task.Key), project.DefaultBranch, title, body)
 	switch {
 	case errors.Is(err, forge.ErrRefused):
@@ -295,15 +326,80 @@ func (o *Office) clone(task tracker.Task) (tracker.Project, string, error) {
 func (o *Office) prBody(task tracker.Task, repo string, project tracker.Project) (string, string, error) {
 	title := fmt.Sprintf("%s %s", task.Key, task.Summary)
 
+	// .comet/current-change.json на ветке называет изменение точно, если
+	// аналитик его завёл — угаданное по task-key имя может разойтись с тем,
+	// что аналитик реально выбрал (живой случай: задача demo-3, изменение
+	// stats-median). Тот же приём, что и archiveIfReady в archive.go, но
+	// через Show — у прохода без рабочей папки файла на диске нет.
+	changeDir := runner.CometChangeDirRel(task.Key)
+	if data, found, err := o.Workspaces.Show(repo, project.Branch(task.Key), runner.CometCurrentChangeFile); err != nil {
+		return "", "", err
+	} else if found {
+		if name := runner.ParseCurrentChangeName([]byte(data)); name != "" {
+			changeDir = runner.CometChangeDirForName(name)
+		}
+	}
+
 	brief, found, err := o.Workspaces.Show(repo, project.Branch(task.Key),
-		filepath.Join(runner.ChangeDirRel(task.Key), runner.FileBrief))
+		filepath.Join(changeDir, runner.FileBrief))
 	if err != nil {
 		return "", "", err
 	}
 	if !found {
-		// Постановки в ветке нет — задача пришла мимо аналитика. Тогда телом идёт
-		// сам тикет целиком, вместе с темой: в заголовке она есть, но тело pull
-		// request читают и отдельно от него.
+		// Новый корень Comet Native пуст — задача либо старше этого перехода
+		// (analyst вёл её через прежний docs/changes/<KEY>), либо пришла мимо
+		// аналитика вовсе, либо уже архивирована (следующая проверка). Второй,
+		// старый корень остаётся источником, пока первый не подтвердил свою
+		// пустоту, а не наоборот.
+		brief, found, err = o.Workspaces.Show(repo, project.Branch(task.Key),
+			filepath.Join(runner.ChangeDirRel(task.Key), runner.FileBrief))
+		if err != nil {
+			return "", "", err
+		}
+	}
+	if !found {
+		// Изменение уже архивировано — не этим проходом (тот читает brief
+		// раньше своего archiveIfReady, см. её вызывающего), а каким-то из
+		// прошлых: сеть при OpenPR, ещё не собранный forge или человеческий
+		// ErrRefused вернули задачу в очередь уже после того, как archiveIfReady
+		// переименовала docs/comet/changes/<name> в docs/comet/archive/<дата>-
+		// <name>. Без этой проверки повторный проход промахивался бы мимо
+		// обоих корней выше и откатывался на сырой текст тикета — независимое
+		// ревью нашло эту дыру уже после первого фикса той же дыры для
+		// однопроходного случая. Дата в имени каталога заранее не предсказуема
+		// (см. cometArchiveDestGlob в archive.go) — ищем по суффиксу имени.
+		name := filepath.Base(changeDir)
+		entries, lerr := o.Workspaces.ListDir(repo, project.Branch(task.Key), filepath.Join(cometArchiveScope, "archive"))
+		if lerr != nil {
+			return "", "", lerr
+		}
+		// Полный якорь по дате, не HasSuffix("-"+name): независимое ревью
+		// (раунд 2) нашло, что простой суффикс совпал бы и с чужим архивом,
+		// чьё имя случайно оканчивается тем же хвостом (например, name
+		// "median" и чужой каталог "2026-08-31-stats-median" — оба
+		// оканчиваются на "-median"). Раунд 3 поправил: cometArchiveDestGlob
+		// в archive.go той же слабостью тоже страдал (её "*-"+name — тот же
+		// класс коллизии на уровне filepath.Glob) — исправлено там же тем
+		// же приёмом (цифровая маска даты), а не «применяется к заведомо
+		// своему каталогу», как ошибочно утверждала предыдущая версия этого
+		// комментария.
+		archiveDirPattern := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-` + regexp.QuoteMeta(name) + `$`)
+		for _, entry := range entries {
+			if !archiveDirPattern.MatchString(entry) {
+				continue
+			}
+			brief, found, err = o.Workspaces.Show(repo, project.Branch(task.Key),
+				filepath.Join(cometArchiveScope, "archive", entry, runner.FileBrief))
+			if err != nil {
+				return "", "", err
+			}
+			break
+		}
+	}
+	if !found {
+		// Ни в одном из корней постановки нет — задача пришла мимо аналитика.
+		// Тогда телом идёт сам тикет целиком, вместе с темой: в заголовке она
+		// есть, но тело pull request читают и отдельно от него.
 		brief = task.Summary + "\n\n" + task.Description
 	}
 

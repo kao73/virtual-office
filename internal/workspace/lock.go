@@ -34,8 +34,16 @@ var ErrWorktreeBusy = errors.New("рабочая папка занята дру�
 func (m *Manager) hold(ws Workspace) (Workspace, error) {
 	// Каталог обмена прячется от git прямо здесь, а не в PrepareInput: замок
 	// появляется раньше постановки задачи, и без правила в info/exclude свежая
-	// рабочая папка выглядела бы грязной.
+	// рабочая папка выглядела бы грязной. То же для .comet/runtime/: archiveIfReady
+	// (internal/pipeline/archive.go) берёт рабочую папку через Ensure/hold без
+	// единого прогона роли — PrepareInput, где это исключение обычно заводится,
+	// здесь не вызывается вовсе, — а `comet native status`/`archive` заводят
+	// .comet/runtime/** и в такой папке (design doc, archive.go). Без исключения
+	// это состояние держит папку вечно "грязной" для sweepWorktrees.
 	if err := runner.ExcludeAgentDir(ws.Dir); err != nil {
+		return Workspace{}, err
+	}
+	if err := runner.ExcludeCometRuntime(ws.Dir); err != nil {
 		return Workspace{}, err
 	}
 	dir := filepath.Join(ws.Dir, runner.Dir)

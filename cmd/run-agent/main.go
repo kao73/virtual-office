@@ -72,6 +72,15 @@ func execute() (int, error) {
 	baseFlag := flag.String("base", "", "базовая ветка: от неё считается разница по задаче (нужна reviewer'у)")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
 	evalFlag := flag.Bool("eval", false, "пометить прогон как eval-harness: не считается в per_role_daily")
+	taskKeyFlag := flag.String("task-key", "", "ключ задачи в трекере: определяет каталог изменения "+
+		"Comet Native в context.md (composeContext/CometChangeDirRel). Без него, как при обычном "+
+		"ручном запуске, трекера нет и строка «Каталог изменения» не появится — доступно eval-roles "+
+		"и другим ручным воспроизведениям фикстур с уже заведённым изменением")
+	cloneFlag := flag.Bool("clone", false, "бэкенд sbx: запустить агента на клоне workdir внутри "+
+		"песочницы вместо бинд-маунта (sbx --clone) — файловые операции идут по диску песочницы, "+
+		"а не по бинд-маунту хоста, с которым у блокировок Comet Native разлад. workdir обязан быть "+
+		"обычным git-репозиторием, не bare и не worktree; ветку агента флаг подтягивает обратно "+
+		"в тот же workdir после прогона. Бэкендом local игнорируется")
 	flag.Parse()
 
 	if *roleName == "" || *workdirFlag == "" {
@@ -138,6 +147,9 @@ func execute() (int, error) {
 	if notice := runagent.NetworkAudit(*backend); notice != "" {
 		fmt.Fprintln(os.Stderr, "run-agent:", notice)
 	}
+	if notice := runagent.CloneNotice(*backend, *cloneFlag); notice != "" {
+		fmt.Fprintln(os.Stderr, "run-agent:", notice)
+	}
 
 	runID, err := runner.NewRunID()
 	if err != nil {
@@ -154,6 +166,7 @@ func execute() (int, error) {
 	passport := runner.Run{
 		RunID:      runID,
 		Role:       role.Name,
+		TaskKey:    *taskKeyFlag,
 		ConfigSHA:  configSHA,
 		StartedAt:  time.Now(),
 		BaseCommit: base,
@@ -166,12 +179,49 @@ func execute() (int, error) {
 		return 0, err
 	}
 
+	// PrepareInput могла подвинуть HEAD собственным системным коммитом
+	// (EnsureCometHookAllowPaths) — пересчитываем base уже после неё, тем
+	// же приёмом, что и internal/pipeline/pipeline.go (независимое ревью,
+	// раунд 3): иначе прогон, где агент не сделал вовсе ничего, здесь тоже
+	// показал бы коммит между base и HEAD и классифицировался бы как
+	// errored вместо not_started (opts.Passport.BaseCommit читает
+	// runagent.terminationOf).
+	if base, err = runner.HeadCommit(workdir); err != nil {
+		return 0, err
+	}
+	passport.BaseCommit = base
+
 	opts := runagent.Options{
 		ConfigRoot: configRoot,
 		Role:       role,
 		Workdir:    workdir,
 		Backend:    *backend,
 		Passport:   passport,
+	}
+	if *cloneFlag {
+		branch := headBranch(workdir)
+		if branch == "" {
+			return 0, errors.New("--clone: у workdir нет ветки (отделённый HEAD?) — подтягивать некуда")
+		}
+		// FetchInto — тот же workdir: у ручного прогона отдельного worktree
+		// нет, клон-источник и рабочая папка задачи — один и тот же путь.
+		// Сам путь во время прогона не меняется — --clone не монтирует его
+		// внутрь песочницы вовсе, а клонирует: агент работает на собственном
+		// диске песочницы, а workdir на хосте остаётся нетронутым до конца
+		// прогона (проверено вживую), — так что дописать в него после
+		// прогона безопасно.
+		//
+		// Dirs называет только то, что действительно не в git: .comet/runtime/ —
+		// нет (ExcludeCometRuntime в internal/runner/input.go), а .comet/config.yaml
+		// и .comet/current-change.json роль коммитит сама (roles/analyst/role.md).
+		// Занеси весь .comet/ целиком, а не этим одним путём, — и cloneSyncOut
+		// (internal/backends/sbx/clone.go) положила бы отслеживаемые config.yaml
+		// и current-change.json на хост раньше git-слияния, а оно бы отказало.
+		opts.Clone = &runner.CloneSync{
+			FetchInto: workdir,
+			Branch:    branch,
+			Dirs:      []string{runner.Dir, ".comet/runtime"},
+		}
 	}
 
 	if *dryRun {
@@ -303,6 +353,16 @@ func printDryRun(l runagent.Launch, passport runner.Run) {
 			mode = "только чтение"
 		}
 		fmt.Printf("  %-16s %s\n", mode, ws.Path)
+	}
+
+	// Печатается всегда, в том числе отсутствие: --clone меняет саму природу
+	// изоляции (клон вместо бинд-маунта), и это стоит увидеть тем же взглядом,
+	// что и обычные рабочие пространства, а не только по флагу командной строки.
+	if l.Clone == nil {
+		fmt.Println("\n== --clone ==\n  (выключен, обычный бинд-маунт)")
+	} else {
+		fmt.Printf("\n== --clone ==\n  ветка:      %s\n  вернуть в:  %s\n  каталоги:   %s\n",
+			l.Clone.Branch, l.Clone.FetchInto, strings.Join(l.Clone.Dirs, ", "))
 	}
 
 	// Сеть показывается всегда, в том числе пустая: «роль никуда не ходит» —

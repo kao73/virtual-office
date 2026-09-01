@@ -11,8 +11,22 @@ checks:
     expect: done
     next_owner: implementer
   - kind: diff_scope
-    allow: []
+    allow:
+      - "docs/comet/changes/eval-spot-defect/comet-state.yaml"
+      - "docs/comet/changes/eval-spot-defect/verification.md"
+      # Comet's own local-execution bookkeeping: tracked in this fixture
+      # (see .comet/ below) so a fresh materialized checkout doesn't
+      # silently no-op on the first dispatch-verifier call — but that
+      # means it genuinely gets modified by a compliant reviewer's very
+      # first real CLI call, so it must be allowed here too, or every
+      # compliant run fails diff_scope on Comet's own state file.
+      - ".comet/runtime/native/changes/eval-spot-defect/state.json"
   - kind: fixture_tests
-    # Слабая, не обязанная быть точной подсказка, что разбор был не мимо
-    # темы — различение "нашёл/не нашёл" целиком на next_owner выше.
-    command: "grep -qi 'Max' .agent/result.json"
+    # A1 — реальный id критерия приёмки, который присвоил сам Comet Native
+    # (подтверди через `comet native status eval-spot-defect --json` при
+    # заведении фикстуры — литеральный префикс в тексте spec.md id не
+    # определяет). Слабая подсказка, не строгая проверка (см. README.md):
+    # упоминание "A1" в собственном тексте отчёта — не доказательство, что
+    # ревьюер прошёл через dispatch-verifier/final-result, но куда точнее
+    # прежнего грепа по слову "Max" из самой постановки.
+    command: "grep -qE '\\bA1\\b' .agent/result.json"

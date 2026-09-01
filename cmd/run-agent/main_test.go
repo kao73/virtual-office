@@ -136,6 +136,86 @@ func TestDryRunNamesBranches(t *testing.T) {
 	}
 }
 
+// Найдено живым прогоном (задача 16 → задача 19): --task-key был прокинут
+// до passport.TaskKey, но ни один тест не проверял именно этот шов — только
+// его соседей по отдельности (composeContext уже покрыт при заданном
+// TaskKey, invoke.go — что --task-key долетает до фиктивного агента).
+// Мутационный тест ревью подтвердил дыру: испортить значение в main.go
+// (passport.TaskKey на другую строку) — весь go test ./... остаётся
+// зелёным. Этот тест закрывает именно её.
+func TestDryRunNamesCometChangeDirFromTaskKey(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+
+	const taskKey = "eval-brief"
+	changeDir := filepath.Join(workdir, runner.CometChangeDirRel(taskKey))
+	if err := os.MkdirAll(changeDir, 0o755); err != nil {
+		t.Fatalf("каталог изменения не создан: %v", err)
+	}
+
+	code, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "reviewer", "--workdir", workdir, "--task", taskFile(t), "--task-key", taskKey, "--dry-run")
+	if code != 0 {
+		t.Fatalf("код %d, ожидался 0; вывод: %s", code, out)
+	}
+
+	context, err := os.ReadFile(filepath.Join(workdir, runner.Dir, runner.FileContext))
+	if err != nil {
+		t.Fatalf("контекст не прочитан: %v", err)
+	}
+	if want := "Каталог изменения: " + runner.CometChangeDirRel(taskKey); !strings.Contains(string(context), want) {
+		t.Errorf("в контексте нет %q — --task-key не дошёл до composeContext:\n%s", want, context)
+	}
+}
+
+// --clone меняет саму природу Workspaces (клон вместо бинд-маунта) — dry-run
+// обязан показать это тем же взглядом, каким показывает обычные рабочие
+// пространства, иначе выбор бэкенда остаётся невидим до настоящего платного
+// прогона.
+func TestDryRunCloneSetsCloneSync(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	branch := currentBranch(t, workdir)
+
+	code, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--clone", "--dry-run")
+	if code != 0 {
+		t.Fatalf("код %d, ожидался 0; вывод: %s", code, out)
+	}
+	// Полная отрендеренная строка, не подстрока: ".agent"/".comet" сами по
+	// себе не показательны — системный промпт implementer'а упоминает
+	// ".agent" и без --clone (проверено: без флага "каталоги:" в выводе нет
+	// вовсе, а голое ".agent" встречается 7 раз).
+	for _, want := range []string{
+		"ветка:      " + branch,
+		"вернуть в:  " + workdir,
+		"каталоги:   .agent, .comet/runtime",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("в выводе --clone нет %q:\n%s", want, out)
+		}
+	}
+}
+
+// --clone без ветки подтягивать некуда: отделённый HEAD — не тот случай,
+// когда можно молча продолжить и потерять работу агента при сносе песочницы.
+func TestCloneWithoutBranchFails(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	if out, err := exec.Command("git", "-C", workdir, "checkout", "-q", "--detach").CombinedOutput(); err != nil {
+		t.Fatalf("HEAD не отделён: %v: %s", err, out)
+	}
+
+	code, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--clone", "--dry-run")
+	if code != 2 {
+		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+	}
+}
+
 // Список доменов роли на бэкенде без песочницы не значит ничего. Промолчать
 // об этом — значит дать человеку поверить, что сеть закрыта: он читает role.yaml,
 // а не исходники бэкенда.

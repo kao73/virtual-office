@@ -42,7 +42,8 @@ func runChecks(fixtureDir, initialCommit string, result runner.Result, specs []C
 // keepFailed, когда true, не убирает fixtureDir не-passed кейса — иначе
 // разобраться в FAIL можно только повторным (платным) прогоном роли; путь
 // сохранённого каталога печатается в stderr.
-func evaluateCase(runAgentBin, repoRoot string, c Case, stderr io.Writer, keepFailed bool) (outcome CaseOutcome) {
+// clone включает --clone бэкенда sbx для этого прогона (см. runRoleAgent).
+func evaluateCase(runAgentBin, repoRoot string, c Case, stderr io.Writer, keepFailed, clone bool) (outcome CaseOutcome) {
 	name := c.Role + "/" + c.id()
 
 	fixtureDir, initialCommit, err := materializeFixture(c.dir)
@@ -64,7 +65,11 @@ func evaluateCase(runAgentBin, repoRoot string, c Case, stderr io.Writer, keepFa
 		return CaseOutcome{Case: name, Status: "errored", Err: fmt.Errorf("task.md не найден: %w", err)}
 	}
 
-	result, _, err := runRoleAgent(runAgentBin, repoRoot, c.Role, fixtureDir, taskPath)
+	taskKey, warning := discoverFixtureTaskKey(fixtureDir)
+	if warning != "" {
+		fmt.Fprintf(stderr, "eval-roles: %s: %s\n", name, warning)
+	}
+	result, _, err := runRoleAgent(runAgentBin, repoRoot, c.Role, fixtureDir, taskPath, taskKey, clone)
 	if err != nil {
 		return CaseOutcome{Case: name, Status: "errored", Err: err}
 	}
