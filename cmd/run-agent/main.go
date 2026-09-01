@@ -179,6 +179,18 @@ func execute() (int, error) {
 		return 0, err
 	}
 
+	// PrepareInput могла подвинуть HEAD собственным системным коммитом
+	// (EnsureCometHookAllowPaths) — пересчитываем base уже после неё, тем
+	// же приёмом, что и internal/pipeline/pipeline.go (независимое ревью,
+	// раунд 3): иначе прогон, где агент не сделал вовсе ничего, здесь тоже
+	// показал бы коммит между base и HEAD и классифицировался бы как
+	// errored вместо not_started (opts.Passport.BaseCommit читает
+	// runagent.terminationOf).
+	if base, err = runner.HeadCommit(workdir); err != nil {
+		return 0, err
+	}
+	passport.BaseCommit = base
+
 	opts := runagent.Options{
 		ConfigRoot: configRoot,
 		Role:       role,

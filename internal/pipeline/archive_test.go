@@ -363,6 +363,24 @@ func TestArchiveIfReadyCommitsOnlyCometScope(t *testing.T) {
 // было, хотя exit-код утверждает обратное. archiveIfReady не имеет права
 // доверять одному exit 0: не проверив постусловие, он закоммитил бы и
 // запушил этот откат как будто это успешное архивирование.
+// Независимое ревью (раунд 3): cometArchiveDestGlob's "*-"+name страдает
+// тем же классом коллизии, что HasSuffix в prpass.go (найдено раундом 2)
+// — filepath.Glob "*" совпадает и с чужим архивом в том же общем
+// docs/comet/archive/, чьё имя случайно оканчивается тем же хвостом.
+// Изменения "median" здесь никогда не существовало — только decoy
+// "stats-median" рядом; archiveSucceeded не вправе принять его за успех.
+func TestArchiveSucceededRejectsSuffixCollision(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, cometArchiveScope, "archive", "2026-08-30-stats-median"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ok, reason := archiveSucceeded(dir, "median")
+	if ok {
+		t.Errorf("archiveSucceeded приняла чужой архив по совпадению суффикса маски (%s)", reason)
+	}
+}
+
 func TestArchiveIfReadySkipsCommitWhenPostconditionFails(t *testing.T) {
 	o := newOffice(t)
 	task := o.approved(t, "OFF-1")

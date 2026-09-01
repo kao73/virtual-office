@@ -158,11 +158,18 @@ func (o *Office) archiveIfReady(task tracker.Task, project tracker.Project) (ok 
 // переименовывает каталог изменения при настоящем успехе:
 // docs/comet/archive/<дата>-<name> (дата — YYYY-MM-DD; формат подтверждён
 // живым прогоном при финальном ревью — `comet native archive eval-brief
-// --confirmed` напечатал "...docs/comet/archive/2026-08-31-eval-brief").
+// --confirmed" напечатал "...docs/comet/archive/2026-08-31-eval-brief").
 // Дату заранее не предсказать — её на момент вызова решает сам CLI, отсюда
 // маска, а не точный путь.
+//
+// Маска — по цифрам даты ([0-9]{4}-[0-9]{2}-[0-9]{2}-<name>), а не "*-"+name:
+// независимое ревью (раунд 3) нашло, что общий "*" совпал бы и с чужим
+// архивом в том же общем каталоге docs/comet/archive/ (где копятся
+// изменения всех задач репозитория), чьё имя случайно оканчивается тем же
+// хвостом — тот же класс коллизии, что и HasSuffix в prpass.go, только
+// на уровне filepath.Glob вместо strings.HasSuffix.
 func cometArchiveDestGlob(name string) string {
-	return filepath.Join(cometArchiveScope, "archive", "*-"+name)
+	return filepath.Join(cometArchiveScope, "archive", "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-"+name)
 }
 
 // archiveSucceeded проверяет постусловие успешного архивирования — не

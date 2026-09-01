@@ -377,9 +377,12 @@ func (o *Office) prBody(task tracker.Task, repo string, project tracker.Project)
 		// (раунд 2) нашло, что простой суффикс совпал бы и с чужим архивом,
 		// чьё имя случайно оканчивается тем же хвостом (например, name
 		// "median" и чужой каталог "2026-08-31-stats-median" — оба
-		// оканчиваются на "-median"). cometArchiveDestGlob в archive.go той
-		// же слабостью не страдает: там маска применяется к заведомо
-		// своему каталогу, а не ищется среди чужих.
+		// оканчиваются на "-median"). Раунд 3 поправил: cometArchiveDestGlob
+		// в archive.go той же слабостью тоже страдал (её "*-"+name — тот же
+		// класс коллизии на уровне filepath.Glob) — исправлено там же тем
+		// же приёмом (цифровая маска даты), а не «применяется к заведомо
+		// своему каталогу», как ошибочно утверждала предыдущая версия этого
+		// комментария.
 		archiveDirPattern := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-` + regexp.QuoteMeta(name) + `$`)
 		for _, entry := range entries {
 			if !archiveDirPattern.MatchString(entry) {
