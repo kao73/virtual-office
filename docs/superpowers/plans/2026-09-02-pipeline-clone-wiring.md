@@ -1696,7 +1696,9 @@ git add internal/runagent/runagent.go internal/runagent/runagent_test.go
 git commit -m "fix(runagent): read post-run artifacts from Clone.FetchInto, not the disposable clone source"
 ```
 
-- [ ] **Step 6: Re-run Task 5 Step 2's live pipeline check, a second time**
+(As actually committed, the new tests landed in the existing `internal/runagent/prepare_test.go` instead of a new `runagent_test.go` — `prepare_test.go` already covered this kind of pure `Options`-consuming function, per Step 1's own note to check its conventions first, and a new file wasn't warranted.)
+
+- [x] **Step 6: Re-run Task 5 Step 2's live pipeline check, a second time**
 
 Re-run (or continue) the `./bin/runner tick` sequence and confirm the analyst tick now reports a real `done` outcome (not `failed`), the task actually advances (not requeued to `Analysis`), and `Archive` succeeds against the real worktree's content. Continue with implementer → reviewer ticks once this passes.
 

@@ -244,11 +244,14 @@ func TestSandboxesRemoveReportsFailure(t *testing.T) {
 	}
 }
 
-// Задача 6 (найдено живым прогоном Task 5): logPath = opts.Workdir/.agent/run.log,
-// а opts.Workdir под --clone из пайплайна — одноразовый git-клон
-// (internal/workspace.CloneSource), у которого .agent не заведён вовсе (git-клон
-// не переносит неотслеживаемое). os.Create без MkdirAll падал на этом ещё до
-// sbx create --clone — агент не успевал даже стартовать.
+// Задача 6 (найдено живым прогоном Task 5): logPath = .../.agent/run.log —
+// либо Clone.FetchInto/.agent под --clone, либо opts.Workdir/.agent без него
+// (internal/runagent.resultWorkdir решает, какой из двух; см. её
+// doc-комментарий). По причинам, не зависящим от того, какая именно это
+// папка — свежий worktree, самый первый прогон задачи и так далее — .agent
+// там на момент вызова может быть ещё не заведён. os.Create без MkdirAll
+// падал на этом ещё до sbx create --clone — агент не успевал даже
+// стартовать.
 func TestCreateLogCreatesParentDirectory(t *testing.T) {
 	root := t.TempDir()
 	logPath := filepath.Join(root, ".agent", "run.log")

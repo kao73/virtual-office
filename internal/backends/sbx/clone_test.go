@@ -759,6 +759,45 @@ func TestCloneSyncOutRetrievesDirsEvenWhenCommitLeftoversFails(t *testing.T) {
 	}
 }
 
+// Important-находка финального (пооткатного) ревью: syncCometState — самый
+// свежий шаг cloneSyncOut, и до этой правки её собственный ранний return
+// воспроизводил бы тот самый баг с потерей .agent/result.json, который
+// fetchBranch и цикл по Dirs уже один раз были обязаны не допускать (см.
+// doc-комментарий cloneSyncOut про историю с fetchBranch/Dirs). Настоящая
+// (не «not found in container») неудача её собственного sbx cp обязана
+// копиться так же, как sweepErr (через errors.Join), и не отменять подтяжку
+// .agent.
+func TestCloneSyncOutRetrievesDirsEvenWhenSyncCometStateFails(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
+	}
+	// Первые два вызова — commitLeftovers (дерево чистое, до коммита дело не
+	// доходит), третий — собственный cp syncCometState, отвечающий настоящей
+	// бедой (не «not found in container»).
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New("sbx cp: connection refused"),
+	}}
+
+	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
+		t.Fatal("неудача syncCometState не вернула ошибку")
+	}
+
+	wantAgentSrc := name + ":" + filepath.Join(primary, ".agent")
+	var sawCopy bool
+	for _, call := range rec.calls {
+		if len(call) == 3 && call[0] == "cp" && call[1] == wantAgentSrc {
+			sawCopy = true
+		}
+	}
+	if !sawCopy {
+		t.Error(".agent не подтянут после провалившегося syncCometState — ранний return отменил retrieval")
+	}
+}
+
 // execStep исполняет вызовы вида exec <name> sh -c <скрипт> sh <args...>
 // по-настоящему, через sh — именно так зовут commitLeftovers и
 // mergeInProgress. Используется там, где тест должен проверить настоящий
@@ -1286,11 +1325,15 @@ func TestCopyCometStateMatchesCopiesEachMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := copyCometStateMatches(scratch, fetchInto); err != nil {
+	written, err := copyCometStateMatches(scratch, fetchInto)
+	if err != nil {
 		t.Fatalf("copyCometStateMatches: %v", err)
 	}
 
 	want := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if !slices.Equal(written, []string{want}) {
+		t.Errorf("written = %q, ожидалось [%s]", written, want)
+	}
 	got, err := os.ReadFile(want)
 	if err != nil {
 		t.Fatalf("comet-state.yaml не появился в FetchInto: %v", err)
@@ -1309,8 +1352,12 @@ func TestCopyCometStateMatchesNoopWhenNoMatches(t *testing.T) {
 	scratch := t.TempDir()
 	fetchInto := t.TempDir()
 
-	if err := copyCometStateMatches(scratch, fetchInto); err != nil {
+	written, err := copyCometStateMatches(scratch, fetchInto)
+	if err != nil {
 		t.Fatalf("отсутствие совпадений не должно быть ошибкой: %v", err)
+	}
+	if len(written) != 0 {
+		t.Errorf("written = %q, ожидалось пусто", written)
 	}
 	entries, err := os.ReadDir(fetchInto)
 	if err != nil {
@@ -1328,7 +1375,7 @@ func TestSyncCometStateNoopWhenChangesDirMissing(t *testing.T) {
 	fetchInto := t.TempDir()
 	rec := &recordedStep{errs: []error{errors.New(`ERROR: path ".../docs/comet/changes" not found in container`)}}
 
-	if err := syncCometState(context.Background(), "office-test", "/container/primary", fetchInto, rec.run); err != nil {
+	if err := syncCometState(context.Background(), "office-test", "/container/primary", fetchInto, rec.run, io.Discard); err != nil {
 		t.Fatalf("отсутствие docs/comet/changes не должно быть ошибкой: %v", err)
 	}
 	if len(rec.calls) != 1 {
@@ -1342,7 +1389,7 @@ func TestSyncCometStatePropagatesRealCPFailure(t *testing.T) {
 	fetchInto := t.TempDir()
 	rec := &recordedStep{errs: []error{errors.New("sbx cp: connection refused")}}
 
-	if err := syncCometState(context.Background(), "office-test", "/container/primary", fetchInto, rec.run); err == nil {
+	if err := syncCometState(context.Background(), "office-test", "/container/primary", fetchInto, rec.run, io.Discard); err == nil {
 		t.Fatal("настоящая неудача sbx cp растворилась в допущении «изменений нет»")
 	}
 }
@@ -1384,7 +1431,7 @@ func TestSyncCometStateCopiesCometStateOnRealCPSuccess(t *testing.T) {
 		return nil
 	}
 
-	if err := syncCometState(context.Background(), "office-test", containerRoot, fetchInto, fakeCP); err != nil {
+	if err := syncCometState(context.Background(), "office-test", containerRoot, fetchInto, fakeCP, io.Discard); err != nil {
 		t.Fatalf("syncCometState: %v", err)
 	}
 	if len(calls) != 1 {
@@ -1398,5 +1445,82 @@ func TestSyncCometStateCopiesCometStateOnRealCPSuccess(t *testing.T) {
 	}
 	if string(got) != "phase: build\n" {
 		t.Errorf("содержимое = %q, ожидалось %q", got, "phase: build\n")
+	}
+}
+
+// copyCometStateMatches — идентичное содержимое: на здоровом прогоне
+// commitLeftovers уже закоммитила comet-state.yaml внутри песочницы, а
+// fetchBranch уже слила его в fetchInto — повторная запись здесь была бы
+// бессмысленным дублированием, а вдобавок незакоммиченным изменением
+// git-отслеживаемого файла (docs/comet/changes/<name>/comet-state.yaml
+// ничем не исключено из git). Найдено финальным ревью.
+func TestCopyCometStateMatchesSkipsIdenticalContent(t *testing.T) {
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	demoDir := filepath.Join(scratch, "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("phase: verify\n")
+	if err := os.WriteFile(filepath.Join(demoDir, "comet-state.yaml"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := copyCometStateMatches(scratch, fetchInto)
+	if err != nil {
+		t.Fatalf("copyCometStateMatches: %v", err)
+	}
+	if len(written) != 0 {
+		t.Errorf("written = %q, ожидалось пусто — содержимое в fetchInto уже совпадало", written)
+	}
+}
+
+// copyCometStateMatches — разное содержимое (или отсутствие вовсе на
+// назначении): пишет и сообщает вызывающему, что записала — именно то
+// назначение, что и является уязвимым случаем (незакоммиченная правка
+// отслеживаемого файла, на которой откажет следующий fetchBranch).
+func TestCopyCometStateMatchesReturnsWrittenPathWhenContentDiffers(t *testing.T) {
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	demoDir := filepath.Join(scratch, "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newContent := []byte("phase: verify\n")
+	if err := os.WriteFile(filepath.Join(demoDir, "comet-state.yaml"), newContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("phase: build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := copyCometStateMatches(scratch, fetchInto)
+	if err != nil {
+		t.Fatalf("copyCometStateMatches: %v", err)
+	}
+	if !slices.Equal(written, []string{dst}) {
+		t.Errorf("written = %q, ожидалось [%s]", written, dst)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(newContent) {
+		t.Errorf("содержимое = %q, ожидалось %q", got, newContent)
 	}
 }

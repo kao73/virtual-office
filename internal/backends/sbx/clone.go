@@ -1,6 +1,7 @@
 package sbx
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -294,11 +295,16 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 	if err := fetchBranch(ctx, name, containerRoot, l.Clone); err != nil {
 		return err
 	}
-	// Длящееся состояние Comet Native роль не коммитит — та же потеря данных,
-	// что и неудача fetchBranch выше, если её пропустить молча, и трактуется
-	// так же: немедленный возврат, до цикла по Dirs.
-	if err := syncCometState(ctx, name, containerRoot, l.Clone.FetchInto, run); err != nil {
-		return fmt.Errorf("длящееся состояние Comet Native не подтянуто из песочницы %s: %w", name, err)
+	// Длящееся состояние Comet Native роль не коммитит. В отличие от
+	// fetchBranch выше, ничего ниже по цепочке (Dirs) от этого шага не
+	// зависит — независимое ревью (финальный проход) нашло, что ранний
+	// return здесь воспроизводил бы тот самый баг с потерей .agent/result.json,
+	// который эта функция уже один раз обязана была не допускать (см.
+	// комментарий выше про fetchBranch и Dirs). Копится вместе со sweepErr
+	// и возвращается в конце тем же приёмом.
+	stateErr := syncCometState(ctx, name, containerRoot, l.Clone.FetchInto, run, log)
+	if stateErr != nil {
+		fmt.Fprintf(log, "\nпесочница %s: длящееся состояние Comet Native не подтянуто: %v\n", name, stateErr)
 	}
 
 	// sweepErr возвращается только после этого цикла, а не раньше него:
@@ -329,7 +335,7 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 		}
 		return err
 	}
-	return sweepErr
+	return errors.Join(sweepErr, stateErr)
 }
 
 // cloneSweepName/cloneSweepEmail — личность коммита, которым commitLeftovers
@@ -611,26 +617,43 @@ func gitOutput(ctx context.Context, dir string, args ...string) (string, error) 
 //
 // Отсутствие совпадений — законный случай (нет ни одного изменения Comet
 // Native), не ошибка.
-func copyCometStateMatches(fromChangesDir, fetchInto string) error {
+//
+// Пишет только тогда, когда назначение в fetchInto ещё не совпадает байт
+// в байт с источником: на здоровом прогоне commitLeftovers уже закоммитила
+// этот файл внутри песочницы, а fetchBranch (оба — cloneSyncOut выше) уже
+// слила его в fetchInto — повторная запись здесь была бы бессмысленным
+// дублированием. Возвращает список назначений, в которые реально записала
+// (пустой на этом счастливом пути) — найдено финальным ревью:
+// docs/comet/changes/<name>/comet-state.yaml ничем не исключён из git, и
+// каждая настоящая запись сюда оставляет в fetchInto незакоммиченную правку
+// отслеживаемого файла, на которой следующий fetchBranch откажет
+// («git merge --ff-only»), если её никто не закоммитит вручную — вызывающий
+// (syncCometState) обязан сообщить об этом громко.
+func copyCometStateMatches(fromChangesDir, fetchInto string) ([]string, error) {
 	matches, err := filepath.Glob(filepath.Join(fromChangesDir, "*", "comet-state.yaml"))
 	if err != nil {
-		return fmt.Errorf("маска comet-state.yaml не разобрана: %w", err)
+		return nil, fmt.Errorf("маска comet-state.yaml не разобрана: %w", err)
 	}
+	var written []string
 	for _, match := range matches {
 		name := filepath.Base(filepath.Dir(match))
 		dst := filepath.Join(fetchInto, runner.CometChangeDirForName(name), "comet-state.yaml")
 		data, err := os.ReadFile(match)
 		if err != nil {
-			return fmt.Errorf("%s не прочитан: %w", match, err)
+			return written, fmt.Errorf("%s не прочитан: %w", match, err)
+		}
+		if existing, err := os.ReadFile(dst); err == nil && bytes.Equal(existing, data) {
+			continue // уже то же самое — обычно commitLeftovers+fetchBranch уже донесли
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("%s на хосте не заведён: %w", filepath.Dir(dst), err)
+			return written, fmt.Errorf("%s на хосте не заведён: %w", filepath.Dir(dst), err)
 		}
 		if err := os.WriteFile(dst, data, 0o644); err != nil {
-			return fmt.Errorf("%s не записан: %w", dst, err)
+			return written, fmt.Errorf("%s не записан: %w", dst, err)
 		}
+		written = append(written, dst)
 	}
-	return nil
+	return written, nil
 }
 
 // syncCometState подтягивает длящееся состояние Comet Native
@@ -646,7 +669,14 @@ func copyCometStateMatches(fromChangesDir, fetchInto string) error {
 // Отсутствие docs/comet/changes в песочнице — законный no-op (нет активного
 // изменения Comet Native вовсе), тем же принципом, что уже есть у Dirs'
 // отсутствующего .comet/runtime.
-func syncCometState(ctx context.Context, name, containerRoot, fetchInto string, run step) error {
+//
+// log получает по строке на каждое назначение, которое copyCometStateMatches
+// реально переписала (пусто на счастливом пути — см. её doc-комментарий, там
+// же — почему настоящая запись вообще беда): такая запись — незакоммиченная
+// правка git-отслеживаемого файла в fetchInto, и молчать об этом значило бы
+// разойтись с уже принятым в этом файле правилом «громко, не тихо»
+// (warnUncommitted — прецедент).
+func syncCometState(ctx context.Context, name, containerRoot, fetchInto string, run step, log io.Writer) error {
 	scratch, err := os.MkdirTemp("", "clone-comet-state-*")
 	if err != nil {
 		return fmt.Errorf("временный каталог для comet-state.yaml не заведён: %w", err)
@@ -661,7 +691,12 @@ func syncCometState(ctx context.Context, name, containerRoot, fetchInto string, 
 		return fmt.Errorf("%s не выгружен из песочницы: %w", src, err)
 	}
 
-	return copyCometStateMatches(filepath.Join(scratch, filepath.Base(runner.CometChangesDir)), fetchInto)
+	written, err := copyCometStateMatches(filepath.Join(scratch, filepath.Base(runner.CometChangesDir)), fetchInto)
+	for _, dst := range written {
+		fmt.Fprintf(log, "\nпесочница %s: %s дописан незакоммиченным — следующий прогон этой задачи "+
+			"откажет на git merge, если это не будет закоммичено вручную\n", name, dst)
+	}
+	return err
 }
 
 // cloneOutcome решает код возврата и ошибку Run по трём независимым

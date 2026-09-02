@@ -47,11 +47,13 @@ const (
 )
 
 // createLog заводит родительский каталог logPath перед os.Create — logPath
-// живёт внутри opts.Workdir/.agent, а под --clone из пайплайна opts.Workdir
-// (internal/workspace.CloneSource) — одноразовый git-клон, чей .agent git не
-// переносит (каталог обмена нарочно вне git). Без этого шага os.Create падал
-// на "no such file or directory" ещё до sbx create — агент не успевал
-// стартовать вовсе (найдено живым прогоном, Task 5).
+// живёт внутри Clone.FetchInto/.agent под --clone или opts.Workdir/.agent
+// без него (internal/runagent.resultWorkdir решает, какой из двух; см. её
+// doc-комментарий), и по любой из двух причин, независимо от того, какая
+// именно это папка, — свежий worktree, самый первый прогон задачи и так
+// далее, — на момент вызова родителя может ещё не быть. Без этого шага
+// os.Create падал на "no such file or directory" ещё до sbx create — агент
+// не успевал стартовать вовсе (найдено живым прогоном, Task 5).
 func createLog(logPath string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return nil, fmt.Errorf("%s не заведён: %w", filepath.Dir(logPath), err)
