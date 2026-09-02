@@ -3,6 +3,7 @@ package sbx
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -240,5 +241,39 @@ func TestSandboxesRemoveReportsFailure(t *testing.T) {
 
 	if _, err := s.Remove("550e8400-e29b-41d4-a716-446655440000"); err == nil {
 		t.Error("отказ уборки потерян: песочница осталась, а никто не узнал")
+	}
+}
+
+// Задача 6 (найдено живым прогоном Task 5): logPath = opts.Workdir/.agent/run.log,
+// а opts.Workdir под --clone из пайплайна — одноразовый git-клон
+// (internal/workspace.CloneSource), у которого .agent не заведён вовсе (git-клон
+// не переносит неотслеживаемое). os.Create без MkdirAll падал на этом ещё до
+// sbx create --clone — агент не успевал даже стартовать.
+func TestCreateLogCreatesParentDirectory(t *testing.T) {
+	root := t.TempDir()
+	logPath := filepath.Join(root, ".agent", "run.log")
+
+	log, err := createLog(logPath)
+	if err != nil {
+		t.Fatalf("createLog: %v", err)
+	}
+	defer log.Close()
+
+	if _, err := os.Stat(logPath); err != nil {
+		t.Errorf("run.log не заведён: %v", err)
+	}
+}
+
+func TestCreateLogPropagatesRealMkdirFailure(t *testing.T) {
+	root := t.TempDir()
+	// Файл на месте будущего каталога — MkdirAll не может создать директорию
+	// поверх обычного файла, настоящая беда, а не законное «уже есть».
+	blocker := filepath.Join(root, ".agent")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := createLog(filepath.Join(blocker, "run.log")); err == nil {
+		t.Fatal("MkdirAll поверх обычного файла прошёл без ошибки")
 	}
 }

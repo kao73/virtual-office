@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -45,6 +46,23 @@ const (
 	killGrace     = 5 * time.Second
 )
 
+// createLog заводит родительский каталог logPath перед os.Create — logPath
+// живёт внутри opts.Workdir/.agent, а под --clone из пайплайна opts.Workdir
+// (internal/workspace.CloneSource) — одноразовый git-клон, чей .agent git не
+// переносит (каталог обмена нарочно вне git). Без этого шага os.Create падал
+// на "no such file or directory" ещё до sbx create — агент не успевал
+// стартовать вовсе (найдено живым прогоном, Task 5).
+func createLog(logPath string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		return nil, fmt.Errorf("%s не заведён: %w", filepath.Dir(logPath), err)
+	}
+	log, err := os.Create(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("%s не создан: %w", logPath, err)
+	}
+	return log, nil
+}
+
 // Run создаёт песочницу, исполняет в ней подготовленный запуск и сносит её.
 // Весь вывод агента, и stdout, и stderr, уходит в logPath.
 // Возвращает код выхода агента; ошибка означает, что запуск не состоялся
@@ -69,9 +87,9 @@ func Run(ctx context.Context, l *runner.Launch, logPath string) (int, error) {
 		}
 	}
 
-	log, err := os.Create(logPath)
+	log, err := createLog(logPath)
 	if err != nil {
-		return -1, fmt.Errorf("%s не создан: %w", logPath, err)
+		return -1, err
 	}
 	defer log.Close()
 
