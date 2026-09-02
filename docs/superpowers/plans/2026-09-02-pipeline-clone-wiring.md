@@ -2,6 +2,7 @@
 change: pipeline-clone-wiring
 design-doc: docs/superpowers/specs/2026-09-02-pipeline-clone-wiring-design.md
 base-ref: 445a2c1c030a193e462f349b4ee8dc9b1a671b01
+archived-with: 2026-09-02-pipeline-clone-wiring
 ---
 
 # Pipeline `--clone` wiring Implementation Plan

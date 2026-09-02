@@ -2,6 +2,8 @@
 comet_change: pipeline-clone-wiring
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-02-pipeline-clone-wiring
+status: final
 ---
 
 # Pipeline `--clone` wiring — technical design
