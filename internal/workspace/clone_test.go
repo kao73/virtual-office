@@ -363,6 +363,56 @@ func TestCloneSourceLeavesRealMergeConflictAlone(t *testing.T) {
 	}
 }
 
+// Blocker-находка независимого ревью (round 3), воспроизведена вживую до
+// правки: dir в проде — всегда worktree (Manager.addWorktree), где .git —
+// файл-ссылка, а не каталог, — прежняя проверка маркеров через прямой
+// os.Stat(dir/.git/маркер) на worktree'е не совпадала никогда (маркеры
+// незавершённого rebase лежат в общем git-каталоге worktree'а, не рядом
+// с рабочей копией), и была мёртвым кодом. Хуже: во время настоящего
+// rebase/cherry-pick HEAD отсоединён, и commitUncommitted, не видя
+// маркеров, закоммитила бы поверх него — коммит осел бы не на ветке
+// задачи и не дошёл бы ни до клона, ни до ветки, найти его можно было бы
+// только в reflog. Этот тест — ровно тот сценарий, но на настоящем
+// worktree'е (не на обычном git init, как раньше).
+func TestCommitUncommittedSkipsRebaseInProgressOnWorktree(t *testing.T) {
+	_, dir := worktreeFixture(t, "agent/OFF-1")
+
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("ветка задачи\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", "f.txt")
+	gitT(t, dir, "commit", "-q", "-m", "задача правит f.txt")
+
+	gitT(t, dir, "checkout", "-q", "-b", "other-branch", "HEAD~1")
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("другая ветка\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", "f.txt")
+	gitT(t, dir, "commit", "-q", "-m", "другая ветка правит f.txt")
+	gitT(t, dir, "checkout", "-q", "agent/OFF-1")
+
+	rebaseCmd := exec.Command("git", "-C", dir, "rebase", "other-branch")
+	rebaseCmd.Env = append(os.Environ(), "GIT_SEQUENCE_EDITOR=true")
+	_ = rebaseCmd.Run() // ожидаемо ненулевой код — конфликт
+
+	rebaseMergePath := gitT(t, dir, "rev-parse", "--git-path", "rebase-merge")
+	if _, err := os.Stat(rebaseMergePath); err != nil {
+		t.Fatalf("подготовка теста: rebase не начался (%s не найден): %v", rebaseMergePath, err)
+	}
+	headBefore := gitT(t, dir, "rev-parse", "HEAD")
+
+	if err := commitUncommitted(context.Background(), dir); err != nil {
+		t.Fatalf("commitUncommitted во время rebase: %v", err)
+	}
+
+	if _, err := os.Stat(rebaseMergePath); err != nil {
+		t.Error("rebase-merge пропал — commitUncommitted тронула незавершённый rebase")
+	}
+	if got := gitT(t, dir, "rev-parse", "HEAD"); got != headBefore {
+		t.Errorf("HEAD сдвинулся во время rebase: было %s, стало %s — коммит лёг поверх отсоединённого HEAD", headBefore, got)
+	}
+}
+
 // Файлы, исключённые git-правилами (.agent, .comet/runtime — та же
 // договорённость, что ExcludeAgentDir/ExcludeCometRuntime), переносит
 // отдельно и по-другому cloneSyncIn уже внутри песочницы — сюда попадать

@@ -1267,7 +1267,7 @@ func TestCloneOutcome(t *testing.T) {
 		{name: "успех без --clone", wantCode: 0, wantErr: false},
 		{name: "успех, но синхронизация не удалась", cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true, wantSyncIncomplete: true},
 		{name: "таймаут без беды синхронизации", timedOut: true, wantCode: -1, wantErr: true, wantTimeout: true},
-		{name: "таймаут и беда синхронизации — таймаут остаётся причиной", timedOut: true, cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantTimeout: true, wantErrLogged: true},
+		{name: "таймаут и беда синхронизации — оба сигнала сохраняются", timedOut: true, cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantTimeout: true, wantErrLogged: true, wantSyncIncomplete: true},
 		{name: "агент вышел с кодом 1, синхронизация в порядке", runErr: exitErr(1), wantCode: 1, wantErr: false},
 		{name: "агент вышел с кодом 1, синхронизация не удалась", runErr: exitErr(1), cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true, wantSyncIncomplete: true},
 		{name: "exec вовсе не запустился", runErr: errors.New("permission denied"), wantCode: -1, wantErr: true},
@@ -1295,7 +1295,10 @@ func TestCloneOutcome(t *testing.T) {
 				if !strings.Contains(log.String(), tc.cloneErr.Error()) {
 					t.Errorf("cloneErr не дописан в лог: %q", log.String())
 				}
-				if err != nil && strings.Contains(err.Error(), tc.cloneErr.Error()) {
+				// Таймаут+cloneErr — намеренное исключение (round 3): там
+				// cloneErr обязан оказаться и в логе, и в самой ошибке разом
+				// (errors.Join), а не только в логе, — см. wantSyncIncomplete.
+				if !tc.wantSyncIncomplete && err != nil && strings.Contains(err.Error(), tc.cloneErr.Error()) {
 					t.Errorf("cloneErr подменил собой первопричину вместо того, чтобы просто дописаться в лог: %v", err)
 				}
 			}

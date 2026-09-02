@@ -765,18 +765,24 @@ func commitCometState(ctx context.Context, fetchInto string, written []string) e
 }
 
 // ErrCloneSyncIncomplete — сигнал вызывающим (internal/runagent.syncErr),
-// что причина возврата именно синхронизация --clone не подтянула работу
-// агента обратно из песочницы, а не что-то другое: только два case ниже
-// (exitErr+cloneErr и голый cloneErr) несут cloneErr как первопричину
-// исхода, а не как вторичную, уже залогированную потерю поверх таймаута
-// или незапустившегося exec (см. logCloneErr и doc-комментарий ниже).
-// Различие важно вызывающему: усечённый по таймауту прогон с уже готовым
-// результатом — законный, уже разобранный исход («по правилам роли
-// усечённый прогон не начинают заново»), и его нельзя хоронить как
-// незавершённую синхронизацию только из-за того, что cloneErr тоже не nil
-// (независимое ревью, round 2 — типизация раньше накрывала оба случая
-// не глядя).
-var ErrCloneSyncIncomplete = errors.New("не подтянута из песочницы")
+// что --clone синхронизация не подтянула работу агента обратно из
+// песочницы. Полноценная, самостоятельная фраза, а не обрывок: раньше
+// вставлялась серединой в fmt.Errorf у каждого места использования, и
+// правка формулировки в одном ломала бы читаемость остальных (независимое
+// ревью, round 3).
+//
+// Ставится на любом case, где cloneErr — настоящая причина потери работы,
+// а не вторичная, уже залогированная деталь поверх другой первопричины
+// (см. logCloneErr): таймаут — тоже такой случай, если cloneErr при этом
+// не nil, — независимое ревью (round 3) нашло, что предыдущая версия эту
+// комбинацию не учитывала вовсе, и timedOut+cloneErr снова хоронил работу
+// молча, тем же классом бага, ради которого раунды 1-2 существуют.
+// Усечённый по таймауту прогон САМ ПО СЕБЕ (без cloneErr) — законный,
+// уже разобранный исход («усечённый прогон не начинают заново»), и его
+// нельзя путать с этим: errors.Join ниже сохраняет обе классификации
+// одновременно (terminationOf смотрит на runner.ErrRunTimeout, syncErr —
+// на этот сентинел), не выбирая между ними.
+var ErrCloneSyncIncomplete = errors.New("работа агента не подтянута из песочницы")
 
 // cloneOutcome решает код возврата и ошибку Run по трём независимым
 // сигналам: истекло ли время, чем ответил exec-процесс агента и подтянулась
@@ -796,17 +802,27 @@ func cloneOutcome(log io.Writer, name string, timedOut bool, timeout time.Durati
 		// означает «работал и не успел», а прочие беды этой функции — «прогона
 		// не было». По коду -1 они неразличимы, по errors.Is — да
 		// (internal/runagent/runagent.go:terminationOf опирается именно на неё).
-		return -1, runner.RunTimeout(timeout, "песочница "+name)
+		timeoutErr := runner.RunTimeout(timeout, "песочница "+name)
+		if cloneErr == nil {
+			return -1, timeoutErr
+		}
+		// Таймаут и незавершённая синхронизация — независимые сигналы:
+		// оба могут быть правдой разом (fetchBranch не успела до истечения
+		// времени и до сноса песочницы), и errors.Join хранит оба, а не
+		// выбирает один — иначе комбинация «таймаут + настоящий cloneErr»
+		// хоронила бы работу так же молча, как до раунда 1 (независимое
+		// ревью, round 3).
+		return -1, errors.Join(timeoutErr, fmt.Errorf("%w %s: %w", ErrCloneSyncIncomplete, name, cloneErr))
 	case errors.As(runErr, &exitErr):
 		if cloneErr != nil {
-			return -1, fmt.Errorf("работа агента %w %s: %w", ErrCloneSyncIncomplete, name, cloneErr)
+			return -1, fmt.Errorf("%w %s: %w", ErrCloneSyncIncomplete, name, cloneErr)
 		}
 		return exitErr.ExitCode(), nil
 	case runErr != nil:
 		logCloneErr(log, name, cloneErr)
 		return -1, fmt.Errorf("агент не запущен в песочнице %s: %w", name, runErr)
 	case cloneErr != nil:
-		return -1, fmt.Errorf("работа агента %w %s: %w", ErrCloneSyncIncomplete, name, cloneErr)
+		return -1, fmt.Errorf("%w %s: %w", ErrCloneSyncIncomplete, name, cloneErr)
 	default:
 		return 0, nil
 	}

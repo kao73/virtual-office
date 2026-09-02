@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -111,29 +112,55 @@ func CloneSource(ctx context.Context, dir, branch string) (string, func() error,
 // (internal/runner/input.go, на хосте до прогона): сеть безопасности
 // обвязки, а не решение роли, и в git blame это обязано быть видно.
 //
-// Незавершённое слияние (или rebase/cherry-pick/revert — те же неразрешённые
-// записи индекса без MERGE_HEAD конкретно, но со своим файлом-маркером) не
+// Незавершённая git-операция (слияние, rebase, cherry-pick, revert) не
 // трогаем вовсе — тем же рассуждением, что и у commitLeftovers: коммит
 // поверх зафиксировал бы конфликтные маркеры как разрешённые, а порча ветки
-// задачи хуже, чем не спасти незакоммиченное в этом одном случае.
-//
-// Коммит-подчистка, сделанная здесь, но так и не подтянутая обратно (sbx
-// create упал, контекст отменён до конца прогона), остаётся в ветке задачи
-// навсегда и уедет в origin следующим успешным push — осознанная цена:
-// откатывать её было бы отдельной, куда более рискованной операцией
-// (независимое ревью, round 2).
+// задачи хуже, чем не спасти незакоммиченное в этом одном случае. Проверка —
+// через `git rev-parse --git-path`, а не прямой os.Stat(dir/.git/маркер):
+// dir в проде — worktree (Manager.addWorktree), где .git — файл-ссылка,
+// а не каталог (тот же факт, на котором стоит resolveExcludeFile в
+// internal/backends/sbx/clone.go), и маркеры незавершённых операций лежат
+// не рядом с рабочей копией, а в общем git-каталоге worktree'а
+// (.git/worktrees/<имя>/...). Независимое ревью (round 3) поймало живьём:
+// прежняя версия проверяла путь, который для worktree не совпадает
+// никогда, — маркеры не находились вовсе, а rebase/cherry-pick с
+// отсоединённым HEAD получали коммит поверх себя, ничем не защищённые
+// (хуже прежнего простого пропуска: правка терялась не молча на входе,
+// а осиротевшим коммитом не на той ветке, видимым только в reflog).
+// rebase-merge/rebase-apply — каталоги, не файлы, но os.Stat одинаково
+// хорошо видит оба вида существования.
 func commitUncommitted(ctx context.Context, dir string) error {
-	for _, marker := range []string{"MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"} {
-		if _, err := os.Stat(filepath.Join(dir, ".git", marker)); err == nil {
+	pathsCmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse",
+		"--git-path", "MERGE_HEAD", "--git-path", "CHERRY_PICK_HEAD", "--git-path", "REVERT_HEAD",
+		"--git-path", "rebase-merge", "--git-path", "rebase-apply")
+	pathsCmd.Env = gitEnv()
+	var pathsErr bytes.Buffer
+	pathsCmd.Stderr = &pathsErr
+	pathsOut, err := pathsCmd.Output()
+	if err != nil {
+		return fmt.Errorf("git-каталог %s не разрешён: %w\n%s", dir, err, pathsErr.String())
+	}
+	for _, p := range strings.Split(strings.TrimRight(string(pathsOut), "\n"), "\n") {
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err == nil {
 			return nil // незавершённая git-операция — не трогаем
 		}
 	}
 
 	unmergedCmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-files", "--unmerged")
 	unmergedCmd.Env = gitEnv()
-	unmerged, err := unmergedCmd.CombinedOutput()
+	var unmergedErr bytes.Buffer
+	unmergedCmd.Stderr = &unmergedErr
+	// .Output(), не .CombinedOutput(): длина этого вывода решает исход ниже,
+	// и случайный `warning:` git в stderr не должен превращаться в
+	// «слияние идёт» на пустом месте (независимое ревью, round 3 — тот же
+	// принцип, по которому for-each-ref в fetchDefaultRemote ниже разбирает
+	// только stdout).
+	unmerged, err := unmergedCmd.Output()
 	if err != nil {
-		return fmt.Errorf("незавершённое слияние в %s не проверено: %w\n%s", dir, err, unmerged)
+		return fmt.Errorf("незавершённое слияние в %s не проверено: %w\n%s", dir, err, unmergedErr.String())
 	}
 	if len(unmerged) > 0 {
 		return nil
@@ -141,9 +168,11 @@ func commitUncommitted(ctx context.Context, dir string) error {
 
 	statusCmd := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain")
 	statusCmd.Env = gitEnv()
-	status, err := statusCmd.CombinedOutput()
+	var statusErr bytes.Buffer
+	statusCmd.Stderr = &statusErr
+	status, err := statusCmd.Output()
 	if err != nil {
-		return fmt.Errorf("состояние %s не проверено: %w\n%s", dir, err, status)
+		return fmt.Errorf("состояние %s не проверено: %w\n%s", dir, err, statusErr.String())
 	}
 	if len(status) == 0 {
 		return nil // дерево чистое — нечего сохранять
@@ -214,9 +243,15 @@ func fetchDefaultRemote(ctx context.Context, dir, tmp, branch string) error {
 	listCmd := exec.CommandContext(ctx, "git", "-C", dir,
 		"for-each-ref", "--format=%(refname)", "refs/remotes/origin")
 	listCmd.Env = gitEnv()
-	out, err := listCmd.CombinedOutput()
+	var listErr bytes.Buffer
+	listCmd.Stderr = &listErr
+	// .Output(), не .CombinedOutput(): каждая строка stdout становится
+	// именем ветки для рефспека ниже, и случайная строка предупреждения
+	// git в stderr превратилась бы в мусорный рефспек, роняющий весь fetch
+	// (независимое ревью, round 3).
+	out, err := listCmd.Output()
 	if err != nil {
-		return fmt.Errorf("ветки origin/* источника %s не перечислены: %w\n%s", dir, err, out)
+		return fmt.Errorf("ветки origin/* источника %s не перечислены: %w\n%s", dir, err, listErr.String())
 	}
 
 	var refspecs []string
