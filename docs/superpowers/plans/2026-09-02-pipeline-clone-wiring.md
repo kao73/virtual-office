@@ -1466,6 +1466,124 @@ If Steps 2-3 surface any behavior that diverges from the design doc's Testing St
 
 ---
 
+### Task 6 (found live, during Task 5 Step 2): ensure `opts.Workdir`'s log directory exists before `sbx.Run` creates `run.log`
+
+**Found live:** the first real `./bin/runner tick` (analyst role, `sbx` backend) failed with `run.log не создан` / `агент не оставил итога` — the agent process never started at all. Root-caused, not worked around: `internal/backends/sbx/sbx.go`'s `Run` does `log, err := os.Create(logPath)` (where `logPath = filepath.Join(opts.Workdir, runner.Dir, runner.FileLog)`) with no `os.MkdirAll` first. This was always safe for the two existing callers — bind-mount (`.agent` already exists, `PrepareInput` wrote it) and `cmd/run-agent --clone` (`Workdir == FetchInto`, same reasoning) — but Task 2's disposable clone source (`workspace.CloneSource`) is a fresh `git clone`, which never carries the untracked `.agent` directory (excluded from git on purpose). `os.Create` on a missing parent directory fails immediately, before `sbx create --clone` even has a chance to matter — confirmed live: `sbx ls` was empty afterward (the sandbox `prepare()` created was torn down by `defer remove(name)` the instant `os.Create` failed), and no `run.log`/`result.json` ever appeared anywhere, matching a same-directory failure at the very first write, not a sync-back problem.
+
+**Files:**
+- Modify: `internal/backends/sbx/sbx.go` (`Run`, plus a new small `createLog` helper)
+- Modify: `internal/backends/sbx/sbx_test.go` (new focused test for the helper)
+
+**Interfaces:**
+- Produces: `createLog(logPath string) (*os.File, error)` — unexported helper, `os.MkdirAll`s `filepath.Dir(logPath)` before `os.Create`.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `internal/backends/sbx/sbx_test.go`:
+
+```go
+// Задача 6 (найдено живым прогоном Task 5): logPath = opts.Workdir/.agent/run.log,
+// а opts.Workdir под --clone из пайплайна — одноразовый git-клон
+// (internal/workspace.CloneSource), у которого .agent не заведён вовсе (git-клон
+// не переносит неотслеживаемое). os.Create без MkdirAll падал на этом ещё до
+// sbx create --clone — агент не успевал даже стартовать.
+func TestCreateLogCreatesParentDirectory(t *testing.T) {
+	root := t.TempDir()
+	logPath := filepath.Join(root, ".agent", "run.log")
+
+	log, err := createLog(logPath)
+	if err != nil {
+		t.Fatalf("createLog: %v", err)
+	}
+	defer log.Close()
+
+	if _, err := os.Stat(logPath); err != nil {
+		t.Errorf("run.log не заведён: %v", err)
+	}
+}
+
+func TestCreateLogPropagatesRealMkdirFailure(t *testing.T) {
+	root := t.TempDir()
+	// Файл на месте будущего каталога — MkdirAll не может создать директорию
+	// поверх обычного файла, настоящая беда, а не законное «уже есть».
+	blocker := filepath.Join(root, ".agent")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := createLog(filepath.Join(blocker, "run.log")); err == nil {
+		t.Fatal("MkdirAll поверх обычного файла прошёл без ошибки")
+	}
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./internal/backends/sbx/... -run TestCreateLog -v`
+Expected: FAIL to compile — `createLog` doesn't exist yet.
+
+- [ ] **Step 3: Implement `createLog`, use it in `Run`**
+
+In `internal/backends/sbx/sbx.go`, add `"path/filepath"` to the import block, add this function near `Run`:
+
+```go
+// createLog заводит родительский каталог logPath перед os.Create — logPath
+// живёт внутри opts.Workdir/.agent, а под --clone из пайплайна opts.Workdir
+// (internal/workspace.CloneSource) — одноразовый git-клон, чей .agent git не
+// переносит (каталог обмена нарочно вне git). Без этого шага os.Create падал
+// на "no such file or directory" ещё до sbx create — агент не успевал
+// стартовать вовсе (найдено живым прогоном, Task 5).
+func createLog(logPath string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		return nil, fmt.Errorf("%s не заведён: %w", filepath.Dir(logPath), err)
+	}
+	log, err := os.Create(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("%s не создан: %w", logPath, err)
+	}
+	return log, nil
+}
+```
+
+Replace the two lines in `Run`:
+
+```go
+	log, err := os.Create(logPath)
+	if err != nil {
+		return -1, fmt.Errorf("%s не создан: %w", logPath, err)
+	}
+```
+
+with:
+
+```go
+	log, err := createLog(logPath)
+	if err != nil {
+		return -1, err
+	}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `go test ./internal/backends/sbx/... -v`
+Expected: PASS, every test in the package green, including the two new tests.
+
+Run: `go build ./... && go vet ./...`
+Expected: clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/backends/sbx/sbx.go internal/backends/sbx/sbx_test.go
+git commit -m "fix(sbx): create run.log's parent directory before writing it"
+```
+
+- [ ] **Step 6: Re-run Task 5 Step 2's live pipeline check**
+
+Re-run the `./bin/runner tick` sequence from Task 5 Step 2 against the same scratch `OFFICE_HOME`/task (or a fresh one) and confirm the analyst run now actually starts, produces `run.log`, and reaches a real outcome. Continue with implementer → reviewer ticks as originally planned.
+
+---
+
 ## Self-review notes
 
 - **Spec coverage:** Requirement 1 (sandbox-local isolation) — Tasks 1+2. Requirement 2 (`comet-state.yaml` survives handoffs) — Task 4, verified live in Task 5 Step 2. Requirement 3 (exchange directory + commits round-trip on every outcome) — Task 3 (Dirs retargeting) plus the pre-existing `cloneSyncOut`/`fetchBranch`/`commitLeftovers` machinery this plan deliberately leaves untouched; verified live in Task 5 Step 2 (a normal successful run) — a live timeout/truncation scenario is out of scope for this plan's live check (already covered by this file's own existing unit tests, unaffected by this change). Requirement 4 (disposable clone source always removed) — Task 2's `defer cleanup()` plus Task 1's internal-cleanup-on-failure contract, verified live in Task 5 Step 2's `pipeline-clone` tmpdir check. Requirement 5 (`local` backend reports non-application) — Task 2's unconditional `CloneNotice(a.Backend, true)` call, verified live in Task 5 Step 3.
