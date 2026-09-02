@@ -1477,7 +1477,7 @@ If Steps 2-3 surface any behavior that diverges from the design doc's Testing St
 **Interfaces:**
 - Produces: `createLog(logPath string) (*os.File, error)` — unexported helper, `os.MkdirAll`s `filepath.Dir(logPath)` before `os.Create`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `internal/backends/sbx/sbx_test.go`:
 
@@ -1517,12 +1517,12 @@ func TestCreateLogPropagatesRealMkdirFailure(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/backends/sbx/... -run TestCreateLog -v`
 Expected: FAIL to compile — `createLog` doesn't exist yet.
 
-- [ ] **Step 3: Implement `createLog`, use it in `Run`**
+- [x] **Step 3: Implement `createLog`, use it in `Run`**
 
 In `internal/backends/sbx/sbx.go`, add `"path/filepath"` to the import block, add this function near `Run`:
 
@@ -1563,7 +1563,7 @@ with:
 	}
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/backends/sbx/... -v`
 Expected: PASS, every test in the package green, including the two new tests.
@@ -1571,7 +1571,7 @@ Expected: PASS, every test in the package green, including the two new tests.
 Run: `go build ./... && go vet ./...`
 Expected: clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/backends/sbx/sbx.go internal/backends/sbx/sbx_test.go
