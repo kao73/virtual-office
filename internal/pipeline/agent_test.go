@@ -1,6 +1,9 @@
 package pipeline
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +54,7 @@ func agentWorktreeFixture(t *testing.T, branch string) string {
 func TestCloneOptionsForLocalKeepsRealWorkdirAndNoClone(t *testing.T) {
 	req := Request{Workdir: "/куда-угодно", Branch: "agent/OFF-1"}
 
-	workdir, clone, cleanup, err := cloneOptionsFor(runagent.BackendLocal, req)
+	workdir, clone, cleanup, err := cloneOptionsFor(context.Background(), runagent.BackendLocal, req)
 	if err != nil {
 		t.Fatalf("cloneOptionsFor: %v", err)
 	}
@@ -73,7 +76,7 @@ func TestCloneOptionsForSbxBuildsDisposableCloneSource(t *testing.T) {
 	dir := agentWorktreeFixture(t, "agent/OFF-1")
 	req := Request{Workdir: dir, Branch: "agent/OFF-1"}
 
-	workdir, clone, cleanup, err := cloneOptionsFor(runagent.DefaultBackend, req)
+	workdir, clone, cleanup, err := cloneOptionsFor(context.Background(), runagent.DefaultBackend, req)
 	if err != nil {
 		t.Fatalf("cloneOptionsFor: %v", err)
 	}
@@ -110,7 +113,84 @@ func TestCloneOptionsForSbxPropagatesCloneSourceFailure(t *testing.T) {
 	dir := agentWorktreeFixture(t, "agent/OFF-1")
 	req := Request{Workdir: dir, Branch: "нет-такой-ветки"}
 
-	if _, _, _, err := cloneOptionsFor(runagent.DefaultBackend, req); err == nil {
+	if _, _, _, err := cloneOptionsFor(context.Background(), runagent.DefaultBackend, req); err == nil {
 		t.Fatal("неудача клона-источника (несуществующая ветка) прошла без ошибки")
+	}
+}
+
+// BLOCKER-находка независимого ревью: до фикса runagent.Execute (syncErr)
+// эта ветка Run — «результат агента уже есть, но что-то после него
+// сорвалось, логируем и не хороним задачу» — была мертва: Execute никогда
+// не возвращала одновременно и заполненный out.Result, и ошибку. Здесь она
+// наконец достижима, и SandboxAgent.Run обязана реально залогировать беду
+// и вернуть настоящий результат агента, а не ошибку.
+func TestRunSurfacesInfraErrorButKeepsSuccessfulResult(t *testing.T) {
+	orig := executeAgent
+	defer func() { executeAgent = orig }()
+
+	wantResult := runner.Result{Outcome: runner.OutcomeDone, Summary: "готово", NextOwner: "none"}
+	infraErr := errors.New("прогон состоялся, но песочница отдала не всё: comet-state.yaml не подтянут")
+	executeAgent = func(_ context.Context, _ runagent.Options) (runagent.Outcome, error) {
+		return runagent.Outcome{Result: wantResult}, infraErr
+	}
+
+	var log bytes.Buffer
+	a := SandboxAgent{Backend: runagent.BackendLocal, Log: &log}
+	run, err := a.Run(context.Background(), Request{
+		Workdir: t.TempDir(), Passport: runner.Run{TaskKey: "OFF-1"},
+	})
+	if err != nil {
+		t.Fatalf("Run вернула ошибку, хотя результат агента уже есть: %v", err)
+	}
+	if run.Result.Outcome != runner.OutcomeDone {
+		t.Errorf("Result.Outcome = %q, ожидалось %q — настоящий результат агента потерян", run.Result.Outcome, runner.OutcomeDone)
+	}
+	if !strings.Contains(log.String(), infraErr.Error()) {
+		t.Errorf("инфраструктурная ошибка не залогирована: %q", log.String())
+	}
+}
+
+// Симметричный случай: без результата вовсе (агент не успел ничего оставить)
+// Run обязана вернуть саму ошибку, а не выдумывать успех.
+func TestRunPropagatesErrorWithoutResult(t *testing.T) {
+	orig := executeAgent
+	defer func() { executeAgent = orig }()
+
+	wantErr := errors.New("claude CLI не запустился")
+	executeAgent = func(_ context.Context, _ runagent.Options) (runagent.Outcome, error) {
+		return runagent.Outcome{}, wantErr
+	}
+
+	a := SandboxAgent{Backend: runagent.BackendLocal}
+	if _, err := a.Run(context.Background(), Request{
+		Workdir: t.TempDir(), Passport: runner.Run{TaskKey: "OFF-1"},
+	}); !errors.Is(err, wantErr) {
+		t.Errorf("Run = %v, ожидалась исходная ошибка %v", err, wantErr)
+	}
+}
+
+// Мьютс и Clone несовместимы (runagent.Prepare это проверяет), и на бэкенде
+// local Clone всегда nil (cloneOptionsFor) — Mounts обязаны дойти до opts
+// как есть. Ловим это через executeAgent, а не полагаясь на то, что Prepare
+// где-то ниже когда-нибудь откажет вместо тихого пропуска.
+func TestRunPassesMountsThroughOnLocalBackend(t *testing.T) {
+	orig := executeAgent
+	defer func() { executeAgent = orig }()
+
+	wantMounts := []runner.Workspace{{Path: "/repo.git"}}
+	var gotMounts []runner.Workspace
+	executeAgent = func(_ context.Context, opts runagent.Options) (runagent.Outcome, error) {
+		gotMounts = opts.Mounts
+		return runagent.Outcome{Result: runner.Result{Outcome: runner.OutcomeDone, NextOwner: "none"}}, nil
+	}
+
+	a := SandboxAgent{Backend: runagent.BackendLocal}
+	if _, err := a.Run(context.Background(), Request{
+		Workdir: t.TempDir(), Passport: runner.Run{TaskKey: "OFF-1"}, Mounts: wantMounts,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(gotMounts) != 1 || gotMounts[0].Path != "/repo.git" {
+		t.Errorf("opts.Mounts = %+v, ожидалось %+v", gotMounts, wantMounts)
 	}
 }

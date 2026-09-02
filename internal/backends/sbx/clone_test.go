@@ -298,8 +298,16 @@ func TestResolveExcludeFileRespectsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // отменяем заранее — resolveExcludeFile обязана это заметить, а не звать git вслепую
 
-	if _, err := resolveExcludeFile(ctx, worktree); err == nil {
+	_, err = resolveExcludeFile(ctx, worktree)
+	if err == nil {
 		t.Fatal("отменённый контекст не остановил git rev-parse — resolveExcludeFile не читает ctx")
+	}
+	// Important-находка независимого ревью: exec.CommandContext на отменённом
+	// ctx возвращает голое «signal: killed», не context.Canceled — без
+	// отдельной проверки ctx.Err() отмена/таймаут выглядели бы неотличимо
+	// от случайного отказа git.
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("ошибка не называет отмену контекста как причину: %v", err)
 	}
 }
 
@@ -314,7 +322,14 @@ func TestResolveExcludeFileRespectsContext(t *testing.T) {
 // провальном fetchBranch (несовпадение веток) один вызов run() всё равно
 // происходит (сам commitLeftovers, на чистом дереве — только проверка,
 // без коммита), а вот до каталогов Dirs дело дойти не должно вовсе.
-func TestCloneSyncOutStopsAtDirsWhenFetchFails(t *testing.T) {
+// Important-находка независимого ревью: до этой правки ранний return на
+// неудаче fetchBranch пропускал и syncCometState, и retrieval l.Clone.Dirs —
+// тот же класс потери, что уже был закрыт для sweepErr/stateErr. Dirs
+// по контракту (internal/runner/launch.go) не называют git-отслеживаемые
+// пути, так что их подтяжка ничего не портит независимо от исхода слияния —
+// fetchErr обязана копиться вместе с остальными и возвращаться в конце,
+// а не отменять retrieval.
+func TestCloneSyncOutStillRetrievesDirsAndStateWhenFetchFails(t *testing.T) {
 	primary, fetchInto, name := setupCloneFixture(t)
 	// fetchInto уводим на другую ветку — fetchBranch откажет ещё до слияния.
 	runGit(t, fetchInto, "checkout", "-q", "-b", "другая-ветка")
@@ -325,20 +340,26 @@ func TestCloneSyncOutStopsAtDirsWhenFetchFails(t *testing.T) {
 	}
 	// Не идёт слияние (mergeInProgress), дерево чистое (dirtyCheckScript
 	// вернул пустой вывод) — commitLeftovers ограничится двумя проверками
-	// и не полезет коммитить.
-	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
+	// и не полезет коммитить. Дальше — cp syncCometState (законный no-op:
+	// в песочнице нет docs/comet/changes) и, наконец, retrieval .agent.
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+	}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
-		t.Fatal("несовпадение веток не замечено — слияние не должно было даже начаться")
+		t.Fatal("несовпадение веток не замечено — cloneSyncOut обязана вернуть ошибку")
 	}
-	if len(rec.calls) != 2 {
-		t.Errorf("ожидалось 2 вызова (обе проверки commitLeftovers до провалившегося fetchBranch), получено %d: %q",
-			len(rec.calls), rec.calls)
-	}
+
+	wantAgentSrc := name + ":" + filepath.Join(primary, ".agent")
+	var sawCopy bool
 	for _, call := range rec.calls {
-		if len(call) > 0 && call[0] == "cp" {
-			t.Errorf("cp каталогов позван, хотя слияние ветки провалилось раньше: %q", rec.calls)
+		if len(call) == 3 && call[0] == "cp" && call[1] == wantAgentSrc {
+			sawCopy = true
 		}
+	}
+	if !sawCopy {
+		t.Error(".agent не подтянут после провалившегося fetchBranch — ранний return отменил retrieval")
 	}
 }
 
@@ -795,6 +816,39 @@ func TestCloneSyncOutRetrievesDirsEvenWhenSyncCometStateFails(t *testing.T) {
 	}
 	if !sawCopy {
 		t.Error(".agent не подтянут после провалившегося syncCometState — ранний return отменил retrieval")
+	}
+}
+
+// Important-находка независимого ревью (три источника независимо совпали):
+// при ДВУХ одновременных неудачах — commitLeftovers (sweepErr) и настоящем
+// отказе Dirs-цикла — итоговая ошибка обязана нести оба текста через
+// errors.Join, а не только последний: ранние return'ы внутри цикла (до этой
+// правки) отбрасывали sweepErr целиком, хотя он уже был залогирован.
+func TestCloneSyncOutJoinsSweepAndDirsErrorsWhenBothFail(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
+	}
+	// commitLeftovers: не идёт слияние, дерево грязное, add — успех, staged
+	// непусто, но сам commit проваливается (sweepErr). Дальше — cp
+	// syncCometState (законный no-op), и, наконец, настоящий отказ cp .agent.
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), nil, nil, errors.New("непусто"), errors.New("git: identity unknown"),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+		errors.New("sbx cp: connection refused"),
+	}}
+
+	err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard)
+	if err == nil {
+		t.Fatal("двойная неудача (sweep + dirs) не вернула ошибку")
+	}
+	if !strings.Contains(err.Error(), "identity unknown") {
+		t.Errorf("итоговая ошибка потеряла sweepErr: %v", err)
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("итоговая ошибка потеряла ошибку Dirs-цикла: %v", err)
 	}
 }
 
@@ -1409,6 +1463,8 @@ func TestSyncCometStatePropagatesRealCPFailure(t *testing.T) {
 // весь путь до fetchInto проходит через настоящий syncCometState.
 func TestSyncCometStateCopiesCometStateOnRealCPSuccess(t *testing.T) {
 	fetchInto := t.TempDir()
+	runGit(t, fetchInto, "init", "-q", "-b", "master", ".")
+	commit(t, fetchInto, "начало")
 	containerRoot := "/container/primary"
 	wantSrc := "office-test:" + filepath.Join(containerRoot, runner.CometChangesDir)
 
@@ -1445,6 +1501,15 @@ func TestSyncCometStateCopiesCometStateOnRealCPSuccess(t *testing.T) {
 	}
 	if string(got) != "phase: build\n" {
 		t.Errorf("содержимое = %q, ожидалось %q", got, "phase: build\n")
+	}
+	// Important-находка независимого ревью: рабочая папка задачи переиспользуется,
+	// и человека, который закоммитил бы эту правку руками, в конвейере нет —
+	// syncCometState обязана закоммитить её сама, а не оставить незакоммиченной.
+	if status := runGitOutput(t, fetchInto, "status", "--porcelain"); status != "" {
+		t.Errorf("comet-state.yaml остался незакоммиченным: %q", status)
+	}
+	if author := runGitOutput(t, fetchInto, "log", "-1", "--format=%an"); author != cloneSweepName {
+		t.Errorf("коммит comet-state.yaml приписан не той личности: %q, ожидалось %q", author, cloneSweepName)
 	}
 }
 
@@ -1522,5 +1587,42 @@ func TestCopyCometStateMatchesReturnsWrittenPathWhenContentDiffers(t *testing.T)
 	}
 	if string(got) != string(newContent) {
 		t.Errorf("содержимое = %q, ожидалось %q", got, newContent)
+	}
+}
+
+// Minor-находка независимого ревью: проверка дедупликации различала только
+// «то же самое» и «нужно писать», а любую настоящую беду чтения назначения
+// (не просто «файла ещё нет») тихо принимала за «нужно писать» — стиль
+// расходился с os.Stat+errors.Is(ErrNotExist), которым в этом же файле
+// пользуются cloneSyncIn и resolveExcludeFile. Назначение здесь — файл без
+// прав на чтение (0o200, только запись): os.ReadFile откажет по правам, а
+// не по ErrNotExist, но последующие MkdirAll/WriteFile прав на чтение не
+// требуют и молча перезаписали бы файл, если бы беда чтения не всплывала
+// раньше — тест различает именно эти два исхода, а не любую ошибку вообще.
+func TestCopyCometStateMatchesPropagatesRealReadError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("под root права доступа не ограничивают чтение")
+	}
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	demoDir := filepath.Join(scratch, "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(demoDir, "comet-state.yaml"), []byte("phase: verify\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("phase: build\n"), 0o200); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := copyCometStateMatches(scratch, fetchInto); err == nil {
+		t.Fatal("настоящая беда чтения назначения принята за «нужно писать»")
 	}
 }

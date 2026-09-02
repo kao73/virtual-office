@@ -18,6 +18,12 @@ type SandboxAgent struct {
 	Log        io.Writer
 }
 
+// executeAgent — единственная точка, которой SandboxAgent.Run зовёт
+// runagent.Execute; тесты подменяют её фальшивкой, чтобы проверить
+// собственную логику Run (обработку err/out.Result.Outcome, cleanup) без
+// настоящего sbx или claude CLI.
+var executeAgent = runagent.Execute
+
 // cloneDirs — то же самое, что cmd/run-agent/main.go называет --clone'у своим
 // Dirs: каталог обмена и кэш локального исполнения .comet/runtime — то, что
 // git-клон не приносит сам (см. internal/backends/sbx/clone.go).
@@ -43,12 +49,12 @@ var cloneDirs = []string{runner.Dir, ".comet/runtime"}
 // провалить прогон целиком: тихого отката на бинд-маунт нет, задача останется
 // арендованной, и её вернёт reaper (docs/superpowers/specs/
 // 2026-09-02-pipeline-clone-wiring-design.md).
-func cloneOptionsFor(backend string, req Request) (workdir string, clone *runner.CloneSync, cleanup func() error, err error) {
+func cloneOptionsFor(ctx context.Context, backend string, req Request) (workdir string, clone *runner.CloneSync, cleanup func() error, err error) {
 	if backend == runagent.BackendLocal {
 		return req.Workdir, nil, func() error { return nil }, nil
 	}
 
-	src, cleanupSrc, err := workspace.CloneSource(req.Workdir, req.Branch)
+	src, cleanupSrc, err := workspace.CloneSource(ctx, req.Workdir, req.Branch)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("клон-источник для --clone не заведён: %w", err)
 	}
@@ -84,7 +90,7 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (AgentRun, error) {
 		a.logf("%s: %s", req.Passport.TaskKey, notice)
 	}
 
-	workdir, clone, cleanup, err := cloneOptionsFor(a.Backend, req)
+	workdir, clone, cleanup, err := cloneOptionsFor(ctx, a.Backend, req)
 	if err != nil {
 		return AgentRun{}, err
 	}
@@ -108,7 +114,7 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (AgentRun, error) {
 		opts.Mounts = req.Mounts
 	}
 
-	out, err := runagent.Execute(ctx, opts)
+	out, err := executeAgent(ctx, opts)
 	// Пределы поставщика — наблюдение, а не решение: исход прогона от них
 	// не зависит, но человек о них узнаёт. Об открытом окне не говорится —
 	// оно открыто у каждого прогона, и строка о нём стояла бы над каждым.

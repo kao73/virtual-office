@@ -52,8 +52,10 @@ const (
 // doc-комментарий), и по любой из двух причин, независимо от того, какая
 // именно это папка, — свежий worktree, самый первый прогон задачи и так
 // далее, — на момент вызова родителя может ещё не быть. Без этого шага
-// os.Create падал на "no such file or directory" ещё до sbx create — агент
-// не успевал стартовать вовсе (найдено живым прогоном, Task 5).
+// os.Create падал на "no such file or directory" уже после того, как sbx
+// create завела песочницу (Run зовёт createLog после prepare) — агент
+// в ней так и не стартовал, а сам Run немедленно сносил её обратно через
+// уже отложенный defer remove(name) (найдено живым прогоном, Task 5).
 func createLog(logPath string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return nil, fmt.Errorf("%s не заведён: %w", filepath.Dir(logPath), err)

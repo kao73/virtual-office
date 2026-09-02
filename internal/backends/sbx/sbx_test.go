@@ -250,8 +250,8 @@ func TestSandboxesRemoveReportsFailure(t *testing.T) {
 // doc-комментарий). По причинам, не зависящим от того, какая именно это
 // папка — свежий worktree, самый первый прогон задачи и так далее — .agent
 // там на момент вызова может быть ещё не заведён. os.Create без MkdirAll
-// падал на этом ещё до sbx create --clone — агент не успевал даже
-// стартовать.
+// падал на этом уже после того, как sbx create --clone завела песочницу —
+// агент в ней так и не стартовал, а Run сразу сносил её обратно.
 func TestCreateLogCreatesParentDirectory(t *testing.T) {
 	root := t.TempDir()
 	logPath := filepath.Join(root, ".agent", "run.log")
