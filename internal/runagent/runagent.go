@@ -257,8 +257,31 @@ func syncErr(hasResult bool, runErr error) error {
 	if !hasResult || runErr == nil {
 		return nil
 	}
-	return fmt.Errorf("прогон состоялся, но песочница отдала не всё: %w", runErr)
+	return &ErrSyncIncomplete{err: fmt.Errorf("прогон состоялся, но песочница отдала не всё: %w", runErr)}
 }
+
+// ErrSyncIncomplete — обёртка над ошибкой из syncErr. Тип, а не голая
+// fmt.Errorf, специально затем, чтобы вызывающий (internal/pipeline/agent.go,
+// SandboxAgent.Run) мог отличить эту ошибку от неудачи runner.Archive,
+// которая возвращается тем же путём (Outcome уже заполнен, err не nil) —
+// независимое ревью: тот же общий путь «результат есть, поэтому логируем
+// и не хороним задачу» раньше накрывал обе ошибки не глядя, хотя они разного
+// калибра. Неудача архивации не теряет ничего — материал уже надёжно лежит
+// в FetchInto к тому моменту; ErrSyncIncomplete как раз про обратное: часть
+// того, что должно было туда доехать (ветка агента, comet-state.yaml),
+// возможно, осталась в снесённой песочнице. Такую ошибку нельзя тихо
+// прощать — вызывающий обязан провалить прогон и отдать задачу reaper'у
+// на повтор, а не отчитаться перед трекером как done.
+type ErrSyncIncomplete struct{ err error }
+
+func (e *ErrSyncIncomplete) Error() string { return e.err.Error() }
+func (e *ErrSyncIncomplete) Unwrap() error { return e.err }
+
+// NewErrSyncIncomplete оборачивает err в *ErrSyncIncomplete. Только для
+// тестов вызывающих пакетов (internal/pipeline/agent_test.go), которым
+// нужно смоделировать эту ошибку через фальшивку executeAgent, не имея
+// доступа к приватному полю типа; в проде её заводит только syncErr выше.
+func NewErrSyncIncomplete(err error) error { return &ErrSyncIncomplete{err: err} }
 
 // resultWorkdir — где на хосте на самом деле искать .agent/* и git-историю
 // после прогона. Под --clone opts.Workdir — одноразовый клон-источник

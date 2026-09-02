@@ -124,14 +124,50 @@ func TestCloneOptionsForSbxPropagatesCloneSourceFailure(t *testing.T) {
 // не возвращала одновременно и заполненный out.Result, и ошибку. Здесь она
 // наконец достижима, и SandboxAgent.Run обязана реально залогировать беду
 // и вернуть настоящий результат агента, а не ошибку.
-func TestRunSurfacesInfraErrorButKeepsSuccessfulResult(t *testing.T) {
+// Improvement-находка независимого ревью (round 1): результат агента уже
+// есть, но песочница отдала не всё (ErrSyncIncomplete из runagent.Execute) —
+// раньше это шло тем же путём, что и безобидная неудача runner.Archive
+// (Outcome заполнен → лог и «run, nil»), и задача репортилась в тикет как
+// done, хотя коммиты агента могли остаться в уже снесённой песочнице.
+// Run обязана провалить прогон явно, а не выдумывать успех.
+func TestRunFailsHardOnSyncIncompleteEvenWithResult(t *testing.T) {
 	orig := executeAgent
 	defer func() { executeAgent = orig }()
 
 	wantResult := runner.Result{Outcome: runner.OutcomeDone, Summary: "готово", NextOwner: "none"}
-	infraErr := errors.New("прогон состоялся, но песочница отдала не всё: comet-state.yaml не подтянут")
+	syncErr := runagent.NewErrSyncIncomplete(errors.New("comet-state.yaml не подтянут"))
 	executeAgent = func(_ context.Context, _ runagent.Options) (runagent.Outcome, error) {
-		return runagent.Outcome{Result: wantResult}, infraErr
+		return runagent.Outcome{Result: wantResult}, syncErr
+	}
+
+	var log bytes.Buffer
+	a := SandboxAgent{Backend: runagent.BackendLocal, Log: &log}
+	run, err := a.Run(context.Background(), Request{
+		Workdir: t.TempDir(), Passport: runner.Run{TaskKey: "OFF-1"},
+	})
+	if !errors.Is(err, syncErr) {
+		t.Fatalf("Run = %v, ожидалась ошибка синхронизации — задача должна провалиться, а не репортоваться как done", err)
+	}
+	if run.Result.Outcome != "" {
+		t.Errorf("Result не должен возвращаться вызывающему при провале: %+v", run)
+	}
+	if !strings.Contains(log.String(), syncErr.Error()) {
+		t.Errorf("ошибка синхронизации не залогирована: %q", log.String())
+	}
+}
+
+// Симметричный случай: обычная (не ErrSyncIncomplete) ошибка после того, как
+// результат уже есть, — например, неудача runner.Archive — не теряет ничего
+// (материал уже надёжно лежит в FetchInto), и Run обязана сохранить прежнее,
+// снисходительное поведение: лог и настоящий результат агента, не провал.
+func TestRunSurvivesNonSyncErrorWithResult(t *testing.T) {
+	orig := executeAgent
+	defer func() { executeAgent = orig }()
+
+	wantResult := runner.Result{Outcome: runner.OutcomeDone, Summary: "готово", NextOwner: "none"}
+	archiveErr := errors.New("прогон не заархивирован: диск занят")
+	executeAgent = func(_ context.Context, _ runagent.Options) (runagent.Outcome, error) {
+		return runagent.Outcome{Result: wantResult}, archiveErr
 	}
 
 	var log bytes.Buffer
@@ -140,13 +176,13 @@ func TestRunSurfacesInfraErrorButKeepsSuccessfulResult(t *testing.T) {
 		Workdir: t.TempDir(), Passport: runner.Run{TaskKey: "OFF-1"},
 	})
 	if err != nil {
-		t.Fatalf("Run вернула ошибку, хотя результат агента уже есть: %v", err)
+		t.Fatalf("Run вернула ошибку, хотя результат агента уже есть и это не ErrSyncIncomplete: %v", err)
 	}
 	if run.Result.Outcome != runner.OutcomeDone {
 		t.Errorf("Result.Outcome = %q, ожидалось %q — настоящий результат агента потерян", run.Result.Outcome, runner.OutcomeDone)
 	}
-	if !strings.Contains(log.String(), infraErr.Error()) {
-		t.Errorf("инфраструктурная ошибка не залогирована: %q", log.String())
+	if !strings.Contains(log.String(), archiveErr.Error()) {
+		t.Errorf("ошибка архивации не залогирована: %q", log.String())
 	}
 }
 

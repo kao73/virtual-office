@@ -22,6 +22,14 @@ func TestSyncErrSurfacesRunErrWhenResultWasStillRead(t *testing.T) {
 	if !errors.Is(err, runErr) {
 		t.Errorf("syncErr не оборачивает исходный runErr: %v", err)
 	}
+	// Типизированная обёртка, а не голая fmt.Errorf: SandboxAgent.Run
+	// (internal/pipeline/agent.go) обязана отличать эту ошибку от неудачи
+	// runner.Archive, которая возвращается тем же общим путём (Outcome уже
+	// заполнен, err не nil), но не теряет ничего — независимое ревью.
+	var syncIncomplete *ErrSyncIncomplete
+	if !errors.As(err, &syncIncomplete) {
+		t.Errorf("syncErr не оборачивает в *ErrSyncIncomplete: %v (%T)", err, err)
+	}
 }
 
 // Без результата (result.json не дочитан) — reason уже несёт текст runErr

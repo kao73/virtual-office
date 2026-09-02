@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/kao73/virtual-office/internal/runner"
+	"github.com/kao73/virtual-office/internal/workspace"
 )
 
 // recordedStep — подделка step: запоминает вызовы и отвечает по очереди
@@ -340,12 +341,10 @@ func TestCloneSyncOutStillRetrievesDirsAndStateWhenFetchFails(t *testing.T) {
 	}
 	// Не идёт слияние (mergeInProgress), дерево чистое (dirtyCheckScript
 	// вернул пустой вывод) — commitLeftovers ограничится двумя проверками
-	// и не полезет коммитить. Дальше — cp syncCometState (законный no-op:
-	// в песочнице нет docs/comet/changes) и, наконец, retrieval .agent.
-	rec := &recordedStep{errs: []error{
-		exitErrWithCode(1), exitErrWithCode(1),
-		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
-	}}
+	// и не полезет коммитить. syncCometState здесь вовсе не должна
+	// позваться (fetchErr != nil — comet-state.yaml обогнал бы код на
+	// неперемотанном FetchInto), так что третий вызов — уже retrieval .agent.
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("несовпадение веток не замечено — cloneSyncOut обязана вернуть ошибку")
@@ -356,6 +355,9 @@ func TestCloneSyncOutStillRetrievesDirsAndStateWhenFetchFails(t *testing.T) {
 	for _, call := range rec.calls {
 		if len(call) == 3 && call[0] == "cp" && call[1] == wantAgentSrc {
 			sawCopy = true
+		}
+		if strings.Contains(strings.Join(call, " "), runner.CometChangesDir) {
+			t.Errorf("syncCometState позвана, хотя fetchBranch провалилась: %q", rec.calls)
 		}
 	}
 	if !sawCopy {
@@ -1300,6 +1302,69 @@ func TestCloneOutcome(t *testing.T) {
 	}
 }
 
+// Blocker-находка независимого ревью (round 1), воспроизведена вживую до
+// правки: workspace.CloneSource, найдя незакоммиченную правку в FetchInto,
+// переносила её патчем прямо на клон-источник, оставляя FetchInto грязным —
+// и следующий за прогоном fetchBranch's `git merge --ff-only` отказывал
+// на «local changes would be overwritten by merge», унося уже настоящую
+// работу агента в снесённую песочницу. Прежние тесты жили по разные стороны
+// этой связки (workspace/clone_test.go — только клон-источник, здесь —
+// только fetchBranch на чистом FetchInto) и её не ловили; этот тест держит
+// CloneSource → (симуляция commitLeftovers внутри песочницы) → fetchBranch
+// целиком.
+func TestCloneSourceThenFetchBranchSurvivesUncommittedFetchInto(t *testing.T) {
+	root := t.TempDir()
+	bare := filepath.Join(root, "task.git")
+	if out, err := exec.Command("git", "init", "-q", "--bare", "-b", "master", bare).CombinedOutput(); err != nil {
+		t.Fatalf("bare не создан: %v\n%s", err, out)
+	}
+	fetchInto := filepath.Join(root, "fetch-into")
+	if out, err := exec.Command("git", "clone", "-q", bare, fetchInto).CombinedOutput(); err != nil {
+		t.Fatalf("клон не создан: %v\n%s", err, out)
+	}
+	commit(t, fetchInto, "seed")
+	runGit(t, fetchInto, "checkout", "-q", "-b", "task-1")
+	commit(t, fetchInto, "первый коммит задачи")
+
+	// Незакоммиченная правка, которую оставил предыдущий прогон.
+	if err := os.WriteFile(filepath.Join(fetchInto, "leftover.txt"), []byte("недоделанная правка\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	src, cleanup, err := workspace.CloneSource(context.Background(), fetchInto, "task-1")
+	if err != nil {
+		t.Fatalf("CloneSource: %v", err)
+	}
+	defer cleanup()
+
+	// Симуляция: sbx create --clone src заводит внутри песочницы ещё один
+	// обычный git clone src, и там commitLeftovers/агент добавляет коммит.
+	sandboxState := filepath.Join(root, "sandbox-state")
+	if out, err := exec.Command("git", "clone", "-q", src, sandboxState).CombinedOutput(); err != nil {
+		t.Fatalf("симулированный клон внутри песочницы не заведён: %v\n%s", err, out)
+	}
+	commit(t, sandboxState, "работа агента")
+
+	name := "office-test"
+	runGit(t, src, "remote", "add", "sandbox-"+name, sandboxState)
+
+	if err := fetchBranch(context.Background(), name, src, &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"}); err != nil {
+		t.Fatalf("fetchBranch: %v — незакоммиченная правка, оставленная в FetchInto, заблокировала перемотку", err)
+	}
+
+	log := runGitOutput(t, fetchInto, "log", "--format=%s")
+	if !strings.Contains(log, "работа агента") {
+		t.Errorf("работа агента не доехала до FetchInto: %q", log)
+	}
+	if !strings.Contains(log, "preserve worktree changes before --clone") {
+		t.Errorf("сохранённая незакоммиченная правка не доехала до FetchInto: %q", log)
+	}
+	got, err := os.ReadFile(filepath.Join(fetchInto, "leftover.txt"))
+	if err != nil || string(got) != "недоделанная правка\n" {
+		t.Errorf("leftover.txt не сохранился в FetchInto: %v, %q", err, got)
+	}
+}
+
 // setupCloneFixture заводит source (как будто внутриконтейнерный клон),
 // primary (одноразовый клон-источник на хосте с ремоутом sandbox-<name>,
 // который sbx create --clone сам бы завёл на git-daemon песочницы) и
@@ -1510,6 +1575,113 @@ func TestSyncCometStateCopiesCometStateOnRealCPSuccess(t *testing.T) {
 	}
 	if author := runGitOutput(t, fetchInto, "log", "-1", "--format=%an"); author != cloneSweepName {
 		t.Errorf("коммит comet-state.yaml приписан не той личности: %q, ожидалось %q", author, cloneSweepName)
+	}
+}
+
+// Blocker-находка независимого ревью (round 1), воспроизведена вживую до
+// правки: голый `git commit` без pathspec фиксирует весь индекс, а не только
+// comet-state.yaml — тот же класс, что уже разобран для
+// EnsureCometHookAllowPaths (internal/runner/input.go). Здесь это проверяется
+// посторонним застейдженным файлом, который обязан остаться в индексе
+// нетронутым после коммита comet-state.yaml.
+func TestCommitCometStateOnlyCommitsNamedPaths(t *testing.T) {
+	fetchInto := t.TempDir()
+	runGit(t, fetchInto, "init", "-q", "-b", "master", ".")
+	commit(t, fetchInto, "начало")
+
+	// Чужой, ещё не докоммиченный застейдженный кусок — то, что осталось бы
+	// в индексе fetchInto от, например, недоделанного коммита роли.
+	if err := os.WriteFile(filepath.Join(fetchInto, "unrelated.txt"), []byte("чужая работа\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, fetchInto, "add", "unrelated.txt")
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("phase: build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := commitCometState(context.Background(), fetchInto, []string{dst}); err != nil {
+		t.Fatalf("commitCometState: %v", err)
+	}
+
+	status := runGitOutput(t, fetchInto, "status", "--porcelain")
+	if !strings.Contains(status, "unrelated.txt") {
+		t.Errorf("посторонний застейдженный файл пропал из статуса вовсе: %q", status)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(status), "A") {
+		t.Errorf("посторонний файл должен остаться ЗАСТЕЙДЖЕННЫМ (A), а не уехать в коммит: %q", status)
+	}
+	tracked := runGitOutput(t, fetchInto, "show", "--stat", "--format=", "HEAD")
+	if strings.Contains(tracked, "unrelated.txt") {
+		t.Errorf("посторонний файл уехал в коммит comet-state.yaml: %s", tracked)
+	}
+	if !strings.Contains(tracked, "comet-state.yaml") {
+		t.Errorf("comet-state.yaml не закоммичен: %s", tracked)
+	}
+}
+
+// Симметричный случай: неудача самого коммита не должна оставить
+// comet-state.yaml висеть в индексе навсегда — иначе он уехал бы
+// в следующий коммит роли как будто сделанный ею (тот же прецедент,
+// что и у успешного пути выше, и у EnsureCometHookAllowPaths). Настоящий
+// незавершённый merge — реалистичный триггер: git явно отказывает
+// в partial commit по pathspec, пока MERGE_HEAD на месте (проверено
+// вживую), а comet-state.yaml как отдельный, неконфликтующий новый файл
+// спокойно проходит `git add`.
+func TestCommitCometStateResetsStagingOnCommitFailure(t *testing.T) {
+	fetchInto := t.TempDir()
+	runGit(t, fetchInto, "init", "-q", "-b", "master", ".")
+	if err := os.WriteFile(filepath.Join(fetchInto, "f.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, fetchInto, "add", "f.txt")
+	commit(t, fetchInto, "seed")
+
+	runGit(t, fetchInto, "checkout", "-q", "-b", "a")
+	if err := os.WriteFile(filepath.Join(fetchInto, "f.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, fetchInto, "add", "f.txt")
+	commit(t, fetchInto, "a-версия")
+
+	runGit(t, fetchInto, "checkout", "-q", "master")
+	runGit(t, fetchInto, "checkout", "-q", "-b", "b")
+	if err := os.WriteFile(filepath.Join(fetchInto, "f.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, fetchInto, "add", "f.txt")
+	commit(t, fetchInto, "b-версия")
+
+	mergeCmd := exec.Command("git", "-C", fetchInto, "merge", "a")
+	_ = mergeCmd.Run() // ожидаемо ненулевой код — конфликт
+	if _, err := os.Stat(filepath.Join(fetchInto, ".git", "MERGE_HEAD")); err != nil {
+		t.Fatalf("подготовка теста: конфликт слияния не начался: %v", err)
+	}
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("phase: build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := commitCometState(context.Background(), fetchInto, []string{dst}); err == nil {
+		t.Fatal("commitCometState прошла во время незавершённого слияния без ошибки")
+	}
+
+	status := runGitOutput(t, fetchInto, "status", "--porcelain")
+	for _, line := range strings.Split(status, "\n") {
+		if strings.HasSuffix(line, "comet-state.yaml") && len(line) > 0 && (line[0] == 'A' || line[0] == 'M') {
+			t.Errorf("comet-state.yaml остался застейдженным после неудачи коммита: %q", status)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(fetchInto, ".git", "MERGE_HEAD")); err != nil {
+		t.Error("MERGE_HEAD пропал — commitCometState тронула незавершённое слияние")
 	}
 }
 

@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -49,6 +50,13 @@ var cloneDirs = []string{runner.Dir, ".comet/runtime"}
 // провалить прогон целиком: тихого отката на бинд-маунт нет, задача останется
 // арендованной, и её вернёт reaper (docs/superpowers/specs/
 // 2026-09-02-pipeline-clone-wiring-design.md).
+//
+// Известное ограничение (независимое ревью): `git clone --branch` внутри
+// CloneSource падает на репозитории вовсе без коммитов — а первая задача
+// в пустом проекте выглядит именно так (internal/runner/trace.go,
+// LeftTrace: «репозиторий без коммитов… первая задача в пустом проекте
+// выглядит именно так»). На бэкенде local это законный случай; на sbx такая
+// задача сегодня не стартует вовсе — задокументировано, не починено.
 func cloneOptionsFor(ctx context.Context, backend string, req Request) (workdir string, clone *runner.CloneSync, cleanup func() error, err error) {
 	if backend == runagent.BackendLocal {
 		return req.Workdir, nil, func() error { return nil }, nil
@@ -125,9 +133,21 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (AgentRun, error) {
 	run := AgentRun{Result: out.Result, Usage: out.Usage, Termination: out.Termination}
 
 	if err != nil {
-		// Исход есть — значит прогон состоялся, а сорвалось что-то после него
-		// (например, архивация). Хоронить из-за этого задачу незачем, но и молчать
-		// нельзя: беда уходит в лог раннера.
+		// ErrSyncIncomplete — не то же самое, что неудача архивации: результат
+		// есть, но часть того, что должно было доехать до FetchInto (ветка
+		// агента, comet-state.yaml), возможно, осталась в уже снесённой
+		// песочнице. Независимое ревью: раньше эта ошибка шла тем же путём,
+		// что и безобидная неудача архивации ниже (Outcome заполнен → лог
+		// и «run, nil»), и задача репортилась в тикет как done, хотя работа
+		// могла не доехать целиком. Хороним прогон явно — задачу заберёт reaper.
+		var syncIncomplete *runagent.ErrSyncIncomplete
+		if errors.As(err, &syncIncomplete) {
+			a.logf("%s: %v", req.Passport.TaskKey, err)
+			return AgentRun{}, err
+		}
+		// Иначе — исход есть, а сорвалось что-то безобидное после него
+		// (например, архивация): материал уже надёжно лежит в FetchInto,
+		// хоронить прогон из-за этого незачем, но и молчать нельзя.
 		if out.Result.Outcome != "" {
 			a.logf("%s: %v", req.Passport.TaskKey, err)
 			return run, nil

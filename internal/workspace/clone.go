@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -17,27 +16,29 @@ import (
 // worktree'ев, которой занимается остальной этот пакет.
 const clonePrefix = "pipeline-clone-*"
 
+// cloneSweepName/cloneSweepEmail — личность коммита, которым commitUncommitted
+// сохраняет незакоммиченный остаток dir перед клонированием — тем же приёмом,
+// что cloneSweepName/cloneSweepEmail в internal/backends/sbx/clone.go (своя
+// пара констант, не общая: та же логика, что у archiveCommitName/
+// archiveCommitEmail в internal/pipeline/archive.go — отдельная личность на
+// отдельную сеть безопасности, а не одна на всех). Не решение роли, а сеть
+// безопасности обвязки — в git blame это обязано быть видно как таковое.
+const (
+	cloneSweepName  = "clone-sweep"
+	cloneSweepEmail = "clone-sweep@office.local"
+)
+
 // CloneSource заводит одноразовый, обычный (не bare, не worktree) git-клон
-// ветки branch рабочей папки dir в новый временный каталог, перенося в него
-// и текущее незакоммиченное состояние dir. dir может быть как обычным
-// репозиторием, так и worktree'ем — git разрешает оба как источник клона
-// через .git-файл/-каталог одинаково; branch — уже выкаченная в dir ветка
-// задачи (то же значение, что несёт ws.Branch/req.Branch дальше по конвейеру).
+// ветки branch рабочей папки dir в новый временный каталог. dir может быть
+// как обычным репозиторием, так и worktree'ем — git разрешает оба как
+// источник клона через .git-файл/-каталог одинаково; branch — уже выкаченная
+// в dir ветка задачи (то же значение, что несёт ws.Branch/req.Branch дальше
+// по конвейеру).
 //
 // `sbx create --clone` сам отказывает и на bare-репозитории, и на worktree
 // как на своём первичном пути (см. internal/backends/sbx/clone.go, doc-
 // комментарий excludeFile) — клон, сделанный здесь, всегда обычный
 // репозиторий со своим .git-каталогом и годится туда без исключений.
-//
-// Перенос незакоммиченного нужен потому, что рабочая папка задачи
-// переиспользуется между прогонами (Manager.Ensure, «переиспользование —
-// не оптимизация, а требование: после reap ... задача возвращается к той же
-// незаконченной работе»), и на входе в ней рутинно уже лежит чужая
-// незакоммиченная правка (internal/runner/trace.go, hasNewDirt: «рабочая
-// папка переиспользуется, и чужая незакоммиченная правка лежит в ней ещё
-// до первого шага роли»). Обычный `git clone` переносит только
-// закоммиченное — без явного переноса эта правка молча остаётся на хосте,
-// и агент внутри песочницы никогда её не увидит (независимое ревью).
 //
 // Возвращает путь к клону и функцию уборки, которую вызывающий обязан звать
 // при любом исходе (успех, ошибка агента, таймаут) — тем же приёмом «cleanup
@@ -48,20 +49,44 @@ const clonePrefix = "pipeline-clone-*"
 // уже убран этой же функцией, и вызывающему чистить нечего — path и cleanup
 // оба нулевые, звать cleanup(nil) было бы паникой.
 func CloneSource(ctx context.Context, dir, branch string) (string, func() error, error) {
-	tmp, err := os.MkdirTemp("", clonePrefix)
-	if err != nil {
-		return "", nil, fmt.Errorf("временный каталог клона-источника не заведён: %w", err)
-	}
-	cleanup := func() error { return os.RemoveAll(tmp) }
-
 	// Абсолютный путь: fetchDefaultRemote ниже зовёт git с -C tmp, и dir как
 	// её позиционный аргумент разрешался бы уже относительно tmp, а не
 	// текущего каталога процесса — измерено вживую в разработке этой правки.
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		_ = cleanup()
 		return "", nil, fmt.Errorf("путь %s не разрешён: %w", dir, err)
 	}
+
+	// Прежде чем клонировать: рабочая папка задачи переиспользуется между
+	// прогонами (Manager.Ensure, «переиспользование — не оптимизация, а
+	// требование»), и хотя под --clone агент больше не пишет в dir напрямую
+	// (он работает в одноразовом клоне ниже), незакоммиченная правка там
+	// всё равно может остаться — например, при переключении бэкенда между
+	// прогонами одной задачи (internal/runner/trace.go, hasNewDirt: «рабочая
+	// папка переиспользуется, и чужая незакоммиченная правка лежит в ней ещё
+	// до первого шага роли»). `git clone` переносит только закоммиченное:
+	// без явного сохранения такая правка молча осталась бы на хосте, и
+	// клон-источник её не увидел бы вовсе.
+	//
+	// Коммит на хосте, а не оверлей патчем поверх уже сделанного клона:
+	// первая версия этой правки накладывала патч прямо на клон, оставляя dir
+	// грязным, — и следующий за прогоном `fetchBranch`'s `git merge
+	// --ff-only` в dir отказывал на «local changes would be overwritten by
+	// merge», унося в снесённую песочницу уже настоящую, состоявшуюся работу
+	// агента (независимое ревью, воспроизведено вживую: та самая потеря
+	// работы, которую весь этот путь обязан предотвращать, только с другой
+	// стороны). Коммит здесь оставляет dir чистым до клонирования — clone
+	// видит уже закоммиченное, а fetchBranch потом просто перематывает
+	// дальше тот же, теперь чистый, dir.
+	if err := commitUncommitted(ctx, absDir); err != nil {
+		return "", nil, fmt.Errorf("незакоммиченная работа в %s не сохранена перед клонированием: %w", absDir, err)
+	}
+
+	tmp, err := os.MkdirTemp("", clonePrefix)
+	if err != nil {
+		return "", nil, fmt.Errorf("временный каталог клона-источника не заведён: %w", err)
+	}
+	cleanup := func() error { return os.RemoveAll(tmp) }
 
 	cmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--branch", branch, absDir, tmp)
 	cmd.Env = gitEnv()
@@ -74,105 +99,103 @@ func CloneSource(ctx context.Context, dir, branch string) (string, func() error,
 		_ = cleanup()
 		return "", nil, err
 	}
-	if err := overlayUncommitted(ctx, absDir, tmp); err != nil {
-		_ = cleanup()
-		return "", nil, err
-	}
 
 	return tmp, cleanup, nil
 }
 
-// fetchDefaultRemote переносит в клон-источник tmp собственные
-// refs/remotes/origin/* источника dir — то, что обычный `git clone`
-// не переносит вовсе (он превращает refs/heads/* источника в
-// refs/remotes/origin/* клона, а не копирует уже готовые refs/remotes/*
-// источника). Ветка проекта по умолчанию в задачном bare-репозитории
-// (Manager.repo) заведена именно так, через `init --bare` + `remote add` +
-// `fetch`, и живёт только в refs/remotes/origin/*, никогда в refs/heads/* —
-// без этого переноса клон-источник не может разрешить даже
-// `origin/<ветка по умолчанию>` вовсе, а именно на ней стоит
-// `git diff origin/<...>...HEAD` роли reviewer и `git merge origin/<...>`
-// роли implementer (независимое ревью, воспроизведено вживую).
+// commitUncommitted сохраняет отслеживаемую и неотслеживаемую-но-не-
+// игнорируемую незакоммиченную правку dir отдельным коммитом от служебной
+// личности cloneSweepName/cloneSweepEmail — тем же приёмом, что уже
+// применяют commitLeftovers (internal/backends/sbx/clone.go, внутри
+// песочницы после прогона) и EnsureCometHookAllowPaths
+// (internal/runner/input.go, на хосте до прогона): сеть безопасности
+// обвязки, а не решение роли, и в git blame это обязано быть видно.
+//
+// Незавершённое слияние не трогаем вовсе — тем же рассуждением, что
+// и у commitLeftovers: коммит поверх него зафиксировал бы конфликтные
+// маркеры как разрешённые, а порча ветки задачи хуже, чем не спасти
+// незакоммиченное в этом одном случае.
+func commitUncommitted(ctx context.Context, dir string) error {
+	unmerged, err := exec.CommandContext(ctx, "git", "-C", dir, "ls-files", "--unmerged").Output()
+	if err != nil {
+		return fmt.Errorf("незавершённое слияние в %s не проверено: %w", dir, err)
+	}
+	if len(unmerged) > 0 {
+		return nil
+	}
+
+	status, err := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain").Output()
+	if err != nil {
+		return fmt.Errorf("состояние %s не проверено: %w", dir, err)
+	}
+	if len(status) == 0 {
+		return nil // дерево чистое — нечего сохранять
+	}
+
+	addCmd := exec.CommandContext(ctx, "git", "-C", dir, "add", "-A", "--", ".")
+	addCmd.Env = gitEnv()
+	if out, err := addCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("незакоммиченная работа в %s не занесена в индекс: %w\n%s", dir, err, out)
+	}
+
+	commitCmd := exec.CommandContext(ctx, "git", "-C", dir, "commit", "-q", "--no-verify",
+		"-m", "chore: preserve worktree changes before --clone")
+	commitCmd.Env = append(gitEnv(),
+		"GIT_AUTHOR_NAME="+cloneSweepName, "GIT_AUTHOR_EMAIL="+cloneSweepEmail,
+		"GIT_COMMITTER_NAME="+cloneSweepName, "GIT_COMMITTER_EMAIL="+cloneSweepEmail)
+	if out, err := commitCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("незакоммиченная работа в %s не сохранена: %w\n%s", dir, err, out)
+	}
+	return nil
+}
+
+// fetchDefaultRemote заводит в клоне-источнике tmp локальные ветки
+// (refs/heads/<имя>), зеркальные собственным refs/remotes/origin/<имя>
+// источника dir, кроме символической origin/HEAD. Ветка проекта по
+// умолчанию в задачном bare-репозитории (Manager.repo) заведена через
+// `init --bare` + `remote add` + `fetch» и живёт только в
+// refs/remotes/origin/<default>, никогда в refs/heads/<default> — обычный
+// `git clone --branch» этого не видит вовсе (он переносит только
+// refs/heads/* источника), и без переноса ни `git diff origin/...» роли
+// reviewer, ни `git merge origin/...» роли implementer не находят опору.
+//
+// Именно локальными ветками, не refs/remotes/origin/* самого tmp:
+// `sbx create --clone tmp` сам заводит внутри контейнера ещё один обычный
+// `git clone» этого tmp — а обычный clone по той же причине переносит
+// только refs/heads/* источника, не его refs/remotes/*. Заведи здесь
+// refs/remotes/origin/* у tmp — она пережила бы этот шаг, но не пережила
+// бы следующий, тот самый (независимое ревью, round 1: фикс чинил не тот
+// слой). Локальная ветка, наоборот, — это ровно то, что контейнерный
+// git clone сам превращает в свой origin/<имя>, и происходит она
+// добавочно: агентская агент/OFF-N остаётся текущей веткой без изменений,
+// у new-branch'ей просто нет собственного checkout.
+//
+// Проверено вживую (тремя уровнями клонов: bare → tmp → симулированная
+// песочница) в процессе разработки этой правки.
 func fetchDefaultRemote(ctx context.Context, dir, tmp string) error {
-	cmd := exec.CommandContext(ctx, "git", "-C", tmp, "fetch", "--quiet", dir,
-		"+refs/remotes/origin/*:refs/remotes/origin/*")
+	out, err := exec.CommandContext(ctx, "git", "-C", dir,
+		"for-each-ref", "--format=%(refname)", "refs/remotes/origin").Output()
+	if err != nil {
+		return fmt.Errorf("ветки origin/* источника %s не перечислены: %w", dir, err)
+	}
+
+	var refspecs []string
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		name := strings.TrimPrefix(line, "refs/remotes/origin/")
+		if name == "" || name == "HEAD" {
+			continue // символическая origin/HEAD — не настоящая ветка
+		}
+		refspecs = append(refspecs, fmt.Sprintf("+refs/remotes/origin/%s:refs/heads/%s", name, name))
+	}
+	if len(refspecs) == 0 {
+		return nil
+	}
+
+	args := append([]string{"-C", tmp, "fetch", "--quiet", dir}, refspecs...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = gitEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("ветки origin/* не перенесены в клон-источник: %w\n%s", err, out)
 	}
 	return nil
-}
-
-// overlayUncommitted переносит в клон-источник tmp незакоммиченное
-// состояние dir: правку отслеживаемых файлов (staged и unstaged разом,
-// через патч `git diff HEAD`) и неотслеживаемые, но не игнорируемые файлы
-// (через `git ls-files --others --exclude-standard» — то же определение
-// «грязи», каким уже пользуется internal/runner.WorktreeStatus/hasNewDirt
-// с флагом -uall). Файлы, исключённые правилами git (.agent, .comet/runtime —
-// ExcludeAgentDir/ExcludeCometRuntime), в это множество не попадают и здесь
-// не переносятся: их отдельно и по-другому переносит cloneSyncIn
-// (internal/backends/sbx/clone.go) уже внутри песочницы.
-//
-// Обе git-команды — только на чтение dir: CloneSource не вправе трогать
-// индекс переиспользуемой рабочей папки, которую в это же время может
-// готовить или обходить другой процесс.
-func overlayUncommitted(ctx context.Context, dir, tmp string) error {
-	diff, err := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--binary", "HEAD").Output()
-	if err != nil {
-		return fmt.Errorf("незакоммиченная правка %s не прочитана: %w", dir, err)
-	}
-	if len(diff) > 0 {
-		apply := exec.CommandContext(ctx, "git", "apply")
-		apply.Dir = tmp
-		apply.Env = gitEnv()
-		apply.Stdin = bytes.NewReader(diff)
-		if out, err := apply.CombinedOutput(); err != nil {
-			return fmt.Errorf("незакоммиченная правка не перенесена в клон-источник: %w\n%s", err, out)
-		}
-	}
-
-	untracked, err := untrackedFiles(ctx, dir)
-	if err != nil {
-		return err
-	}
-	for _, rel := range untracked {
-		if err := copyUntracked(filepath.Join(dir, rel), filepath.Join(tmp, rel)); err != nil {
-			return fmt.Errorf("незакоммиченный файл %s не перенесён в клон-источник: %w", rel, err)
-		}
-	}
-	return nil
-}
-
-// untrackedFiles — незакоммиченные, но не игнорируемые файлы dir.
-// core.quotepath=false — по той же причине, что и у WorktreeStatus
-// (internal/runner/input.go): без него git отдаёт кириллицу восьмеричными
-// escape-последовательностями, и путь перестаёт совпадать с настоящим.
-func untrackedFiles(ctx context.Context, dir string) ([]string, error) {
-	out, err := exec.CommandContext(ctx, "git", "-C", dir,
-		"-c", "core.quotepath=false", "ls-files", "--others", "--exclude-standard").Output()
-	if err != nil {
-		return nil, fmt.Errorf("незакоммиченные файлы %s не перечислены: %w", dir, err)
-	}
-	trimmed := strings.TrimRight(string(out), "\n")
-	if trimmed == "" {
-		return nil, nil
-	}
-	return strings.Split(trimmed, "\n"), nil
-}
-
-// copyUntracked копирует один неотслеживаемый файл src (внутри dir) на то же
-// относительное место dst внутри клона-источника, сохраняя права доступа.
-func copyUntracked(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, info.Mode().Perm())
 }
