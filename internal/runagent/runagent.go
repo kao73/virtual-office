@@ -193,6 +193,12 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 	}
 	defer func() { _ = launch.Cleanup() }()
 
+	// opts — копия по значению: эта правка не задевает вызывающего и не
+	// касается Prepare выше, которому нужен настоящий opts.Workdir (клон-
+	// источник, куда --clone реально смотрит) — только всё, что читается
+	// ПОСЛЕ прогона. См. doc-комментарий resultWorkdir.
+	opts.Workdir = resultWorkdir(opts)
+
 	logPath := filepath.Join(opts.Workdir, runner.Dir, runner.FileLog)
 	exitCode, runErr := run(ctx, launch.Launch, logPath)
 
@@ -227,6 +233,21 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 		return out, fmt.Errorf("прогон не заархивирован: %w", err)
 	}
 	return out, nil
+}
+
+// resultWorkdir — где на хосте на самом деле искать .agent/* и git-историю
+// после прогона. Под --clone opts.Workdir — одноразовый клон-источник
+// (internal/workspace.CloneSource), который cloneSyncOut (internal/backends/
+// sbx/clone.go) не трогает вовсе: всё послепрогонное — .agent/result.json,
+// .comet/runtime, comet-state.yaml, коммиты агента через fetchBranch's merge —
+// уезжает в opts.Clone.FetchInto, настоящую рабочую папку задачи. Без Clone
+// opts.Workdir и есть эта самая папка (бинд-маунт, или ручной
+// run-agent --clone, где оба пути исторически совпадают нарочно).
+func resultWorkdir(opts Options) string {
+	if opts.Clone != nil {
+		return opts.Clone.FetchInto
+	}
+	return opts.Workdir
 }
 
 // usageOf читает расход прогона из его лога.
