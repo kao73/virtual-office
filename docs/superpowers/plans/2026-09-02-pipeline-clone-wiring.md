@@ -1601,7 +1601,7 @@ One artifact is the exception: `run.log` itself is a **host-side** capture of th
 **Interfaces:**
 - Produces: `resultWorkdir(opts Options) string` — unexported, pure helper: `opts.Clone.FetchInto` when `opts.Clone != nil`, else `opts.Workdir`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to a suitable file in `internal/runagent` (a new `runagent_test.go` if no existing file fits; check `prepare_test.go`'s style first — it's the closest existing precedent for testing a pure `Options`-consuming function without a live backend):
 
@@ -1629,12 +1629,12 @@ func TestResultWorkdirUsesWorkdirWithoutClone(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/runagent/... -run TestResultWorkdir -v`
 Expected: FAIL to compile — `resultWorkdir` doesn't exist yet.
 
-- [ ] **Step 3: Implement `resultWorkdir`, use it in `Execute`**
+- [x] **Step 3: Implement `resultWorkdir`, use it in `Execute`**
 
 In `internal/runagent/runagent.go`, add near `Execute`:
 
@@ -1665,7 +1665,7 @@ In `Execute`, right after `Prepare` succeeds (after the `defer func() { _ = laun
 	opts.Workdir = resultWorkdir(opts)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/runagent/... -run TestResultWorkdir -v`
 Expected: PASS for both new tests.
@@ -1678,7 +1678,7 @@ Expected: PASS, no regressions — `termination_test.go`'s existing tests never 
 Run: `go build ./... && go vet ./...`
 Expected: clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/runagent/runagent.go internal/runagent/runagent_test.go
