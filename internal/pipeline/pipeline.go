@@ -452,7 +452,23 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	stop()
 
 	if runErr != nil {
-		// Прогон не состоялся: аренда остаётся, задачу вернёт reaper.
+		// Прогон мог всё-таки состояться и стоить реальных денег — на sbx это
+		// ErrSyncIncomplete (--clone синхронизация вышла из песочницы не
+		// целиком, хотя агент отработал), и run в этом случае несёт настоящий
+		// Usage, а не нулевой. Публикацию (Push) и продвижение задачи по
+		// графу это не разблокирует — работа могла не доехать до FetchInto
+		// целиком, аренда остаётся, задачу вернёт reaper, — но учёт расхода
+		// уже состоявшегося прогона теряться не должен: агент уже потратил
+		// токены независимо от исхода синхронизации (независимое ревью,
+		// round 2; тот же принцип, что и у обычного учёта ниже).
+		if run.Usage.Known() {
+			o.account(ledger.Entry{
+				RunID: runID, Task: task.Key, Role: roleName, Project: c.ref.Project,
+				Started: passport.StartedAt, Usage: run.Usage,
+				Outcome: string(run.Result.Outcome), Termination: string(run.Termination.Kind),
+				ConfigSHA: o.ConfigSHA,
+			})
+		}
 		return fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
 	}
 	result, usage := run.Result, run.Usage

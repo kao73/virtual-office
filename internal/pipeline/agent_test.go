@@ -135,9 +135,10 @@ func TestRunFailsHardOnSyncIncompleteEvenWithResult(t *testing.T) {
 	defer func() { executeAgent = orig }()
 
 	wantResult := runner.Result{Outcome: runner.OutcomeDone, Summary: "готово", NextOwner: "none"}
+	wantUsage := runner.Usage{CostUSD: 0.42, DurationMS: 9000, Turns: 5}
 	syncErr := runagent.NewErrSyncIncomplete(errors.New("comet-state.yaml не подтянут"))
 	executeAgent = func(_ context.Context, _ runagent.Options) (runagent.Outcome, error) {
-		return runagent.Outcome{Result: wantResult}, syncErr
+		return runagent.Outcome{Result: wantResult, Usage: wantUsage}, syncErr
 	}
 
 	var log bytes.Buffer
@@ -148,8 +149,12 @@ func TestRunFailsHardOnSyncIncompleteEvenWithResult(t *testing.T) {
 	if !errors.Is(err, syncErr) {
 		t.Fatalf("Run = %v, ожидалась ошибка синхронизации — задача должна провалиться, а не репортоваться как done", err)
 	}
-	if run.Result.Outcome != "" {
-		t.Errorf("Result не должен возвращаться вызывающему при провале: %+v", run)
+	// Важно-находка независимого ревью (round 2): run обязан нести настоящий
+	// Usage даже при провале — pipeline.go's work() учитывает расход уже
+	// состоявшегося прогона в реестре независимо от исхода синхронизации,
+	// а без него это было бы невозможно (агент уже потратил токены).
+	if run.Usage != wantUsage {
+		t.Errorf("Usage потерян при провале синхронизации: %+v, ожидалось %+v", run.Usage, wantUsage)
 	}
 	if !strings.Contains(log.String(), syncErr.Error()) {
 		t.Errorf("ошибка синхронизации не залогирована: %q", log.String())

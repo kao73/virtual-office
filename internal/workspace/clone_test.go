@@ -212,6 +212,41 @@ func TestCloneSourceDefaultBranchSurvivesInnerClone(t *testing.T) {
 	}
 }
 
+// Blocker-находка независимого ревью (round 2), воспроизведена вживую до
+// правки: после первого прогона задачи ветка агента попадает в
+// refs/remotes/origin/* самого источника (pipeline.go пушит её после
+// каждого прогона, Manager.Ensure фетчит origin при каждом заходе) — и
+// прежняя версия fetchDefaultRemote пыталась перенести её тоже, включая
+// в рефспек ветку, уже выкаченную в tmp. git fetch на такой рефспек
+// отказывает целиком («refusing to fetch into branch ... checked out»),
+// теряя вместе с ней и origin/master. Любой прогон задачи после первого
+// не заводил бы клон-источник вовсе.
+func TestCloneSourceSucceedsWhenTaskBranchAlreadyInOrigin(t *testing.T) {
+	dir := managerRepoStyleWorktree(t, "agent/OFF-1")
+
+	// Симуляция: pipeline.go запушила ветку задачи после первого прогона,
+	// и Manager.Ensure подтянула её обратно как origin/agent/OFF-1 —
+	// тем же путём, что и настоящий upstream/bare в этой фикстуре.
+	root := filepath.Dir(dir)
+	upstream := filepath.Join(root, "upstream")
+	gitT(t, dir, "push", "-q", upstream, "agent/OFF-1")
+	bare := filepath.Join(root, "task.git")
+	gitT(t, bare, "fetch", "-q", "--prune", "origin")
+	if got := gitT(t, bare, "for-each-ref", "--format=%(refname)", "refs/remotes/origin/agent/OFF-1"); got == "" {
+		t.Fatal("подготовка теста: ветка задачи не появилась в origin/* источника")
+	}
+
+	clone, cleanup, err := CloneSource(context.Background(), dir, "agent/OFF-1")
+	if err != nil {
+		t.Fatalf("CloneSource: %v — второй прогон той же задачи не должен падать", err)
+	}
+	defer cleanup()
+
+	if _, err := exec.Command("git", "-C", clone, "rev-parse", "--verify", "master").Output(); err != nil {
+		t.Errorf("master не разрешена в клоне-источнике: %v", err)
+	}
+}
+
 // Blocker-находка независимого ревью (round 1), воспроизведена вживую до
 // правки: первая версия этой правки накладывала незакоммиченную работу
 // патчем прямо на клон, оставляя dir грязным, — и следующий за прогоном

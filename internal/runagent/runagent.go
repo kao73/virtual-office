@@ -240,21 +240,30 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 }
 
 // syncErr — что Execute возвращает как собственную ошибку, когда result.json
-// дочитан успешно (hasResult), а сам backend run() всё равно вернул ошибку.
-// На бэкенде sbx это cloneErr: --clone синхронизация вышла из песочницы не
-// целиком (например, syncCometState/commitLeftovers упали), хотя .agent
-// Dirs-цикл его всё равно принёс (см. cloneSyncOut/cloneOutcome в
-// internal/backends/sbx/clone.go). out.Result в этом случае настоящий —
-// агент отработал, задачу это не хоронит, — но и молчать нельзя: раньше
-// runErr в этой ветке терялся целиком, и настоящая инфраструктурная беда
-// репортилась в тикет как чистый успех (независимое ревью).
+// дочитан успешно (hasResult), а сам backend run() всё равно вернул ошибку,
+// и именно эта ошибка — sbx.ErrCloneSyncIncomplete: --clone синхронизация
+// вышла из песочницы не целиком (например, syncCometState/commitLeftovers
+// упали), хотя .agent Dirs-цикл его всё равно принёс (см. cloneSyncOut/
+// cloneOutcome в internal/backends/sbx/clone.go). out.Result в этом случае
+// настоящий — агент отработал, задачу это не хоронит, — но и молчать
+// нельзя: раньше runErr в этой ветке терялся целиком, и настоящая
+// инфраструктурная беда репортилась в тикет как чистый успех (независимое
+// ревью).
+//
+// Проверка именно через errors.Is(runErr, sbx.ErrCloneSyncIncomplete),
+// а не «runErr != nil», — round 2 независимого ревью: cloneOutcome
+// возвращает через тот же канал ещё усечённый по таймауту прогон и
+// незапустившийся exec, а у обоих (per terminationOf) уже готовый результат
+// — законный, разобранный правилами роли исход («усечённый прогон не
+// начинают заново»), не повод хоронить прогон как незавершённую
+// синхронизацию.
 //
 // Без hasResult (result.json не дочитан) — намеренно не отсюда: reason
 // в FailedResult уже несёт текст runErr, и повторно оборачивать её здесь
 // незачем — тем же приёмом, каким terminationOf вовсе не смотрит на runErr,
 // когда hasResult истинен.
 func syncErr(hasResult bool, runErr error) error {
-	if !hasResult || runErr == nil {
+	if !hasResult || !errors.Is(runErr, sbx.ErrCloneSyncIncomplete) {
 		return nil
 	}
 	return &ErrSyncIncomplete{err: fmt.Errorf("прогон состоялся, но песочница отдала не всё: %w", runErr)}

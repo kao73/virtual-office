@@ -711,8 +711,17 @@ func syncCometState(ctx context.Context, name, containerRoot, fetchInto string, 
 	}
 
 	if commitErr := commitCometState(ctx, fetchInto, written); commitErr != nil {
-		fmt.Fprintf(log, "\nпесочница %s: comet-state.yaml перенесён, но не закоммичен — следующий "+
-			"прогон этой задачи откажет на git merge, если это не будет закоммичено вручную: %v\n", name, commitErr)
+		// Подсказка по самой частой настоящей причине (найдено round 2
+		// независимого ревью тестом на этот случай): git отказывает
+		// в partial commit по pathspec, пока в FetchInto жив MERGE_HEAD —
+		// commitErr уже несёт полный git stderr, но короткая подсказка
+		// экономит человеку разбор многострочной ошибки.
+		hint := ""
+		if _, err := os.Stat(filepath.Join(fetchInto, ".git", "MERGE_HEAD")); err == nil {
+			hint = " (похоже, в FetchInto незавершённое слияние — git отказывает в partial commit, пока оно не разрешено)"
+		}
+		fmt.Fprintf(log, "\nпесочница %s: comet-state.yaml перенесён, но не закоммичен%s — следующий "+
+			"прогон этой задачи откажет на git merge, если это не будет закоммичено вручную: %v\n", name, hint, commitErr)
 		return errors.Join(copyErr, commitErr)
 	}
 	fmt.Fprintf(log, "\nпесочница %s: длящееся состояние Comet Native перенесено и сохранено отдельным "+
@@ -755,6 +764,20 @@ func commitCometState(ctx context.Context, fetchInto string, written []string) e
 	return nil
 }
 
+// ErrCloneSyncIncomplete — сигнал вызывающим (internal/runagent.syncErr),
+// что причина возврата именно синхронизация --clone не подтянула работу
+// агента обратно из песочницы, а не что-то другое: только два case ниже
+// (exitErr+cloneErr и голый cloneErr) несут cloneErr как первопричину
+// исхода, а не как вторичную, уже залогированную потерю поверх таймаута
+// или незапустившегося exec (см. logCloneErr и doc-комментарий ниже).
+// Различие важно вызывающему: усечённый по таймауту прогон с уже готовым
+// результатом — законный, уже разобранный исход («по правилам роли
+// усечённый прогон не начинают заново»), и его нельзя хоронить как
+// незавершённую синхронизацию только из-за того, что cloneErr тоже не nil
+// (независимое ревью, round 2 — типизация раньше накрывала оба случая
+// не глядя).
+var ErrCloneSyncIncomplete = errors.New("не подтянута из песочницы")
+
 // cloneOutcome решает код возврата и ошибку Run по трём независимым
 // сигналам: истекло ли время, чем ответил exec-процесс агента и подтянулась
 // ли работа агента обратно из песочницы (cloneErr, всегда nil без --clone).
@@ -776,14 +799,14 @@ func cloneOutcome(log io.Writer, name string, timedOut bool, timeout time.Durati
 		return -1, runner.RunTimeout(timeout, "песочница "+name)
 	case errors.As(runErr, &exitErr):
 		if cloneErr != nil {
-			return -1, fmt.Errorf("работа агента не подтянута из песочницы %s: %w", name, cloneErr)
+			return -1, fmt.Errorf("работа агента %w %s: %w", ErrCloneSyncIncomplete, name, cloneErr)
 		}
 		return exitErr.ExitCode(), nil
 	case runErr != nil:
 		logCloneErr(log, name, cloneErr)
 		return -1, fmt.Errorf("агент не запущен в песочнице %s: %w", name, runErr)
 	case cloneErr != nil:
-		return -1, fmt.Errorf("работа агента не подтянута из песочницы %s: %w", name, cloneErr)
+		return -1, fmt.Errorf("работа агента %w %s: %w", ErrCloneSyncIncomplete, name, cloneErr)
 	default:
 		return 0, nil
 	}

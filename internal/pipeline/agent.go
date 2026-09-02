@@ -143,7 +143,12 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (AgentRun, error) {
 		var syncIncomplete *runagent.ErrSyncIncomplete
 		if errors.As(err, &syncIncomplete) {
 			a.logf("%s: %v", req.Passport.TaskKey, err)
-			return AgentRun{}, err
+			// run, не AgentRun{}: агент реально отработал и стоил ровно
+			// столько же, сколько стоил бы «чистый» прогон — вызывающий
+			// (pipeline.go, work()) должен иметь возможность учесть этот
+			// расход в бюджете, даже хороня сам прогон (независимое ревью,
+			// round 2: раньше здесь терялся весь Usage вместе с err).
+			return run, err
 		}
 		// Иначе — исход есть, а сорвалось что-то безобидное после него
 		// (например, архивация): материал уже надёжно лежит в FetchInto,

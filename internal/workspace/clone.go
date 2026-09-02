@@ -95,7 +95,7 @@ func CloneSource(ctx context.Context, dir, branch string) (string, func() error,
 		return "", nil, fmt.Errorf("клон-источник (%s, ветка %s) не заведён: %w\n%s", absDir, branch, err, out)
 	}
 
-	if err := fetchDefaultRemote(ctx, absDir, tmp); err != nil {
+	if err := fetchDefaultRemote(ctx, absDir, tmp, branch); err != nil {
 		_ = cleanup()
 		return "", nil, err
 	}
@@ -111,22 +111,39 @@ func CloneSource(ctx context.Context, dir, branch string) (string, func() error,
 // (internal/runner/input.go, на хосте до прогона): сеть безопасности
 // обвязки, а не решение роли, и в git blame это обязано быть видно.
 //
-// Незавершённое слияние не трогаем вовсе — тем же рассуждением, что
-// и у commitLeftovers: коммит поверх него зафиксировал бы конфликтные
-// маркеры как разрешённые, а порча ветки задачи хуже, чем не спасти
-// незакоммиченное в этом одном случае.
+// Незавершённое слияние (или rebase/cherry-pick/revert — те же неразрешённые
+// записи индекса без MERGE_HEAD конкретно, но со своим файлом-маркером) не
+// трогаем вовсе — тем же рассуждением, что и у commitLeftovers: коммит
+// поверх зафиксировал бы конфликтные маркеры как разрешённые, а порча ветки
+// задачи хуже, чем не спасти незакоммиченное в этом одном случае.
+//
+// Коммит-подчистка, сделанная здесь, но так и не подтянутая обратно (sbx
+// create упал, контекст отменён до конца прогона), остаётся в ветке задачи
+// навсегда и уедет в origin следующим успешным push — осознанная цена:
+// откатывать её было бы отдельной, куда более рискованной операцией
+// (независимое ревью, round 2).
 func commitUncommitted(ctx context.Context, dir string) error {
-	unmerged, err := exec.CommandContext(ctx, "git", "-C", dir, "ls-files", "--unmerged").Output()
+	for _, marker := range []string{"MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"} {
+		if _, err := os.Stat(filepath.Join(dir, ".git", marker)); err == nil {
+			return nil // незавершённая git-операция — не трогаем
+		}
+	}
+
+	unmergedCmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-files", "--unmerged")
+	unmergedCmd.Env = gitEnv()
+	unmerged, err := unmergedCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("незавершённое слияние в %s не проверено: %w", dir, err)
+		return fmt.Errorf("незавершённое слияние в %s не проверено: %w\n%s", dir, err, unmerged)
 	}
 	if len(unmerged) > 0 {
 		return nil
 	}
 
-	status, err := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain").Output()
+	statusCmd := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain")
+	statusCmd.Env = gitEnv()
+	status, err := statusCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("состояние %s не проверено: %w", dir, err)
+		return fmt.Errorf("состояние %s не проверено: %w\n%s", dir, err, status)
 	}
 	if len(status) == 0 {
 		return nil // дерево чистое — нечего сохранять
@@ -136,6 +153,16 @@ func commitUncommitted(ctx context.Context, dir string) error {
 	addCmd.Env = gitEnv()
 	if out, err := addCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("незакоммиченная работа в %s не занесена в индекс: %w\n%s", dir, err, out)
+	}
+
+	// Между add и commit — отдельная проверка: `status --porcelain` непуст
+	// не значит, что `add -A` что-то реально занесло (грязный сабмодуль —
+	// живой пример, `add` его не подхватывает вовсе) — тот же прецедент,
+	// что и у commitLeftovers/stagedCheckScript (internal/backends/sbx/
+	// clone.go). Без неё `git commit` ответил бы «nothing to commit»,
+	// и CloneSource провалила бы прогон там, где спасать было нечего.
+	if err := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--cached", "--quiet").Run(); err == nil {
+		return nil // после add ничего не застейджено — нечего коммитить, не беда
 	}
 
 	commitCmd := exec.CommandContext(ctx, "git", "-C", dir, "commit", "-q", "--no-verify",
@@ -170,20 +197,33 @@ func commitUncommitted(ctx context.Context, dir string) error {
 // добавочно: агентская агент/OFF-N остаётся текущей веткой без изменений,
 // у new-branch'ей просто нет собственного checkout.
 //
+// branch — ветка задачи, уже выложенная в tmp как refs/heads/<branch>
+// (git clone --branch перед этим вызовом): исключается из переноса. Не
+// исключи её, и на любом прогоне после первого — как только ветка задачи
+// сама попадёт в refs/remotes/origin/* источника (pipeline.go пушит её
+// после каждого прогона, Manager.Ensure фетчит origin при каждом заходе) —
+// git fetch целиком откажет: «refusing to fetch into branch ... checked out
+// at ...» (git не позволяет обновить fetch'ем ветку, выкаченную в целевом
+// репозитории прямо сейчас) — и вместе с ней теряется и origin/<default>,
+// ради которой этот перенос вообще существует (независимое ревью, round 2,
+// воспроизведено вживую).
+//
 // Проверено вживую (тремя уровнями клонов: bare → tmp → симулированная
 // песочница) в процессе разработки этой правки.
-func fetchDefaultRemote(ctx context.Context, dir, tmp string) error {
-	out, err := exec.CommandContext(ctx, "git", "-C", dir,
-		"for-each-ref", "--format=%(refname)", "refs/remotes/origin").Output()
+func fetchDefaultRemote(ctx context.Context, dir, tmp, branch string) error {
+	listCmd := exec.CommandContext(ctx, "git", "-C", dir,
+		"for-each-ref", "--format=%(refname)", "refs/remotes/origin")
+	listCmd.Env = gitEnv()
+	out, err := listCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("ветки origin/* источника %s не перечислены: %w", dir, err)
+		return fmt.Errorf("ветки origin/* источника %s не перечислены: %w\n%s", dir, err, out)
 	}
 
 	var refspecs []string
 	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
 		name := strings.TrimPrefix(line, "refs/remotes/origin/")
-		if name == "" || name == "HEAD" {
-			continue // символическая origin/HEAD — не настоящая ветка
+		if name == "" || name == "HEAD" || name == branch {
+			continue // символическая origin/HEAD, либо уже выложенная ветка задачи
 		}
 		refspecs = append(refspecs, fmt.Sprintf("+refs/remotes/origin/%s:refs/heads/%s", name, name))
 	}

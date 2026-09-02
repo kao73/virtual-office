@@ -1253,22 +1253,23 @@ func TestCloneOutcome(t *testing.T) {
 	}
 
 	cases := []struct {
-		name           string
-		timedOut       bool
-		runErr         error
-		cloneErr       error
-		wantCode       int
-		wantErr        bool
-		wantTimeout    bool // err оборачивает runner.ErrRunTimeout — на нём стоит terminationOf в runagent.go
-		wantErrLogged  bool // cloneErr дописан в лог, а не подменил возвращаемую ошибку
-		wantErrReplace bool // cloneErr подменил собой возвращаемую ошибку/код
+		name               string
+		timedOut           bool
+		runErr             error
+		cloneErr           error
+		wantCode           int
+		wantErr            bool
+		wantTimeout        bool // err оборачивает runner.ErrRunTimeout — на нём стоит terminationOf в runagent.go
+		wantErrLogged      bool // cloneErr дописан в лог, а не подменил возвращаемую ошибку
+		wantErrReplace     bool // cloneErr подменил собой возвращаемую ошибку/код
+		wantSyncIncomplete bool // err несёт ErrCloneSyncIncomplete — на этом стоит runagent.syncErr
 	}{
 		{name: "успех без --clone", wantCode: 0, wantErr: false},
-		{name: "успех, но синхронизация не удалась", cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true},
+		{name: "успех, но синхронизация не удалась", cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true, wantSyncIncomplete: true},
 		{name: "таймаут без беды синхронизации", timedOut: true, wantCode: -1, wantErr: true, wantTimeout: true},
 		{name: "таймаут и беда синхронизации — таймаут остаётся причиной", timedOut: true, cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantTimeout: true, wantErrLogged: true},
 		{name: "агент вышел с кодом 1, синхронизация в порядке", runErr: exitErr(1), wantCode: 1, wantErr: false},
-		{name: "агент вышел с кодом 1, синхронизация не удалась", runErr: exitErr(1), cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true},
+		{name: "агент вышел с кодом 1, синхронизация не удалась", runErr: exitErr(1), cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true, wantSyncIncomplete: true},
 		{name: "exec вовсе не запустился", runErr: errors.New("permission denied"), wantCode: -1, wantErr: true},
 		{name: "exec не запустился и синхронизация тоже — первопричина остаётся", runErr: errors.New("permission denied"), cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrLogged: true},
 	}
@@ -1297,6 +1298,15 @@ func TestCloneOutcome(t *testing.T) {
 				if err != nil && strings.Contains(err.Error(), tc.cloneErr.Error()) {
 					t.Errorf("cloneErr подменил собой первопричину вместо того, чтобы просто дописаться в лог: %v", err)
 				}
+			}
+			// Round 2 независимого ревью: ErrCloneSyncIncomplete обязана
+			// стоять только там, где cloneErr — настоящая первопричина
+			// исхода (wantErrReplace), а не на таймауте/незапустившемся exec,
+			// где cloneErr — вторичная, уже залогированная потеря. Иначе
+			// runagent.syncErr хоронит усечённый по таймауту прогон с уже
+			// готовым результатом, хотя правила роли это запрещают.
+			if got := errors.Is(err, ErrCloneSyncIncomplete); got != tc.wantSyncIncomplete {
+				t.Errorf("errors.Is(err, ErrCloneSyncIncomplete) = %v, ожидалось %v (err: %v)", got, tc.wantSyncIncomplete, err)
 			}
 		})
 	}
