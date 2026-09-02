@@ -1394,7 +1394,7 @@ go build ./... && go vet ./... && go test ./...
 
 Expected: all three commands exit 0; `go test ./...` reports `ok` for every package, including `internal/workspace`, `internal/pipeline`, and `internal/backends/sbx` (Tasks 1-4's new and modified tests all included).
 
-- [ ] **Step 2: Live pipeline run through Comet Native Shape → Build → Verify on the `sbx` backend, via the `Office` conveyor**
+- [x] **Step 2: Live pipeline run through Comet Native Shape → Build → Verify on the `sbx` backend, via the `Office` conveyor**
 
 This must go through `./bin/runner tick` (the tracker-driven `Office` conveyor), not a manual `run-agent --clone` invocation — the whole point of this change is the pipeline's own wiring, and a manual run would validate the wrong code path.
 
@@ -1448,7 +1448,7 @@ ls "$TMPDIR" 2>/dev/null | grep pipeline-clone   # expect no match — disposabl
 
 Also confirm via `./bin/runner mock show OFF-1` and `git -C /tmp/pcw-client.git log --oneline agent/OFF-1` that the task reached a terminal state with real commits, the same shape as the README quick-start's happy path.
 
-- [ ] **Step 3: Confirm the `local` backend still proceeds directly on the host worktree and logs the non-application notice**
+- [x] **Step 3: Confirm the `local` backend still proceeds directly on the host worktree and logs the non-application notice**
 
 Using the same scratch `OFFICE_HOME`/client repo (or a fresh task), run one role on `local`:
 
@@ -1460,9 +1460,20 @@ Using the same scratch `OFFICE_HOME`/client repo (or a fresh task), run one role
 
 Expected: `/tmp/pcw-local.log` contains the exact `runagent.CloneNotice` text — `"бэкенд local --clone не поддерживает: у него нет песочницы, которую можно клонировать, — агент бежит прямо в рабочей папке, как обычно"` — and the run's commits land directly in `${OFFICE_HOME}/worktrees/OFF/OFF-2` (no disposable clone source directory is created at all for this run, since `cloneOptionsFor` returns `req.Workdir` unchanged on `local`).
 
-- [ ] **Step 4: Record findings**
+- [x] **Step 4: Record findings**
 
 If Steps 2-3 surface any behavior that diverges from the design doc's Testing Strategy or from `spec.md`'s acceptance scenarios, stop and fix it in the relevant earlier task (Task 2, 3, or 4) before proceeding — do not patch around it in Task 5. Once all three steps pass cleanly, the change is complete; no separate commit is needed for this task since it produces no file changes (unless Step 4 required a fix, in which case that fix gets its own commit against the task it belongs to, per this plan's earlier commit-message conventions).
+
+**Result (final, after Tasks 6-7's fixes):** Steps 2-3 both surfaced real, load-bearing bugs on the first two attempts — both fixed and re-verified (Tasks 6 and 7 above). Third attempt at Step 2: a full real `analyst → implementer → reviewer → systems-pass` cycle against task `EXP-1` (project key borrowed from the repo's own tracked `projects.yaml`, pointed at a throwaway `/tmp/pcw-client.git` via the scratch `OFFICE_HOME`'s `projects.local.yaml`) completed cleanly through the real `Office` conveyor on the `sbx` backend:
+- analyst: Shape confirmed (commit `3e29b8a`), outcome `done`.
+- implementer: `hello.py`/`test_hello.py` written and committed (`d5cee35`), Builder handoff sent, outcome `done`.
+- reviewer: all 16 acceptance criteria passed, Verify accepted (`comet-state.yaml`/`verification.md` committed as `331db8f`), outcome `done`.
+- systems pass: change archived (`docs/comet/archive/2026-09-02-exp-1/`, commit `30def67`), task moved to `Done` (no forge configured for this scratch project, so PR-open was correctly skipped, not an error).
+- `comet-state.yaml` phase progress survived every role-to-role handoff (Requirement 2 confirmed live).
+- `git log agent/EXP-1` on the real client repo shows the full real history, including a `chore: preserve sandbox-local changes left uncommitted by the run` safety-net commit from `commitLeftovers` picking up stray `__pycache__` files — confirming the pre-existing `--clone` machinery (Tasks 21/22, untouched by this plan) still works correctly end-to-end through the new pipeline wiring.
+- `sbx ls --quiet` empty and no `pipeline-clone-*` temp directories left behind afterward (Requirement 4 confirmed live).
+
+Step 3: ran a fresh task (`EXP-2`) with `./bin/runner tick --backend local --role implementer`. Log contains the exact `runagent.CloneNotice` text verbatim, and the commit landed directly in the real worktree with no disposable clone source ever created (Requirement 5 confirmed live).
 
 ---
 

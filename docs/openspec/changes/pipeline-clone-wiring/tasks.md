@@ -25,8 +25,8 @@
 ## 5. End-to-end verification
 
 - [x] 5.1 `go build ./... && go vet ./... && go test ./...` clean.
-- [ ] 5.2 Run a real task through the tracker-driven pipeline (`Office` conveyor, not manual `run-agent --clone`) on the `sbx` backend through a full analyst → implementer → reviewer Comet Native Shape → Build → Verify chain, confirming `comet-state.yaml` phase progress survives each handoff and no disposable clone source is left behind (`sbx ls` empty afterward).
-- [ ] 5.3 Confirm a `local`-backend debug run still proceeds directly on the host worktree and logs the non-application notice.
+- [x] 5.2 Run a real task through the tracker-driven pipeline (`Office` conveyor, not manual `run-agent --clone`) on the `sbx` backend through a full analyst → implementer → reviewer Comet Native Shape → Build → Verify chain, confirming `comet-state.yaml` phase progress survives each handoff and no disposable clone source is left behind (`sbx ls` empty afterward).
+- [x] 5.3 Confirm a `local`-backend debug run still proceeds directly on the host worktree and logs the non-application notice.
 
 ## 6. Fix (found live during 5.2): `sbx.Run` never created `opts.Workdir`'s `.agent` directory before writing `run.log`
 
