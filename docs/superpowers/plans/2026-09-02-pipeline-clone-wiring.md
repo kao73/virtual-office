@@ -1578,9 +1578,116 @@ git add internal/backends/sbx/sbx.go internal/backends/sbx/sbx_test.go
 git commit -m "fix(sbx): create run.log's parent directory before writing it"
 ```
 
-- [ ] **Step 6: Re-run Task 5 Step 2's live pipeline check**
+- [x] **Step 6: Re-run Task 5 Step 2's live pipeline check**
 
 Re-run the `./bin/runner tick` sequence from Task 5 Step 2 against the same scratch `OFFICE_HOME`/task (or a fresh one) and confirm the analyst run now actually starts, produces `run.log`, and reaches a real outcome. Continue with implementer → reviewer ticks as originally planned.
+
+**Result:** the agent now genuinely runs and does real Comet Native Shape work inside the sandbox (`docs/comet/changes/exp-1/brief.md`/`spec.md`, commit `3e29b8a`, `.agent/result.json` at `FetchInto` with `"outcome": "done"`) — Task 6's fix is confirmed live. But the tick still reported `errored` / `failed` and re-queued the task, because of a second, distinct bug — see Task 7.
+
+---
+
+### Task 7 (found live, re-running Task 5 Step 2 after Task 6): `runagent.Execute` reads post-run artifacts from the wrong directory under `--clone`
+
+**Found live:** after Task 6's fix, the analyst tick's agent process genuinely ran, did real work, and committed — but the tick still reported `EXP-1: исход failed — .../pipeline-clone-.../.agent/result.json не прочитан: no such file or directory`, and `EXP-1: failed → Analysis` (task re-queued, wrongly, over a run that actually succeeded). Root-caused: `internal/runagent/runagent.go`'s `Execute` reads every post-run artifact — `logPath` (for `usageOf`/`limitOf`/`endingOf`), `runner.ReadResult`, `runner.Archive`, and (via `terminationOf` → `runner.LeftTrace`) the git branch itself — from `opts.Workdir`. Under the pipeline's `--clone` wiring, `opts.Workdir` is the disposable clone source (Task 1/2), which `internal/backends/sbx/clone.go`'s `cloneSyncOut` (Task 3/4) deliberately never writes back to — everything (`.agent/result.json`, `.comet/runtime`, `comet-state.yaml`, and the agent's own commits via `fetchBranch`'s merge) lands in `opts.Clone.FetchInto`, the real persistent worktree, instead. `Execute` was never updated to read from `Clone.FetchInto` when `Clone` is set — this gap sat one layer above everything Tasks 1-6 already fixed, in a file none of those tasks' scopes included.
+
+Confirmed live, precisely: `FetchInto`'s `.agent/result.json` held the real, valid, `"outcome": "done"` result; `git log` on the real worktree showed the real commit `3e29b8a`; but `opts.Workdir` (the disposable clone, by then already torn down by `SandboxAgent.Run`'s own `defer cleanup()`, or in any case never populated with `result.json` to begin with) had neither — so `runner.ReadResult` failed, `Execute` fell back to its designed "silence is failed" synthesis (`runner.FailedResult`, doc-commented at `runagent.go`'s "раннер не додумывает исход за агента"), and the pipeline correctly-per-its-own-logic, but wrongly-in-fact, reported the task as failed and requeued it.
+
+One artifact is the exception: `run.log` itself is a **host-side** capture of the `sbx` CLI wrapper's own stdout/stderr (`sbx.go`'s `Run`: `cmd.Stdout = log`, opened via `createLog(logPath)` — `logPath` is a plain host file, never something inside the sandboxed container). It never existed inside the container at all, so nothing in `cloneSyncOut`'s `Dirs`/`comet-state.yaml` sync could ever deliver it to `FetchInto` even in principle. Writing `logPath` directly under `Clone.FetchInto` from the start — rather than trying to copy it there after the fact — is both correct and consistent with `runner.PrepareInput`'s own pre-run cleanup, which already deletes any stale `<workdir>/.agent/run.log` at `ws.Dir` (i.e. `FetchInto`) before every run (`internal/runner/input.go`) — that cleanup already assumed `run.log` lives at `FetchInto`, even though nothing wrote it there until now.
+
+**Files:**
+- Modify: `internal/runagent/runagent.go` (`Execute`, new `resultWorkdir` helper)
+- Modify: `internal/runagent/runagent_test.go` (new file, or add to an existing test file in the package if one already covers similar pure-function behavior — check `prepare_test.go`/`termination_test.go`'s conventions first)
+
+**Interfaces:**
+- Produces: `resultWorkdir(opts Options) string` — unexported, pure helper: `opts.Clone.FetchInto` when `opts.Clone != nil`, else `opts.Workdir`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to a suitable file in `internal/runagent` (a new `runagent_test.go` if no existing file fits; check `prepare_test.go`'s style first — it's the closest existing precedent for testing a pure `Options`-consuming function without a live backend):
+
+```go
+// Задача 7 (docs/superpowers/specs/2026-09-02-pipeline-clone-wiring-design.md):
+// под --clone opts.Workdir — одноразовый клон-источник, который cloneSyncOut
+// (internal/backends/sbx/clone.go) не трогает вовсе — всё послепрогонное
+// (.agent/result.json, git-коммиты через fetchBranch) уезжает в
+// opts.Clone.FetchInto, настоящую рабочую папку задачи.
+func TestResultWorkdirUsesFetchIntoWhenCloneSet(t *testing.T) {
+	opts := Options{
+		Workdir: "/tmp/disposable-clone-source",
+		Clone:   &runner.CloneSync{FetchInto: "/tmp/real-worktree"},
+	}
+	if got := resultWorkdir(opts); got != "/tmp/real-worktree" {
+		t.Errorf("resultWorkdir = %q, ожидалось /tmp/real-worktree (Clone.FetchInto)", got)
+	}
+}
+
+func TestResultWorkdirUsesWorkdirWithoutClone(t *testing.T) {
+	opts := Options{Workdir: "/tmp/bind-mount-worktree"}
+	if got := resultWorkdir(opts); got != "/tmp/bind-mount-worktree" {
+		t.Errorf("resultWorkdir = %q, ожидалось /tmp/bind-mount-worktree (opts.Workdir, Clone нет)", got)
+	}
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./internal/runagent/... -run TestResultWorkdir -v`
+Expected: FAIL to compile — `resultWorkdir` doesn't exist yet.
+
+- [ ] **Step 3: Implement `resultWorkdir`, use it in `Execute`**
+
+In `internal/runagent/runagent.go`, add near `Execute`:
+
+```go
+// resultWorkdir — где на хосте на самом деле искать .agent/* и git-историю
+// после прогона. Под --clone opts.Workdir — одноразовый клон-источник
+// (internal/workspace.CloneSource), который cloneSyncOut (internal/backends/
+// sbx/clone.go) не трогает вовсе: всё послепрогонное — .agent/result.json,
+// .comet/runtime, comet-state.yaml, коммиты агента через fetchBranch's merge —
+// уезжает в opts.Clone.FetchInto, настоящую рабочую папку задачи. Без Clone
+// opts.Workdir и есть эта самая папка (бинд-маунт, или ручной
+// run-agent --clone, где оба пути исторически совпадают нарочно).
+func resultWorkdir(opts Options) string {
+	if opts.Clone != nil {
+		return opts.Clone.FetchInto
+	}
+	return opts.Workdir
+}
+```
+
+In `Execute`, right after `Prepare` succeeds (after the `defer func() { _ = launch.Cleanup() }()` line, before `logPath := ...`), mutate the local `opts` copy so every downstream use of `opts.Workdir` — including inside `terminationOf(opts, ...)`, which itself calls `runner.LeftTrace(opts.Workdir, ...)` — picks up the corrected directory automatically, without touching `terminationOf`'s signature or any other call site individually:
+
+```go
+	// opts — копия по значению: эта правка не задевает вызывающего и не
+	// касается Prepare выше, которому нужен настоящий opts.Workdir (клон-
+	// источник, куда --clone реально смотрит) — только всё, что читается
+	// ПОСЛЕ прогона. См. doc-комментарий resultWorkdir.
+	opts.Workdir = resultWorkdir(opts)
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `go test ./internal/runagent/... -run TestResultWorkdir -v`
+Expected: PASS for both new tests.
+
+Then run the whole package:
+
+Run: `go test ./internal/runagent/... -v`
+Expected: PASS, no regressions — `termination_test.go`'s existing tests never set `opts.Clone`, so `resultWorkdir` returns `opts.Workdir` unchanged for every one of them.
+
+Run: `go build ./... && go vet ./...`
+Expected: clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/runagent/runagent.go internal/runagent/runagent_test.go
+git commit -m "fix(runagent): read post-run artifacts from Clone.FetchInto, not the disposable clone source"
+```
+
+- [ ] **Step 6: Re-run Task 5 Step 2's live pipeline check, a second time**
+
+Re-run (or continue) the `./bin/runner tick` sequence and confirm the analyst tick now reports a real `done` outcome (not `failed`), the task actually advances (not requeued to `Analysis`), and `Archive` succeeds against the real worktree's content. Continue with implementer → reviewer ticks once this passes.
 
 ---
 
