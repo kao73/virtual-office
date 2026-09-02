@@ -393,6 +393,22 @@ func events(task tracker.Task) []string {
 
 // Учёт ведётся всегда и ничего не решает: строка на прогон в реестре появляется
 // независимо от того, настроены ли лимиты.
+// Задача 2 (docs/superpowers/specs/2026-09-02-pipeline-clone-wiring-design.md):
+// SandboxAgent.Run строит одноразовый клон-источник --clone от той же ветки,
+// на которой стоит рабочая папка задачи, — work() обязана донести её агенту
+// в Request.Branch, а не заставлять его снова спрашивать об этом трекер.
+func TestWorkPassesTaskBranchToAgent(t *testing.T) {
+	o := newOffice(t)
+
+	if !o.tick(t) {
+		t.Fatal("цикл не взял задачу")
+	}
+
+	if o.agent.seen.Branch != "agent/OFF-1" {
+		t.Errorf("Request.Branch = %q, ожидалась agent/OFF-1", o.agent.seen.Branch)
+	}
+}
+
 func TestTickRecordsRunInLedger(t *testing.T) {
 	o := newOffice(t)
 	o.agent.usage = runner.Usage{CostUSD: 0.25, DurationMS: 18258, Turns: 3}
@@ -413,6 +429,27 @@ func TestTickRecordsRunInLedger(t *testing.T) {
 	// локален для машины, а тикет общий.
 	if body := lastComment(t, o.get(t, "OFF-1")).Body; !strings.Contains(body, "$0.2500") {
 		t.Errorf("цены прогона нет в отчёте:\n%s", body)
+	}
+}
+
+// Improvement-находка независимого ревью (round 2): SandboxAgent.Run может
+// вернуть настоящий, уже оплаченный Usage вместе с ошибкой (ErrSyncIncomplete
+// на sbx — агент отработал, но --clone синхронизация вышла из песочницы не
+// целиком). Прогон при этом хоронится (аренда остаётся, задачу вернёт
+// reaper), но расход агента уже понесён независимо от исхода синхронизации —
+// молчание о нём в реестре исказило бы бюджет.
+func TestWorkAccountsUsageEvenWhenRunFails(t *testing.T) {
+	o := newOffice(t)
+	o.agent.usage = runner.Usage{CostUSD: 0.42, DurationMS: 9000, Turns: 5}
+	o.agent.err = errors.New("прогон состоялся, но песочница отдала не всё: comet-state.yaml не подтянут")
+
+	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
+		t.Fatal("Tick не заметил неудачу прогона")
+	}
+
+	total := o.spend(t, ledger.Filter{Task: "OFF-1"})
+	if total.Runs != 1 || total.CostUSD != 0.42 {
+		t.Errorf("расход провалившегося, но состоявшегося прогона потерян: %+v", total)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/kao73/virtual-office/internal/runner"
+	"github.com/kao73/virtual-office/internal/workspace"
 )
 
 // recordedStep — подделка step: запоминает вызовы и отвечает по очереди
@@ -64,14 +65,16 @@ func primaryWithExclude(t *testing.T, dirs ...string) string {
 }
 
 func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
-	primary := primaryWithExclude(t, ".agent")
-	agentDir := filepath.Join(primary, ".agent")
+	hostRoot := primaryWithExclude(t, ".agent")
+	containerRoot := t.TempDir()
+	agentDirHost := filepath.Join(hostRoot, ".agent")
+	agentDirContainer := filepath.Join(containerRoot, ".agent")
 	// .comet намеренно не заводим: задача без активного изменения Comet Native
 	// его не имеет вовсе, и это законный случай, а не пропуск.
 
 	l := &runner.Launch{
-		Workspaces: []runner.Workspace{{Path: primary}},
-		Clone:      &runner.CloneSync{Dirs: []string{".agent", ".comet"}},
+		Workspaces: []runner.Workspace{{Path: containerRoot}},
+		Clone:      &runner.CloneSync{FetchInto: hostRoot, Dirs: []string{".agent", ".comet"}},
 	}
 	rec := &recordedStep{}
 
@@ -87,17 +90,17 @@ func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
 		t.Fatalf("ожидалось 4 вызова (exclude + mkdir + cp + chown), получено %d: %q", len(rec.calls), rec.calls)
 	}
 	excludeCall := rec.calls[0]
-	wantExclude := []string{"cp", filepath.Join(primary, excludeFile), "office-test:" + filepath.Join(primary, ".git/info") + "/"}
+	wantExclude := []string{"cp", filepath.Join(hostRoot, excludeFile), "office-test:" + filepath.Join(containerRoot, ".git/info") + "/"}
 	if !slices.Equal(excludeCall, wantExclude) {
 		t.Errorf("перенос exclude\nполучено:  %q\nожидалось: %q", excludeCall, wantExclude)
 	}
 	mkdir := rec.calls[1]
-	wantMkdir := []string{"exec", "office-test", "mkdir", "-p", primary}
+	wantMkdir := []string{"exec", "office-test", "mkdir", "-p", containerRoot}
 	if !slices.Equal(mkdir, wantMkdir) {
 		t.Errorf("mkdir -p\nполучено:  %q\nожидалось: %q", mkdir, wantMkdir)
 	}
 	cp := rec.calls[2]
-	wantCP := []string{"cp", agentDir, "office-test:" + primary + "/"}
+	wantCP := []string{"cp", agentDirHost, "office-test:" + containerRoot + "/"}
 	if !slices.Equal(cp, wantCP) {
 		t.Errorf("cp\nполучено:  %q\nожидалось: %q", cp, wantCP)
 	}
@@ -105,8 +108,8 @@ func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
 	if chown[0] != "exec" || chown[1] != "-u" || chown[2] != "root" {
 		t.Fatalf("chown не запущен от root: %q", chown)
 	}
-	if !slices.Contains(chown, agentDir) {
-		t.Errorf("chown не назвал %s: %q", agentDir, chown)
+	if !slices.Contains(chown, agentDirContainer) {
+		t.Errorf("chown не назвал %s: %q", agentDirContainer, chown)
 	}
 	if slices.ContainsFunc(chown, func(s string) bool { return strings.Contains(s, ".comet") }) {
 		t.Errorf("chown зацепил несуществующий .comet: %q", chown)
@@ -121,8 +124,9 @@ func TestCloneSyncInSyncsExcludeFileDirsAndChowns(t *testing.T) {
 // «Находки живого прогона EXP-2»). Свежая песочница обязана начинать
 // с чистыми locks — остальной .comet/runtime переносится как есть.
 func TestCloneSyncInClearsStaleLocksFromCometRuntime(t *testing.T) {
-	primary := primaryWithExclude(t, ".comet/runtime")
-	locksDir := filepath.Join(primary, ".comet/runtime/native/locks")
+	hostRoot := primaryWithExclude(t, ".comet/runtime")
+	containerRoot := t.TempDir()
+	locksDir := filepath.Join(hostRoot, ".comet/runtime/native/locks")
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +135,8 @@ func TestCloneSyncInClearsStaleLocksFromCometRuntime(t *testing.T) {
 	}
 
 	l := &runner.Launch{
-		Workspaces: []runner.Workspace{{Path: primary}},
-		Clone:      &runner.CloneSync{Dirs: []string{".comet/runtime"}},
+		Workspaces: []runner.Workspace{{Path: containerRoot}},
+		Clone:      &runner.CloneSync{FetchInto: hostRoot, Dirs: []string{".comet/runtime"}},
 	}
 	rec := &recordedStep{}
 
@@ -141,18 +145,19 @@ func TestCloneSyncInClearsStaleLocksFromCometRuntime(t *testing.T) {
 	}
 
 	last := rec.calls[len(rec.calls)-1]
-	want := []string{"exec", "office-test", "rm", "-rf", locksDir}
+	want := []string{"exec", "office-test", "rm", "-rf", filepath.Join(containerRoot, runner.CometRuntimeLocksRel)}
 	if !slices.Equal(last, want) {
 		t.Errorf("устаревшие locks не убраны последним вызовом\nполучено:  %q\nожидалось: %q", last, want)
 	}
 }
 
 func TestCloneSyncInNoopWhenNothingToSync(t *testing.T) {
-	primary := t.TempDir() // ни .git/info/exclude, ни .agent, ни .comet не заведены
+	hostRoot := t.TempDir() // ни .git/info/exclude, ни .agent, ни .comet не заведены
+	containerRoot := t.TempDir()
 
 	l := &runner.Launch{
-		Workspaces: []runner.Workspace{{Path: primary}},
-		Clone:      &runner.CloneSync{Dirs: []string{".agent", ".comet"}},
+		Workspaces: []runner.Workspace{{Path: containerRoot}},
+		Clone:      &runner.CloneSync{FetchInto: hostRoot, Dirs: []string{".agent", ".comet"}},
 	}
 	rec := &recordedStep{}
 
@@ -169,11 +174,12 @@ func TestCloneSyncInNoopWhenNothingToSync(t *testing.T) {
 }
 
 func TestCloneSyncInPropagatesCPFailure(t *testing.T) {
-	primary := primaryWithExclude(t, ".agent")
+	hostRoot := primaryWithExclude(t, ".agent")
+	containerRoot := t.TempDir()
 
 	l := &runner.Launch{
-		Workspaces: []runner.Workspace{{Path: primary}},
-		Clone:      &runner.CloneSync{Dirs: []string{".agent"}},
+		Workspaces: []runner.Workspace{{Path: containerRoot}},
+		Clone:      &runner.CloneSync{FetchInto: hostRoot, Dirs: []string{".agent"}},
 	}
 	// Первый вызов — перенос exclude, он должен пройти; второй — mkdir -p,
 	// тоже должен пройти; беда — на самом cp каталога.
@@ -192,30 +198,117 @@ func TestCloneSyncInPropagatesCPFailure(t *testing.T) {
 // git-исключения агент внутри увидел бы .agent/.comet как обычную грязь
 // рабочего дерева, а не как исключённое — role.md обещает роли обратное.
 func TestSyncExcludeFileCopiesHostRules(t *testing.T) {
-	primary := primaryWithExclude(t)
+	hostRoot := primaryWithExclude(t)
+	containerRoot := t.TempDir()
 	rec := &recordedStep{}
 
-	if err := syncExcludeFile(context.Background(), "office-test", primary, rec.run); err != nil {
+	if err := syncExcludeFile(context.Background(), "office-test", containerRoot, hostRoot, rec.run); err != nil {
 		t.Fatalf("syncExcludeFile: %v", err)
 	}
 	if len(rec.calls) != 1 {
 		t.Fatalf("ожидался 1 вызов, получено %d: %q", len(rec.calls), rec.calls)
 	}
-	want := []string{"cp", filepath.Join(primary, excludeFile), "office-test:" + filepath.Join(primary, ".git/info") + "/"}
+	want := []string{"cp", filepath.Join(hostRoot, excludeFile), "office-test:" + filepath.Join(containerRoot, ".git/info") + "/"}
 	if !slices.Equal(rec.calls[0], want) {
 		t.Errorf("получено:  %q\nожидалось: %q", rec.calls[0], want)
 	}
 }
 
 func TestSyncExcludeFileNoopWithoutSource(t *testing.T) {
-	primary := t.TempDir() // .git/info/exclude не заведён
+	hostRoot := t.TempDir() // .git/info/exclude не заведён
+	containerRoot := t.TempDir()
 	rec := &recordedStep{}
 
-	if err := syncExcludeFile(context.Background(), "office-test", primary, rec.run); err != nil {
+	if err := syncExcludeFile(context.Background(), "office-test", containerRoot, hostRoot, rec.run); err != nil {
 		t.Fatalf("syncExcludeFile: %v", err)
 	}
 	if len(rec.calls) != 0 {
 		t.Errorf("sbx позван без источника: %q", rec.calls)
+	}
+}
+
+// Задача 3 (docs/superpowers/specs/2026-09-02-pipeline-clone-wiring-design.md):
+// хостовой источник exclude-правил теперь — l.Clone.FetchInto, и в
+// конвейерном случае это настоящий git worktree, а не обычный репозиторий.
+// У worktree'а .git — файл-ссылка, а не каталог, и info/exclude лежит
+// не рядом с рабочей копией, а в общем git-каталоге основного репозитория.
+func TestSyncExcludeFileResolvesRealWorktree(t *testing.T) {
+	// EvalSymlinks: на macOS TMPDIR лежит под /var, который сам — симлинк на
+	// /private/var, а `git rev-parse --git-common-dir` (внутри resolveExcludeFile)
+	// печатает уже разрешённый, канонический путь. Без этого сравнение путей
+	// ниже ложно падает на macOS, хотя реализация нашла ровно верный файл.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainRepo := filepath.Join(root, "main")
+	if out, err := exec.Command("git", "init", "-q", "-b", "master", mainRepo).CombinedOutput(); err != nil {
+		t.Fatalf("репозиторий не создан: %v\n%s", err, out)
+	}
+	runGit(t, mainRepo, "commit", "-q", "--allow-empty", "-m", "начало")
+
+	worktree := filepath.Join(root, "worktree")
+	runGit(t, mainRepo, "worktree", "add", "-q", "-b", "agent/OFF-1", worktree)
+
+	commonExclude := filepath.Join(mainRepo, ".git", "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(commonExclude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(commonExclude, []byte("/.agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	containerRoot := t.TempDir()
+	rec := &recordedStep{}
+
+	if err := syncExcludeFile(context.Background(), "office-test", containerRoot, worktree, rec.run); err != nil {
+		t.Fatalf("syncExcludeFile: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Fatalf("ожидался 1 вызов, получено %d: %q", len(rec.calls), rec.calls)
+	}
+	want := []string{"cp", commonExclude, "office-test:" + filepath.Join(containerRoot, ".git/info") + "/"}
+	if !slices.Equal(rec.calls[0], want) {
+		t.Errorf("worktree-источник не разрешён верно\nполучено:  %q\nожидалось: %q", rec.calls[0], want)
+	}
+}
+
+// Ревью на Задачу 3: cloneSyncIn/cloneSyncOut оборачиваются в cloneSyncTimeout
+// именно затем, чтобы зависший подпроцесс не повесил прогон навсегда — но
+// resolveExcludeFile звала `git rev-parse --git-common-dir` через
+// exec.Command (не exec.CommandContext) и вовсе не принимала ctx, так что
+// отмена внешнего таймаута до неё не доставала. hostRoot (l.Clone.FetchInto)
+// — путь, заданный вызывающим, и в принципе может лежать на подвисшей
+// точке монтирования. Здесь это проверяется без реального зависания:
+// заранее отменённый контекст обязан остановить git немедленно, а не
+// провалиться на реальный тайм-аут где-то в другом месте.
+func TestResolveExcludeFileRespectsContext(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainRepo := filepath.Join(root, "main")
+	if out, err := exec.Command("git", "init", "-q", "-b", "master", mainRepo).CombinedOutput(); err != nil {
+		t.Fatalf("репозиторий не создан: %v\n%s", err, out)
+	}
+	runGit(t, mainRepo, "commit", "-q", "--allow-empty", "-m", "начало")
+
+	worktree := filepath.Join(root, "worktree")
+	runGit(t, mainRepo, "worktree", "add", "-q", "-b", "agent/OFF-2", worktree)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // отменяем заранее — resolveExcludeFile обязана это заметить, а не звать git вслепую
+
+	_, err = resolveExcludeFile(ctx, worktree)
+	if err == nil {
+		t.Fatal("отменённый контекст не остановил git rev-parse — resolveExcludeFile не читает ctx")
+	}
+	// Important-находка независимого ревью: exec.CommandContext на отменённом
+	// ctx возвращает голое «signal: killed», не context.Canceled — без
+	// отдельной проверки ctx.Err() отмена/таймаут выглядели бы неотличимо
+	// от случайного отказа git.
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("ошибка не называет отмену контекста как причину: %v", err)
 	}
 }
 
@@ -230,7 +323,14 @@ func TestSyncExcludeFileNoopWithoutSource(t *testing.T) {
 // провальном fetchBranch (несовпадение веток) один вызов run() всё равно
 // происходит (сам commitLeftovers, на чистом дереве — только проверка,
 // без коммита), а вот до каталогов Dirs дело дойти не должно вовсе.
-func TestCloneSyncOutStopsAtDirsWhenFetchFails(t *testing.T) {
+// Important-находка независимого ревью: до этой правки ранний return на
+// неудаче fetchBranch пропускал и syncCometState, и retrieval l.Clone.Dirs —
+// тот же класс потери, что уже был закрыт для sweepErr/stateErr. Dirs
+// по контракту (internal/runner/launch.go) не называют git-отслеживаемые
+// пути, так что их подтяжка ничего не портит независимо от исхода слияния —
+// fetchErr обязана копиться вместе с остальными и возвращаться в конце,
+// а не отменять retrieval.
+func TestCloneSyncOutStillRetrievesDirsAndStateWhenFetchFails(t *testing.T) {
 	primary, fetchInto, name := setupCloneFixture(t)
 	// fetchInto уводим на другую ветку — fetchBranch откажет ещё до слияния.
 	runGit(t, fetchInto, "checkout", "-q", "-b", "другая-ветка")
@@ -241,20 +341,27 @@ func TestCloneSyncOutStopsAtDirsWhenFetchFails(t *testing.T) {
 	}
 	// Не идёт слияние (mergeInProgress), дерево чистое (dirtyCheckScript
 	// вернул пустой вывод) — commitLeftovers ограничится двумя проверками
-	// и не полезет коммитить.
+	// и не полезет коммитить. syncCometState здесь вовсе не должна
+	// позваться (fetchErr != nil — comet-state.yaml обогнал бы код на
+	// неперемотанном FetchInto), так что третий вызов — уже retrieval .agent.
 	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
-		t.Fatal("несовпадение веток не замечено — слияние не должно было даже начаться")
+		t.Fatal("несовпадение веток не замечено — cloneSyncOut обязана вернуть ошибку")
 	}
-	if len(rec.calls) != 2 {
-		t.Errorf("ожидалось 2 вызова (обе проверки commitLeftovers до провалившегося fetchBranch), получено %d: %q",
-			len(rec.calls), rec.calls)
-	}
+
+	wantAgentSrc := name + ":" + filepath.Join(primary, ".agent")
+	var sawCopy bool
 	for _, call := range rec.calls {
-		if len(call) > 0 && call[0] == "cp" {
-			t.Errorf("cp каталогов позван, хотя слияние ветки провалилось раньше: %q", rec.calls)
+		if len(call) == 3 && call[0] == "cp" && call[1] == wantAgentSrc {
+			sawCopy = true
 		}
+		if strings.Contains(strings.Join(call, " "), runner.CometChangesDir) {
+			t.Errorf("syncCometState позвана, хотя fetchBranch провалилась: %q", rec.calls)
+		}
+	}
+	if !sawCopy {
+		t.Error(".agent не подтянут после провалившегося fetchBranch — ранний return отменил retrieval")
 	}
 }
 
@@ -268,18 +375,24 @@ func TestCloneSyncOutTreatsMissingContainerPathAsNotFatalOnlyWhenAbsentOnEntry(t
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent", ".comet"}},
 	}
-	// Первые два вызова, до fetchBranch, — commitLeftovers (mergeInProgress,
-	// потом git status внутри песочницы; дерево чистое, до коммита дело не
-	// доходит); дальше — .agent синхронизировался штатно (значит,
+	// Первые два вызова, до fetchBranch, — commitLeftovers (дерево чистое, до
+	// коммита дело не доходит); третий — syncCometState: в песочнице нет
+	// docs/comet/changes вовсе, sbx cp отвечает так же, как на любой другой
+	// отсутствующий путь; дальше — .agent синхронизировался штатно (значит,
 	// presentOnEntry его называет), .comet в песочнице не заведён — sbx cp
 	// отвечает так, как отвечает вживую (см. notFoundInContainer в clone.go).
-	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), nil, errors.New(`ERROR: path ".../.comet" not found in container`)}}
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+		nil,
+		errors.New(`ERROR: path ".../.comet" not found in container`),
+	}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err != nil {
 		t.Fatalf("отсутствие .comet в песочнице (не занесённого на входе) не должно проваливать выгрузку: %v", err)
 	}
-	if len(rec.calls) != 4 {
-		t.Fatalf("ожидалось 4 вызова (commitLeftovers x2 + 2 cp), получено %d: %q", len(rec.calls), rec.calls)
+	if len(rec.calls) != 5 {
+		t.Fatalf("ожидалось 5 вызовов (commitLeftovers x2 + syncCometState + 2 cp), получено %d: %q", len(rec.calls), rec.calls)
 	}
 }
 
@@ -292,11 +405,48 @@ func TestCloneSyncOutFailsWhenExpectedDirMissingOnExit(t *testing.T) {
 	}
 	// .agent был занесён на входе (presentOnEntry его называет), но на
 	// выходе почему-то пропал — это уже не «роль его не завела», а беда.
-	// Первые два вызова — commitLeftovers (дерево чистое), дальше — сам упавший cp.
-	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), errors.New(`ERROR: path ".../.agent" not found in container`)}}
+	// Первые два вызова — commitLeftovers (дерево чистое), третий —
+	// syncCometState (законный no-op), дальше — сам упавший cp.
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+		errors.New(`ERROR: path ".../.agent" not found in container`),
+	}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, []string{".agent"}, io.Discard); err == nil {
 		t.Fatal("пропажа каталога, который сама же занесла cloneSyncIn, прошла молча")
+	}
+}
+
+// Задача 3: Workspaces[0].Path (одноразовый клон-источник) и l.Clone.FetchInto
+// (настоящая рабочая папка задачи) — теперь разные пути, и Dirs обязана
+// адресовать песочницу через первый, а хост — через второй.
+func TestCloneSyncOutDirsUseContainerRootAndFetchIntoSeparately(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
+	}
+	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1)}}
+
+	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err != nil {
+		t.Fatalf("cloneSyncOut: %v", err)
+	}
+
+	wantSrc := name + ":" + filepath.Join(primary, ".agent")
+	wantDst := filepath.Dir(filepath.Join(fetchInto, ".agent")) + "/"
+	var found bool
+	for _, call := range rec.calls {
+		if len(call) == 3 && call[0] == "cp" && call[1] == wantSrc {
+			found = true
+			if call[2] != wantDst {
+				t.Errorf("host-сторона cp = %q, ожидалось %q (FetchInto, не Workspaces[0].Path)", call[2], wantDst)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("cp .agent с сандбокс-стороной %q не позван: %q", wantSrc, rec.calls)
 	}
 }
 
@@ -307,8 +457,13 @@ func TestCloneSyncOutPropagatesRealCPFailure(t *testing.T) {
 		Workspaces: []runner.Workspace{{Path: primary}},
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
 	}
-	// Первые два вызова — commitLeftovers (дерево чистое), дальше — сам упавший cp.
-	rec := &recordedStep{errs: []error{exitErrWithCode(1), exitErrWithCode(1), errors.New("sbx cp: connection refused")}}
+	// Первые два вызова — commitLeftovers (дерево чистое), третий —
+	// syncCometState (законный no-op), дальше — сам упавший cp.
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+		errors.New("sbx cp: connection refused"),
+	}}
 
 	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
 		t.Fatal("настоящая неудача sbx cp растворилась в допущении «каталога не было»")
@@ -615,14 +770,87 @@ func TestCloneSyncOutRetrievesDirsEvenWhenCommitLeftoversFails(t *testing.T) {
 		t.Fatal("неудача commitLeftovers не вернула ошибку")
 	}
 
+	wantAgentSrc := name + ":" + filepath.Join(primary, ".agent")
 	var sawCopy bool
 	for _, call := range rec.calls {
-		if len(call) > 0 && call[0] == "cp" {
+		if len(call) == 3 && call[0] == "cp" && call[1] == wantAgentSrc {
 			sawCopy = true
 		}
 	}
 	if !sawCopy {
 		t.Error(".agent не подтянут после провалившейся подчистки — sweepErr отменил retrieval")
+	}
+}
+
+// Important-находка финального (пооткатного) ревью: syncCometState — самый
+// свежий шаг cloneSyncOut, и до этой правки её собственный ранний return
+// воспроизводил бы тот самый баг с потерей .agent/result.json, который
+// fetchBranch и цикл по Dirs уже один раз были обязаны не допускать (см.
+// doc-комментарий cloneSyncOut про историю с fetchBranch/Dirs). Настоящая
+// (не «not found in container») неудача её собственного sbx cp обязана
+// копиться так же, как sweepErr (через errors.Join), и не отменять подтяжку
+// .agent.
+func TestCloneSyncOutRetrievesDirsEvenWhenSyncCometStateFails(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
+	}
+	// Первые два вызова — commitLeftovers (дерево чистое, до коммита дело не
+	// доходит), третий — собственный cp syncCometState, отвечающий настоящей
+	// бедой (не «not found in container»).
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), exitErrWithCode(1),
+		errors.New("sbx cp: connection refused"),
+	}}
+
+	if err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard); err == nil {
+		t.Fatal("неудача syncCometState не вернула ошибку")
+	}
+
+	wantAgentSrc := name + ":" + filepath.Join(primary, ".agent")
+	var sawCopy bool
+	for _, call := range rec.calls {
+		if len(call) == 3 && call[0] == "cp" && call[1] == wantAgentSrc {
+			sawCopy = true
+		}
+	}
+	if !sawCopy {
+		t.Error(".agent не подтянут после провалившегося syncCometState — ранний return отменил retrieval")
+	}
+}
+
+// Important-находка независимого ревью (три источника независимо совпали):
+// при ДВУХ одновременных неудачах — commitLeftovers (sweepErr) и настоящем
+// отказе Dirs-цикла — итоговая ошибка обязана нести оба текста через
+// errors.Join, а не только последний: ранние return'ы внутри цикла (до этой
+// правки) отбрасывали sweepErr целиком, хотя он уже был залогирован.
+func TestCloneSyncOutJoinsSweepAndDirsErrorsWhenBothFail(t *testing.T) {
+	primary, fetchInto, name := setupCloneFixture(t)
+
+	l := &runner.Launch{
+		Workspaces: []runner.Workspace{{Path: primary}},
+		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1", Dirs: []string{".agent"}},
+	}
+	// commitLeftovers: не идёт слияние, дерево грязное, add — успех, staged
+	// непусто, но сам commit проваливается (sweepErr). Дальше — cp
+	// syncCometState (законный no-op), и, наконец, настоящий отказ cp .agent.
+	rec := &recordedStep{errs: []error{
+		exitErrWithCode(1), nil, nil, errors.New("непусто"), errors.New("git: identity unknown"),
+		errors.New(`ERROR: path ".../docs/comet/changes" not found in container`),
+		errors.New("sbx cp: connection refused"),
+	}}
+
+	err := cloneSyncOut(context.Background(), name, l, rec.run, nil, io.Discard)
+	if err == nil {
+		t.Fatal("двойная неудача (sweep + dirs) не вернула ошибку")
+	}
+	if !strings.Contains(err.Error(), "identity unknown") {
+		t.Errorf("итоговая ошибка потеряла sweepErr: %v", err)
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("итоговая ошибка потеряла ошибку Dirs-цикла: %v", err)
 	}
 }
 
@@ -663,6 +891,23 @@ func realSandboxStep(t *testing.T, primary, source string) step {
 	}
 }
 
+// realSandboxStepNoCometState — realSandboxStep, но отвечает «не найдено» на
+// любой cp-вызов вместо того, чтобы пытаться исполнить его по-настоящему:
+// source в тестах этого файла — голый репозиторий без docs/comet/changes,
+// и настоящий sbx cp на таком пути ответил бы тем же текстом. realSandboxStep
+// сама умеет только exec, поэтому syncCometState's cp здесь нуждается
+// в отдельном перехвате, а не в расширении realSandboxStep под cp вообще.
+func realSandboxStepNoCometState(t *testing.T, primary, source string) step {
+	t.Helper()
+	inner := realSandboxStep(t, primary, source)
+	return func(ctx context.Context, args ...string) error {
+		if len(args) == 3 && args[0] == "cp" {
+			return errors.New(`ERROR: path ".../docs/comet/changes" not found in container`)
+		}
+		return inner(ctx, args...)
+	}
+}
+
 // Важная находка независимого ревью (#7): предыдущие тесты проверяли только
 // форму вызова через recordedStep — здесь commitLeftovers прогоняется по
 // настоящему пути через fetchBranch до FetchInto, с настоящим git.
@@ -679,7 +924,7 @@ func TestCommitLeftoversReachesFetchIntoThroughFetchBranch(t *testing.T) {
 		Clone:      &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"},
 	}
 
-	if err := cloneSyncOut(context.Background(), name, l, realSandboxStep(t, primary, source), nil, io.Discard); err != nil {
+	if err := cloneSyncOut(context.Background(), name, l, realSandboxStepNoCometState(t, primary, source), nil, io.Discard); err != nil {
 		t.Fatalf("cloneSyncOut: %v", err)
 	}
 
@@ -1008,22 +1253,23 @@ func TestCloneOutcome(t *testing.T) {
 	}
 
 	cases := []struct {
-		name           string
-		timedOut       bool
-		runErr         error
-		cloneErr       error
-		wantCode       int
-		wantErr        bool
-		wantTimeout    bool // err оборачивает runner.ErrRunTimeout — на нём стоит terminationOf в runagent.go
-		wantErrLogged  bool // cloneErr дописан в лог, а не подменил возвращаемую ошибку
-		wantErrReplace bool // cloneErr подменил собой возвращаемую ошибку/код
+		name               string
+		timedOut           bool
+		runErr             error
+		cloneErr           error
+		wantCode           int
+		wantErr            bool
+		wantTimeout        bool // err оборачивает runner.ErrRunTimeout — на нём стоит terminationOf в runagent.go
+		wantErrLogged      bool // cloneErr дописан в лог, а не подменил возвращаемую ошибку
+		wantErrReplace     bool // cloneErr подменил собой возвращаемую ошибку/код
+		wantSyncIncomplete bool // err несёт ErrCloneSyncIncomplete — на этом стоит runagent.syncErr
 	}{
 		{name: "успех без --clone", wantCode: 0, wantErr: false},
-		{name: "успех, но синхронизация не удалась", cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true},
+		{name: "успех, но синхронизация не удалась", cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true, wantSyncIncomplete: true},
 		{name: "таймаут без беды синхронизации", timedOut: true, wantCode: -1, wantErr: true, wantTimeout: true},
-		{name: "таймаут и беда синхронизации — таймаут остаётся причиной", timedOut: true, cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantTimeout: true, wantErrLogged: true},
+		{name: "таймаут и беда синхронизации — оба сигнала сохраняются", timedOut: true, cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantTimeout: true, wantErrLogged: true, wantSyncIncomplete: true},
 		{name: "агент вышел с кодом 1, синхронизация в порядке", runErr: exitErr(1), wantCode: 1, wantErr: false},
-		{name: "агент вышел с кодом 1, синхронизация не удалась", runErr: exitErr(1), cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true},
+		{name: "агент вышел с кодом 1, синхронизация не удалась", runErr: exitErr(1), cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrReplace: true, wantSyncIncomplete: true},
 		{name: "exec вовсе не запустился", runErr: errors.New("permission denied"), wantCode: -1, wantErr: true},
 		{name: "exec не запустился и синхронизация тоже — первопричина остаётся", runErr: errors.New("permission denied"), cloneErr: errors.New("сеть"), wantCode: -1, wantErr: true, wantErrLogged: true},
 	}
@@ -1049,11 +1295,86 @@ func TestCloneOutcome(t *testing.T) {
 				if !strings.Contains(log.String(), tc.cloneErr.Error()) {
 					t.Errorf("cloneErr не дописан в лог: %q", log.String())
 				}
-				if err != nil && strings.Contains(err.Error(), tc.cloneErr.Error()) {
+				// Таймаут+cloneErr — намеренное исключение (round 3): там
+				// cloneErr обязан оказаться и в логе, и в самой ошибке разом
+				// (errors.Join), а не только в логе, — см. wantSyncIncomplete.
+				if !tc.wantSyncIncomplete && err != nil && strings.Contains(err.Error(), tc.cloneErr.Error()) {
 					t.Errorf("cloneErr подменил собой первопричину вместо того, чтобы просто дописаться в лог: %v", err)
 				}
 			}
+			// Round 2 независимого ревью: ErrCloneSyncIncomplete обязана
+			// стоять только там, где cloneErr — настоящая первопричина
+			// исхода (wantErrReplace), а не на таймауте/незапустившемся exec,
+			// где cloneErr — вторичная, уже залогированная потеря. Иначе
+			// runagent.syncErr хоронит усечённый по таймауту прогон с уже
+			// готовым результатом, хотя правила роли это запрещают.
+			if got := errors.Is(err, ErrCloneSyncIncomplete); got != tc.wantSyncIncomplete {
+				t.Errorf("errors.Is(err, ErrCloneSyncIncomplete) = %v, ожидалось %v (err: %v)", got, tc.wantSyncIncomplete, err)
+			}
 		})
+	}
+}
+
+// Blocker-находка независимого ревью (round 1), воспроизведена вживую до
+// правки: workspace.CloneSource, найдя незакоммиченную правку в FetchInto,
+// переносила её патчем прямо на клон-источник, оставляя FetchInto грязным —
+// и следующий за прогоном fetchBranch's `git merge --ff-only` отказывал
+// на «local changes would be overwritten by merge», унося уже настоящую
+// работу агента в снесённую песочницу. Прежние тесты жили по разные стороны
+// этой связки (workspace/clone_test.go — только клон-источник, здесь —
+// только fetchBranch на чистом FetchInto) и её не ловили; этот тест держит
+// CloneSource → (симуляция commitLeftovers внутри песочницы) → fetchBranch
+// целиком.
+func TestCloneSourceThenFetchBranchSurvivesUncommittedFetchInto(t *testing.T) {
+	root := t.TempDir()
+	bare := filepath.Join(root, "task.git")
+	if out, err := exec.Command("git", "init", "-q", "--bare", "-b", "master", bare).CombinedOutput(); err != nil {
+		t.Fatalf("bare не создан: %v\n%s", err, out)
+	}
+	fetchInto := filepath.Join(root, "fetch-into")
+	if out, err := exec.Command("git", "clone", "-q", bare, fetchInto).CombinedOutput(); err != nil {
+		t.Fatalf("клон не создан: %v\n%s", err, out)
+	}
+	commit(t, fetchInto, "seed")
+	runGit(t, fetchInto, "checkout", "-q", "-b", "task-1")
+	commit(t, fetchInto, "первый коммит задачи")
+
+	// Незакоммиченная правка, которую оставил предыдущий прогон.
+	if err := os.WriteFile(filepath.Join(fetchInto, "leftover.txt"), []byte("недоделанная правка\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	src, cleanup, err := workspace.CloneSource(context.Background(), fetchInto, "task-1")
+	if err != nil {
+		t.Fatalf("CloneSource: %v", err)
+	}
+	defer cleanup()
+
+	// Симуляция: sbx create --clone src заводит внутри песочницы ещё один
+	// обычный git clone src, и там commitLeftovers/агент добавляет коммит.
+	sandboxState := filepath.Join(root, "sandbox-state")
+	if out, err := exec.Command("git", "clone", "-q", src, sandboxState).CombinedOutput(); err != nil {
+		t.Fatalf("симулированный клон внутри песочницы не заведён: %v\n%s", err, out)
+	}
+	commit(t, sandboxState, "работа агента")
+
+	name := "office-test"
+	runGit(t, src, "remote", "add", "sandbox-"+name, sandboxState)
+
+	if err := fetchBranch(context.Background(), name, src, &runner.CloneSync{FetchInto: fetchInto, Branch: "task-1"}); err != nil {
+		t.Fatalf("fetchBranch: %v — незакоммиченная правка, оставленная в FetchInto, заблокировала перемотку", err)
+	}
+
+	log := runGitOutput(t, fetchInto, "log", "--format=%s")
+	if !strings.Contains(log, "работа агента") {
+		t.Errorf("работа агента не доехала до FetchInto: %q", log)
+	}
+	if !strings.Contains(log, "preserve worktree changes before --clone") {
+		t.Errorf("сохранённая незакоммиченная правка не доехала до FetchInto: %q", log)
+	}
+	got, err := os.ReadFile(filepath.Join(fetchInto, "leftover.txt"))
+	if err != nil || string(got) != "недоделанная правка\n" {
+		t.Errorf("leftover.txt не сохранился в FetchInto: %v, %q", err, got)
 	}
 }
 
@@ -1116,4 +1437,377 @@ func runGitOutput(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s: %v\n%s", full, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// copyCometStateMatches — присутствие: изменение "demo" нашлось в снимке,
+// синхронизация переносит только comet-state.yaml, а не соседние файлы того
+// же каталога изменения (их несёт git-слияние, а не эта маска).
+func TestCopyCometStateMatchesCopiesEachMatch(t *testing.T) {
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	demoDir := filepath.Join(scratch, "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(demoDir, "comet-state.yaml"), []byte("phase: verify\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(demoDir, "brief.md"), []byte("# бриф\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := copyCometStateMatches(scratch, fetchInto)
+	if err != nil {
+		t.Fatalf("copyCometStateMatches: %v", err)
+	}
+
+	want := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if !slices.Equal(written, []string{want}) {
+		t.Errorf("written = %q, ожидалось [%s]", written, want)
+	}
+	got, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("comet-state.yaml не появился в FetchInto: %v", err)
+	}
+	if string(got) != "phase: verify\n" {
+		t.Errorf("содержимое = %q, ожидалось %q", got, "phase: verify\n")
+	}
+	if _, err := os.Stat(filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "brief.md")); err == nil {
+		t.Error("brief.md скопирован — синхронизация обязана трогать только comet-state.yaml")
+	}
+}
+
+// copyCometStateMatches — отсутствие: снимок без единого изменения не должен
+// быть ошибкой и не должен ничего создать в FetchInto.
+func TestCopyCometStateMatchesNoopWhenNoMatches(t *testing.T) {
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	written, err := copyCometStateMatches(scratch, fetchInto)
+	if err != nil {
+		t.Fatalf("отсутствие совпадений не должно быть ошибкой: %v", err)
+	}
+	if len(written) != 0 {
+		t.Errorf("written = %q, ожидалось пусто", written)
+	}
+	entries, err := os.ReadDir(fetchInto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("в FetchInto появилось лишнее: %v", entries)
+	}
+}
+
+// syncCometState — отсутствие: docs/comet/changes нет в песочнице вовсе
+// (нет активного изменения Comet Native) — тот же принцип, что уже есть
+// у Dirs' отсутствующего .comet/runtime.
+func TestSyncCometStateNoopWhenChangesDirMissing(t *testing.T) {
+	fetchInto := t.TempDir()
+	rec := &recordedStep{errs: []error{errors.New(`ERROR: path ".../docs/comet/changes" not found in container`)}}
+
+	if err := syncCometState(context.Background(), "office-test", "/container/primary", fetchInto, rec.run, io.Discard); err != nil {
+		t.Fatalf("отсутствие docs/comet/changes не должно быть ошибкой: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Errorf("ожидался ровно 1 вызов (сам cp), получено %d: %q", len(rec.calls), rec.calls)
+	}
+}
+
+// syncCometState — настоящая неудача sbx cp обязана дойти до вызывающего,
+// а не раствориться в допущении «изменений нет».
+func TestSyncCometStatePropagatesRealCPFailure(t *testing.T) {
+	fetchInto := t.TempDir()
+	rec := &recordedStep{errs: []error{errors.New("sbx cp: connection refused")}}
+
+	if err := syncCometState(context.Background(), "office-test", "/container/primary", fetchInto, rec.run, io.Discard); err == nil {
+		t.Fatal("настоящая неудача sbx cp растворилась в допущении «изменений нет»")
+	}
+}
+
+// syncCometState — присутствие: настоящий sbx cp кладёт содержимое
+// docs/comet/changes внутри scratch-каталога под собственным basename
+// ("changes"), а не прямо в scratch, — то же допущение, на котором негласно
+// стоит и цикл по Dirs (см. его собственный cp в cloneSyncOut). Ни
+// TestCopyCometStateMatchesCopiesEachMatch (гонит copyCometStateMatches
+// напрямую с уже готовым каталогом), ни оба теста syncCometState выше (их cp
+// либо отвечает «не найдено», либо падает по-настоящему — ни один не
+// добирается до настоящего вызова copyCometStateMatches) не проверяли эту
+// раскладку: если бы она когда-нибудь разошлась с тем, что реально
+// откладывает sbx cp, comet-state.yaml пропадал бы молча при всех зелёных
+// тестах. Здесь step-подделка имитирует именно настоящую раскладку sbx cp
+// (comet-state.yaml внутри scratch/changes/demo/, а не в scratch/demo/), и
+// весь путь до fetchInto проходит через настоящий syncCometState.
+func TestSyncCometStateCopiesCometStateOnRealCPSuccess(t *testing.T) {
+	fetchInto := t.TempDir()
+	runGit(t, fetchInto, "init", "-q", "-b", "master", ".")
+	commit(t, fetchInto, "начало")
+	containerRoot := "/container/primary"
+	wantSrc := "office-test:" + filepath.Join(containerRoot, runner.CometChangesDir)
+
+	var calls [][]string
+	fakeCP := func(_ context.Context, args ...string) error {
+		calls = append(calls, args)
+		if len(args) != 3 || args[0] != "cp" || args[1] != wantSrc {
+			t.Fatalf("неожиданный вызов cp: %q", args)
+		}
+		// Настоящий `sbx cp <name>:<containerRoot>/docs/comet/changes <scratch>/`
+		// откладывает содержимое под <scratch>/changes/, а не прямо в <scratch>/.
+		scratchArg := strings.TrimSuffix(args[2], "/")
+		changeDir := filepath.Join(scratchArg, filepath.Base(runner.CometChangesDir), "demo")
+		if err := os.MkdirAll(changeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(changeDir, "comet-state.yaml"), []byte("phase: build\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return nil
+	}
+
+	if err := syncCometState(context.Background(), "office-test", containerRoot, fetchInto, fakeCP, io.Discard); err != nil {
+		t.Fatalf("syncCometState: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("ожидался ровно 1 вызов cp, получено %d: %q", len(calls), calls)
+	}
+
+	want := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	got, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("comet-state.yaml не появился в FetchInto: %v", err)
+	}
+	if string(got) != "phase: build\n" {
+		t.Errorf("содержимое = %q, ожидалось %q", got, "phase: build\n")
+	}
+	// Important-находка независимого ревью: рабочая папка задачи переиспользуется,
+	// и человека, который закоммитил бы эту правку руками, в конвейере нет —
+	// syncCometState обязана закоммитить её сама, а не оставить незакоммиченной.
+	if status := runGitOutput(t, fetchInto, "status", "--porcelain"); status != "" {
+		t.Errorf("comet-state.yaml остался незакоммиченным: %q", status)
+	}
+	if author := runGitOutput(t, fetchInto, "log", "-1", "--format=%an"); author != cloneSweepName {
+		t.Errorf("коммит comet-state.yaml приписан не той личности: %q, ожидалось %q", author, cloneSweepName)
+	}
+}
+
+// Blocker-находка независимого ревью (round 1), воспроизведена вживую до
+// правки: голый `git commit` без pathspec фиксирует весь индекс, а не только
+// comet-state.yaml — тот же класс, что уже разобран для
+// EnsureCometHookAllowPaths (internal/runner/input.go). Здесь это проверяется
+// посторонним застейдженным файлом, который обязан остаться в индексе
+// нетронутым после коммита comet-state.yaml.
+func TestCommitCometStateOnlyCommitsNamedPaths(t *testing.T) {
+	fetchInto := t.TempDir()
+	runGit(t, fetchInto, "init", "-q", "-b", "master", ".")
+	commit(t, fetchInto, "начало")
+
+	// Чужой, ещё не докоммиченный застейдженный кусок — то, что осталось бы
+	// в индексе fetchInto от, например, недоделанного коммита роли.
+	if err := os.WriteFile(filepath.Join(fetchInto, "unrelated.txt"), []byte("чужая работа\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, fetchInto, "add", "unrelated.txt")
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("phase: build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := commitCometState(context.Background(), fetchInto, []string{dst}); err != nil {
+		t.Fatalf("commitCometState: %v", err)
+	}
+
+	status := runGitOutput(t, fetchInto, "status", "--porcelain")
+	if !strings.Contains(status, "unrelated.txt") {
+		t.Errorf("посторонний застейдженный файл пропал из статуса вовсе: %q", status)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(status), "A") {
+		t.Errorf("посторонний файл должен остаться ЗАСТЕЙДЖЕННЫМ (A), а не уехать в коммит: %q", status)
+	}
+	tracked := runGitOutput(t, fetchInto, "show", "--stat", "--format=", "HEAD")
+	if strings.Contains(tracked, "unrelated.txt") {
+		t.Errorf("посторонний файл уехал в коммит comet-state.yaml: %s", tracked)
+	}
+	if !strings.Contains(tracked, "comet-state.yaml") {
+		t.Errorf("comet-state.yaml не закоммичен: %s", tracked)
+	}
+}
+
+// Симметричный случай: неудача самого коммита не должна оставить
+// comet-state.yaml висеть в индексе навсегда — иначе он уехал бы
+// в следующий коммит роли как будто сделанный ею (тот же прецедент,
+// что и у успешного пути выше, и у EnsureCometHookAllowPaths). Настоящий
+// незавершённый merge — реалистичный триггер: git явно отказывает
+// в partial commit по pathspec, пока MERGE_HEAD на месте (проверено
+// вживую), а comet-state.yaml как отдельный, неконфликтующий новый файл
+// спокойно проходит `git add`.
+func TestCommitCometStateResetsStagingOnCommitFailure(t *testing.T) {
+	fetchInto := t.TempDir()
+	runGit(t, fetchInto, "init", "-q", "-b", "master", ".")
+	if err := os.WriteFile(filepath.Join(fetchInto, "f.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, fetchInto, "add", "f.txt")
+	commit(t, fetchInto, "seed")
+
+	runGit(t, fetchInto, "checkout", "-q", "-b", "a")
+	if err := os.WriteFile(filepath.Join(fetchInto, "f.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, fetchInto, "add", "f.txt")
+	commit(t, fetchInto, "a-версия")
+
+	runGit(t, fetchInto, "checkout", "-q", "master")
+	runGit(t, fetchInto, "checkout", "-q", "-b", "b")
+	if err := os.WriteFile(filepath.Join(fetchInto, "f.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, fetchInto, "add", "f.txt")
+	commit(t, fetchInto, "b-версия")
+
+	mergeCmd := exec.Command("git", "-C", fetchInto, "merge", "a")
+	_ = mergeCmd.Run() // ожидаемо ненулевой код — конфликт
+	if _, err := os.Stat(filepath.Join(fetchInto, ".git", "MERGE_HEAD")); err != nil {
+		t.Fatalf("подготовка теста: конфликт слияния не начался: %v", err)
+	}
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("phase: build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := commitCometState(context.Background(), fetchInto, []string{dst}); err == nil {
+		t.Fatal("commitCometState прошла во время незавершённого слияния без ошибки")
+	}
+
+	status := runGitOutput(t, fetchInto, "status", "--porcelain")
+	for _, line := range strings.Split(status, "\n") {
+		if strings.HasSuffix(line, "comet-state.yaml") && len(line) > 0 && (line[0] == 'A' || line[0] == 'M') {
+			t.Errorf("comet-state.yaml остался застейдженным после неудачи коммита: %q", status)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(fetchInto, ".git", "MERGE_HEAD")); err != nil {
+		t.Error("MERGE_HEAD пропал — commitCometState тронула незавершённое слияние")
+	}
+}
+
+// copyCometStateMatches — идентичное содержимое: на здоровом прогоне
+// commitLeftovers уже закоммитила comet-state.yaml внутри песочницы, а
+// fetchBranch уже слила его в fetchInto — повторная запись здесь была бы
+// бессмысленным дублированием, а вдобавок незакоммиченным изменением
+// git-отслеживаемого файла (docs/comet/changes/<name>/comet-state.yaml
+// ничем не исключено из git). Найдено финальным ревью.
+func TestCopyCometStateMatchesSkipsIdenticalContent(t *testing.T) {
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	demoDir := filepath.Join(scratch, "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("phase: verify\n")
+	if err := os.WriteFile(filepath.Join(demoDir, "comet-state.yaml"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := copyCometStateMatches(scratch, fetchInto)
+	if err != nil {
+		t.Fatalf("copyCometStateMatches: %v", err)
+	}
+	if len(written) != 0 {
+		t.Errorf("written = %q, ожидалось пусто — содержимое в fetchInto уже совпадало", written)
+	}
+}
+
+// copyCometStateMatches — разное содержимое (или отсутствие вовсе на
+// назначении): пишет и сообщает вызывающему, что записала — именно то
+// назначение, что и является уязвимым случаем (незакоммиченная правка
+// отслеживаемого файла, на которой откажет следующий fetchBranch).
+func TestCopyCometStateMatchesReturnsWrittenPathWhenContentDiffers(t *testing.T) {
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	demoDir := filepath.Join(scratch, "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newContent := []byte("phase: verify\n")
+	if err := os.WriteFile(filepath.Join(demoDir, "comet-state.yaml"), newContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("phase: build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := copyCometStateMatches(scratch, fetchInto)
+	if err != nil {
+		t.Fatalf("copyCometStateMatches: %v", err)
+	}
+	if !slices.Equal(written, []string{dst}) {
+		t.Errorf("written = %q, ожидалось [%s]", written, dst)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(newContent) {
+		t.Errorf("содержимое = %q, ожидалось %q", got, newContent)
+	}
+}
+
+// Minor-находка независимого ревью: проверка дедупликации различала только
+// «то же самое» и «нужно писать», а любую настоящую беду чтения назначения
+// (не просто «файла ещё нет») тихо принимала за «нужно писать» — стиль
+// расходился с os.Stat+errors.Is(ErrNotExist), которым в этом же файле
+// пользуются cloneSyncIn и resolveExcludeFile. Назначение здесь — файл без
+// прав на чтение (0o200, только запись): os.ReadFile откажет по правам, а
+// не по ErrNotExist, но последующие MkdirAll/WriteFile прав на чтение не
+// требуют и молча перезаписали бы файл, если бы беда чтения не всплывала
+// раньше — тест различает именно эти два исхода, а не любую ошибку вообще.
+func TestCopyCometStateMatchesPropagatesRealReadError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("под root права доступа не ограничивают чтение")
+	}
+	scratch := t.TempDir()
+	fetchInto := t.TempDir()
+
+	demoDir := filepath.Join(scratch, "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(demoDir, "comet-state.yaml"), []byte("phase: verify\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(fetchInto, runner.CometChangeDirForName("demo"), "comet-state.yaml")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("phase: build\n"), 0o200); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := copyCometStateMatches(scratch, fetchInto); err == nil {
+		t.Fatal("настоящая беда чтения назначения принята за «нужно писать»")
+	}
 }

@@ -55,6 +55,12 @@ type Request struct {
 	Workdir  string
 	Passport runner.Run
 	Mounts   []runner.Workspace
+	// Branch — ветка задачи, на которой стоит рабочая папка (то же значение,
+	// что PrepareInput уже отдавал контексту через runner.Input.Branch).
+	// SandboxAgent.Run использует её для одноразового клона-источника
+	// --clone (internal/workspace.CloneSource) — см. docs/superpowers/specs/
+	// 2026-09-02-pipeline-clone-wiring-design.md.
+	Branch string
 }
 
 // Sandboxes — уборка песочниц прогонов, не переживших своего раннера.
@@ -441,12 +447,28 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	// reaper'у прямо посреди прогона.
 	stop := o.keepLease(ctx, task.Key, runID, role)
 	run, runErr := o.Agent.Run(ctx, Request{
-		Role: role, Workdir: ws.Dir, Passport: passport, Mounts: ws.Mounts(),
+		Role: role, Workdir: ws.Dir, Passport: passport, Mounts: ws.Mounts(), Branch: ws.Branch,
 	})
 	stop()
 
 	if runErr != nil {
-		// Прогон не состоялся: аренда остаётся, задачу вернёт reaper.
+		// Прогон мог всё-таки состояться и стоить реальных денег — на sbx это
+		// ErrSyncIncomplete (--clone синхронизация вышла из песочницы не
+		// целиком, хотя агент отработал), и run в этом случае несёт настоящий
+		// Usage, а не нулевой. Публикацию (Push) и продвижение задачи по
+		// графу это не разблокирует — работа могла не доехать до FetchInto
+		// целиком, аренда остаётся, задачу вернёт reaper, — но учёт расхода
+		// уже состоявшегося прогона теряться не должен: агент уже потратил
+		// токены независимо от исхода синхронизации (независимое ревью,
+		// round 2; тот же принцип, что и у обычного учёта ниже).
+		if run.Usage.Known() {
+			o.account(ledger.Entry{
+				RunID: runID, Task: task.Key, Role: roleName, Project: c.ref.Project,
+				Started: passport.StartedAt, Usage: run.Usage,
+				Outcome: string(run.Result.Outcome), Termination: string(run.Termination.Kind),
+				ConfigSHA: o.ConfigSHA,
+			})
+		}
 		return fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
 	}
 	result, usage := run.Result, run.Usage

@@ -193,15 +193,22 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 	}
 	defer func() { _ = launch.Cleanup() }()
 
+	// opts — копия по значению: эта правка не задевает вызывающего и не
+	// касается Prepare выше, которому нужен настоящий opts.Workdir (клон-
+	// источник, куда --clone реально смотрит) — только всё, что читается
+	// ПОСЛЕ прогона. См. doc-комментарий resultWorkdir.
+	opts.Workdir = resultWorkdir(opts)
+
 	logPath := filepath.Join(opts.Workdir, runner.Dir, runner.FileLog)
 	exitCode, runErr := run(ctx, launch.Launch, logPath)
 
 	usage := usageOf(logPath)
 
-	result, err := runner.ReadResult(opts.Workdir)
-	if err != nil {
+	result, resultErr := runner.ReadResult(opts.Workdir)
+	hasResult := resultErr == nil
+	if !hasResult {
 		// Раннер не додумывает исход за агента: молчание — это failed.
-		reason := err.Error()
+		reason := resultErr.Error()
 		switch {
 		case runErr != nil:
 			reason = runErr.Error() + "; " + reason
@@ -215,7 +222,7 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 		Result:      result,
 		Usage:       usage,
 		Limit:       limitOf(logPath),
-		Termination: terminationOf(opts, err == nil, endingOf(logPath), usage.Turns, runErr),
+		Termination: terminationOf(opts, hasResult, endingOf(logPath), usage.Turns, runErr),
 		ExitCode:    exitCode,
 		LogPath:     logPath,
 	}
@@ -226,7 +233,79 @@ func Execute(ctx context.Context, opts Options) (Outcome, error) {
 	if out.Archive, err = runner.Archive(opts.Workdir, opts.Passport.RunID); err != nil {
 		return out, fmt.Errorf("прогон не заархивирован: %w", err)
 	}
+	if err := syncErr(hasResult, runErr); err != nil {
+		return out, err
+	}
 	return out, nil
+}
+
+// syncErr — что Execute возвращает как собственную ошибку, когда result.json
+// дочитан успешно (hasResult), а сам backend run() всё равно вернул ошибку,
+// и именно эта ошибка — sbx.ErrCloneSyncIncomplete: --clone синхронизация
+// вышла из песочницы не целиком (например, syncCometState/commitLeftovers
+// упали), хотя .agent Dirs-цикл его всё равно принёс (см. cloneSyncOut/
+// cloneOutcome в internal/backends/sbx/clone.go). out.Result в этом случае
+// настоящий — агент отработал, задачу это не хоронит, — но и молчать
+// нельзя: раньше runErr в этой ветке терялся целиком, и настоящая
+// инфраструктурная беда репортилась в тикет как чистый успех (независимое
+// ревью).
+//
+// Проверка именно через errors.Is(runErr, sbx.ErrCloneSyncIncomplete),
+// а не «runErr != nil», — round 2 независимого ревью: cloneOutcome
+// возвращает через тот же канал ещё усечённый по таймауту прогон и
+// незапустившийся exec, а у обоих (per terminationOf) уже готовый результат
+// — законный, разобранный правилами роли исход («усечённый прогон не
+// начинают заново»), не повод хоронить прогон как незавершённую
+// синхронизацию.
+//
+// Без hasResult (result.json не дочитан) — намеренно не отсюда: reason
+// в FailedResult уже несёт текст runErr, и повторно оборачивать её здесь
+// незачем — тем же приёмом, каким terminationOf вовсе не смотрит на runErr,
+// когда hasResult истинен.
+func syncErr(hasResult bool, runErr error) error {
+	if !hasResult || !errors.Is(runErr, sbx.ErrCloneSyncIncomplete) {
+		return nil
+	}
+	return &ErrSyncIncomplete{err: fmt.Errorf("прогон состоялся, но песочница отдала не всё: %w", runErr)}
+}
+
+// ErrSyncIncomplete — обёртка над ошибкой из syncErr. Тип, а не голая
+// fmt.Errorf, специально затем, чтобы вызывающий (internal/pipeline/agent.go,
+// SandboxAgent.Run) мог отличить эту ошибку от неудачи runner.Archive,
+// которая возвращается тем же путём (Outcome уже заполнен, err не nil) —
+// независимое ревью: тот же общий путь «результат есть, поэтому логируем
+// и не хороним задачу» раньше накрывал обе ошибки не глядя, хотя они разного
+// калибра. Неудача архивации не теряет ничего — материал уже надёжно лежит
+// в FetchInto к тому моменту; ErrSyncIncomplete как раз про обратное: часть
+// того, что должно было туда доехать (ветка агента, comet-state.yaml),
+// возможно, осталась в снесённой песочнице. Такую ошибку нельзя тихо
+// прощать — вызывающий обязан провалить прогон и отдать задачу reaper'у
+// на повтор, а не отчитаться перед трекером как done.
+type ErrSyncIncomplete struct{ err error }
+
+func (e *ErrSyncIncomplete) Error() string { return e.err.Error() }
+func (e *ErrSyncIncomplete) Unwrap() error { return e.err }
+
+// NewErrSyncIncomplete оборачивает err в *ErrSyncIncomplete. Только для
+// тестов вызывающих пакетов (internal/pipeline/agent_test.go), которым
+// нужно смоделировать эту ошибку через фальшивку executeAgent, не имея
+// доступа к приватному полю типа; в проде её заводит только syncErr выше.
+func NewErrSyncIncomplete(err error) error { return &ErrSyncIncomplete{err: err} }
+
+// resultWorkdir — где на хосте на самом деле искать .agent/* и git-историю
+// после прогона. Под --clone opts.Workdir — одноразовый клон-источник
+// (internal/workspace.CloneSource): cloneSyncOut (internal/backends/sbx/
+// clone.go) его читает (fetchBranch берёт оттуда URL git-daemon'а песочницы),
+// но ничего послепрогонного туда не пишет — .agent/result.json,
+// .comet/runtime, comet-state.yaml, коммиты агента через fetchBranch's merge —
+// всё это уезжает в opts.Clone.FetchInto, настоящую рабочую папку задачи. Без
+// Clone opts.Workdir и есть эта самая папка (бинд-маунт, или ручной
+// run-agent --clone, где оба пути исторически совпадают нарочно).
+func resultWorkdir(opts Options) string {
+	if opts.Clone != nil {
+		return opts.Clone.FetchInto
+	}
+	return opts.Workdir
 }
 
 // usageOf читает расход прогона из его лога.

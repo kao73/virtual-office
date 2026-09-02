@@ -24,3 +24,25 @@ func TestPrepareRejectsCloneWithMounts(t *testing.T) {
 		t.Errorf("ошибка не называет причину: %v", err)
 	}
 }
+
+// Задача 7 (docs/superpowers/specs/2026-09-02-pipeline-clone-wiring-design.md):
+// под --clone opts.Workdir — одноразовый клон-источник, который cloneSyncOut
+// (internal/backends/sbx/clone.go) не трогает вовсе — всё послепрогонное
+// (.agent/result.json, git-коммиты через fetchBranch) уезжает в
+// opts.Clone.FetchInto, настоящую рабочую папку задачи.
+func TestResultWorkdirUsesFetchIntoWhenCloneSet(t *testing.T) {
+	opts := Options{
+		Workdir: "/tmp/disposable-clone-source",
+		Clone:   &runner.CloneSync{FetchInto: "/tmp/real-worktree"},
+	}
+	if got := resultWorkdir(opts); got != "/tmp/real-worktree" {
+		t.Errorf("resultWorkdir = %q, ожидалось /tmp/real-worktree (Clone.FetchInto)", got)
+	}
+}
+
+func TestResultWorkdirUsesWorkdirWithoutClone(t *testing.T) {
+	opts := Options{Workdir: "/tmp/bind-mount-worktree"}
+	if got := resultWorkdir(opts); got != "/tmp/bind-mount-worktree" {
+		t.Errorf("resultWorkdir = %q, ожидалось /tmp/bind-mount-worktree (opts.Workdir, Clone нет)", got)
+	}
+}

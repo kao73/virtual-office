@@ -1,6 +1,7 @@
 package sbx
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -41,11 +42,15 @@ const cloneSyncTimeout = 5 * time.Minute
 // существующего внутри клона .git/info/exclude штатно, без chown — git
 // сам его только читает, а cp оставляет за агентом право на чтение.
 //
-// Путь — не через `git rev-parse --git-common-dir`, а напрямую: primary
-// (l.Workspaces[0].Path) не бывает worktree'ем в принципе — --clone сам
-// отказывает на этом ещё на sbx create («not supported when run from
-// a Git worktree», измерено вживую), а только у worktree `.git` — файл,
-// а не каталог, и общий git-каталог лежит не рядом с рабочей копией.
+// На контейнерной стороне (containerRoot, l.Workspaces[0].Path) путь всегда
+// напрямую, без `git rev-parse --git-common-dir`: containerRoot не бывает
+// worktree'ем в принципе — --clone сам отказывает на этом ещё на sbx create
+// («not supported when run from a Git worktree», измерено вживую). На
+// хостовой стороне (hostRoot, l.Clone.FetchInto) это уже не всегда так —
+// у второго вызывающего (internal/pipeline/agent.go) hostRoot по умолчанию
+// и есть настоящий worktree задачи, где `.git` — файл, а не каталог, и общий
+// git-каталог лежит не рядом с рабочей копией; resolveExcludeFile ниже
+// разбирает этот случай отдельно.
 const excludeFile = ".git/info/exclude"
 
 // cloneSyncIn заносит в песочницу --clone то, чего не видно git-клону:
@@ -53,6 +58,15 @@ const excludeFile = ".git/info/exclude"
 // git (l.Clone.Dirs) — git-клон копирует только закоммиченное, а .agent
 // и кэш локального исполнения .comet/runtime/ исключены из git нарочно
 // (runner.ExcludeAgentDir, runner.ExcludeCometRuntime).
+//
+// containerRoot (l.Workspaces[0].Path) адресует только то, что sbx cp/sbx exec
+// видят ВНУТРИ песочницы — тот путь, куда sbx create --clone сам клонировал
+// свой источник. Всё, что читается с хоста (exclude-файл, содержимое Dirs),
+// идёт через l.Clone.FetchInto — настоящую рабочую папку задачи, которая
+// может не совпадать с containerRoot (пайплайновый клон-источник —
+// одноразовый и отдельный от неё; см. internal/workspace.CloneSource).
+// У сегодняшнего ручного `run-agent --clone` оба пути равны нарочно, и для
+// него поведение не меняется.
 //
 // Возвращает те из l.Clone.Dirs, что реально нашлись на хосте на момент
 // прогона: cloneSyncOut использует этот список, чтобы отличить «каталога
@@ -62,34 +76,35 @@ func cloneSyncIn(ctx context.Context, name string, l *runner.Launch, run step) (
 	ctx, cancel := context.WithTimeout(ctx, cloneSyncTimeout)
 	defer cancel()
 
-	primary := l.Workspaces[0].Path
+	containerRoot := l.Workspaces[0].Path
 
-	if err := syncExcludeFile(ctx, name, primary, run); err != nil {
+	if err := syncExcludeFile(ctx, name, containerRoot, l.Clone.FetchInto, run); err != nil {
 		return nil, fmt.Errorf("правила git-исключения не занесены: %w", err)
 	}
 
 	var present, paths []string
 	for _, dir := range l.Clone.Dirs {
-		src := filepath.Join(primary, dir)
-		switch _, err := os.Stat(src); {
+		hostSrc := filepath.Join(l.Clone.FetchInto, dir)
+		containerDst := filepath.Join(containerRoot, dir)
+		switch _, err := os.Stat(hostSrc); {
 		case errors.Is(err, os.ErrNotExist):
 			continue // .comet/ бывает не заведён вовсе — задача без изменения Comet Native
 		case err != nil:
-			return nil, fmt.Errorf("%s не проверен: %w", src, err)
+			return nil, fmt.Errorf("%s не проверен: %w", hostSrc, err)
 		}
 		// .comet/ может не существовать внутри свежего клона вовсе (роль ещё
 		// не закоммитила .comet/config.yaml, и .comet/runtime/ тем более не
 		// заведён) — тогда sbx cp либо откажет, либо поведёт себя
 		// недокументированно. Заводим родителя явно, а не полагаемся на то,
 		// что цель уже есть.
-		if err := run(ctx, "exec", name, "mkdir", "-p", filepath.Dir(src)); err != nil {
-			return nil, fmt.Errorf("%s внутри песочницы не заведён: %w", filepath.Dir(src), err)
+		if err := run(ctx, "exec", name, "mkdir", "-p", filepath.Dir(containerDst)); err != nil {
+			return nil, fmt.Errorf("%s внутри песочницы не заведён: %w", filepath.Dir(containerDst), err)
 		}
-		if err := run(ctx, "cp", src, name+":"+filepath.Dir(src)+"/"); err != nil {
+		if err := run(ctx, "cp", hostSrc, name+":"+filepath.Dir(containerDst)+"/"); err != nil {
 			return nil, err
 		}
 		present = append(present, dir)
-		paths = append(paths, src)
+		paths = append(paths, containerDst)
 	}
 	if len(paths) == 0 {
 		return present, nil
@@ -97,12 +112,13 @@ func cloneSyncIn(ctx context.Context, name string, l *runner.Launch, run step) (
 
 	// sbx cp заносит каталог с хостовым владельцем (измерено вживую): без
 	// chown агент внутри песочницы (uid agent) не может в него писать.
+	// chown зовётся внутри песочницы, поэтому paths здесь — контейнерные пути.
 	args := append([]string{"exec", "-u", "root", name, "chown", "-R", "agent:agent"}, paths...)
 	if err := run(ctx, args...); err != nil {
 		return nil, err
 	}
 
-	if err := clearStaleCometLocks(ctx, name, primary, present, run); err != nil {
+	if err := clearStaleCometLocks(ctx, name, containerRoot, present, run); err != nil {
 		return nil, err
 	}
 	return present, nil
@@ -128,12 +144,10 @@ const cometRuntimeDir = ".comet/runtime"
 // исполнение, ради которого --clone вообще существует; локи — не оно.
 //
 // Второе, независимое ревью нашло, что это лечит только путь --clone —
-// сегодняшний продовый конвейер идёт бинд-маунтом (internal/pipeline/
-// agent.go, «Options.Clone нарочно не выставляется») с переиспользуемым
-// worktree (workspace.Manager.Ensure), а не эфемерной песочницей: тот же
-// класс мёртвого лока там чистит runner.ClearStaleCometLocks
-// (internal/runner/input.go), вызванная из PrepareInput под тем же барьером
-// worktree, что и здесь — под замком sbx.
+// на бэкенде local (без --clone вовсе) тот же класс мёртвого лока чистит
+// runner.ClearStaleCometLocks (internal/runner/input.go), вызванная из
+// PrepareInput под барьером переиспользуемого worktree (workspace.Manager.
+// Ensure) до всякой песочницы, а не после неё.
 func clearStaleCometLocks(ctx context.Context, name, primary string, present []string, run step) error {
 	if !slices.Contains(present, cometRuntimeDir) {
 		return nil // .comet/runtime не заносился этим прогоном
@@ -145,21 +159,78 @@ func clearStaleCometLocks(ctx context.Context, name, primary string, present []s
 	return nil
 }
 
-// syncExcludeFile переносит хостовые правила git-исключения (excludeFile)
-// внутрь свежего git-клона песочницы. Источника может не быть только если
-// эта рабочая папка никогда не проходила через runner.PrepareInput —
-// такого сегодня не бывает ни у одного вызывающего, но падать на этом
-// незачем: без файла агент просто увидит .agent/.comet как некомментированную
-// грязь, что не хуже сегодняшнего поведения без --clone вовсе.
-func syncExcludeFile(ctx context.Context, name, primary string, run step) error {
-	src := filepath.Join(primary, excludeFile)
+// resolveExcludeFile находит, где на хосте на самом деле лежат правила
+// git-исключения для hostRoot: у обычного репозитория это hostRoot/excludeFile
+// напрямую (быстрый путь, без обращения к git), а у worktree'а .git —
+// файл-ссылка, а не каталог, и общий git-каталог (где реально лежит
+// info/exclude) резолвится через `git rev-parse --git-common-dir`, тем же
+// приёмом, что уже применяют appendExcludeRules/removeExcludeRule
+// (internal/runner/input.go). Сегодня два вызывающих идут разными путями:
+// ручной cmd/run-agent --clone держит hostRoot обычным репозиторием (быстрый
+// путь), а internal/pipeline/agent.go (cloneOptionsFor) по умолчанию отдаёт
+// сюда l.Clone.FetchInto — настоящий worktree задачи (independent review:
+// комментарий раньше называл только первого, из-за чего расхождение
+// оказалось неверным уже на момент появления второго).
+//
+// ctx — тот же, под которым уже идёт cloneSyncIn/cloneSyncOut (cloneSyncTimeout):
+// hostRoot задаёт вызывающий (l.Clone.FetchInto), и в принципе это может быть
+// подвисшая точка монтирования — rev-parse обязан подчиняться общему
+// таймауту прогона так же, как и sbx cp/exec рядом, а не звать git вслепую
+// через exec.Command без возможности его оборвать (независимое ревью).
+func resolveExcludeFile(ctx context.Context, hostRoot string) (string, error) {
+	info, err := os.Stat(filepath.Join(hostRoot, ".git"))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// Хостовая папка ещё не git-репозиторий (сегодня такого не бывает
+		// ни у одного вызывающего) — путь всё равно возвращаем, дальнейший
+		// os.Stat в syncExcludeFile сам законно ответит «источника нет».
+		return filepath.Join(hostRoot, excludeFile), nil
+	case err != nil:
+		return "", fmt.Errorf("%s/.git не проверен: %w", hostRoot, err)
+	case info.IsDir():
+		return filepath.Join(hostRoot, excludeFile), nil
+	}
+
+	// .git — файл: hostRoot — worktree, общий git-каталог лежит не здесь.
+	// gitOutput, а не голый .Output(): при отказе кладёт в ошибку весь
+	// combined output (stderr git включительно) — без него настоящий отказ
+	// git (побитый .git, права) выглядел неотличимо от голого «exit status
+	// 128» (независимое ревью). Отдельно проверять ctx.Err() здесь не нужно:
+	// на этой версии Go exec.CommandContext сам оборачивает отказ отменённым/
+	// истёкшим контекстом как context.Canceled/context.DeadlineExceeded
+	// (измерено вживую), и errors.Is видит его сквозь %w из gitOutput.
+	common, err := gitOutput(ctx, hostRoot, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", fmt.Errorf("общий git-каталог %s не определён: %w", hostRoot, err)
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(hostRoot, common)
+	}
+	return filepath.Join(common, "info", "exclude"), nil
+}
+
+// syncExcludeFile переносит хостовые правила git-исключения внутрь свежего
+// git-клона песочницы. containerRoot — куда класть внутри песочницы (sbx
+// cp/sbx exec это видят); hostRoot — l.Clone.FetchInto, где эти правила
+// реально лежат на хосте (resolveExcludeFile разрешает worktree-случай).
+// Источника может не быть только если эта рабочая папка никогда не проходила
+// через runner.PrepareInput — такого сегодня не бывает ни у одного
+// вызывающего, но падать на этом незачем: без файла агент просто увидит
+// .agent/.comet как некомментированную грязь, что не хуже сегодняшнего
+// поведения без --clone вовсе.
+func syncExcludeFile(ctx context.Context, name, containerRoot, hostRoot string, run step) error {
+	src, err := resolveExcludeFile(ctx, hostRoot)
+	if err != nil {
+		return err
+	}
 	switch _, err := os.Stat(src); {
 	case errors.Is(err, os.ErrNotExist):
 		return nil
 	case err != nil:
 		return fmt.Errorf("%s не проверен: %w", src, err)
 	}
-	return run(ctx, "cp", src, name+":"+filepath.Dir(src)+"/")
+	dst := filepath.Join(containerRoot, excludeFile)
+	return run(ctx, "cp", src, name+":"+filepath.Dir(dst)+"/")
 }
 
 // notFoundInContainer — как sbx cp сообщает про путь, которого в песочнице
@@ -171,28 +242,33 @@ const notFoundInContainer = "not found in container"
 // и забирает каталоги вне git (агент мог дописать в них: .agent/result.json,
 // .comet/runtime/ при первом comet native new).
 //
-// Порядок — commitLeftovers, потом fetchBranch, потом каталоги — и это
-// не произвольный порядок, а два независимых ограничения разом:
+// Четыре шага — commitLeftovers, fetchBranch, syncCometState, каталоги — по
+// большей части независимы (каждый копит свою ошибку и логирует её громко,
+// не прерывая остальные, а функция в конце собирает всё через errors.Join),
+// кроме одной настоящей зависимости: syncCometState коммитит comet-state.yaml
+// прямо в l.Clone.FetchInto, а не просто копирует файл, и обязана звать это
+// только когда fetchErr == nil — иначе comet-state.yaml обогнал бы код на
+// FetchInto, застрявшем на дореспрогонной точке (независимое ревью). Каталоги
+// (l.Clone.Dirs — .agent, .comet/runtime по контракту cmd/run-agent/main.go
+// и internal/pipeline/agent.go) такой зависимости не несут вовсе: по контракту
+// самого поля (internal/runner/launch.go) им запрещено называть
+// git-отслеживаемые пути именно затем, чтобы их подтяжка не зависела от
+// исхода git-слияния.
 //
-//  1. commitLeftovers — раньше fetchBranch, а не после (как было раньше,
-//     см. историю этого файла и Task 23 плана): коммит-подчистка обязана
-//     появиться в истории песочницы прежде, чем оттуда сходит git fetch —
-//     иначе она останется внутри снесённой песочницы точно так же, как то,
-//     что она спасает.
-//  2. fetchBranch — раньше каталогов: часть l.Clone.Dirs (например,
-//     .comet/config.yaml, если роль его коммитит — см. roles/analyst/role.md)
-//     на самом деле лежит и в git. Занеси её на хост раньше git-слияния —
-//     и следующее за ней `git merge --ff-only` откажет: «your local
-//     changes... would be overwritten by merge» (воспроизведено вживую при
-//     разработке). Слиянием сперва — а уже потом поверх чистого дерева —
-//     каталоги кладутся без риска зацепить то, что git и так вот-вот
-//     принесёт сам.
-//
-// Зовётся при любом исходе прогона, включая усечение по таймауту или
-// пределу шагов: снос песочницы следом безвозвратно унесёт коммиты агента,
-// а по правилам роли усечённый прогон не начинают заново — продолжают
-// с места, до которого дошли, и без синхронизации продолжать было бы
-// не с чем.
+// Раньше было не так: ранний return на неудаче commitLeftovers один раз уже
+// стирал час честной работы агента (истёкший по таймауту `git commit» роли
+// оставляет `.git/index.lock», из-за которого сама подчистка не может даже
+// начать `git add») и терял настоящий result.json уже состоявшегося прогона,
+// превращая здоровый исход в синтетический `failed` на runagent.ReadResult;
+// тот же ранний return на fetchBranch и на неудаче цикла по Dirs повторял ту
+// же потерю дальше — независимое ревью нашло все три места (fetchBranch, оба
+// return'а внутри цикла Dirs), и одно из них — тем же приёмом, каким уже была
+// закрыта связка sweepErr/stateErr, но осталось незакрытым для
+// fetchErr/dirsErr. Зовётся при любом исходе прогона, включая усечение по
+// таймауту или пределу шагов: снос песочницы следом безвозвратно унесёт
+// коммиты агента, а по правилам роли усечённый прогон не начинают заново —
+// продолжают с места, до которого дошли, и без синхронизации продолжать
+// было бы не с чем.
 //
 // presentOnEntry — список l.Clone.Dirs, реально занесённых cloneSyncIn
 // (её собственный возврат): «в песочнице не нашлось» терпимо только для
@@ -200,55 +276,56 @@ const notFoundInContainer = "not found in container"
 // настоящая беда, а не законное «роль его не завела».
 //
 // Возвращает наружу закоммиченное (fetchBranch, включая коммит-подчистку
-// commitLeftovers) и явно названные l.Clone.Dirs. До Задачи 23 незакоммиченный
-// остаток снос песочницы безвозвратно терял и только логировал это
-// (warnUncommitted) — живым прогоном найдено, что это не теоретический
-// случай: ни implementer, ни reviewer не коммитят
-// docs/comet/changes/<name>/comet-state.yaml, который `comet native`
-// постоянно правит своими CLI-вызовами как побочный эффект протокола, и
-// состояние Comet Native терялось на каждом --clone-прогоне после первого.
-// commitLeftovers ниже это чинит общим приёмом, а не точечно под один файл.
-//
-// Неудача commitLeftovers копится в sweepErr и возвращается только после
-// fetchBranch И после цикла по l.Clone.Dirs ниже, а не вместо них: сеть
-// безопасности не вправе отменить ни подтяжку настоящих коммитов агента,
-// ни подтяжку .agent/result.json — независимое ревью нашло живьём
-// воспроизводимый сценарий (усечение по таймауту прямо посреди `git
-// commit` роли оставляет `.git/index.lock`, из-за которого сама подчистка
-// не может даже начать `git add`), где ранний return sweepErr стирал бы
-// час честной работы агента ради спасения объедков, которых, возможно, и не
-// было — и отдельно нашло, что до этой правки тот же ранний return ещё
-// и терял настоящий result.json уже состоявшегося прогона, превращая
-// здоровый исход в синтетический `failed` на runagent.ReadResult. fetchBranch
-// и цикл по Dirs тем самым остаются безусловными — ровно тем свойством,
-// которого требует doc-комментарий fetchBranch («зовётся при любом
-// исходе прогона»).
+// commitLeftovers), длящееся состояние Comet Native (syncCometState) и явно
+// названные l.Clone.Dirs. До Задачи 23 незакоммиченный остаток снос
+// песочницы безвозвратно терял и только логировал это (warnUncommitted) —
+// живым прогоном найдено, что это не теоретический случай: ни implementer,
+// ни reviewer не коммитят docs/comet/changes/<name>/comet-state.yaml,
+// который `comet native` постоянно правит своими CLI-вызовами как побочный
+// эффект протокола, и состояние Comet Native терялось на каждом
+// --clone-прогоне после первого. commitLeftovers ниже это чинит общим
+// приёмом, а не точечно под один файл.
 func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, presentOnEntry []string, log io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cloneSyncTimeout)
 	defer cancel()
 
-	primary := l.Workspaces[0].Path
+	containerRoot := l.Workspaces[0].Path
 
-	sweepErr := commitLeftovers(ctx, log, name, primary, l.Clone.Dirs, run)
+	sweepErr := commitLeftovers(ctx, log, name, containerRoot, l.Clone.Dirs, run)
 	if sweepErr != nil {
 		fmt.Fprintf(log, "\nпесочница %s: подчистка незакоммиченного не удалась: %v\n", name, sweepErr)
 	}
-	if err := fetchBranch(ctx, name, primary, l.Clone); err != nil {
-		return err
+
+	fetchErr := fetchBranch(ctx, name, containerRoot, l.Clone)
+	if fetchErr != nil {
+		fmt.Fprintf(log, "\nпесочница %s: ветка задачи не подтянута: %v\n", name, fetchErr)
 	}
 
-	// sweepErr возвращается только после этого цикла, а не раньше него:
-	// независимое ревью нашло, что прежний ранний return sweepErr здесь
-	// пропускал и подтяжку .agent/result.json — того же рода потеря, что
-	// и у самой fetchBranch выше (см. её doc-комментарий), только для
-	// каталогов вместо коммитов. Сеть безопасности commitLeftovers не
-	// вправе отменять ни то, ни другое.
-	for _, dir := range l.Clone.Dirs {
-		dst := filepath.Join(primary, dir)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("%s на хосте не заведён: %w", filepath.Dir(dst), err)
+	// Только если ветка реально перемотана: syncCometState коммитит
+	// comet-state.yaml прямо в FetchInto, а не просто копирует файл, — и
+	// если fetchBranch не удалась, FetchInto стоит на старой точке, где
+	// самого кода агента ещё нет. Закоммить comet-state.yaml туда всё равно
+	// значило бы состояние Comet Native обогнало бы код — рассинхронизация,
+	// от которой этот шаг и должен защищать (независимое ревью). В отличие
+	// от Dirs ниже (никогда не git-отслеживаемые, см. их doc-комментарий),
+	// зависимость здесь настоящая, а не сеть безопасности поверх неё.
+	var stateErr error
+	if fetchErr == nil {
+		stateErr = syncCometState(ctx, name, containerRoot, l.Clone.FetchInto, run, log)
+		if stateErr != nil {
+			fmt.Fprintf(log, "\nпесочница %s: длящееся состояние Comet Native не подтянуто: %v\n", name, stateErr)
 		}
-		err := run(ctx, "cp", name+":"+dst, filepath.Dir(dst)+"/")
+	}
+
+	var dirsErr error
+	for _, dir := range l.Clone.Dirs {
+		containerSrc := filepath.Join(containerRoot, dir)
+		hostDst := filepath.Join(l.Clone.FetchInto, dir)
+		if err := os.MkdirAll(filepath.Dir(hostDst), 0o755); err != nil {
+			dirsErr = errors.Join(dirsErr, fmt.Errorf("%s на хосте не заведён: %w", filepath.Dir(hostDst), err))
+			continue
+		}
+		err := run(ctx, "cp", name+":"+containerSrc, filepath.Dir(hostDst)+"/")
 		if err == nil {
 			continue
 		}
@@ -262,9 +339,9 @@ func cloneSyncOut(ctx context.Context, name string, l *runner.Launch, run step, 
 		if strings.Contains(err.Error(), notFoundInContainer) && !slices.Contains(presentOnEntry, dir) {
 			continue
 		}
-		return err
+		dirsErr = errors.Join(dirsErr, err)
 	}
-	return sweepErr
+	return errors.Join(sweepErr, fetchErr, stateErr, dirsErr)
 }
 
 // cloneSweepName/cloneSweepEmail — личность коммита, которым commitLeftovers
@@ -535,6 +612,178 @@ func gitOutput(ctx context.Context, dir string, args ...string) (string, error) 
 	return strings.TrimSpace(string(out)), nil
 }
 
+// copyCometStateMatches переносит из fromChangesDir (снимок docs/comet/changes,
+// уже выгруженный из песочницы на хост — см. syncCometState) только файлы
+// comet-state.yaml, по одному на найденное изменение, в fetchInto/docs/comet/
+// changes/<name>/comet-state.yaml. Соседние файлы того же каталога изменения
+// (brief.md, tasks.md, design.md, spec.md) сюда не идут: их несёт обычное
+// git-слияние (fetchBranch выше), а comet-state.yaml — единственное, что роль
+// не коммитит и что comet native правит прямыми CLI-вызовами как побочный
+// эффект протокола.
+//
+// Отсутствие совпадений — законный случай (нет ни одного изменения Comet
+// Native), не ошибка.
+//
+// Пишет только тогда, когда назначение в fetchInto ещё не совпадает байт
+// в байт с источником: на здоровом прогоне commitLeftovers уже закоммитила
+// этот файл внутри песочницы, а fetchBranch (оба — cloneSyncOut выше) уже
+// слила его в fetchInto — повторная запись здесь была бы бессмысленным
+// дублированием. Возвращает список назначений, в которые реально записала
+// (пустой на этом счастливом пути) — найдено финальным ревью:
+// docs/comet/changes/<name>/comet-state.yaml ничем не исключён из git, и
+// каждая настоящая запись сюда оставляет в fetchInto незакоммиченную правку
+// отслеживаемого файла — вызывающий (syncCometState) обязан её закоммитить,
+// а не просто предупредить: рабочая папка задачи переиспользуется
+// (internal/workspace.Manager.Ensure), человека, который занёс бы коммит
+// руками, в конвейере нет, и незакоммиченная правка заклинила бы её
+// навсегда на следующем же `git merge --ff-only» (независимое ревью).
+func copyCometStateMatches(fromChangesDir, fetchInto string) ([]string, error) {
+	matches, err := filepath.Glob(filepath.Join(fromChangesDir, "*", "comet-state.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("маска comet-state.yaml не разобрана: %w", err)
+	}
+	var written []string
+	for _, match := range matches {
+		name := filepath.Base(filepath.Dir(match))
+		dst := filepath.Join(fetchInto, runner.CometChangeDirForName(name), "comet-state.yaml")
+		data, err := os.ReadFile(match)
+		if err != nil {
+			return written, fmt.Errorf("%s не прочитан: %w", match, err)
+		}
+		switch existing, err := os.ReadFile(dst); {
+		case errors.Is(err, os.ErrNotExist):
+			// Назначения ещё нет — законно, пишем ниже.
+		case err != nil:
+			return written, fmt.Errorf("%s не проверен: %w", dst, err)
+		case bytes.Equal(existing, data):
+			continue // уже то же самое — обычно commitLeftovers+fetchBranch уже донесли
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return written, fmt.Errorf("%s на хосте не заведён: %w", filepath.Dir(dst), err)
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return written, fmt.Errorf("%s не записан: %w", dst, err)
+		}
+		written = append(written, dst)
+	}
+	return written, nil
+}
+
+// syncCometState подтягивает длящееся состояние Comet Native
+// (docs/comet/changes/<name>/comet-state.yaml) из песочницы в fetchInto —
+// шагом, независимым от git: роль этот файл не коммитит (comet native правит
+// им напрямую как побочным эффектом своих CLI-вызовов), а имя <name>
+// изменения заранее не известно, поэтому используется маска по всему
+// docs/comet/changes, а не явное имя, как у Dirs.
+//
+// Выгружает docs/comet/changes целиком в одноразовый хостовой каталог одним
+// sbx cp (тем же приёмом, каким Dirs уже выгружает .comet/runtime), затем
+// copyCometStateMatches забирает из этого снимка только comet-state.yaml.
+// Отсутствие docs/comet/changes в песочнице — законный no-op (нет активного
+// изменения Comet Native вовсе), тем же принципом, что уже есть у Dirs'
+// отсутствующего .comet/runtime.
+//
+// log получает одну строку на исход: успешный коммит (счастливый путь, как
+// и отсутствие записей вовсе) или — если сам коммит не удался — то же
+// предупреждение «откажет на git merge», что до этой правки печаталось
+// на каждую запись безусловно (независимое ревью: коммит своей же правки
+// самой — тот же приём, что EnsureCometHookAllowPaths уже применяет
+// в internal/runner/input.go, «коммитит свою правку сама, а не оставляет
+// её роли … иначе рабочая папка останется грязной навсегда»).
+func syncCometState(ctx context.Context, name, containerRoot, fetchInto string, run step, log io.Writer) error {
+	scratch, err := os.MkdirTemp("", "clone-comet-state-*")
+	if err != nil {
+		return fmt.Errorf("временный каталог для comet-state.yaml не заведён: %w", err)
+	}
+	defer os.RemoveAll(scratch)
+
+	src := filepath.Join(containerRoot, runner.CometChangesDir)
+	if err := run(ctx, "cp", name+":"+src, scratch+"/"); err != nil {
+		if strings.Contains(err.Error(), notFoundInContainer) {
+			return nil
+		}
+		return fmt.Errorf("%s не выгружен из песочницы: %w", src, err)
+	}
+
+	written, copyErr := copyCometStateMatches(filepath.Join(scratch, filepath.Base(runner.CometChangesDir)), fetchInto)
+	if len(written) == 0 {
+		return copyErr
+	}
+
+	if commitErr := commitCometState(ctx, fetchInto, written); commitErr != nil {
+		// Подсказка по самой частой настоящей причине (найдено round 2
+		// независимого ревью тестом на этот случай): git отказывает
+		// в partial commit по pathspec, пока в FetchInto жив MERGE_HEAD —
+		// commitErr уже несёт полный git stderr, но короткая подсказка
+		// экономит человеку разбор многострочной ошибки.
+		hint := ""
+		if _, err := os.Stat(filepath.Join(fetchInto, ".git", "MERGE_HEAD")); err == nil {
+			hint = " (похоже, в FetchInto незавершённое слияние — git отказывает в partial commit, пока оно не разрешено)"
+		}
+		fmt.Fprintf(log, "\nпесочница %s: comet-state.yaml перенесён, но не закоммичен%s — следующий "+
+			"прогон этой задачи откажет на git merge, если это не будет закоммичено вручную: %v\n", name, hint, commitErr)
+		return errors.Join(copyErr, commitErr)
+	}
+	fmt.Fprintf(log, "\nпесочница %s: длящееся состояние Comet Native перенесено и сохранено отдельным "+
+		"коммитом (chore: sync comet-state.yaml from sandbox), не от лица роли\n", name)
+	return copyErr
+}
+
+// commitCometState коммитит written (пути внутри fetchInto, дописанные
+// copyCometStateMatches) отдельным коммитом от служебной личности
+// cloneSweepName/cloneSweepEmail — тем же приёмом, что и commitScript выше
+// для commitLeftovers, только не внутри песочницы через sbx exec, а прямо
+// на хосте в fetchInto: comet-state.yaml ничем не исключён из git,
+// а рабочая папка задачи переиспользуется между прогонами и человека,
+// который занёс бы этот коммит руками, в конвейере нет.
+func commitCometState(ctx context.Context, fetchInto string, written []string) error {
+	addArgs := append([]string{"-C", fetchInto, "add", "--"}, written...)
+	if out, err := exec.CommandContext(ctx, "git", addArgs...).CombinedOutput(); err != nil {
+		return fmt.Errorf("comet-state.yaml не занесён в индекс %s: %w\n%s", fetchInto, err, out)
+	}
+
+	// Pathspec на commit, а не только на add — независимое ревью (round 1):
+	// голый `git commit` без него фиксирует весь индекс, а не только written,
+	// а fetchInto — переиспользуемая рабочая папка, где к этому моменту
+	// в индексе мог остаться чужой, ещё не докоммиченный застейдженный кусок.
+	// Тот же прецедент уже разобран и починен для EnsureCometHookAllowPaths
+	// (internal/runner/input.go) — включая откат add при неудаче коммита
+	// ниже, чтобы written не уехал в следующий коммит роли как будто
+	// сделанный ею.
+	commitArgs := append([]string{"-C", fetchInto, "commit", "-q", "--no-verify",
+		"-m", "chore: sync comet-state.yaml from sandbox", "--"}, written...)
+	cmd := exec.CommandContext(ctx, "git", commitArgs...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME="+cloneSweepName, "GIT_AUTHOR_EMAIL="+cloneSweepEmail,
+		"GIT_COMMITTER_NAME="+cloneSweepName, "GIT_COMMITTER_EMAIL="+cloneSweepEmail)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		resetArgs := append([]string{"-C", fetchInto, "reset", "-q", "--"}, written...)
+		_ = exec.CommandContext(ctx, "git", resetArgs...).Run()
+		return fmt.Errorf("comet-state.yaml не закоммичен в %s: %w\n%s", fetchInto, err, out)
+	}
+	return nil
+}
+
+// ErrCloneSyncIncomplete — сигнал вызывающим (internal/runagent.syncErr),
+// что --clone синхронизация не подтянула работу агента обратно из
+// песочницы. Полноценная, самостоятельная фраза, а не обрывок: раньше
+// вставлялась серединой в fmt.Errorf у каждого места использования, и
+// правка формулировки в одном ломала бы читаемость остальных (независимое
+// ревью, round 3).
+//
+// Ставится на любом case, где cloneErr — настоящая причина потери работы,
+// а не вторичная, уже залогированная деталь поверх другой первопричины
+// (см. logCloneErr): таймаут — тоже такой случай, если cloneErr при этом
+// не nil, — независимое ревью (round 3) нашло, что предыдущая версия эту
+// комбинацию не учитывала вовсе, и timedOut+cloneErr снова хоронил работу
+// молча, тем же классом бага, ради которого раунды 1-2 существуют.
+// Усечённый по таймауту прогон САМ ПО СЕБЕ (без cloneErr) — законный,
+// уже разобранный исход («усечённый прогон не начинают заново»), и его
+// нельзя путать с этим: errors.Join ниже сохраняет обе классификации
+// одновременно (terminationOf смотрит на runner.ErrRunTimeout, syncErr —
+// на этот сентинел), не выбирая между ними.
+var ErrCloneSyncIncomplete = errors.New("работа агента не подтянута из песочницы")
+
 // cloneOutcome решает код возврата и ошибку Run по трём независимым
 // сигналам: истекло ли время, чем ответил exec-процесс агента и подтянулась
 // ли работа агента обратно из песочницы (cloneErr, всегда nil без --clone).
@@ -553,17 +802,27 @@ func cloneOutcome(log io.Writer, name string, timedOut bool, timeout time.Durati
 		// означает «работал и не успел», а прочие беды этой функции — «прогона
 		// не было». По коду -1 они неразличимы, по errors.Is — да
 		// (internal/runagent/runagent.go:terminationOf опирается именно на неё).
-		return -1, runner.RunTimeout(timeout, "песочница "+name)
+		timeoutErr := runner.RunTimeout(timeout, "песочница "+name)
+		if cloneErr == nil {
+			return -1, timeoutErr
+		}
+		// Таймаут и незавершённая синхронизация — независимые сигналы:
+		// оба могут быть правдой разом (fetchBranch не успела до истечения
+		// времени и до сноса песочницы), и errors.Join хранит оба, а не
+		// выбирает один — иначе комбинация «таймаут + настоящий cloneErr»
+		// хоронила бы работу так же молча, как до раунда 1 (независимое
+		// ревью, round 3).
+		return -1, errors.Join(timeoutErr, fmt.Errorf("%w %s: %w", ErrCloneSyncIncomplete, name, cloneErr))
 	case errors.As(runErr, &exitErr):
 		if cloneErr != nil {
-			return -1, fmt.Errorf("работа агента не подтянута из песочницы %s: %w", name, cloneErr)
+			return -1, fmt.Errorf("%w %s: %w", ErrCloneSyncIncomplete, name, cloneErr)
 		}
 		return exitErr.ExitCode(), nil
 	case runErr != nil:
 		logCloneErr(log, name, cloneErr)
 		return -1, fmt.Errorf("агент не запущен в песочнице %s: %w", name, runErr)
 	case cloneErr != nil:
-		return -1, fmt.Errorf("работа агента не подтянута из песочницы %s: %w", name, cloneErr)
+		return -1, fmt.Errorf("%w %s: %w", ErrCloneSyncIncomplete, name, cloneErr)
 	default:
 		return 0, nil
 	}

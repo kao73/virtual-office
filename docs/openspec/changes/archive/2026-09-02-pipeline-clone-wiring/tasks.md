@@ -1,0 +1,37 @@
+## 1. Disposable clone-source step
+
+- [x] 1.1 Add a function in `internal/workspace` that creates a fresh, ordinary (non-bare, non-worktree) `git clone` of a worktree's current branch tip into a new temp directory, and a matching cleanup function.
+- [x] 1.2 Unit-test it against a real worktree fixture (mirroring existing `internal/workspace` test style): clone succeeds, checked-out branch matches, cleanup removes the temp directory.
+
+## 2. Wire `--clone` into `SandboxAgent.Run`
+
+- [x] 2.1 Add a `Branch string` field to `pipeline.Request`, populated from `ws.Branch` in `pipeline.go`'s `work()` (reuses info the pipeline already has). In `internal/pipeline/agent.go`, after `runagent.Execute`'s prerequisites are ready but using the same request flow, create the disposable clone source from `req.Workdir` (post-`PrepareInput` state, so it captures any system commit `PrepareInput` made) when `a.Backend` is `sbx`, and build `runagent.Options.Clone` with `FetchInto: req.Workdir`, `Branch: req.Branch`, and the existing `Dirs` list.
+- [x] 2.2 Ensure the clone source is removed on every return path (success, non-zero exit, timeout, exec error), matching `cloneSyncOut`'s "always called" discipline. If clone-source creation itself fails, fail the run outright (no silent bind-mount fallback) — the task stays leased and the reaper reclaims it on its next sweep.
+- [x] 2.3 Confirm `runagent.CloneNotice` still fires correctly when `a.Backend` is `local` (Clone is still constructed but the `local` backend ignores it per `Launch.Clone`'s existing contract).
+
+## 3. Split "container path root" from "host path root" in `internal/backends/sbx/clone.go`
+
+- [x] 3.1 Change `cloneSyncIn`/`cloneSyncOut` to use `l.Workspaces[0].Path` only for the in-container path root (what `sbx cp`/`sbx exec` addresses inside the sandbox) and `l.Clone.FetchInto` for every host-side read/write (exclude-file source, `Dirs` sources and destinations).
+- [x] 3.2 Resolve `syncExcludeFile`'s source path against `FetchInto` in a worktree-safe way (e.g. `git rev-parse --git-common-dir`), keeping the current direct `.git/info/exclude` lookup as a fast path when the host source is confirmed not a worktree.
+- [x] 3.3 Update `clone_test.go`'s fakes/table-driven tests to cover `Workspaces[0].Path != FetchInto`, asserting the sandbox-side argument stays anchored to `Workspaces[0].Path` and the host-side argument moves to `FetchInto`.
+- [x] 3.4 Add a test with `FetchInto` pointed at a real `git worktree` (not a plain repo) covering the exclude-file resolution from 3.2.
+
+## 4. Sync `comet-state.yaml` unconditionally
+
+- [x] 4.1 After `fetchBranch` in `cloneSyncOut`, locate `docs/comet/changes/*/comet-state.yaml` inside the sandbox (by glob, or via the already-synced `.comet/current-change.json` when present) and copy each match to the corresponding path under `FetchInto`.
+- [x] 4.2 Handle the "no active Comet Native change" case as a legitimate no-op, consistent with how `Dirs` already treats a missing `.comet/runtime`.
+- [x] 4.3 Unit-test both the present and absent cases.
+
+## 5. End-to-end verification
+
+- [x] 5.1 `go build ./... && go vet ./... && go test ./...` clean.
+- [x] 5.2 Run a real task through the tracker-driven pipeline (`Office` conveyor, not manual `run-agent --clone`) on the `sbx` backend through a full analyst → implementer → reviewer Comet Native Shape → Build → Verify chain, confirming `comet-state.yaml` phase progress survives each handoff and no disposable clone source is left behind (`sbx ls` empty afterward).
+- [x] 5.3 Confirm a `local`-backend debug run still proceeds directly on the host worktree and logs the non-application notice.
+
+## 6. Fix (found live during 5.2): `sbx.Run` never created `opts.Workdir`'s `.agent` directory before writing `run.log`
+
+- [x] 6.1 The first live `sbx`-backend pipeline run failed before the agent even started: `os.Create(logPath)` in `internal/backends/sbx/sbx.go`'s `Run` has no `os.MkdirAll` first, and the pipeline's disposable clone source (Task 1/2) never has an `.agent` directory (git clone doesn't carry untracked content) — unlike the two existing callers (bind-mount, `cmd/run-agent --clone`), where `.agent` already exists. Add a `createLog(logPath string) (*os.File, error)` helper that `os.MkdirAll`s the parent directory first, unit-test it directly, and use it in `Run`.
+
+## 7. Fix (found live, re-running 5.2 after Task 6): `runagent.Execute` read post-run artifacts from the wrong directory
+
+- [x] 7.1 After Task 6's fix, the analyst tick's agent genuinely ran and committed real work, but the tick still reported the task as `failed` and requeued it. Root cause: `internal/runagent/runagent.go`'s `Execute` reads `logPath`, `runner.ReadResult`, `runner.Archive`, and (via `terminationOf` → `runner.LeftTrace`) git history from `opts.Workdir` — the disposable clone source under `--clone`, which `cloneSyncOut` never writes back to. Everything actually lands in `opts.Clone.FetchInto`. Add a `resultWorkdir(opts Options) string` helper (`Clone.FetchInto` when `Clone` is set, else `Workdir`), unit-test it directly, and apply it in `Execute` right after `Prepare` succeeds so every downstream read (including inside `terminationOf`) picks it up automatically.
