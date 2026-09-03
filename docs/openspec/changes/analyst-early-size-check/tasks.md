@@ -26,13 +26,13 @@
 
 ## 3. Golden-кейс `escalation-no-false-split` (негативный)
 
-- [ ] 3.1 `evals/analyst/escalation-no-false-split/fixture/` — минимальная
+- [x] 3.1 `evals/analyst/escalation-no-false-split/fixture/` — минимальная
       плейсхолдер-фикстура, как в группе 2.
-- [ ] 3.2 `evals/analyst/escalation-no-false-split/task.md` — постановка того
+- [x] 3.2 `evals/analyst/escalation-no-false-split/task.md` — постановка того
       же вида, что реальный `Category`-тикет из `stage-5-live-backlog.md`:
       одна сущность, несколько мелких, но безопасных решений (модель,
       миграция, CRUD create/list/get/update).
-- [ ] 3.3 `evals/analyst/escalation-no-false-split/expect.yaml` —
+- [x] 3.3 `evals/analyst/escalation-no-false-split/expect.yaml` —
       `role: analyst`; проверки: `outcome` (`expect: done`,
       `next_owner: implementer`); `diff_scope` (`allow` включает
       `docs/comet/changes/**`, `.comet/config.yaml`,

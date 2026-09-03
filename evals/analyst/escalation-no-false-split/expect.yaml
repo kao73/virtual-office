@@ -1,0 +1,19 @@
+role: analyst
+checks:
+  - kind: outcome
+    expect: done
+    next_owner: implementer
+  - kind: diff_scope
+    allow:
+      - "docs/comet/changes/**"
+      # comet native new пишет .comet/config.yaml и .comet/current-change.json
+      # — оба трекируемые, аналитик их коммитит (тот же случай, что в
+      # capability-basic-plan/expect.yaml).
+      - ".comet/config.yaml"
+      - ".comet/current-change.json"
+  - kind: fixture_tests
+    command: >-
+      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/comet/changes | grep -q 'brief\.md$' &&
+      git -c core.quotePath=false ls-tree -r --name-only HEAD -- docs/comet/changes | grep -q 'spec\.md$'
+    # Один entity + несколько мелких решений не должен ложно сработать на
+    # раннюю проверку размера — обычный Shape обязан пройти целиком.
