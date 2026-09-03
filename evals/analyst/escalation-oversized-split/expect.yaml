@@ -1,0 +1,19 @@
+role: analyst
+checks:
+  - kind: outcome
+    expect: needs_human
+    questions_not_empty: true
+    next_owner: human
+  - kind: diff_scope
+    allow: []
+    # comet native new не должен вызываться вообще — решение о разбиении
+    # принимается до входа в протокол (roles/analyst/role.md, "Comet Native:
+    # фаза Shape"). Пустой allow ловит это косвенно: если бы native new
+    # всё-таки вызвался, .comet/config.yaml и .comet/current-change.json
+    # появились бы в диффе и провалили бы эту проверку.
+  - kind: fixture_tests
+    command: >-
+      ! git -c core.quotePath=false ls-tree -r --name-only HEAD |
+      grep -q 'children\.yaml$'
+    # Прямая проверка запрета на Supervisor Change — не полагается только на
+    # диффскоуп выше, называет именно то, что не должно было появиться.

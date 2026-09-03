@@ -9,14 +9,14 @@
 
 ## 2. Golden-кейс `escalation-oversized-split` (позитивный)
 
-- [ ] 2.1 `evals/analyst/escalation-oversized-split/fixture/` — минимальная
+- [x] 2.1 `evals/analyst/escalation-oversized-split/fixture/` — минимальная
       плейсхолдер-фикстура по образцу
       `evals/analyst/escalation-ambiguous-decision/fixture/` (`go.mod` +
       `README.md`, ничего не намекает на конкретное решение).
-- [ ] 2.2 `evals/analyst/escalation-oversized-split/task.md` — постановка,
+- [x] 2.2 `evals/analyst/escalation-oversized-split/task.md` — постановка,
       описывающая несколько независимых сущностей (по образцу
       Category+Transaction+Budget из `docs/notes/stage-5-live-backlog.md`).
-- [ ] 2.3 `evals/analyst/escalation-oversized-split/expect.yaml` —
+- [x] 2.3 `evals/analyst/escalation-oversized-split/expect.yaml` —
       `role: analyst`; проверки: `outcome` (`expect: needs_human`,
       `questions_not_empty: true`, `next_owner: human`); `diff_scope`
       (`allow: []` — `comet native new` не должен быть вызван, значит
