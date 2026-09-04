@@ -92,6 +92,23 @@ func TestReportBodySectionsByOutcome(t *testing.T) {
 			want:   []string{"оба уперлись"},
 			absent: []string{"Вопросы", "Блокер", "Артефакты"},
 		},
+		{
+			name: "разбивка",
+			result: runner.Result{
+				Outcome:   runner.OutcomeSplit,
+				Summary:   "Постановка описывает две независимые сущности.",
+				NextOwner: "human",
+				Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+				Split: &runner.Split{Children: []runner.SplitChild{
+					{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD категорий."},
+					{ID: "transaction-crud", Title: "Transaction CRUD", Description: "Модель, миграция, CRUD операций.", DependsOn: []string{"category-crud"}},
+				}},
+			},
+			// Человек отвечает на «разбить как предложено?», не видя result.json —
+			// без заголовков и текста детей вопрос было бы не на что отвечать.
+			want:   []string{"Category CRUD", "Модель, миграция, CRUD категорий", "Transaction CRUD", "category-crud", "зависит"},
+			absent: []string{"Блокер", "Артефакты"},
+		},
 	}
 
 	for _, tc := range cases {

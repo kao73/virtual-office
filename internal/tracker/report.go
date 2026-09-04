@@ -34,6 +34,14 @@ func ReportBody(m Marker, res runner.Result, branch string, usage runner.Usage) 
 		fmt.Fprintf(&b, "\n%s", block)
 	}
 
+	// Без этого раздела вопрос «разбить как предложено?» не на что отвечать:
+	// сами предложенные подзадачи жили бы только в result.json прогона,
+	// а его видит только эта машина — тикет видят все (см. комментарий у
+	// ParseQuestions в questions.go про тот же принцип).
+	if block := SplitBlock(res.Split); block != "" {
+		fmt.Fprintf(&b, "\n%s", block)
+	}
+
 	if blocker := strings.TrimSpace(res.Blocker); blocker != "" {
 		fmt.Fprintf(&b, "\n## Блокер\n\n%s\n", blocker)
 	}
@@ -94,6 +102,26 @@ func spendTurns(n int) string {
 		word = "шага"
 	}
 	return fmt.Sprintf("%d %s", n, word)
+}
+
+// SplitBlock печатает предложение разбивки — тот же список, что аналитик
+// вернул в split.children[], человеческим текстом в тикет. Пустой Split или
+// пустой Children даёт пустую строку, как и QuestionsBlock у пустых вопросов.
+func SplitBlock(s *runner.Split) string {
+	if s == nil || len(s.Children) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Разбивка\n")
+	for _, c := range s.Children {
+		fmt.Fprintf(&b, "\n- **%s** — %s\n", c.ID, strings.TrimSpace(c.Title))
+		fmt.Fprintf(&b, "  %s\n", strings.TrimSpace(c.Description))
+		if len(c.DependsOn) > 0 {
+			fmt.Fprintf(&b, "  зависит от: %s\n", strings.Join(c.DependsOn, ", "))
+		}
+	}
+	return b.String()
 }
 
 // NoticeBody собирает системную запись: маркер и одна мысль прозой.
