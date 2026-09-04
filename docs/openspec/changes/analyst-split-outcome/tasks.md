@@ -30,7 +30,7 @@
 ## 5. Golden-кейс (`evals/analyst/escalation-oversized-split`)
 
 - [x] 5.1 `expect.yaml`: `outcome: split` (было `needs_human`), `questions_not_empty: true`, `next_owner: human` без изменений
-- [ ] 5.2 `./bin/eval-roles --role analyst --clone` — все кейсы `PASS`, включая три существующих (`capability-basic-plan`, `capability-resume-no-reinvoke`, `escalation-ambiguous-decision`) и `escalation-no-false-split`
+- [x] 5.2 `./bin/eval-roles --role analyst --clone` — 5/5 `PASS` (capability-basic-plan, capability-resume-no-reinvoke, escalation-ambiguous-decision, escalation-no-false-split, escalation-oversized-split), лог `/tmp/eval-analyst-split-outcome.log`
 
 ## 6. Эмпирическая проверка резюме-поведения (живой прогон, реальные деньги)
 
