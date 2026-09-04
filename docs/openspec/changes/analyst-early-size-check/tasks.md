@@ -45,26 +45,45 @@
 
 - [x] 4.1 `./bin/eval-roles --role analyst --case escalation-oversized-split`
       — кейс проходит.
-- [ ] 4.2 `./bin/eval-roles --role analyst --case escalation-no-false-split`
+- [x] 4.2 `./bin/eval-roles --role analyst --case escalation-no-false-split --clone`
       — кейс проходит.
 
-      **Заблокировано (2026-09-04).** Три прогона подряд дали три разных
-      исхода: `errored` (result.json не появился), `done` (сработало, но
-      `comet native new`/`next --confirmed` в логе аналитика падали кодом 73
-      «Native lock coordinator ownership changed» при фактически успешном
-      продвижении состояния), `blocked` (тот же конфликт координатора
-      блокировок, но на этот раз реально не дал завести изменение). Сама
-      фикстура/`task.md`/`expect.yaml` спроектированы верно — второй прогон
-      подтвердил все три проверки вручную (`outcome: done`, весь дифф в
-      `allow`, `brief.md`/`spec.md` закоммичены). Причина — нестабильность
-      Comet Native lock coordinator под sbx-песочницей, не связана с этим
-      tweak. По решению владельца (2026-09-04) — сначала отдельно
-      разобраться с координатором блокировок, эту задачу и 4.3 не трогать
-      до того.
+      **Решено (2026-09-04), после паузы и отдельного расследования.** Три
+      прогона без `--clone` подряд дали три разных исхода: `errored`
+      (result.json не появился), `done` (сработало, но `comet native
+      new`/`next --confirmed` в логе аналитика падали кодом 73 «Native lock
+      coordinator ownership changed» при фактически успешном продвижении
+      состояния), `blocked` (тот же конфликт координатора блокировок, но на
+      этот раз реально не дал завести изменение). Причина — нестабильность
+      Comet Native lock coordinator конкретно под обычным bind-mount
+      sbx-песочницы, задокументированная в самом репозитории
+      (`internal/runner/input.go` `ClearStaleCometLocks`,
+      `internal/backends/sbx/clone.go`, `cmd/eval-roles/fixture.go`) как
+      причина прошлого инцидента EXP-2 — штатный обход уже существует, это
+      флаг `--clone` (агент работает на клоне внутри песочницы, а не на
+      bind-mount). Апстрим `@rpamis/comet` (включая текущий HEAD, не только
+      наш `beta.20`) не даёт настроить или отключить сам координатор —
+      ни флага, ни `env`.
+
+      Первая попытка с `--clone` тоже не дала чистого результата — но по
+      другой причине: `--clone` синхронизирует работу агента обратно на хост
+      отдельным шагом со своим 5-минутным пределом
+      (`cloneSyncTimeout`, `internal/backends/sbx/clone.go`) поверх времени
+      самого агента (до 30 минут по `context.md`), а мой Bash-вызов был с
+      таймаутом 10 минут на весь прогон целиком — сам процесс убило раньше,
+      чем успел закрыться штатный шаг синхронизации. `.agent/run.log`
+      подтвердил: агент реально дописал `result.json` и закоммитил Shape
+      внутри песочницы. Повтор в фоне (`run_in_background`, без потолка в 10
+      минут) прошёл чисто с первого раза.
+
+      Фикстура/`task.md`/`expect.yaml` кейса не менялись — они были
+      спроектированы верно с самого начала, найденное относится
+      исключительно к вызову харнесса. См. память
+      `reference_comet_native_lock_coordinator_flakiness.md`.
 - [ ] 4.3 `./bin/eval-roles --role analyst` — весь набор кейсов роли
       (включая `escalation-ambiguous-decision`, `capability-basic-plan`,
       `capability-resume-no-reinvoke`) проходит без регрессий от правки
       `role.md`.
 
-      Заблокировано тем же, что и 4.2 — `capability-basic-plan` эксплуатирует
-      тот же `comet native new`.
+      Прогнать с `--clone` в фоне, тем же приёмом, что и 4.2 — по той же
+      причине (`capability-basic-plan` тоже вызывает `comet native new`).
