@@ -1,7 +1,7 @@
 role: analyst
 checks:
   - kind: outcome
-    expect: needs_human
+    expect: split
     questions_not_empty: true
     next_owner: human
   - kind: diff_scope
