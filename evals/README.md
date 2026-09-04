@@ -41,10 +41,12 @@ evals/<role>/<case-id>/
 role: implementer
 checks:
   - kind: outcome
-    expect: done              # done | needs_human | blocked | failed
-    questions_not_empty: true # только вместе с needs_human
+    expect: done              # done | needs_human | blocked | failed | split
+    questions_not_empty: true # только вместе с needs_human или split
     next_owner: implementer   # необязательно — сверяется с обязательным полем
                               # результата роли (roles/*/role.md, «Выход»)
+    children_count: 2         # только вместе с expect: split, необязательно —
+                              # ожидаемое число элементов в split.children[]
   - kind: diff_scope
     allow: ["calc.go", "docs/changes/_manual/**"]  # "**" — любое число сегментов
   - kind: fixture_tests
@@ -54,7 +56,7 @@ checks:
 
 | kind | Проверяет | Обязательные поля |
 |---|---|---|
-| `outcome` | `Result.Outcome` роли совпадает с `expect`; если задан `next_owner` — ещё и `Result.NextOwner` с ним | `expect` |
+| `outcome` | `Result.Outcome` роли совпадает с `expect`; если задан `next_owner` — ещё и `Result.NextOwner` с ним; если задан `children_count` (только при `expect: split`) — ещё и число элементов `split.children[]` | `expect` |
 | `diff_scope` | всё, что роль изменила (закоммиченное и нет), укладывается в `allow` | — (пустой `allow` — законный запрет любых изменений) |
 | `fixture_tests` | команда внутри фикстуры выходит с кодом 0 в течение 5 минут | `command` |
 | `llm_judge` | зарезервирован, обработчика ещё нет — любой кейс с ним всегда `failed` (не `errored`: `dispatchCheck` намеренно не считает промах диспетчера инфраструктурной бедой) | — |

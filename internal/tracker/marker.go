@@ -95,7 +95,7 @@ const short = 8
 type Marker struct {
 	RunID   string // полный run_id; в строку идут первые восемь символов
 	Role    string
-	Outcome string // исход прогона: done, needs_human, blocked, failed
+	Outcome string // исход прогона: done, needs_human, blocked, failed, split
 	Event   string // событие системной записи
 	// Next — кому прогон передал задачу: `next_owner` из его результата.
 	// Заявка агента, а не маршрут: куда задача уехала на самом деле, решает
