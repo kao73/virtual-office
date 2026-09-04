@@ -86,6 +86,28 @@ func TestReadResultAccepts(t *testing.T) {
 				NextOwner: "human",
 			},
 		},
+		"разбить на подзадачи": {
+			content: `{
+			  "outcome": "split",
+			  "summary": "Постановка описывает две независимые сущности.",
+			  "questions": [{"id": "Q1", "text": "Разбить на 2, как предложено?"}],
+			  "split": {"children": [
+			    {"id": "category-crud", "title": "Category CRUD", "description": "..."},
+			    {"id": "transaction-crud", "title": "Transaction CRUD", "description": "...", "depends_on": ["category-crud"]}
+			  ]},
+			  "next_owner": "human"
+			}`,
+			want: Result{
+				Outcome:   OutcomeSplit,
+				Summary:   "Постановка описывает две независимые сущности.",
+				Questions: []Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+				Split: &Split{Children: []SplitChild{
+					{ID: "category-crud", Title: "Category CRUD", Description: "..."},
+					{ID: "transaction-crud", Title: "Transaction CRUD", Description: "...", DependsOn: []string{"category-crud"}},
+				}},
+				NextOwner: "human",
+			},
+		},
 		"передача другой роли": {
 			content: `{
 			  "outcome": "done",
@@ -217,6 +239,48 @@ func TestReadResultRejects(t *testing.T) {
 			content:  `{"outcome":"done","summary":"с.","blocker":"нечто","next_owner":"none"}`,
 			wantPart: "блокер только для blocked",
 		},
+		"split без вопросов": {
+			content:  `{"outcome":"split","summary":"с.","split":{"children":[{"id":"a","title":"т","description":"о"}]},"next_owner":"human"}`,
+			wantPart: "questions пуст",
+		},
+		"split без split.children": {
+			content:  `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"next_owner":"human"}`,
+			wantPart: "split.children пуст",
+		},
+		"split с пустым children": {
+			content:  `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[]},"next_owner":"human"}`,
+			wantPart: "split.children пуст",
+		},
+		"split при done": {
+			content:  `{"outcome":"done","summary":"с.","split":{"children":[{"id":"a","title":"т","description":"о"}]},"next_owner":"none"}`,
+			wantPart: "split только для outcome=split",
+		},
+		"дубль id в split.children": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"т1","description":"о1"},{"id":"a","title":"т2","description":"о2"}]},"next_owner":"human"}`,
+			wantPart: `id="a" повторяется`,
+		},
+		"висячая ссылка в depends_on": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"т","description":"о","depends_on":["нет-такого"]}]},"next_owner":"human"}`,
+			wantPart: "такого id в списке нет",
+		},
+		"цикл зависимостей в split.children": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"т1","description":"о1","depends_on":["b"]},` +
+				`{"id":"b","title":"т2","description":"о2","depends_on":["a"]}]},"next_owner":"human"}`,
+			wantPart: "образуют цикл зависимостей",
+		},
+		"пустой title в split.children": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":" ","description":"о"}]},"next_owner":"human"}`,
+			wantPart: "title пуст",
+		},
+		"пустой description в split.children": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"т","description":" "}]},"next_owner":"human"}`,
+			wantPart: "description пуст",
+		},
 	}
 
 	for name, tc := range cases {
@@ -276,7 +340,7 @@ func TestResultOmitsEmptyOptionalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("результат не сериализуется: %v", err)
 	}
-	for _, field := range []string{"details_md", "artifacts", "questions", "blocker"} {
+	for _, field := range []string{"details_md", "artifacts", "questions", "blocker", "split"} {
 		if strings.Contains(string(raw), field) {
 			t.Errorf("пустое поле %q попало в JSON: %s", field, raw)
 		}

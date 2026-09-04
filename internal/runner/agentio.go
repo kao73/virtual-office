@@ -40,11 +40,17 @@ const (
 	OutcomeNeedsHuman Outcome = "needs_human"
 	OutcomeBlocked    Outcome = "blocked"
 	OutcomeFailed     Outcome = "failed"
+	// OutcomeSplit — постановка описывает несколько независимых сущностей
+	// или возможностей и её предлагается резать на подзадачи, а не вести
+	// одним изменением Comet Native. Несёт questions (как needs_human) и
+	// split.children[] — структурированное предложение разбивки; подзадачи
+	// по-прежнему заводит человек, split их не создаёт (roles/analyst/role.md).
+	OutcomeSplit Outcome = "split"
 )
 
 func (o Outcome) known() bool {
 	switch o {
-	case OutcomeDone, OutcomeNeedsHuman, OutcomeBlocked, OutcomeFailed:
+	case OutcomeDone, OutcomeNeedsHuman, OutcomeBlocked, OutcomeFailed, OutcomeSplit:
 		return true
 	}
 	return false
@@ -116,6 +122,27 @@ type Result struct {
 	Questions []Question `json:"questions,omitempty"`
 	Blocker   string     `json:"blocker,omitempty"`
 	NextOwner string     `json:"next_owner"`
+	// Split — предложение разбивки, только при outcome=split.
+	Split *Split `json:"split,omitempty"`
+}
+
+// Split — структурированное предложение разбить постановку на подзадачи.
+// Подзадачи заводит человек — split их не создаёт и не трогает трекер;
+// это машиночитаемая замена прозе, которую пришлось бы разбирать вручную.
+type Split struct {
+	Children []SplitChild `json:"children"`
+}
+
+// SplitChild — одна предлагаемая подзадача.
+//
+// DependsOn в этой волне — чисто информационное поле для человека: он сам
+// решает очерёдность заведения и запуска подзадач. Программно на него никто
+// не опирается (docs/notes/analyst-task-splitting.md, «Волна 2»).
+type SplitChild struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	DependsOn   []string `json:"depends_on,omitempty"`
 }
 
 // human и none зарезервированы, остальное — имя роли.
@@ -168,7 +195,7 @@ func (r Result) Validate() error {
 	var errs []error
 
 	if !r.Outcome.known() {
-		errs = append(errs, fmt.Errorf("outcome=%q: допустимы done, needs_human, blocked, failed", r.Outcome))
+		errs = append(errs, fmt.Errorf("outcome=%q: допустимы done, needs_human, blocked, failed, split", r.Outcome))
 	}
 	if strings.TrimSpace(r.Summary) == "" {
 		errs = append(errs, errors.New("summary пуст"))
@@ -180,12 +207,15 @@ func (r Result) Validate() error {
 		errs = append(errs, fmt.Errorf("next_owner=%q: допустимы human, none или имя роли", r.NextOwner))
 	}
 
-	if r.Outcome == OutcomeNeedsHuman {
+	switch r.Outcome {
+	case OutcomeNeedsHuman, OutcomeSplit:
 		if len(r.Questions) == 0 {
-			errs = append(errs, errors.New("outcome=needs_human, но questions пуст"))
+			errs = append(errs, fmt.Errorf("outcome=%s, но questions пуст", r.Outcome))
 		}
-	} else if len(r.Questions) > 0 {
-		errs = append(errs, fmt.Errorf("questions заполнен при outcome=%q: вопросы только для needs_human", r.Outcome))
+	default:
+		if len(r.Questions) > 0 {
+			errs = append(errs, fmt.Errorf("questions заполнен при outcome=%q: вопросы только для needs_human и split", r.Outcome))
+		}
 	}
 	errs = append(errs, validateQuestions(r.Questions)...)
 
@@ -195,6 +225,17 @@ func (r Result) Validate() error {
 		}
 	} else if strings.TrimSpace(r.Blocker) != "" {
 		errs = append(errs, fmt.Errorf("blocker заполнен при outcome=%q: блокер только для blocked", r.Outcome))
+	}
+
+	if r.Outcome == OutcomeSplit {
+		if r.Split == nil || len(r.Split.Children) == 0 {
+			errs = append(errs, errors.New("outcome=split, но split.children пуст"))
+		}
+	} else if r.Split != nil {
+		errs = append(errs, fmt.Errorf("split заполнен при outcome=%q: split только для outcome=split", r.Outcome))
+	}
+	if r.Split != nil {
+		errs = append(errs, validateSplitChildren(r.Split.Children)...)
 	}
 
 	return errors.Join(errs...)
@@ -253,6 +294,107 @@ func validateQuestions(questions []Question) []error {
 	return errs
 }
 
+// validateSplitChildren проверяет граф предложенных подзадач: уникальность
+// id, ссылки depends_on только на существующие в этом же списке id, без
+// циклов. depends_on в этой волне не исполняется программно (см. SplitChild),
+// но граф уже присутствует в контракте и обязан быть валиден с самого начала —
+// не проверенный сейчас цикл превратился бы в неотлаживаемую ловушку, когда
+// волна 2 начнёт на него опираться.
+func validateSplitChildren(children []SplitChild) []error {
+	var errs []error
+
+	ids := make(map[string]bool, len(children))
+	for i, c := range children {
+		switch {
+		case strings.TrimSpace(c.ID) == "":
+			errs = append(errs, fmt.Errorf("split.children[%d].id пуст", i))
+		case ids[c.ID]:
+			errs = append(errs, fmt.Errorf("split.children[%d].id=%q повторяется", i, c.ID))
+		}
+		ids[c.ID] = true
+
+		if strings.TrimSpace(c.Title) == "" {
+			errs = append(errs, fmt.Errorf("split.children[%d].title пуст", i))
+		}
+		if strings.TrimSpace(c.Description) == "" {
+			errs = append(errs, fmt.Errorf("split.children[%d].description пуст", i))
+		}
+	}
+
+	for i, c := range children {
+		for _, dep := range c.DependsOn {
+			if !ids[dep] {
+				errs = append(errs, fmt.Errorf("split.children[%d].depends_on=%q: такого id в списке нет", i, dep))
+			}
+		}
+	}
+
+	if cycle := findSplitCycle(children); cycle != "" {
+		errs = append(errs, fmt.Errorf("split.children образуют цикл зависимостей: %s", cycle))
+	}
+
+	return errs
+}
+
+// findSplitCycle ищет цикл в depends_on обходом в глубину (цвета белый/серый/
+// чёрный) и возвращает его как путь узлов через " -> ", либо "", если циклов
+// нет. Висячие ссылки (id вне списка) здесь не считаются рёбрами — их уже
+// поймала отдельная проверка в validateSplitChildren, и обрабатывать их же
+// как потенциальный цикл значило бы дублировать диагностику одной и той же
+// причины под двумя разными сообщениями.
+func findSplitCycle(children []SplitChild) string {
+	edges := make(map[string][]string, len(children))
+	for _, c := range children {
+		edges[c.ID] = c.DependsOn
+	}
+
+	const (
+		white = iota
+		gray
+		black
+	)
+	color := make(map[string]int, len(children))
+	var path []string
+
+	var dfs func(id string) string
+	dfs = func(id string) string {
+		color[id] = gray
+		path = append(path, id)
+		for _, dep := range edges[id] {
+			if _, exists := edges[dep]; !exists {
+				continue // висячая ссылка — не ребро цикла, отдельная проверка
+			}
+			switch color[dep] {
+			case gray:
+				start := 0
+				for i, n := range path {
+					if n == dep {
+						start = i
+						break
+					}
+				}
+				return strings.Join(append(append([]string{}, path[start:]...), dep), " -> ")
+			case white:
+				if cyc := dfs(dep); cyc != "" {
+					return cyc
+				}
+			}
+		}
+		color[id] = black
+		path = path[:len(path)-1]
+		return ""
+	}
+
+	for _, c := range children {
+		if color[c.ID] == white {
+			if cyc := dfs(c.ID); cyc != "" {
+				return cyc
+			}
+		}
+	}
+	return ""
+}
+
 // ResultSpec — спецификация файла результата для системного промпта агента.
 // Живёт рядом с типом Result, чтобы текст и проверка не разъезжались.
 func ResultSpec(resultFile string) string {
@@ -261,7 +403,7 @@ func ResultSpec(resultFile string) string {
 Завершая работу, запиши ` + "`" + resultFile + "`" + ` — один JSON-объект и ничего кроме него:
 
     {
-      "outcome": "done | needs_human | blocked | failed",
+      "outcome": "done | needs_human | blocked | failed | split",
       "summary": "суть в 1-3 предложениях",
       "details_md": "необязательно: подробности в markdown",
       "artifacts": ["необязательно: пути, commit SHA, имя ветки"],
@@ -270,17 +412,28 @@ func ResultSpec(resultFile string) string {
         {"id": "Q2", "text": "вопрос без вариантов"}
       ],
       "blocker": "кто или что блокирует",
-      "next_owner": "human | имя роли | none"
+      "next_owner": "human | имя роли | none",
+      "split": {
+        "children": [
+          {"id": "short-slug", "title": "заголовок будущего тикета", "description": "текст будущего тикета", "depends_on": []},
+          {"id": "another-slug", "title": "...", "description": "...", "depends_on": ["short-slug"]}
+        ]
+      }
     }
 
 - ` + "`outcome`, `summary`, `next_owner`" + ` обязательны всегда.
-- ` + "`questions`" + ` — только при ` + "`outcome=needs_human`" + `, непустым списком.
+- ` + "`questions`" + ` — только при ` + "`outcome=needs_human`" + ` или ` + "`outcome=split`" + `, непустым списком.
   ` + "`id`" + ` — метка вида ` + "`Q1`" + `, своя у каждого вопроса: по ней человек и отвечает
   (` + "`Q1: b`" + `). ` + "`options`" + ` необязателен — вопрос без вариантов свободный;
   ` + "`id`" + ` варианта человек пишет в ответ целиком, поэтому он короткий и без пробелов.
   Текст вопроса и подписи вариантов — **одной строкой**: они едут в тикет строками
   протокола. Длинное объяснение — в ` + "`details_md`" + `.
 - ` + "`blocker`" + ` — только при ` + "`outcome=blocked`" + `.
+- ` + "`split`" + ` — только при ` + "`outcome=split`" + `, с непустым ` + "`children`" + `.
+  Каждый ребёнок — будущий тикет, который заведёт человек, не ты: ` + "`id`" + ` —
+  свой короткий ключ (не ключ трекера — его ещё нет), ` + "`title`/`description`" + ` —
+  готовый текст тикета, ` + "`depends_on`" + ` — список ` + "`id`" + ` других детей из этого
+  же списка, от которых этот зависит (не циклически, и только на существующие ` + "`id`" + `).
 - Полей сверх перечисленных быть не должно: файл с лишним полем считается невалидным,
   и запуск засчитывается как провалившийся.
 `
