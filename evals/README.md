@@ -59,8 +59,10 @@ checks:
   - kind: outcome
     expect: split
     questions_not_empty: true # только вместе с needs_human или split
-    children_count_min: 2     # только вместе с split — минимум элементов
-                              # в split.children[], не точное число
+    children_count_min: 2     # только вместе с split, минимум 2 — минимум
+                              # элементов в split.children[], не точное
+                              # число; 1 или меньше отвергается загрузкой
+                              # (непустой список и так гарантирован контрактом)
 ```
 
 | kind | Проверяет | Обязательные поля |

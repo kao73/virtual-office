@@ -100,7 +100,7 @@ informational for the human in this wave; nothing programmatic relies on it yet.
   `depends_on` edges form a cycle
 - **THEN** result validation rejects the run's output as malformed
 
-#### Scenario: Multi-line id, title, or description is rejected
+#### Scenario: Whitespace in id, or a line break in title or description, is rejected
 - **WHEN** a `split.children[]` entry's `id` contains whitespace, or its `title` or `description`
   contains a line break
 - **THEN** result validation rejects the run's output as malformed, because each entry renders as
