@@ -72,13 +72,13 @@ full Shape investigation.
 
 ### Requirement: Comet Native Supervisor Change is never used
 `analyst` SHALL NOT create or maintain a Comet Native Supervisor Change (`children.yaml`); any
-task-splitting decision SHALL go through the office's own `needs_human` outcome instead.
+task-splitting decision SHALL go through the office's own `split` outcome instead.
 
 #### Scenario: A Supervisor-Change-shaped постановка does not produce children.yaml
 - **WHEN** a постановка resembles Comet Native Supervisor Change's target case (a large
   requirement decomposable into dependency-aware children)
 - **THEN** the run does not create a `children.yaml` file anywhere in the change directory, and
-  instead ends with the office's own `needs_human` split proposal
+  instead ends with the office's own `split` proposal
 
 ### Requirement: Split proposal carries a validated dependency graph
 A `split` outcome's `split.children[]` SHALL be a non-empty list of entries with unique `id`
