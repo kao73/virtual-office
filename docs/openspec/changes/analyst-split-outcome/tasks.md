@@ -18,9 +18,9 @@
 
 ## 3. Харнесс golden-кейсов (`cmd/eval-roles`)
 
-- [ ] 3.1 `knownOutcome` (`loadcase.go`) допускает `split`
-- [ ] 3.2 `outcomeChecker.Run` (`checkers.go`) проверяет `questions_not_empty` и для `split`, тем же условием, что и `needs_human`
-- [ ] 3.3 `go build ./...` для пакета `cmd/eval-roles`
+- [x] 3.1 `knownOutcome` (`loadcase.go`) допускает `split`
+- [x] 3.2 `outcomeChecker.Run` (`checkers.go`) проверяет `questions_not_empty` и для `split`, тем же условием, что и `needs_human`
+- [x] 3.3 `go build ./...`, `go vet ./...`, `go test ./cmd/eval-roles/...` зелёные
 
 ## 4. Роль (`roles/analyst/role.md`)
 

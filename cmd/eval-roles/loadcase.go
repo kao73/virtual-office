@@ -80,11 +80,11 @@ func knownCheckKind(kind string) bool {
 	}
 }
 
-// knownOutcome сообщает, является ли expect одним из четырёх исходов,
+// knownOutcome сообщает, является ли expect одним из пяти исходов,
 // которые вообще способен вернуть агент (internal/runner.Outcome).
 func knownOutcome(expect string) bool {
 	switch runner.Outcome(expect) {
-	case runner.OutcomeDone, runner.OutcomeNeedsHuman, runner.OutcomeBlocked, runner.OutcomeFailed:
+	case runner.OutcomeDone, runner.OutcomeNeedsHuman, runner.OutcomeBlocked, runner.OutcomeFailed, runner.OutcomeSplit:
 		return true
 	default:
 		return false

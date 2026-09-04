@@ -22,7 +22,8 @@ var checkers = map[string]Checker{
 }
 
 // outcomeChecker сверяет Result.Outcome со spec.Expect, а когда expect —
-// needs_human и задан questions_not_empty — ещё и что Questions не пуст.
+// needs_human или split и задан questions_not_empty — ещё и что Questions
+// не пуст (оба исхода несут questions одинаково, agentio.go Result.Validate).
 // Когда задан spec.NextOwner, сверяет и его с Result.NextOwner: это
 // обязательное, типизированное поле роли (см. roles/*/role.md, «Выход»), и
 // оно надёжнее любого разбора свободного текста summary/details_md —
@@ -40,8 +41,8 @@ func (outcomeChecker) Run(ctx CheckContext) CheckResult {
 		}
 		return CheckResult{Pass: false, Detail: detail}
 	}
-	if want == runner.OutcomeNeedsHuman && ctx.Spec.QuestionsNotEmpty && len(ctx.Result.Questions) == 0 {
-		return CheckResult{Pass: false, Detail: "outcome=needs_human but questions is empty"}
+	if (want == runner.OutcomeNeedsHuman || want == runner.OutcomeSplit) && ctx.Spec.QuestionsNotEmpty && len(ctx.Result.Questions) == 0 {
+		return CheckResult{Pass: false, Detail: fmt.Sprintf("outcome=%s but questions is empty", want)}
 	}
 	// TrimSpace: runner.Result.Validate (internal/runner/agentio.go) сверяет
 	// next_owner тем же способом — значение с хвостовым пробелом законно по
