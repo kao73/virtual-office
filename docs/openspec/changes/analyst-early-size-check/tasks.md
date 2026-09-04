@@ -43,11 +43,28 @@
 
 ## 4. Проверка
 
-- [ ] 4.1 `./bin/eval-roles --role analyst --case escalation-oversized-split`
+- [x] 4.1 `./bin/eval-roles --role analyst --case escalation-oversized-split`
       — кейс проходит.
 - [ ] 4.2 `./bin/eval-roles --role analyst --case escalation-no-false-split`
       — кейс проходит.
+
+      **Заблокировано (2026-09-04).** Три прогона подряд дали три разных
+      исхода: `errored` (result.json не появился), `done` (сработало, но
+      `comet native new`/`next --confirmed` в логе аналитика падали кодом 73
+      «Native lock coordinator ownership changed» при фактически успешном
+      продвижении состояния), `blocked` (тот же конфликт координатора
+      блокировок, но на этот раз реально не дал завести изменение). Сама
+      фикстура/`task.md`/`expect.yaml` спроектированы верно — второй прогон
+      подтвердил все три проверки вручную (`outcome: done`, весь дифф в
+      `allow`, `brief.md`/`spec.md` закоммичены). Причина — нестабильность
+      Comet Native lock coordinator под sbx-песочницей, не связана с этим
+      tweak. По решению владельца (2026-09-04) — сначала отдельно
+      разобраться с координатором блокировок, эту задачу и 4.3 не трогать
+      до того.
 - [ ] 4.3 `./bin/eval-roles --role analyst` — весь набор кейсов роли
       (включая `escalation-ambiguous-decision`, `capability-basic-plan`,
       `capability-resume-no-reinvoke`) проходит без регрессий от правки
       `role.md`.
+
+      Заблокировано тем же, что и 4.2 — `capability-basic-plan` эксплуатирует
+      тот же `comet native new`.
