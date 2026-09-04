@@ -10,9 +10,11 @@
 
 ## 2. Граф (`workflow.yaml`)
 
-- [ ] 2.1 Добавить маршрут `split: {to: Blocked, human: true}` для `analyst`
-- [ ] 2.2 Добавить тот же маршрут для `implementer` и `reviewer` (только ради `Workflow.Validate()` — роли `split` не эмитят)
-- [ ] 2.3 `go build ./...` и `go test ./internal/tracker/...` зелёные
+- [x] 2.0 Добавить `runner.OutcomeSplit` в пакетный список `outcomes` (`internal/tracker/config.go`) — без этого валидатор графа `split` не узнает вовсе
+- [x] 2.1 Добавить маршрут `split: {to: Blocked, human: true}` для `analyst`
+- [x] 2.2 Добавить тот же маршрут для `implementer` и `reviewer` (только ради `Workflow.Validate()` — роли `split` не эмитят)
+- [x] 2.3 Тот же маршрут — в синтетические workflow.yaml юнит-тестов (`internal/tracker/config_test.go`, `internal/pipeline/pipeline_test.go`): у обоих есть свои встроенные YAML-графы для тестов, и `Workflow.Validate()` требует route у **каждой** роли **каждого** такого графа, не только у настоящего `workflow.yaml`
+- [x] 2.4 `go build ./...`, `go vet ./...` и `go test ./...` (весь модуль, не только `internal/tracker`) зелёные
 
 ## 3. Харнесс golden-кейсов (`cmd/eval-roles`)
 

@@ -2295,6 +2295,7 @@ roles:
         by_next_owner:
           human: Blocked
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
 limits:
@@ -2358,6 +2359,7 @@ roles:
     outcomes:
       done:        { to: Ready, by_next_owner: { implementer: Ready } }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Analysis, attempts: +1 }
       failed:      { to: Analysis, attempts: +1 }
   implementer:
@@ -2366,6 +2368,7 @@ roles:
     outcomes:
       done:        { to: Review }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
   reviewer:
@@ -2376,6 +2379,7 @@ roles:
         by_next_owner:
           implementer: Ready
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Review, attempts: +1 }
       failed:      { to: Review, attempts: +1 }
 limits:
@@ -2470,6 +2474,7 @@ roles:
     outcomes:
       done:        { to: Review }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
 limits:

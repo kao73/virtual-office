@@ -56,6 +56,11 @@ roles:
       # и не нужно — оба пути ведут в Blocked, а ответ человека вернёт задачу
       # тому, кто спросил.
       needs_human: { to: Blocked, human: true }
+      # Постановка описывает несколько независимых сущностей — предложение
+      # разбивки лежит в самом отчёте (result.json.split), маршрут тот же,
+      # что у needs_human: Blocked — это и есть статус «роль спросила
+      # человека», раздваивать его незачем.
+      split:       { to: Blocked, human: true }
       blocked:     { to: Analysis, attempts: +1 }
       failed:      { to: Analysis, attempts: +1 }
 
@@ -83,6 +88,10 @@ roles:
           reviewer: Review
           analyst: Analysis
       needs_human: { to: Blocked, human: true }
+      # implementer split не эмитит никогда (это решение только analyst'а) —
+      # маршрут здесь только ради Workflow.Validate(), который требует
+      # перехода для каждого исхода контракта у каждой роли графа.
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
 
@@ -106,6 +115,9 @@ roles:
           # Ревьюер вправе усомниться в самом плане, а не только в коде.
           analyst: Analysis
       needs_human: { to: Blocked, human: true }
+      # reviewer split не эмитит никогда — тот же формальный маршрут, что и
+      # у implementer, чисто ради Workflow.Validate().
+      split:       { to: Blocked, human: true }
       # Возврат в свой же статус: разбор не состоялся, задача ждёт следующего.
       blocked:     { to: Review, attempts: +1 }
       failed:      { to: Review, attempts: +1 }

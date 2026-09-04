@@ -41,6 +41,7 @@ var outcomes = []string{
 	string(runner.OutcomeNeedsHuman),
 	string(runner.OutcomeBlocked),
 	string(runner.OutcomeFailed),
+	string(runner.OutcomeSplit),
 }
 
 // Workflow — граф состояний: статусы, роли и то, куда роль двигает задачу
