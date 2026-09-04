@@ -313,11 +313,21 @@ func validateSplitChildren(children []SplitChild) []error {
 		}
 		ids[c.ID] = true
 
-		if strings.TrimSpace(c.Title) == "" {
+		// title/description едут в тикет одной строкой каждый (SplitBlock,
+		// internal/tracker/report.go) — тот же буллет-список, что ломает
+		// перевод строки у questions[].text/options[].label (validateQuestions
+		// выше), и то же правило: длинное — в details_md, не сюда.
+		switch {
+		case strings.TrimSpace(c.Title) == "":
 			errs = append(errs, fmt.Errorf("split.children[%d].title пуст", i))
+		case strings.ContainsAny(c.Title, "\r\n"):
+			errs = append(errs, fmt.Errorf("split.children[%d].title в несколько строк: заголовок едет в тикет одной строкой", i))
 		}
-		if strings.TrimSpace(c.Description) == "" {
+		switch {
+		case strings.TrimSpace(c.Description) == "":
 			errs = append(errs, fmt.Errorf("split.children[%d].description пуст", i))
+		case strings.ContainsAny(c.Description, "\r\n"):
+			errs = append(errs, fmt.Errorf("split.children[%d].description в несколько строк: описание едет в тикет одной строкой, подробности — в details_md", i))
 		}
 	}
 
@@ -431,9 +441,12 @@ func ResultSpec(resultFile string) string {
 - ` + "`blocker`" + ` — только при ` + "`outcome=blocked`" + `.
 - ` + "`split`" + ` — только при ` + "`outcome=split`" + `, с непустым ` + "`children`" + `.
   Каждый ребёнок — будущий тикет, который заведёт человек, не ты: ` + "`id`" + ` —
-  свой короткий ключ (не ключ трекера — его ещё нет), ` + "`title`/`description`" + ` —
-  готовый текст тикета, ` + "`depends_on`" + ` — список ` + "`id`" + ` других детей из этого
-  же списка, от которых этот зависит (не циклически, и только на существующие ` + "`id`" + `).
+  свой короткий ключ (не ключ трекера — его ещё нет), ` + "`title`" + ` — заголовок,
+  ` + "`description`" + ` — суть в 1-3 предложения, как верхнеуровневый ` + "`summary`" + `.
+  Оба — **одной строкой каждый**, как текст вопроса; подробный план для
+  подзадачи сюда не входит. ` + "`depends_on`" + ` — список ` + "`id`" + ` других детей
+  из этого же списка, от которых этот зависит (не циклически, и только на
+  существующие ` + "`id`" + `).
 - Полей сверх перечисленных быть не должно: файл с лишним полем считается невалидным,
   и запуск засчитывается как провалившийся.
 `

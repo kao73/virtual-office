@@ -305,6 +305,20 @@ func TestReadResultRejects(t *testing.T) {
 				`{"id":"a","title":"т","description":" "}]},"next_owner":"human"}`,
 			wantPart: "description пуст",
 		},
+		// title и description едут в тикет одной строкой каждый — тем же буллетом
+		// SplitBlock, что и остальные дети (internal/tracker/report.go), и перевод
+		// строки в них ломает список ровно так же, как в questions[].text/
+		// options[].label (agentio.go, validateQuestions).
+		"title в split.children в несколько строк": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"строка1\nстрока2","description":"о"}]},"next_owner":"human"}`,
+			wantPart: "title в несколько строк",
+		},
+		"description в split.children в несколько строк": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"т","description":"строка1\nстрока2"}]},"next_owner":"human"}`,
+			wantPart: "description в несколько строк",
+		},
 	}
 
 	for name, tc := range cases {
