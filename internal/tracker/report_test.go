@@ -177,6 +177,22 @@ func TestSpendLineReadsLikeRussian(t *testing.T) {
 	}
 }
 
+// Описание и depends_on — вложенные пункты списка (`  - ...`), не ленивое
+// продолжение абзаца (`  ...`): второе визуально склеивается со строкой
+// заголовка и в markdown, и не переводится вовсе в JIRA wiki (jira/wiki.go
+// переводит только строки, начинающиеся с "-"/"*"/"+" после отступа —
+// mdBullet), из-за чего список рвётся на каждом ребёнке.
+func TestSplitBlockNestsDescriptionAsListItem(t *testing.T) {
+	block := SplitBlock(&runner.Split{Children: []runner.SplitChild{
+		{ID: "a", Title: "Category CRUD", Description: "Модель, миграция, CRUD.", DependsOn: []string{"b"}},
+	}})
+	for _, want := range []string{"\n  - Модель, миграция, CRUD.\n", "\n  - зависит от: b\n"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("нет вложенного пункта %q в:\n%s", want, block)
+		}
+	}
+}
+
 // Системная запись — тоже комментарий офиса, и опознаваться должна так же.
 func TestNoticeBody(t *testing.T) {
 	m := Marker{RunID: runID, Role: "implementer", Event: EventLeaseExpired, ConfigSHA: "5bc6a3b0"}

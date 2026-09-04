@@ -116,9 +116,13 @@ func SplitBlock(s *runner.Split) string {
 	b.WriteString("## Разбивка\n")
 	for _, c := range s.Children {
 		fmt.Fprintf(&b, "\n- **%s** — %s\n", c.ID, strings.TrimSpace(c.Title))
-		fmt.Fprintf(&b, "  %s\n", strings.TrimSpace(c.Description))
+		// Вложенным пунктом (`  - ...`), не отступом-продолжением: последний
+		// в markdown визуально склеивается со строкой буллета, а в JIRA wiki
+		// не переводится вовсе (jira/wiki.go's mdBullet требует "-"/"*"/"+"
+		// после отступа) — список рвался бы на каждом ребёнке.
+		fmt.Fprintf(&b, "  - %s\n", strings.TrimSpace(c.Description))
 		if len(c.DependsOn) > 0 {
-			fmt.Fprintf(&b, "  зависит от: %s\n", strings.Join(c.DependsOn, ", "))
+			fmt.Fprintf(&b, "  - зависит от: %s\n", strings.Join(c.DependsOn, ", "))
 		}
 	}
 	return b.String()
