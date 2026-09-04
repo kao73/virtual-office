@@ -24,12 +24,14 @@ type CheckSpec struct {
 	Expect            string `yaml:"expect,omitempty"`
 	QuestionsNotEmpty bool   `yaml:"questions_not_empty,omitempty"`
 	NextOwner         string `yaml:"next_owner,omitempty"`
-	// ChildrenCount — только вместе с expect: split, необязательно: сколько
-	// именно элементов ожидается в split.children[]. Ноль (умолчание) значит
-	// «не проверять число» — Result.Validate уже гарантирует, что children
-	// непуст, а точное число зависит от того, как именно роль решит резать
-	// постановку.
-	ChildrenCount int `yaml:"children_count,omitempty"`
+	// ChildrenCountMin — только вместе с expect: split, необязательно:
+	// минимум элементов в split.children[]. Ноль (умолчание) значит «не
+	// проверять число». Не точное число: Result.Validate уже гарантирует
+	// непустой список, а ровно сколько частей предложит роль — вопрос
+	// её собственного суждения о постановке, и не то же самое, что «предложила
+	// разбивку хоть на что-то» (единственное, что здесь стоит проверять
+	// детерминированно).
+	ChildrenCountMin int `yaml:"children_count_min,omitempty"`
 
 	// kind: diff_scope
 	Allow []string `yaml:"allow,omitempty"`

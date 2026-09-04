@@ -129,6 +129,24 @@ func TestLoadCaseRejectsUnknownExpect(t *testing.T) {
 	}
 }
 
+// children_count_min при expect != split outcomeChecker никогда не смотрит
+// (Run проверяет его только при want == OutcomeSplit) — опечатка молчала бы
+// не только до платного прогона, а вообще всегда.
+func TestLoadCaseRejectsChildrenCountMinWithoutSplit(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "role: implementer\nchecks:\n  - kind: outcome\n    expect: done\n    children_count_min: 2\n"
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("children_count_min при expect=done не замечен")
+	}
+}
+
 func TestLoadCaseRejectsEmptyChecks(t *testing.T) {
 	root := t.TempDir()
 	caseDir := filepath.Join(root, "implementer", "sample-case")

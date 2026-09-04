@@ -54,6 +54,14 @@ func LoadCase(dir string) (Case, error) {
 			if !knownOutcome(chk.Expect) {
 				return Case{}, fmt.Errorf("expect.yaml: outcome-проверка с неизвестным expect %q", chk.Expect)
 			}
+			// children_count_min при любом другом expect outcomeChecker молча
+			// не смотрит вовсе (Run проверяет его только при want ==
+			// OutcomeSplit) — то же немое исчезновение опечатки, ради которого
+			// заведён весь этот switch, только не всплывающее уже никогда,
+			// а не просто после платного прогона.
+			if chk.ChildrenCountMin > 0 && chk.Expect != string(runner.OutcomeSplit) {
+				return Case{}, fmt.Errorf("expect.yaml: children_count_min задан при expect=%q, а не split", chk.Expect)
+			}
 		case "fixture_tests":
 			// Пустой command не провалился бы сам — `sh -c ""` выходит с
 			// кодом 0, и проверка молча зазеленела бы, ничего не проверив.
