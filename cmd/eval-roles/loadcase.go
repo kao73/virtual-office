@@ -62,6 +62,18 @@ func LoadCase(dir string) (Case, error) {
 			if chk.ChildrenCountMin > 0 && chk.Expect != string(runner.OutcomeSplit) {
 				return Case{}, fmt.Errorf("expect.yaml: children_count_min задан при expect=%q, а не split", chk.Expect)
 			}
+			// Меньше двух ничего не проверяет: Result.Validate уже гарантирует
+			// непустой список (>= 1), а checker сравнивает через "<" — 1 никогда
+			// не провалит проверку. Ноль — легитимное «не проверять», не путать.
+			if chk.ChildrenCountMin != 0 && chk.ChildrenCountMin < 2 {
+				return Case{}, fmt.Errorf("expect.yaml: children_count_min=%d ничего не проверяет — Result.Validate уже гарантирует непустой список", chk.ChildrenCountMin)
+			}
+			// questions_not_empty — тот же класс немой потери, что у
+			// children_count_min выше: outcomeChecker смотрит на него только
+			// при needs_human/split (checkers.go, Run).
+			if chk.QuestionsNotEmpty && chk.Expect != string(runner.OutcomeNeedsHuman) && chk.Expect != string(runner.OutcomeSplit) {
+				return Case{}, fmt.Errorf("expect.yaml: questions_not_empty задан при expect=%q, а не needs_human/split", chk.Expect)
+			}
 		case "fixture_tests":
 			// Пустой command не провалился бы сам — `sh -c ""` выходит с
 			// кодом 0, и проверка молча зазеленела бы, ничего не проверив.
