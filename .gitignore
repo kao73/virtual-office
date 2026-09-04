@@ -12,5 +12,5 @@ bootstrap/jira/*.tar.gz
 # Per-change local execution cache under the new docs/openspec/ layout
 # (trajectory.jsonl, checkpoint.json, skill-snapshots/ — host-local, not
 # portable, same reasoning as the root /.comet/runtime/ exclusion above).
-docs/openspec/changes/*/.comet/
+docs/openspec/changes/**/.comet/
 # <<< Comet managed project state <<<
