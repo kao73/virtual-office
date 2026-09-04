@@ -271,6 +271,30 @@ func TestReadResultRejects(t *testing.T) {
 				`{"id":"b","title":"т2","description":"о2","depends_on":["a"]}]},"next_owner":"human"}`,
 			wantPart: "образуют цикл зависимостей",
 		},
+		"самоссылка в split.children": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"т","description":"о","depends_on":["a"]}]},"next_owner":"human"}`,
+			wantPart: "образуют цикл зависимостей",
+		},
+		// Цикл между b и c: DFS стартует с a (первого в списке), a в цикле не
+		// участвует — цикл обязан найтись, даже когда он не с узла, с которого
+		// начался обход (findSplitCycle, internal/runner/agentio.go).
+		"цикл не с первого узла обхода": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"т1","description":"о1","depends_on":["b"]},` +
+				`{"id":"b","title":"т2","description":"о2","depends_on":["c"]},` +
+				`{"id":"c","title":"т3","description":"о3","depends_on":["b"]}]},"next_owner":"human"}`,
+			wantPart: "образуют цикл зависимостей",
+		},
+		// Висячая ссылка на "ghost" не должна маскировать настоящий цикл a->b->a
+		// в том же списке: findSplitCycle пропускает висячие ссылки как рёбра
+		// именно для не-узлов, а не для узлов внутри реального цикла.
+		"висячая ссылка и цикл одновременно": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a","title":"т1","description":"о1","depends_on":["ghost","b"]},` +
+				`{"id":"b","title":"т2","description":"о2","depends_on":["a"]}]},"next_owner":"human"}`,
+			wantPart: "образуют цикл зависимостей",
+		},
 		"пустой title в split.children": {
 			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
 				`{"id":"a","title":" ","description":"о"}]},"next_owner":"human"}`,

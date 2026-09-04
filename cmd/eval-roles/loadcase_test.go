@@ -112,7 +112,7 @@ func TestLoadCaseRejectsOutcomeWithoutExpect(t *testing.T) {
 // expect: "don" (опечатка) прошёл бы загрузку и всплыл бы только после
 // платного прогона роли, в outcomeChecker, как обычный FAIL — то есть как
 // регресс роли, а не сломанный expect.yaml. `expect` — фиксированный список
-// из четырёх исходов, в отличие от next_owner (там роль может стоять любым
+// из пяти исходов, в отличие от next_owner (там роль может стоять любым
 // именем, и docs/contracts/agent-io.md сознательно не проверяет её
 // существование «на этапе 1» — LoadCase этому не противоречит).
 func TestLoadCaseRejectsUnknownExpect(t *testing.T) {
