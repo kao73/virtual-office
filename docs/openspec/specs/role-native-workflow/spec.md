@@ -81,10 +81,10 @@ task-splitting decision SHALL go through the office's own `split` outcome instea
   instead ends with the office's own `split` proposal
 
 ### Requirement: Split proposal carries a validated dependency graph
-A `split` outcome's `split.children[]` SHALL be a non-empty list of entries with unique `id`
-values, and each entry's `depends_on` SHALL reference only `id` values present in the same list,
-forming no cycle. `depends_on` is informational for the human in this wave; nothing programmatic
-relies on it yet.
+A `split` outcome's `split.children[]` SHALL be a non-empty list of entries with unique,
+whitespace-free `id` values, single-line `title` and `description`, and each entry's `depends_on`
+SHALL reference only `id` values present in the same list, forming no cycle. `depends_on` is
+informational for the human in this wave; nothing programmatic relies on it yet.
 
 #### Scenario: Empty children list is rejected
 - **WHEN** a `split` outcome's `split.children` is an empty list
@@ -100,21 +100,38 @@ relies on it yet.
   `depends_on` edges form a cycle
 - **THEN** result validation rejects the run's output as malformed
 
+#### Scenario: Multi-line id, title, or description is rejected
+- **WHEN** a `split.children[]` entry's `id` contains whitespace, or its `title` or `description`
+  contains a line break
+- **THEN** result validation rejects the run's output as malformed, because each entry renders as
+  one bullet in the ticket comment
+
 ### Requirement: A human's reply to a split proposal is not re-investigated as Shape work
 When `analyst` resumes a task whose context shows a human reply to a previously posted `split`
 question, `analyst` SHALL NOT invoke `comet native new` or perform a Shape investigation of the
 original постановка before branching on that reply: a confirming reply re-affirms `split` without
 new investigation, a declining reply proceeds with ordinary Shape on the whole постановка, and any
-other reply is treated as new information requiring reassessment before either path is taken.
+other reply is treated as new information requiring reassessment before either path is taken. The
+re-affirmed `split` question asks whether the proposed children have been created, not whether to
+split — a reply confirming the original proposal is not the same reply as one confirming the
+children now exist, and the two SHALL NOT be answered with an identical question.
 
 #### Scenario: Confirmed split ends the resumed run without invoking Comet Native
 - **WHEN** `analyst` resumes a task and its context shows the human confirmed a previously
   proposed split
-- **THEN** the run ends with `outcome: split` again, `comet native new` is never invoked, and the
-  summary defers further progress to the human creating the proposed child tickets
+- **THEN** the run ends with `outcome: split` again, `comet native new` is never invoked, the
+  summary defers further progress to the human creating the proposed child tickets, and the new
+  `questions[]` asks whether the children have since been created rather than repeating the
+  original split-confirmation question
 
 #### Scenario: Declined split proceeds with ordinary Shape
 - **WHEN** `analyst` resumes a task and its context shows the human declined the proposed split,
   choosing to carry the постановка as one task
 - **THEN** `analyst` invokes `comet native new` on the original постановка and continues the
   ordinary Shape investigation
+
+#### Scenario: Confirmed child creation ends the split resume loop
+- **WHEN** `analyst` resumes a task and its context shows the human confirmed the proposed
+  children have been created
+- **THEN** the run ends with `outcome: needs_human` (not `split`, which requires a proposal to
+  confirm), asking the human what to do with the now-split parent task
