@@ -80,10 +80,8 @@
       спроектированы верно с самого начала, найденное относится
       исключительно к вызову харнесса. См. память
       `reference_comet_native_lock_coordinator_flakiness.md`.
-- [ ] 4.3 `./bin/eval-roles --role analyst` — весь набор кейсов роли
-      (включая `escalation-ambiguous-decision`, `capability-basic-plan`,
-      `capability-resume-no-reinvoke`) проходит без регрессий от правки
-      `role.md`.
-
-      Прогнать с `--clone` в фоне, тем же приёмом, что и 4.2 — по той же
-      причине (`capability-basic-plan` тоже вызывает `comet native new`).
+- [x] 4.3 `./bin/eval-roles --role analyst --clone` — весь набор кейсов роли
+      проходит без регрессий от правки `role.md`: `capability-basic-plan`,
+      `capability-resume-no-reinvoke`, `escalation-ambiguous-decision`,
+      `escalation-no-false-split`, `escalation-oversized-split` — все 5
+      `PASS`. Прогнан в фоне, с `--clone`, той же причине, что и 4.2.
