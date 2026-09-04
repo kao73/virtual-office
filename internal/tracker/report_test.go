@@ -193,6 +193,27 @@ func TestSplitBlockNestsDescriptionAsListItem(t *testing.T) {
 	}
 }
 
+// Разбивка печатается раньше вопроса, который на неё ссылается: иначе
+// человек читает «ответьте комментарием: Q1: <текст>» до того, как увидел,
+// что вообще предложено, и подсказка про ответ повисает без контекста.
+func TestReportBodyShowsSplitBeforeQuestions(t *testing.T) {
+	body := ReportBody(marker("split"), runner.Result{
+		Outcome:   runner.OutcomeSplit,
+		Summary:   "Постановка описывает две сущности.",
+		NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split: &runner.Split{Children: []runner.SplitChild{
+			{ID: "a", Title: "Category CRUD", Description: "Модель, миграция, CRUD."},
+		}},
+	}, "", runner.Usage{})
+
+	split := strings.Index(body, "## Разбивка")
+	questions := strings.Index(body, QuestionsHeading)
+	if split == -1 || questions == -1 || split > questions {
+		t.Errorf("«## Разбивка» (%d) не раньше «%s» (%d):\n%s", split, QuestionsHeading, questions, body)
+	}
+}
+
 // Системная запись — тоже комментарий офиса, и опознаваться должна так же.
 func TestNoticeBody(t *testing.T) {
 	m := Marker{RunID: runID, Role: "implementer", Event: EventLeaseExpired, ConfigSHA: "5bc6a3b0"}
