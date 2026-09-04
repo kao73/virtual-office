@@ -305,9 +305,14 @@ func validateSplitChildren(children []SplitChild) []error {
 
 	ids := make(map[string]bool, len(children))
 	for i, c := range children {
+		// id едет в тот же буллет-заголовок, что title (SplitBlock:
+		// "- **id** — title"), и человек ссылается на него в depends_on —
+		// тем же приёмом, что options[].id, запрещающий даже пробел.
 		switch {
 		case strings.TrimSpace(c.ID) == "":
 			errs = append(errs, fmt.Errorf("split.children[%d].id пуст", i))
+		case strings.ContainsAny(c.ID, " \t\r\n"):
+			errs = append(errs, fmt.Errorf("split.children[%d].id=%q с пробелом: на него ссылаются depends_on", i, c.ID))
 		case ids[c.ID]:
 			errs = append(errs, fmt.Errorf("split.children[%d].id=%q повторяется", i, c.ID))
 		}
@@ -441,7 +446,7 @@ func ResultSpec(resultFile string) string {
 - ` + "`blocker`" + ` — только при ` + "`outcome=blocked`" + `.
 - ` + "`split`" + ` — только при ` + "`outcome=split`" + `, с непустым ` + "`children`" + `.
   Каждый ребёнок — будущий тикет, который заведёт человек, не ты: ` + "`id`" + ` —
-  свой короткий ключ (не ключ трекера — его ещё нет), ` + "`title`" + ` — заголовок,
+  свой короткий ключ без пробелов (не ключ трекера — его ещё нет), ` + "`title`" + ` — заголовок,
   ` + "`description`" + ` — суть в 1-3 предложения, как верхнеуровневый ` + "`summary`" + `.
   Оба — **одной строкой каждый**, как текст вопроса; подробный план для
   подзадачи сюда не входит. ` + "`depends_on`" + ` — список ` + "`id`" + ` других детей

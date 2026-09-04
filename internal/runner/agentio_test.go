@@ -265,6 +265,14 @@ func TestReadResultRejects(t *testing.T) {
 				`{"id":"a","title":"т","description":"о","depends_on":["нет-такого"]}]},"next_owner":"human"}`,
 			wantPart: "такого id в списке нет",
 		},
+		// id тоже едет в тот же буллет-заголовок (SplitBlock: "- **id** — title") —
+		// пробел или перевод строки в нём ломает пункт так же, как в title, и
+		// options[].id по той же причине запрещает даже пробел (validateQuestions).
+		"пробел в id split.children": {
+			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
+				`{"id":"a b","title":"т","description":"о"}]},"next_owner":"human"}`,
+			wantPart: "с пробелом",
+		},
 		"цикл зависимостей в split.children": {
 			content: `{"outcome":"split","summary":"с.","questions":[{"id":"Q1","text":"а?"}],"split":{"children":[` +
 				`{"id":"a","title":"т1","description":"о1","depends_on":["b"]},` +
