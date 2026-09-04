@@ -1,6 +1,6 @@
 workflow: tweak
 language: en
-phase: build
+phase: verify
 context_compression: off
 build_mode: direct
 build_pause: null
@@ -8,14 +8,14 @@ subagent_dispatch: null
 tdd_mode: direct
 review_mode: off
 isolation: branch
-verify_mode: light
+verify_mode: full
 auto_transition: true
 base_ref: 346a4ff6e7e899c220b86fb793bd775ec3462d79
 design_doc: null
 plan: null
 verify_result: pending
 verify_failures: 0
-verification_report: null
+verification_report: docs/superpowers/reports/2026-09-04-analyst-early-size-check-verify.md
 branch_status: pending
 created_at: 2026-09-03
 verified_at: null
@@ -27,4 +27,4 @@ handoff_context: null
 handoff_hash: null
 classic_profile: tweak
 classic_migration: 1
-run_id: 82b23a54-e913-4c15-aa4f-aad5ed6a5a53
+run_id: 847b3184-ce4a-4295-a66f-f7c483fb4eb4
