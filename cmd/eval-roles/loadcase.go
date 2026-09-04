@@ -44,7 +44,7 @@ func LoadCase(dir string) (Case, error) {
 		}
 		switch chk.Kind {
 		case "outcome":
-			// expect — фиксированный список из четырёх исходов, в отличие
+			// expect — фиксированный список из пяти исходов, в отличие
 			// от next_owner: там значением легитимно стоит любое имя роли,
 			// и docs/contracts/agent-io.md сознательно не проверяет её
 			// существование «на этапе 1» — здесь это же решение соблюдается.
@@ -53,6 +53,26 @@ func LoadCase(dir string) (Case, error) {
 			}
 			if !knownOutcome(chk.Expect) {
 				return Case{}, fmt.Errorf("expect.yaml: outcome-проверка с неизвестным expect %q", chk.Expect)
+			}
+			// children_count_min при любом другом expect outcomeChecker молча
+			// не смотрит вовсе (Run проверяет его только при want ==
+			// OutcomeSplit) — то же немое исчезновение опечатки, ради которого
+			// заведён весь этот switch, только не всплывающее уже никогда,
+			// а не просто после платного прогона.
+			if chk.ChildrenCountMin > 0 && chk.Expect != string(runner.OutcomeSplit) {
+				return Case{}, fmt.Errorf("expect.yaml: children_count_min задан при expect=%q, а не split", chk.Expect)
+			}
+			// Меньше двух ничего не проверяет: Result.Validate уже гарантирует
+			// непустой список (>= 1), а checker сравнивает через "<" — 1 никогда
+			// не провалит проверку. Ноль — легитимное «не проверять», не путать.
+			if chk.ChildrenCountMin != 0 && chk.ChildrenCountMin < 2 {
+				return Case{}, fmt.Errorf("expect.yaml: children_count_min=%d ничего не проверяет — Result.Validate уже гарантирует непустой список", chk.ChildrenCountMin)
+			}
+			// questions_not_empty — тот же класс немой потери, что у
+			// children_count_min выше: outcomeChecker смотрит на него только
+			// при needs_human/split (checkers.go, Run).
+			if chk.QuestionsNotEmpty && chk.Expect != string(runner.OutcomeNeedsHuman) && chk.Expect != string(runner.OutcomeSplit) {
+				return Case{}, fmt.Errorf("expect.yaml: questions_not_empty задан при expect=%q, а не needs_human/split", chk.Expect)
 			}
 		case "fixture_tests":
 			// Пустой command не провалился бы сам — `sh -c ""` выходит с
@@ -80,11 +100,11 @@ func knownCheckKind(kind string) bool {
 	}
 }
 
-// knownOutcome сообщает, является ли expect одним из четырёх исходов,
+// knownOutcome сообщает, является ли expect одним из пяти исходов,
 // которые вообще способен вернуть агент (internal/runner.Outcome).
 func knownOutcome(expect string) bool {
 	switch runner.Outcome(expect) {
-	case runner.OutcomeDone, runner.OutcomeNeedsHuman, runner.OutcomeBlocked, runner.OutcomeFailed:
+	case runner.OutcomeDone, runner.OutcomeNeedsHuman, runner.OutcomeBlocked, runner.OutcomeFailed, runner.OutcomeSplit:
 		return true
 	default:
 		return false

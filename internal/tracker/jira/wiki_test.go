@@ -117,6 +117,24 @@ func TestWikiKeepsMarkerLine(t *testing.T) {
 	}
 }
 
+// SplitBlock печатает описание и depends_on вложенным пунктом (`  - ...`)
+// именно затем, чтобы этот перевод сработал: wiki переводит только строки,
+// начинающиеся (после отступа) с "-"/"*"/"+" — обычный отступ-продолжение
+// не опознал бы вовсе, и список рвался бы на каждом ребёнке.
+func TestWikiNestsSplitBlockChildren(t *testing.T) {
+	block := tracker.SplitBlock(&runner.Split{Children: []runner.SplitChild{
+		{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD.", DependsOn: []string{"transaction-crud"}},
+	}})
+
+	got := wiki(block)
+
+	for _, want := range []string{"* *category-crud* — Category CRUD", "** Модель, миграция, CRUD.", "** зависит от: transaction-crud"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("нет %q в переводе:\n%s", want, got)
+		}
+	}
+}
+
 // Раздел вопросов — протокол, а не украшение: раннер его печатает и он же потом
 // разбирает. Граница у перевода та же, что у ParseQuestions.
 func TestWikiKeepsQuestionsBlock(t *testing.T) {

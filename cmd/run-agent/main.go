@@ -25,7 +25,7 @@ import (
 
 // Коды возврата — внешний контракт команды.
 //
-//	0 — агент оставил валидный результат с исходом done, needs_human или blocked;
+//	0 — агент оставил валидный результат с исходом done, needs_human, blocked или split;
 //	1 — исход failed, агентский или синтетический: агент не справился;
 //	2 — инфраструктурная беда: роль, бэкенд, кред, тулчейн. Запускать было нечем.
 //
@@ -414,6 +414,14 @@ func printResult(out runagent.Outcome, passport runner.Run) {
 		fmt.Printf("вопрос: %s: %s\n", q.ID, q.Text)
 		for _, o := range q.Options {
 			fmt.Printf("        %s) %s\n", o.ID, o.Label)
+		}
+	}
+	if r.Split != nil {
+		for _, c := range r.Split.Children {
+			fmt.Printf("разбивка: %s — %s\n", c.ID, c.Title)
+			if len(c.DependsOn) > 0 {
+				fmt.Printf("          зависит от: %s\n", strings.Join(c.DependsOn, ", "))
+			}
 		}
 	}
 	if len(r.Artifacts) > 0 {

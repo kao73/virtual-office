@@ -24,6 +24,16 @@ type CheckSpec struct {
 	Expect            string `yaml:"expect,omitempty"`
 	QuestionsNotEmpty bool   `yaml:"questions_not_empty,omitempty"`
 	NextOwner         string `yaml:"next_owner,omitempty"`
+	// ChildrenCountMin — только вместе с expect: split, необязательно:
+	// минимум элементов в split.children[]. Ноль (умолчание) значит «не
+	// проверять число». Не точное число: Result.Validate уже гарантирует
+	// непустой список, а ровно сколько частей предложит роль — вопрос
+	// её собственного суждения о постановке, и не то же самое, что «предложила
+	// разбивку хоть на что-то» (единственное, что здесь стоит проверять
+	// детерминированно). Загрузка отвергает и неверный expect, и значение
+	// меньше двух (LoadCase) — 1 не отличило бы «разбивку предложила» от
+	// «предложила один пункт», раз непустой список и так гарантирован.
+	ChildrenCountMin int `yaml:"children_count_min,omitempty"`
 
 	// kind: diff_scope
 	Allow []string `yaml:"allow,omitempty"`

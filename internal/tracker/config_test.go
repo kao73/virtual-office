@@ -67,6 +67,7 @@ roles:
     outcomes:
       done:        { to: Review }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
 limits:
@@ -92,6 +93,7 @@ roles:
     outcomes:
       done:        { to: Review }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
   reviewer:
@@ -103,6 +105,7 @@ roles:
           implementer: Ready
           human: Approved
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Review, attempts: +1 }
       failed:      { to: Review, attempts: +1 }
 limits:
@@ -260,8 +263,8 @@ func TestLoadWorkflowRejectsBrokenTwoRoleGraph(t *testing.T) {
 			// Маршрут по next_owner — только у done: остальные исходы задачу
 			// никому не передают, и разветвлять их нечем.
 			name: "маршрут по next_owner не у done",
-			yaml: strings.Replace(twoRoleWorkflow, "      needs_human: { to: Blocked, human: true }\n      blocked:     { to: Review, attempts: +1 }",
-				"      needs_human: { to: Blocked, human: true, by_next_owner: { human: Blocked } }\n      blocked:     { to: Review, attempts: +1 }", 1),
+			yaml: strings.Replace(twoRoleWorkflow, "      needs_human: { to: Blocked, human: true }\n      split:       { to: Blocked, human: true }\n      blocked:     { to: Review, attempts: +1 }",
+				"      needs_human: { to: Blocked, human: true, by_next_owner: { human: Blocked } }\n      split:       { to: Blocked, human: true }\n      blocked:     { to: Review, attempts: +1 }", 1),
 			want: "by_next_owner",
 		},
 		{
@@ -570,6 +573,7 @@ roles:
     outcomes:
       done:        { to: Review }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
 pr:

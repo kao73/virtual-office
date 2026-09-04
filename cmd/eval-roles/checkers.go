@@ -22,7 +22,13 @@ var checkers = map[string]Checker{
 }
 
 // outcomeChecker сверяет Result.Outcome со spec.Expect, а когда expect —
-// needs_human и задан questions_not_empty — ещё и что Questions не пуст.
+// needs_human или split и задан questions_not_empty — ещё и что Questions
+// не пуст (оба исхода несут questions одинаково, agentio.go Result.Validate).
+// Когда expect — split и задан spec.ChildrenCountMin, сверяет, что элементов
+// в Result.Split.Children не меньше минимума: Result.Validate уже гарантирует
+// непустой список, а этот checker — что роль предложила разбивку на несколько
+// частей, а не одну. Точное число не проверяется намеренно: сколько именно
+// частей предложит роль — вопрос её суждения о постановке, не оракул кейса.
 // Когда задан spec.NextOwner, сверяет и его с Result.NextOwner: это
 // обязательное, типизированное поле роли (см. roles/*/role.md, «Выход»), и
 // оно надёжнее любого разбора свободного текста summary/details_md —
@@ -40,8 +46,17 @@ func (outcomeChecker) Run(ctx CheckContext) CheckResult {
 		}
 		return CheckResult{Pass: false, Detail: detail}
 	}
-	if want == runner.OutcomeNeedsHuman && ctx.Spec.QuestionsNotEmpty && len(ctx.Result.Questions) == 0 {
-		return CheckResult{Pass: false, Detail: "outcome=needs_human but questions is empty"}
+	if (want == runner.OutcomeNeedsHuman || want == runner.OutcomeSplit) && ctx.Spec.QuestionsNotEmpty && len(ctx.Result.Questions) == 0 {
+		return CheckResult{Pass: false, Detail: fmt.Sprintf("outcome=%s but questions is empty", want)}
+	}
+	if want == runner.OutcomeSplit && ctx.Spec.ChildrenCountMin > 0 {
+		gotCount := 0
+		if ctx.Result.Split != nil {
+			gotCount = len(ctx.Result.Split.Children)
+		}
+		if gotCount < ctx.Spec.ChildrenCountMin {
+			return CheckResult{Pass: false, Detail: fmt.Sprintf("split.children has %d entries, expected at least %d", gotCount, ctx.Spec.ChildrenCountMin)}
+		}
 	}
 	// TrimSpace: runner.Result.Validate (internal/runner/agentio.go) сверяет
 	// next_owner тем же способом — значение с хвостовым пробелом законно по

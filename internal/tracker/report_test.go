@@ -92,6 +92,23 @@ func TestReportBodySectionsByOutcome(t *testing.T) {
 			want:   []string{"оба уперлись"},
 			absent: []string{"Вопросы", "Блокер", "Артефакты"},
 		},
+		{
+			name: "разбивка",
+			result: runner.Result{
+				Outcome:   runner.OutcomeSplit,
+				Summary:   "Постановка описывает две независимые сущности.",
+				NextOwner: "human",
+				Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+				Split: &runner.Split{Children: []runner.SplitChild{
+					{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD категорий."},
+					{ID: "transaction-crud", Title: "Transaction CRUD", Description: "Модель, миграция, CRUD операций.", DependsOn: []string{"category-crud"}},
+				}},
+			},
+			// Человек отвечает на «разбить как предложено?», не видя result.json —
+			// без заголовков и текста детей вопрос было бы не на что отвечать.
+			want:   []string{"Category CRUD", "Модель, миграция, CRUD категорий", "Transaction CRUD", "category-crud", "зависит"},
+			absent: []string{"Блокер", "Артефакты"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -157,6 +174,43 @@ func TestSpendLineReadsLikeRussian(t *testing.T) {
 	}
 	if got := SpendLine(runner.Usage{}); got != "" {
 		t.Errorf("о неизвестном расходе сказано %q", got)
+	}
+}
+
+// Описание и depends_on — вложенные пункты списка (`  - ...`), не ленивое
+// продолжение абзаца (`  ...`): второе визуально склеивается со строкой
+// заголовка и в markdown, и не переводится вовсе в JIRA wiki (jira/wiki.go
+// переводит только строки, начинающиеся с "-"/"*"/"+" после отступа —
+// mdBullet), из-за чего список рвётся на каждом ребёнке.
+func TestSplitBlockNestsDescriptionAsListItem(t *testing.T) {
+	block := SplitBlock(&runner.Split{Children: []runner.SplitChild{
+		{ID: "a", Title: "Category CRUD", Description: "Модель, миграция, CRUD.", DependsOn: []string{"b"}},
+	}})
+	for _, want := range []string{"\n  - Модель, миграция, CRUD.\n", "\n  - зависит от: b\n"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("нет вложенного пункта %q в:\n%s", want, block)
+		}
+	}
+}
+
+// Разбивка печатается раньше вопроса, который на неё ссылается: иначе
+// человек читает «ответьте комментарием: Q1: <текст>» до того, как увидел,
+// что вообще предложено, и подсказка про ответ повисает без контекста.
+func TestReportBodyShowsSplitBeforeQuestions(t *testing.T) {
+	body := ReportBody(marker("split"), runner.Result{
+		Outcome:   runner.OutcomeSplit,
+		Summary:   "Постановка описывает две сущности.",
+		NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split: &runner.Split{Children: []runner.SplitChild{
+			{ID: "a", Title: "Category CRUD", Description: "Модель, миграция, CRUD."},
+		}},
+	}, "", runner.Usage{})
+
+	split := strings.Index(body, "## Разбивка")
+	questions := strings.Index(body, QuestionsHeading)
+	if split == -1 || questions == -1 || split > questions {
+		t.Errorf("«## Разбивка» (%d) не раньше «%s» (%d):\n%s", split, QuestionsHeading, questions, body)
 	}
 }
 

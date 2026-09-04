@@ -112,7 +112,7 @@ func TestLoadCaseRejectsOutcomeWithoutExpect(t *testing.T) {
 // expect: "don" (опечатка) прошёл бы загрузку и всплыл бы только после
 // платного прогона роли, в outcomeChecker, как обычный FAIL — то есть как
 // регресс роли, а не сломанный expect.yaml. `expect` — фиксированный список
-// из четырёх исходов, в отличие от next_owner (там роль может стоять любым
+// из пяти исходов, в отличие от next_owner (там роль может стоять любым
 // именем, и docs/contracts/agent-io.md сознательно не проверяет её
 // существование «на этапе 1» — LoadCase этому не противоречит).
 func TestLoadCaseRejectsUnknownExpect(t *testing.T) {
@@ -126,6 +126,61 @@ func TestLoadCaseRejectsUnknownExpect(t *testing.T) {
 	}
 	if _, err := LoadCase(caseDir); err == nil {
 		t.Error("неизвестный expect не замечен")
+	}
+}
+
+// children_count_min при expect != split outcomeChecker никогда не смотрит
+// (Run проверяет его только при want == OutcomeSplit) — опечатка молчала бы
+// не только до платного прогона, а вообще всегда.
+func TestLoadCaseRejectsChildrenCountMinWithoutSplit(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "role: implementer\nchecks:\n  - kind: outcome\n    expect: done\n    children_count_min: 2\n"
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("children_count_min при expect=done не замечен")
+	}
+}
+
+// children_count_min < 2 при expect: split загружается, но ничего не даёт:
+// Result.Validate уже гарантирует непустой список (>= 1), а сам checker
+// сравнивает через "<", так что 1 никогда не проваливает проверку — то же
+// молчание, что у неверного expect, только по значению, а не по полю.
+func TestLoadCaseRejectsChildrenCountMinBelowTwo(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "analyst", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "role: analyst\nchecks:\n  - kind: outcome\n    expect: split\n    children_count_min: 1\n"
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("children_count_min: 1 не замечен")
+	}
+}
+
+// questions_not_empty при expect вне needs_human/split outcomeChecker никогда
+// не смотрит (Run проверяет его только при want ∈ {needs_human, split}) —
+// тот же класс немой потери, что у children_count_min, для соседнего поля.
+func TestLoadCaseRejectsQuestionsNotEmptyOutsideHumanOrSplit(t *testing.T) {
+	root := t.TempDir()
+	caseDir := filepath.Join(root, "implementer", "sample-case")
+	if err := os.MkdirAll(caseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "role: implementer\nchecks:\n  - kind: outcome\n    expect: done\n    questions_not_empty: true\n"
+	if err := os.WriteFile(filepath.Join(caseDir, "expect.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCase(caseDir); err == nil {
+		t.Error("questions_not_empty при expect=done не замечен")
 	}
 }
 

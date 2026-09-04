@@ -847,6 +847,35 @@ func TestTickNeedsHumanBlocksAndFlags(t *testing.T) {
 	}
 }
 
+// Предложение разбить задачу маршрутизируется в графе точно так же, как
+// needs_human (RoleFlow.Blocked() в internal/tracker/config.go), и сама
+// разбивка обязана быть видна в комментарии — иначе человеку нечего смотреть,
+// отвечая на вопрос «разбить как предложено?».
+func TestTickSplitBlocksAndFlags(t *testing.T) {
+	o := newOffice(t)
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeSplit, Summary: "Постановка описывает две сущности.", NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split: &runner.Split{Children: []runner.SplitChild{
+			{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD категорий."},
+			{ID: "transaction-crud", Title: "Transaction CRUD", Description: "Модель, миграция, CRUD операций.", DependsOn: []string{"category-crud"}},
+		}},
+	}
+
+	o.tick(t)
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" {
+		t.Errorf("статус %q, ожидался Blocked", task.Status)
+	}
+	if !task.HumanFlag {
+		t.Error("атрибут «ждёт человека» не выставлен")
+	}
+	if body := lastComment(t, task).Body; !strings.Contains(body, "Category CRUD") || !strings.Contains(body, "category-crud") {
+		t.Errorf("разбивки нет в комментарии:\n%s", body)
+	}
+}
+
 // Неудача — обычный исход: задача возвращается в очередь с увеличенным счётчиком.
 func TestTickFailedReturnsTaskWithAttempt(t *testing.T) {
 	o := newOffice(t)
@@ -2295,6 +2324,7 @@ roles:
         by_next_owner:
           human: Blocked
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
 limits:
@@ -2358,6 +2388,7 @@ roles:
     outcomes:
       done:        { to: Ready, by_next_owner: { implementer: Ready } }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Analysis, attempts: +1 }
       failed:      { to: Analysis, attempts: +1 }
   implementer:
@@ -2366,6 +2397,7 @@ roles:
     outcomes:
       done:        { to: Review }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
   reviewer:
@@ -2376,6 +2408,7 @@ roles:
         by_next_owner:
           implementer: Ready
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Review, attempts: +1 }
       failed:      { to: Review, attempts: +1 }
 limits:
@@ -2470,6 +2503,7 @@ roles:
     outcomes:
       done:        { to: Review }
       needs_human: { to: Blocked, human: true }
+      split:       { to: Blocked, human: true }
       blocked:     { to: Ready, attempts: +1 }
       failed:      { to: Ready, attempts: +1 }
 limits:
