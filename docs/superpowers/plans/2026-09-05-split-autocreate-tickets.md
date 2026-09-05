@@ -1859,7 +1859,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 - Consumes: `Marker.Attachment` (задача 9), `Tracker.AddAttachment` (задачи 3/6).
 - Produces: `finish()` тегирует `outcome:split`-отчёт вложением.
 
-- [ ] **Step 1: Написать падающий тест**
+- [x] **Step 1: Написать падающий тест**
 
   В `internal/pipeline/pipeline_test.go`, сразу после `TestTickSplitBlocksAndFlags`:
 
@@ -1907,7 +1907,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 
   (`encoding/json` уже импортирован в `pipeline_test.go`.)
 
-- [ ] **Step 2: Убедиться, что тест падает**
+- [x] **Step 2: Убедиться, что тест падает**
 
   ```bash
   go test ./internal/pipeline/... -run TestTickSplitAttachesRawChildren -v
@@ -1915,7 +1915,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 
   Ожидаемо: FAIL — `marker.Attachment` пуст (`finish()` ещё не пишет вложение).
 
-- [ ] **Step 3: Реализовать**
+- [x] **Step 3: Реализовать**
 
   В `internal/pipeline/pipeline.go` добавить `"encoding/json"` в импорты
   (после `"context"`). В `finish()`, заменить:
@@ -1955,25 +1955,25 @@ REST v2 не отдаёт и не принимает вложения как JSO
       }
   ```
 
-- [ ] **Step 4: Тест проходит**
+- [x] **Step 4: Тест проходит**
 
   ```bash
   go test ./internal/pipeline/... -run TestTickSplitAttachesRawChildren -v
   ```
 
-- [ ] **Step 5: Старые тесты на split не сломаны**
+- [x] **Step 5: Старые тесты на split не сломаны**
 
   ```bash
   go test ./internal/pipeline/... -run 'TestTickSplitBlocksAndFlags|TestTickSplitAttachesRawChildren' -v
   ```
 
-- [ ] **Step 6: Полный прогон пакета**
+- [x] **Step 6: Полный прогон пакета**
 
   ```bash
   go test ./internal/pipeline/...
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add internal/pipeline/pipeline.go internal/pipeline/pipeline_test.go

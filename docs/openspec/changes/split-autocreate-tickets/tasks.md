@@ -22,8 +22,8 @@
 
 ## 4. Вложение в путь исхода `split` (`internal/tracker/report.go` и вызывающий код)
 
-- [ ] 4.1 На исход `split` — вызвать `AddAttachment` с сырыми `split.children[]` (JSON), получить `id`, включить `attachment:<id>` в тег комментария-маркера
-- [ ] 4.2 Тест: `outcome: split` → вложение создано, тег комментария содержит `attachment:<id>`, `GetAttachment` по этому `id` возвращает исходные `split.children[]` без потерь
+- [x] 4.1 На исход `split` — вызвать `AddAttachment` с сырыми `split.children[]` (JSON), получить `id`, включить `attachment:<id>` в тег комментария-маркера (реализовано в `internal/pipeline/pipeline.go`'s `finish()`, не в `report.go` — `SplitBlock` остаётся нетронутым, см. design.md)
+- [x] 4.2 Тест: `outcome: split` → вложение создано, тег комментария содержит `attachment:<id>`, `GetAttachment` по этому `id` возвращает исходные `split.children[]` без потерь
 
 ## 5. Детерминированное создание (`internal/pipeline/pipeline.go`)
 
