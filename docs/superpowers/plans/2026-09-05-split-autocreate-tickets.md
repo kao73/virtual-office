@@ -335,7 +335,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 - Consumes: `tracker.TaskInput`, `tracker.TaskRef`, существующие `t.Keys()`, `t.list(match func(tracker.Task) bool)`, `t.dir(key)`, `writeTask`, `t.updated(key)`.
 - Produces: `(*Tracker).CreateTask`, `(*Tracker).FindByMarker`, обе — настоящая реализация вместо заглушки задачи 1.
 
-- [ ] **Step 1: Написать падающий тест**
+- [x] **Step 1: Написать падающий тест**
 
   В `internal/tracker/mock/mock_test.go` добавить в импорты `"os"` и
   `"path/filepath"` (их сегодня в файле нет), затем:
@@ -390,7 +390,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   }
   ```
 
-- [ ] **Step 2: Убедиться, что тест падает**
+- [x] **Step 2: Убедиться, что тест падает**
 
   ```bash
   go test ./internal/tracker/mock/... -run 'TestCreateTaskThenFindByMarker|TestFindByMarkerEmptyWhenNoneMatch|TestCreateTaskCollisionFailsInsteadOfOverwriting' -v
@@ -398,7 +398,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 
   Ожидаемо: FAIL — заглушки задачи 1 возвращают «пока не реализовано».
 
-- [ ] **Step 3: Реализовать**
+- [x] **Step 3: Реализовать**
 
   В `internal/tracker/mock/mock.go`, в блок констант добавить `attachmentsDir`
   (нужен и этой задаче для `Add`, чтобы задачи, заведённые до `CreateTask`,
@@ -513,7 +513,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   сделает задача 4 (там же, где заводится `LinkDependsOn`); на этом шаге
   `taskFile` менять не нужно, `CreateTask` его не трогает.
 
-- [ ] **Step 4: Тест проходит**
+- [x] **Step 4: Тест проходит**
 
   ```bash
   go test ./internal/tracker/mock/... -run 'TestCreateTaskThenFindByMarker|TestFindByMarkerEmptyWhenNoneMatch|TestCreateTaskCollisionFailsInsteadOfOverwriting' -v
@@ -521,13 +521,13 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 
   Ожидаемо: PASS.
 
-- [ ] **Step 5: Полный прогон пакета — старое не сломано**
+- [x] **Step 5: Полный прогон пакета — старое не сломано**
 
   ```bash
   go test ./internal/tracker/mock/...
   ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/tracker/mock/mock.go internal/tracker/mock/mock_test.go
