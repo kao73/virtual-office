@@ -1101,7 +1101,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 - Produces: `(*Tracker).AddAttachment`, `(*Tracker).GetAttachment`,
   приватные `(*Tracker).upload`, `(*Tracker).download`.
 
-- [ ] **Step 1: Расширить `fakeJira` поддержкой вложений**
+- [x] **Step 1: Расширить `fakeJira` поддержкой вложений**
 
   В `internal/tracker/jira/jira_test.go`, поля `fakeJira`:
 
@@ -1171,7 +1171,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
           w.WriteHeader(http.StatusNotFound)
   ```
 
-- [ ] **Step 2: Написать падающий тест**
+- [x] **Step 2: Написать падающий тест**
 
   Добавить `"bytes"` в импорты `jira_test.go`, затем:
 
@@ -1208,13 +1208,13 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 3: Убедиться, что тесты падают**
+- [x] **Step 3: Убедиться, что тесты падают**
 
   ```bash
   go test ./internal/tracker/jira/... -run 'TestAddAttachment|TestGetAttachment' -v
   ```
 
-- [ ] **Step 4: Реализовать**
+- [x] **Step 4: Реализовать**
 
   Добавить `"mime/multipart"` в импорты `jira.go`. Заменить заглушки
   `AddAttachment`/`GetAttachment` из задачи 1 на:
@@ -1323,19 +1323,19 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 5: Тесты проходят**
+- [x] **Step 5: Тесты проходят**
 
   ```bash
   go test ./internal/tracker/jira/... -run 'TestAddAttachment|TestGetAttachment' -v
   ```
 
-- [ ] **Step 6: Полный прогон пакета**
+- [x] **Step 6: Полный прогон пакета**
 
   ```bash
   go test ./internal/tracker/jira/...
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add internal/tracker/jira/jira.go internal/tracker/jira/jira_test.go

@@ -14,7 +14,7 @@
 ## 3. Реализация `jira` (`internal/tracker/jira/`)
 
 - [ ] 3.1 Проверить на локальном полигоне (Server 8.13), есть ли готовый тип issuelink «depends on»/«is blocked by» (design.md, Risk 1); если нет — завести на инстансе отдельным операционным шагом, не блокирующим код
-- [ ] 3.2 `AddAttachment`/`GetAttachment` — `POST`/`GET .../attachments`, REST v2
+- [x] 3.2 `AddAttachment`/`GetAttachment` — `POST`/`GET .../attachments`, REST v2
 - [x] 3.3 `CreateTask` — `POST /issue`, `labels` из `TaskInput`
 - [x] 3.4 `FindByMarker` — JQL-поиск по `labels`
 - [ ] 3.5 `LinkDependsOn` — `POST /issueLink` найденным типом; проверить эмпирически, идемпотентен ли повторный вызов для той же пары (design.md, Risk 2) — если нет, добавить проверку существующих `issuelinks` перед созданием
