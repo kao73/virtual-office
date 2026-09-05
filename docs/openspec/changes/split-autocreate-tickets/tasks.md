@@ -5,7 +5,7 @@
 
 ## 2. Реализация `mock` (`internal/tracker/mock/mock.go`)
 
-- [ ] 2.1 `AddAttachment`/`GetAttachment` — файл рядом с задачей в файловом хранилище фикстуры
+- [x] 2.1 `AddAttachment`/`GetAttachment` — файл рядом с задачей в файловом хранилище фикстуры
 - [x] 2.2 `CreateTask` — новый файл задачи; метка (единая `split-child:<PARENT_KEY>:<id>`, уточнено Design Doc'ом взамен исходной пары `split-parent:<KEY>`+`split-child:<id>`) пишется вызывающим кодом как часть `TaskInput` — `CreateTask` сам ничего про формат метки не знает
 - [x] 2.3 `FindByMarker` — фильтр по каталогу проекта, ищет задачи с данной меткой
 - [ ] 2.4 `LinkDependsOn` — поле связи в YAML задачи

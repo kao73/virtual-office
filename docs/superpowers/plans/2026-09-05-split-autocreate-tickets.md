@@ -548,7 +548,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   приватный помощник `nextExclusive(dir string, existing int, suffix string) (*os.File, string, error)`,
   переиспользуемый существующим `AddComment`.
 
-- [ ] **Step 1: Написать падающий тест**
+- [x] **Step 1: Написать падающий тест**
 
   В `internal/tracker/mock/mock_test.go` добавить в импорты `"bytes"`, затем:
 
@@ -591,13 +591,13 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 
   (`errors` уже импортирован в файле.)
 
-- [ ] **Step 2: Убедиться, что тест падает**
+- [x] **Step 2: Убедиться, что тест падает**
 
   ```bash
   go test ./internal/tracker/mock/... -run 'TestAddAttachmentThenGetAttachmentRoundTrips|TestGetAttachmentUnknownIDFails|TestAddAttachmentRequiresOwnership' -v
   ```
 
-- [ ] **Step 3: Рефакторинг `AddComment` + реализация**
+- [x] **Step 3: Рефакторинг `AddComment` + реализация**
 
   В `internal/tracker/mock/mock.go` заменить тело эксклюзивного цикла в
   `AddComment` на вызов общего помощника, и добавить сам помощник рядом:
@@ -706,7 +706,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   }
   ```
 
-- [ ] **Step 4: Тесты проходят, включая существующие комментарные**
+- [x] **Step 4: Тесты проходят, включая существующие комментарные**
 
   ```bash
   go test ./internal/tracker/mock/... -v -run 'Attachment|Comment'
@@ -715,13 +715,13 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   Ожидаемо: PASS по всем — рефакторинг `AddComment` не должен менять его
   наблюдаемое поведение (те же имена файлов `0001.md`, `0002.md`, …).
 
-- [ ] **Step 5: Полный прогон пакета**
+- [x] **Step 5: Полный прогон пакета**
 
   ```bash
   go test ./internal/tracker/mock/...
   ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/tracker/mock/mock.go internal/tracker/mock/mock_test.go
