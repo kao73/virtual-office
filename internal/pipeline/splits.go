@@ -69,9 +69,10 @@ func (o *Office) CompleteSplits(ctx context.Context) error {
 // completeSplit достраивает одно подтверждённое split-предложение: читает
 // вложение, доводит до конца создание детей и связей, закрывает родителя.
 //
-// Ошибка любого шага уходит системной записью в тикет (splitFailed) и не
-// прерывает обход остальных задач в CompleteSplits — тем же приёмом, что
-// Reap не роняет весь проход из-за одной беды.
+// Ошибка любого шага, включая закрытие родителя в closeSplitParent, уходит
+// системной записью в тикет (splitFailed) и не прерывает обход остальных
+// задач в CompleteSplits — тем же приёмом, что Reap не роняет весь проход
+// из-за одной беды.
 func (o *Office) completeSplit(task tracker.Task, attachmentID string) error {
 	children, err := o.splitChildren(task, attachmentID)
 	if err != nil {
@@ -90,7 +91,10 @@ func (o *Office) completeSplit(task tracker.Task, attachmentID string) error {
 	for i, child := range children {
 		keys[i] = byID[child.ID]
 	}
-	return o.closeSplitParent(task, keys)
+	if err := o.closeSplitParent(task, keys); err != nil {
+		return o.splitFailed(task, fmt.Sprintf("родитель не закрыт: %v", err))
+	}
+	return nil
 }
 
 // splitChildren скачивает вложение подтверждённого split и разбирает его

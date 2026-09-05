@@ -2,12 +2,14 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
+	"github.com/kao73/virtual-office/internal/tracker/mock"
 )
 
 // tickAs прогоняет цикл названной роли и падает на инфраструктурной ошибке —
@@ -166,5 +168,139 @@ func TestCompleteSplitsResumesInterruptedBatch(t *testing.T) {
 	parent := o.get(t, "OFF-1")
 	if parent.Status != o.Workflow.PR.Merged {
 		t.Errorf("статус родителя %q, ожидался %q", parent.Status, o.Workflow.PR.Merged)
+	}
+}
+
+// flakyCreate роняет CreateTask для ребёнка с данным заголовком: так
+// выглядит частичный сбой пакетного создания.
+type flakyCreate struct {
+	*mock.Tracker
+	failOn string
+}
+
+func (f *flakyCreate) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
+	if input.Summary == f.failOn {
+		return tracker.TaskRef{}, errors.New("сеть недоступна")
+	}
+	return f.Tracker.CreateTask(project, input)
+}
+
+func TestCompleteSplitsRecordsFailureNoticeAndContinues(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	// Второй, независимый подтверждённый тикет — доказывает, что беда
+	// на OFF-1 не роняет весь проход CompleteSplits.
+	o.add("OFF-9", "Analysis")
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeSplit, Summary: "Другая постановка.", NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split: &runner.Split{Children: []runner.SplitChild{
+			{ID: "one", Title: "One", Description: "Первая половина."},
+			{ID: "two", Title: "Two", Description: "Вторая половина."},
+		}},
+	}
+	worked, err := o.Tick(context.Background(), "analyst")
+	if err != nil || !worked {
+		t.Fatalf("предложение OFF-9 не взято в работу: worked=%v err=%v", worked, err)
+	}
+	if err := o.tasks.AddComment("OFF-9", "human", "Да, разбивай."); err != nil {
+		t.Fatalf("ответ не записан: %v", err)
+	}
+	if worked, err := o.Tick(context.Background(), "analyst"); err != nil || !worked {
+		t.Fatalf("подтверждение OFF-9 не взято в работу: worked=%v err=%v", worked, err)
+	}
+
+	o.useTracker(&flakyCreate{Tracker: o.tasks, failOn: "Category CRUD"})
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не должен падать целиком: %v", err)
+	}
+
+	parent := o.get(t, "OFF-1")
+	if parent.Status != "Blocked" {
+		t.Errorf("статус родителя %q, ожидался Blocked — сбой не должен двигать задачу", parent.Status)
+	}
+	comment := lastComment(t, parent)
+	marker, ok := tracker.MarkerOf(comment.Body)
+	if !ok || marker.Event != tracker.EventSplitCreateFailed {
+		t.Errorf("нет записи о сбое:\n%s", comment.Body)
+	}
+
+	other := o.get(t, "OFF-9")
+	if other.Status != o.Workflow.PR.Merged {
+		t.Errorf("вторая задача %q, ожидался %q — беда первой не должна её касаться",
+			other.Status, o.Workflow.PR.Merged)
+	}
+}
+
+// flakyClose роняет Transition для ключа задачи-родителя: так выглядит сбой
+// самого последнего шага completeSplit — закрытия родителя в
+// closeSplitParent, — уже после того как дети созданы, связаны и отчёт
+// о них записан. Task 11 обернул splitFailed'ом только ранние шаги; этот
+// тест — на сбой именно здесь.
+type flakyClose struct {
+	*mock.Tracker
+	failOn string
+}
+
+func (f *flakyClose) Transition(key string, by tracker.Actor, toStatus string) error {
+	if key == f.failOn {
+		return errors.New("сеть недоступна")
+	}
+	return f.Tracker.Transition(key, by, toStatus)
+}
+
+// TestCompleteSplitsRecordsCloseFailureNoticeAndContinues доказывает, что
+// сбой именно на закрытии родителя (Transition после того, как дети уже
+// созданы и связаны) тоже уходит через splitFailed, а не наружу из
+// CompleteSplits — до этой задачи closeSplitParent не был обёрнут, и такой
+// сбой ронял бы весь проход, не давая дойти до OFF-9.
+func TestCompleteSplitsRecordsCloseFailureNoticeAndContinues(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	// Второй, независимый подтверждённый тикет — доказывает, что беда
+	// на закрытии OFF-1 не роняет весь проход CompleteSplits.
+	o.add("OFF-9", "Analysis")
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeSplit, Summary: "Другая постановка.", NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split: &runner.Split{Children: []runner.SplitChild{
+			{ID: "one", Title: "One", Description: "Первая половина."},
+			{ID: "two", Title: "Two", Description: "Вторая половина."},
+		}},
+	}
+	worked, err := o.Tick(context.Background(), "analyst")
+	if err != nil || !worked {
+		t.Fatalf("предложение OFF-9 не взято в работу: worked=%v err=%v", worked, err)
+	}
+	if err := o.tasks.AddComment("OFF-9", "human", "Да, разбивай."); err != nil {
+		t.Fatalf("ответ не записан: %v", err)
+	}
+	if worked, err := o.Tick(context.Background(), "analyst"); err != nil || !worked {
+		t.Fatalf("подтверждение OFF-9 не взято в работу: worked=%v err=%v", worked, err)
+	}
+
+	o.useTracker(&flakyClose{Tracker: o.tasks, failOn: "OFF-1"})
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("сбой закрытия родителя не должен ронять весь проход: %v", err)
+	}
+
+	parent := o.get(t, "OFF-1")
+	if parent.Status != "Blocked" {
+		t.Errorf("статус родителя %q, ожидался Blocked — сбой закрытия не должен двигать задачу", parent.Status)
+	}
+	comment := lastComment(t, parent)
+	marker, ok := tracker.MarkerOf(comment.Body)
+	if !ok || marker.Event != tracker.EventSplitCreateFailed {
+		t.Errorf("нет записи о сбое закрытия:\n%s", comment.Body)
+	}
+
+	other := o.get(t, "OFF-9")
+	if other.Status != o.Workflow.PR.Merged {
+		t.Errorf("вторая задача %q, ожидался %q — беда закрытия первой не должна её касаться",
+			other.Status, o.Workflow.PR.Merged)
 	}
 }
