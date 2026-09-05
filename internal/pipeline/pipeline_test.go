@@ -876,6 +876,46 @@ func TestTickSplitBlocksAndFlags(t *testing.T) {
 	}
 }
 
+// Второе предложение находит своё же вложение по attachment:<id> из тега
+// последнего маркера split — тест проверяет round-trip через сам Tracker,
+// а не сравнением строк.
+func TestTickSplitAttachesRawChildren(t *testing.T) {
+	o := newOffice(t)
+	split := &runner.Split{Children: []runner.SplitChild{
+		{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD категорий."},
+		{ID: "transaction-crud", Title: "Transaction CRUD", Description: "Модель, миграция, CRUD операций.", DependsOn: []string{"category-crud"}},
+	}}
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeSplit, Summary: "Постановка описывает две сущности.", NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split:     split,
+	}
+
+	o.tick(t)
+
+	task := o.get(t, "OFF-1")
+	body := lastComment(t, task).Body
+	marker, ok := tracker.MarkerOf(body)
+	if !ok || marker.Attachment == "" {
+		t.Fatalf("в маркере нет attachment:<id>:\n%s", body)
+	}
+	if !strings.Contains(body, "attachment:"+marker.Attachment) {
+		t.Errorf("тег комментария не содержит attachment:%s:\n%s", marker.Attachment, body)
+	}
+
+	raw, err := o.tasks.GetAttachment(task.Key, marker.Attachment)
+	if err != nil {
+		t.Fatalf("вложение не прочитано: %v", err)
+	}
+	var got runner.Split
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("вложение не разобрано: %v", err)
+	}
+	if len(got.Children) != 2 || got.Children[1].DependsOn[0] != "category-crud" {
+		t.Errorf("вложение потеряло данные: %+v", got)
+	}
+}
+
 // Неудача — обычный исход: задача возвращается в очередь с увеличенным счётчиком.
 func TestTickFailedReturnsTaskWithAttempt(t *testing.T) {
 	o := newOffice(t)

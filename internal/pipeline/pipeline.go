@@ -8,6 +8,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -729,9 +730,26 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	}
 
 	by := tracker.ByRun(runID)
+
+	// Вложение — раньше маркера: тегу attachment:<id> нужен уже готовый id,
+	// а второй раунд подтверждения split читает его именно оттуда, не
+	// переразбирая человекочитаемый текст комментария
+	// (internal/pipeline/splits.go, tracker.SplitConfirmed).
+	var attachmentID string
+	if result.Outcome == runner.OutcomeSplit && result.Split != nil {
+		data, err := json.Marshal(result.Split)
+		if err != nil {
+			return "", fmt.Errorf("вложение с разбивкой не собрано: %w", err)
+		}
+		attachmentID, err = o.Tracker.AddAttachment(task.Key, by, "split.json", data)
+		if err != nil {
+			return "", fmt.Errorf("вложение с разбивкой не сохранено: %w", err)
+		}
+	}
+
 	marker := tracker.Marker{
 		RunID: runID, Role: roleName, Outcome: string(result.Outcome),
-		Next: result.NextOwner, ConfigSHA: o.ConfigSHA,
+		Next: result.NextOwner, Attachment: attachmentID, ConfigSHA: o.ConfigSHA,
 	}
 
 	// Круги считаются по маркерам, а этот ещё не написан: к прошлым добавляется
