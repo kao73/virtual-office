@@ -2361,7 +2361,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 - Consumes: всё из задачи 11, `Tracker.CreateTask` напрямую (для подготовки
   «уже созданного ранее» ребёнка).
 
-- [ ] **Step 1: Написать тест**
+- [x] **Step 1: Написать тест**
 
   В `internal/pipeline/splits_test.go`:
 
@@ -2414,7 +2414,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 2: Проверить, что тест ПРОХОДИТ уже сейчас**
+- [x] **Step 2: Проверить, что тест ПРОХОДИТ уже сейчас**
 
   ```bash
   go test ./internal/pipeline/... -run TestCompleteSplitsResumesInterruptedBatch -v
@@ -2426,7 +2426,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
   как в этом плане (например, пропущена проверка `FindByMarker` перед
   созданием); вернуться к задаче 11 и сверить код дословно.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
   ```bash
   git add internal/pipeline/splits_test.go
