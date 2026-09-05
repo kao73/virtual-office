@@ -2280,6 +2280,35 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	}
 }
 
+// Loop зовёт CompleteSplits на каждом заходе, тем же порядком, что и Reap:
+// без этого вызова подтверждённый split так и остался бы висеть в Blocked —
+// достраивать его больше некому, ведь свой собственный unit-тест на CompleteSplits
+// (задачи 11–13) этот путь вызова не проверяет вовсе.
+//
+// Контекст отменяется заранее: Loop проходит ровно один цикл (Reap,
+// CompleteSplits, tickOnce) и останавливается на ctx.Done(), не дожидаясь
+// таймера. Роль для tickOnce — "reviewer": в этом сценарии для неё нет
+// готовой работы, и цикл роли — no-op, не мешающий проверить именно то,
+// что делает CompleteSplits.
+func TestLoopRunsCompleteSplitsEachCycle(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := o.Loop(ctx, time.Minute, "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	parent := o.get(t, "OFF-1")
+	if parent.Status != o.Workflow.PR.Merged {
+		t.Errorf("Loop не вызвал CompleteSplits: статус родителя %q, ожидался %q", parent.Status, o.Workflow.PR.Merged)
+	}
+	if _, err := o.tasks.Get("OFF-2"); err != nil {
+		t.Errorf("Loop не вызвал CompleteSplits: ребёнок не создан: %v", err)
+	}
+}
+
 // Барьер рабочей папки берётся **до** захвата, и это не косметика: захватив
 // задачу первым, tick успевал бы перезаписать аренду соседа, прежде чем упереться
 // в замок. Занята папка — в трекере не должно измениться ничего.

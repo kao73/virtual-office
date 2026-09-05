@@ -1046,6 +1046,9 @@ func (o *Office) Loop(ctx context.Context, every time.Duration, roleName string)
 		if err := o.Reap(ctx); err != nil {
 			o.logf("reap: %v", err)
 		}
+		if err := o.CompleteSplits(ctx); err != nil {
+			o.logf("complete-splits: %v", err)
+		}
 		if err := o.tickOnce(ctx, roleName); err != nil {
 			o.logf("tick: %v", err)
 		}
