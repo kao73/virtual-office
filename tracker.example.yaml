@@ -89,3 +89,8 @@ human_flag_label: office-waits-human
 # разбиения). Пусто — код сам возьмёт "Task": на большинстве инстансов он
 # есть из коробки.
 issue_type: Task
+
+# Тип связи "зависит от" для LinkDependsOn (POST /issueLink). Если на
+# инстансе нет готового — заводится в Administration → Issues → Issue
+# linking, имя переносится сюда (см. живую проверку в плане Change 1).
+depends_on_link: Depends

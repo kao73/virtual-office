@@ -73,6 +73,13 @@ type Config struct {
 	// большинстве инстансов он есть из коробки, и заставлять заполнять
 	// поле ради дефолтного значения незачем.
 	IssueType string `yaml:"issue_type"`
+
+	// DependsOnLink — имя типа связи "зависит от" на инстансе
+	// (LinkDependsOn, POST /issueLink). Обязателен: без него нечем собрать
+	// тело запроса. Заводится или подбирается на полигоне — см. живую
+	// проверку, Task 8 плана
+	// docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+	DependsOnLink string `yaml:"depends_on_link"`
 }
 
 // Auth — способ авторизации. Он один на все учётки: как ходить — свойство
@@ -634,10 +641,27 @@ func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
 	return t.download(meta.Content)
 }
 
-// LinkDependsOn — заглушка, замещается настоящей реализацией в задаче 7
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+// LinkDependsOn связывает key с dependsOnKey типом связи из конфигурации.
+//
+// key — исходящая сторона (key "зависит от" dependsOnKey): подобрано под
+// связь, чьё outward-описание читается как "depends on" — так называют
+// стандартный тип "Depends", если он есть на инстансе. Если на инстансе
+// заведён свой тип с обратным направлением, поменяйте местами
+// outwardIssue/inwardIssue здесь — решается по факту живой проверки
+// (Task 8 плана).
+//
+// Идемпотентность повторного POST для той же пары не проверена в коде:
+// Task 8 подтверждает её на реальном инстансе и, если понадобится,
+// добавляет проверку существующих issuelinks перед созданием.
 func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
-	return errors.New("jira.LinkDependsOn: пока не реализовано")
+	if _, err := t.owned(key, by); err != nil {
+		return err
+	}
+	return t.call(http.MethodPost, "/issueLink", map[string]any{
+		"type":         map[string]any{"name": t.cfg.DependsOnLink},
+		"outwardIssue": map[string]any{"key": key},
+		"inwardIssue":  map[string]any{"key": dependsOnKey},
+	}, nil)
 }
 
 // owned читает задачу и проверяет право актора её менять. Правило общее для всех
@@ -998,6 +1022,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if cfg.HumanFlagLabel == "" {
 		errs = append(errs, errors.New("human_flag_label не задан: атрибутом ожидания человека служит метка"))
+	}
+	if cfg.DependsOnLink == "" {
+		errs = append(errs, errors.New("depends_on_link не задан: без него не собрать тип связи для LinkDependsOn"))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("%s нарушает контракт: %w", path, err)

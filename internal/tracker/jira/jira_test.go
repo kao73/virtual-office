@@ -68,6 +68,9 @@ type fakeJira struct {
 	// вложения абсолютную ссылку content, как это делает настоящая JIRA.
 	baseURL     string
 	attachments []fakeAttachment
+
+	// issueLinks — тела POST /issueLink, принятые сервером, в порядке прихода.
+	issueLinks []map[string]any
 }
 
 // fakeIssue — задача, заведённая через POST /issue в этом тесте.
@@ -161,6 +164,10 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.created = append(f.created, fakeIssue{key: key, fields: fields})
 		w.WriteHeader(http.StatusCreated)
 		write(map[string]any{"id": "10100", "key": key})
+
+	case r.URL.Path == "/rest/api/2/issueLink" && r.Method == http.MethodPost:
+		f.issueLinks = append(f.issueLinks, body)
+		w.WriteHeader(http.StatusCreated)
 
 	case r.URL.Path == "/rest/api/2/issue/VO-1" && r.Method == http.MethodGet:
 		issue := f.issue()
@@ -347,6 +354,7 @@ func fixture(t *testing.T) (*Tracker, *fakeJira) {
 		},
 		HumanFlagLabel: "office-waits-human",
 		IssueType:      "Task",
+		DependsOnLink:  "Depends",
 	})
 	if err != nil {
 		t.Fatalf("трекер не открыт: %v", err)
@@ -1165,5 +1173,41 @@ func TestGetAttachmentDownloadsContent(t *testing.T) {
 	}
 	if !bytes.Equal(got, data) {
 		t.Errorf("вложение %q, ожидалось %q", got, data)
+	}
+}
+
+// LinkDependsOn шлёт POST /issueLink с типом связи из конфигурации: имя типа
+// на реальном инстансе неизвестно заранее (Task 8 плана подтвердит его живьём),
+// и здесь только форма и направление запроса. key «зависит от» dependsOnKey,
+// значит key — outward-сторона связи.
+func TestLinkDependsOnPostsIssueLink(t *testing.T) {
+	tr, fake := fixture(t)
+	if err := tr.LinkDependsOn("VO-1", "VO-2", tracker.BySystem()); err != nil {
+		t.Fatalf("связь не записана: %v", err)
+	}
+	if len(fake.issueLinks) != 1 {
+		t.Fatalf("issueLink не отправлен: %+v", fake.issueLinks)
+	}
+	link := fake.issueLinks[0]
+	linkType, _ := link["type"].(map[string]any)
+	if linkType["name"] != "Depends" {
+		t.Errorf("тип связи %v, ожидался Depends", linkType)
+	}
+	outward, _ := link["outwardIssue"].(map[string]any)
+	inward, _ := link["inwardIssue"].(map[string]any)
+	if outward["key"] != "VO-1" || inward["key"] != "VO-2" {
+		t.Errorf("направление связи %v/%v: VO-1 «зависит от» VO-2, значит VO-1 — outward", outward, inward)
+	}
+}
+
+// LinkDependsOn — мутация, и владение проверяется так же, как у Comment/AddAttachment.
+func TestLinkDependsOnRequiresOwnership(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.status = "In Progress"
+	fake.runID = "прогон-1"
+	fake.leaseUntil = "2026-08-17T12:30:00.000+0000"
+
+	if err := tr.LinkDependsOn("VO-1", "VO-2", tracker.ByRun("чужой")); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("ошибка %v, ожидался ErrNotOwner", err)
 	}
 }
