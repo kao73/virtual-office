@@ -1637,7 +1637,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 - Produces: `Marker.Attachment string`; `SplitConfirmed(comments []Comment, role string) (confirmed bool, attachmentID string)`;
   `EventSplitCreated = "split-created"`; `EventSplitCreateFailed = "split-create-failed"`.
 
-- [ ] **Step 1: Написать падающие тесты**
+- [x] **Step 1: Написать падающие тесты**
 
   В `internal/tracker/marker_test.go` добавить рядом с `TestMarkerCarriesNextOwner`:
 
@@ -1723,7 +1723,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 2: Убедиться, что тесты падают**
+- [x] **Step 2: Убедиться, что тесты падают**
 
   ```bash
   go test ./internal/tracker/... -run 'TestMarkerCarriesAttachment|TestParseMarkerRejectsForeignLines|TestSplitConfirmed' -v
@@ -1732,7 +1732,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
   Ожидаемо: `TestMarkerCarriesAttachment` и `TestSplitConfirmed*` — ошибки
   компиляции (`Attachment`/`SplitConfirmed` не существуют).
 
-- [ ] **Step 3: Реализовать**
+- [x] **Step 3: Реализовать**
 
   В `Marker` (после `Next string`):
 
@@ -1828,19 +1828,19 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 4: Тесты проходят**
+- [x] **Step 4: Тесты проходят**
 
   ```bash
   go test ./internal/tracker/... -run 'TestMarkerCarriesAttachment|TestParseMarkerRejectsForeignLines|TestSplitConfirmed' -v
   ```
 
-- [ ] **Step 5: Полный прогон пакета**
+- [x] **Step 5: Полный прогон пакета**
 
   ```bash
   go test ./internal/tracker/...
   ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/tracker/marker.go internal/tracker/marker_test.go
