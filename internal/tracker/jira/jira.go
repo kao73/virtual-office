@@ -66,6 +66,12 @@ type Config struct {
 	// HumanFlagLabel — метка «ждёт человека». Метка, а не поле: её видно
 	// в списке задач и она не требует настройки экранов.
 	HumanFlagLabel string `yaml:"human_flag_label"`
+
+	// IssueType — тип задачи для CreateTask. JIRA v2 требует issuetype
+	// в теле POST /issue. Пусто — код берёт "Task" (issueType()): на
+	// большинстве инстансов он есть из коробки, и заставлять заполнять
+	// поле ради дефолтного значения незачем.
+	IssueType string `yaml:"issue_type"`
 }
 
 // Auth — способ авторизации. Он один на все учётки: как ходить — свойство
@@ -482,16 +488,47 @@ func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
 	return t.update(key, map[string]any{t.cfg.Fields.Attempts: n})
 }
 
-// CreateTask — заглушка, замещается настоящей реализацией в задаче 5
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
-func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
-	return tracker.TaskRef{}, errors.New("jira.CreateTask: пока не реализовано")
+// issueType — тип задачи для CreateTask, с дефолтом.
+func (t *Tracker) issueType() string {
+	if t.cfg.IssueType != "" {
+		return t.cfg.IssueType
+	}
+	return "Task"
 }
 
-// FindByMarker — заглушка, замещается настоящей реализацией в задаче 5
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+// CreateTask заводит новую задачу. Статус создания решает workflow проекта
+// на инстансе — POST /issue не умеет задать статус, и эта реализация не
+// пытается: см. живую проверку (Task 8 плана
+// docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md).
+func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
+	var created struct {
+		Key string `json:"key"`
+	}
+	fields := map[string]any{
+		"project":     map[string]any{"key": project},
+		"summary":     input.Summary,
+		"description": wiki(input.Description),
+		"issuetype":   map[string]any{"name": t.issueType()},
+	}
+	if len(input.Labels) > 0 {
+		fields["labels"] = input.Labels
+	}
+	if err := t.call(http.MethodPost, "/issue", map[string]any{"fields": fields}, &created); err != nil {
+		return tracker.TaskRef{}, err
+	}
+
+	task, err := t.Get(created.Key)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+	return task.Ref(), nil
+}
+
+// FindByMarker — задачи проекта с данной меткой, тем же JQL-поиском, что
+// ListReady/List.
 func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
-	return nil, errors.New("jira.FindByMarker: пока не реализовано")
+	jql := fmt.Sprintf(`project = %q AND labels = %q`, project, marker)
+	return t.searchProject(project, jql, searchPage, func(tracker.Task) bool { return true })
 }
 
 // AddAttachment — заглушка, замещается настоящей реализацией в задаче 6

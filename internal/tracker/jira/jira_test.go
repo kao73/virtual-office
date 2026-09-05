@@ -58,6 +58,16 @@ type fakeJira struct {
 	// в projects.yaml: JQL по несуществующему проекту JIRA отвергает.
 	badSearch    bool
 	knownProject string
+
+	// nextKey — ключ, который вернёт POST /issue. Пусто — по умолчанию VO-2.
+	nextKey string
+	created []fakeIssue
+}
+
+// fakeIssue — задача, заведённая через POST /issue в этом тесте.
+type fakeIssue struct {
+	key    string
+	fields map[string]any
 }
 
 // number — целое из строки запроса, с запасным значением на пустоту и мусор.
@@ -126,6 +136,16 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		write(map[string]any{"errorMessages": []string{"No project could be found with key"}})
 
+	case r.URL.Path == "/rest/api/2/issue" && r.Method == http.MethodPost:
+		fields, _ := body["fields"].(map[string]any)
+		key := f.nextKey
+		if key == "" {
+			key = "VO-2"
+		}
+		f.created = append(f.created, fakeIssue{key: key, fields: fields})
+		w.WriteHeader(http.StatusCreated)
+		write(map[string]any{"id": "10100", "key": key})
+
 	case r.URL.Path == "/rest/api/2/issue/VO-1" && r.Method == http.MethodGet:
 		issue := f.issue()
 		if f.claimed && f.verifyRunID != "" {
@@ -162,7 +182,17 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.claimed = true
 		w.WriteHeader(http.StatusNoContent)
 
-	case r.URL.Path == "/rest/api/2/issue/VO-1/comment" && r.Method == http.MethodGet:
+	// GET на переписку общий для VO-1 и задач, заведённых в этом тесте через
+	// POST /issue (CreateTask сам перечитывает созданную задачу через Get,
+	// а тот всегда тянет комментарии): у VO-1 своя история в f.comments,
+	// у только что созданных задач комментариев ещё не бывает.
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/2/issue/") &&
+		strings.HasSuffix(r.URL.Path, "/comment"):
+		key := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/rest/api/2/issue/"), "/comment")
+		if key != "VO-1" {
+			write(map[string]any{"comments": []map[string]any{}, "total": 0, "startAt": 0, "maxResults": 0})
+			return
+		}
 		// Страницы отдаются честно: сервер режет выдачу по startAt и maxResults,
 		// а полный размер сообщает в total. Отдавай подделка всё разом — тест
 		// на пагинацию проходил бы и без пагинации.
@@ -191,6 +221,23 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		w.WriteHeader(http.StatusCreated)
 		write(map[string]any{"id": "1"})
+
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/2/issue/") &&
+		!strings.Contains(strings.TrimPrefix(r.URL.Path, "/rest/api/2/issue/"), "/"):
+		key := strings.TrimPrefix(r.URL.Path, "/rest/api/2/issue/")
+		for _, c := range f.created {
+			if c.key != key {
+				continue
+			}
+			write(map[string]any{"key": key, "fields": map[string]any{
+				"summary": c.fields["summary"], "description": c.fields["description"],
+				"status": map[string]any{"name": "Backlog"}, "project": map[string]any{"key": f.knownProject},
+				"labels": c.fields["labels"], "updated": "2026-08-17T12:00:00.000+0000",
+			}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		write(map[string]any{"errorMessages": []string{"Issue Does Not Exist"}})
 
 	case strings.HasPrefix(r.URL.Path, "/rest/api/2/issue/"):
 		w.WriteHeader(http.StatusNotFound)
@@ -245,6 +292,7 @@ func fixture(t *testing.T) (*Tracker, *fakeJira) {
 			LeaseUntil: "customfield_10003", Attempts: "customfield_10004",
 		},
 		HumanFlagLabel: "office-waits-human",
+		IssueType:      "Task",
 	})
 	if err != nil {
 		t.Fatalf("трекер не открыт: %v", err)
@@ -964,5 +1012,68 @@ func TestLoadConfigNamesWhatIsMissing(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("отказ не назвал %s: %v", want, err)
 		}
+	}
+}
+
+// CreateTask заводит задачу через POST /issue: тип задачи, метки и переписанное
+// в wiki-разметку описание обязаны доехать до тела запроса, а ключ созданной
+// задачи — вернуться в TaskRef тем же путём, что и обычное чтение (Get).
+func TestCreateTaskPostsIssueAndReturnsRef(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.nextKey = "VO-2"
+
+	ref, err := tr.CreateTask("VO", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Модель, миграция, CRUD категорий.",
+		Labels: []string{"split-child:VO-1:category-crud"},
+	})
+	if err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	if ref.Key != "VO-2" {
+		t.Errorf("ключ %q, ожидался VO-2", ref.Key)
+	}
+	if len(fake.created) != 1 {
+		t.Fatalf("создание не отправлено: %+v", fake.created)
+	}
+	issuetype, _ := fake.created[0].fields["issuetype"].(map[string]any)
+	if issuetype["name"] != "Task" {
+		t.Errorf("issuetype %v, ожидался Task", issuetype)
+	}
+	// Тело запроса едет через настоящий HTTP: сервер разбирает JSON в map[string]any,
+	// и массив приходит как []any, а не []string — так же, как в apply() выше.
+	labels, _ := fake.created[0].fields["labels"].([]any)
+	if len(labels) != 1 || labels[0] != "split-child:VO-1:category-crud" {
+		t.Errorf("labels %v", fake.created[0].fields["labels"])
+	}
+}
+
+// FindByMarker ищет тем же JQL-поиском, что ListReady/List, но фильтрует
+// по метке, а не по статусу.
+func TestFindByMarkerSearchesByLabel(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.labels = []string{"split-child:VO-1:category-crud"}
+
+	found, err := tr.FindByMarker("VO", "split-child:VO-1:category-crud")
+	if err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+	if len(found) != 1 || found[0].Key != "VO-1" {
+		t.Errorf("найдено %+v", found)
+	}
+	if !strings.Contains(fake.lastJQL, `labels = "split-child:VO-1:category-crud"`) {
+		t.Errorf("JQL %q не фильтрует по метке", fake.lastJQL)
+	}
+}
+
+func TestFindByMarkerEmptyWhenNoIssues(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.noIssues = true
+
+	found, err := tr.FindByMarker("VO", "split-child:VO-1:none")
+	if err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+	if len(found) != 0 {
+		t.Errorf("найдено %+v, ожидался пустой список", found)
 	}
 }
