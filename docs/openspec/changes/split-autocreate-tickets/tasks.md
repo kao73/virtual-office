@@ -13,12 +13,12 @@
 
 ## 3. Реализация `jira` (`internal/tracker/jira/`)
 
-- [ ] 3.1 Проверить на локальном полигоне (Server 8.13), есть ли готовый тип issuelink «depends on»/«is blocked by» (design.md, Risk 1); если нет — завести на инстансе отдельным операционным шагом, не блокирующим код
+- [x] 3.1 Проверить на локальном полигоне (Server 8.13), есть ли готовый тип issuelink «depends on»/«is blocked by» (design.md, Risk 1); если нет — завести на инстансе отдельным операционным шагом, не блокирующим код (не нашёлся — заведён `Depends` через `POST /issueLinkType`, направление совпало с кодом, см. docs/notes/analyst-task-splitting.md)
 - [x] 3.2 `AddAttachment`/`GetAttachment` — `POST`/`GET .../attachments`, REST v2
 - [x] 3.3 `CreateTask` — `POST /issue`, `labels` из `TaskInput`
 - [x] 3.4 `FindByMarker` — JQL-поиск по `labels`
-- [ ] 3.5 `LinkDependsOn` — `POST /issueLink` найденным типом; проверить эмпирически, идемпотентен ли повторный вызов для той же пары (design.md, Risk 2) — если нет, добавить проверку существующих `issuelinks` перед созданием
-- [ ] 3.6 Тесты на полигоне тем же поведенческим контрактом, что 2.5 у `mock`
+- [x] 3.5 `LinkDependsOn` — `POST /issueLink` найденным типом; проверить эмпирически, идемпотентен ли повторный вызов для той же пары (design.md, Risk 2) — если нет, добавить проверку существующих `issuelinks` перед созданием (проверено на полигоне — идемпотентен как есть, защитный код не понадобился)
+- [x] 3.6 Тесты на полигоне тем же поведенческим контрактом, что 2.5 у `mock` (живой прогон CreateTask→FindByMarker→AddAttachment→GetAttachment, все 5 вызовов прошли без ошибок)
 
 ## 4. Вложение в путь исхода `split` (`internal/tracker/report.go` и вызывающий код)
 
