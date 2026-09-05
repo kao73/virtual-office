@@ -740,7 +740,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 - Consumes: `t.mutate(key, by, change func(*tracker.Task))`.
 - Produces: `(*Tracker).LinkDependsOn`; `taskFile.DependsOn []string`.
 
-- [ ] **Step 1: Написать падающий тест**
+- [x] **Step 1: Написать падающий тест**
 
   В `internal/tracker/mock/mock_test.go` добавить в импорты `"slices"`, затем:
 
@@ -784,13 +784,13 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   }
   ```
 
-- [ ] **Step 2: Убедиться, что тест падает**
+- [x] **Step 2: Убедиться, что тест падает**
 
   ```bash
   go test ./internal/tracker/mock/... -run 'TestLinkDependsOn' -v
   ```
 
-- [ ] **Step 3: Реализовать**
+- [x] **Step 3: Реализовать**
 
   В `taskFile` (после `Labels []string`) и в `readTask`/`writeTask` добавить
   `DependsOn`:
@@ -830,19 +830,19 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 
   `slices` уже импортирован в `mock.go`.
 
-- [ ] **Step 4: Тесты проходят**
+- [x] **Step 4: Тесты проходят**
 
   ```bash
   go test ./internal/tracker/mock/... -run 'TestLinkDependsOn' -v
   ```
 
-- [ ] **Step 5: Полный прогон пакета — `var _ tracker.Tracker = (*Tracker)(nil)` компилируется**
+- [x] **Step 5: Полный прогон пакета — `var _ tracker.Tracker = (*Tracker)(nil)` компилируется**
 
   ```bash
   go build ./... && go test ./internal/tracker/mock/...
   ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/tracker/mock/mock.go internal/tracker/mock/mock_test.go
