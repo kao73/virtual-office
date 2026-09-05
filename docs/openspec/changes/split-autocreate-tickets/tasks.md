@@ -33,6 +33,7 @@
 - [x] 5.4 На полном успехе — комментарий «разбита на ...» с перечислением созданных ключей, `Transition` родителя в `Done`
 - [x] 5.5 На сбое — `NoticeBody`/маркер `event:split-create-failed`, родитель не двигается, `attempts` не тратится (все шаги `completeSplit`, включая финальный `closeSplitParent`, теперь идут через `splitFailed` — Task 13 закрыл пробел, найденный ревью Task 11)
 - [x] 5.6 Поведенческие тесты (по образцу `TestTickSplitBlocksAndFlags`): fake-трекер, два тика подряд с `outcome: split` → проверка вызовов `CreateTask`/`LinkDependsOn`/`Transition`; отдельный тест на прерванный батч (`FindByMarker` уже находит часть — досоздаются только недостающие, без дублей); отдельный тест на первое предложение (не запускает создание)
+- [x] 5.7 Подключить `CompleteSplits` к `Loop` (рядом с `Reap`) и завести CLI `runner complete-splits` — пробел, найденный при написании Design Doc'а (без этого шага `CompleteSplits` не вызывался бы никаким продакшн-кодом); тест на сам факт вызова из `Loop`, не только на поведение `CompleteSplits`
 
 ## 6. `roles/analyst/role.md` и живая спека
 

@@ -2572,7 +2572,7 @@ Design doc называет это найденным пробелом Open-фа
 - Produces: `completeSplitsCommand(args []string, out io.Writer) error`;
   подкоманда `runner complete-splits`.
 
-- [ ] **Step 1: Подключить в `Loop`**
+- [x] **Step 1: Подключить в `Loop`**
 
   В `internal/pipeline/pipeline.go`, `Loop`:
 
@@ -2598,7 +2598,7 @@ Design doc называет это найденным пробелом Open-фа
   задачами 11–13 этого плана). Не заводить такой тест и здесь — проверка
   этого шага: сборка и `go vet`.
 
-- [ ] **Step 2: CLI-команда**
+- [x] **Step 2: CLI-команда**
 
   В `cmd/runner/office.go`, сразу после `reapCommand`:
 
@@ -2630,13 +2630,13 @@ Design doc называет это найденным пробелом Open-фа
     runner complete-splits        достроить и связать тикеты-детей подтверждённого split
   ```
 
-- [ ] **Step 3: Сборка и статическая проверка**
+- [x] **Step 3: Сборка и статическая проверка**
 
   ```bash
   go build ./... && go vet ./...
   ```
 
-- [ ] **Step 4: Ручная проверка CLI на файловом трекере**
+- [x] **Step 4: Ручная проверка CLI на файловом трекере**
 
   ```bash
   export OFFICE_HOME=$(mktemp -d)
@@ -2649,13 +2649,13 @@ Design doc называет это найденным пробелом Open-фа
   дымовая проверка того, что подкоманда реально вызывается и не падает на
   пустом хозяйстве.
 
-- [ ] **Step 5: Полный прогон тестов модуля**
+- [x] **Step 5: Полный прогон тестов модуля**
 
   ```bash
   go test ./...
   ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/pipeline/pipeline.go cmd/runner/office.go cmd/runner/main.go
