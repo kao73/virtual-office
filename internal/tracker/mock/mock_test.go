@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -725,5 +726,43 @@ func TestAddAttachmentRequiresOwnership(t *testing.T) {
 	}
 	if _, err := tr.AddAttachment("OFF-1", tracker.ByRun("чужой"), "x", []byte("y")); !errors.Is(err, tracker.ErrNotOwner) {
 		t.Errorf("ошибка %v, ожидался ErrNotOwner", err)
+	}
+}
+
+func TestLinkDependsOnRecordsDependency(t *testing.T) {
+	tr := fixture(t)
+	if _, err := tr.CreateTask("OFF", tracker.TaskInput{
+		Summary: "B", Description: "d", Labels: []string{"split-child:OFF-1:b"},
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+
+	if err := tr.LinkDependsOn("OFF-2", "OFF-1", tracker.BySystem()); err != nil {
+		t.Fatalf("связь не записана: %v", err)
+	}
+
+	task, err := tr.Get("OFF-2")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if !slices.Contains(task.DependsOn, "OFF-1") {
+		t.Errorf("DependsOn %v не содержит OFF-1", task.DependsOn)
+	}
+}
+
+func TestLinkDependsOnIsIdempotent(t *testing.T) {
+	tr := fixture(t)
+	if err := tr.LinkDependsOn("OFF-1", "OFF-1", tracker.BySystem()); err != nil {
+		t.Fatalf("связь не записана: %v", err)
+	}
+	if err := tr.LinkDependsOn("OFF-1", "OFF-1", tracker.BySystem()); err != nil {
+		t.Fatalf("повторная связь не должна падать: %v", err)
+	}
+	task, err := tr.Get("OFF-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if len(task.DependsOn) != 1 {
+		t.Errorf("DependsOn %v — связь задвоилась", task.DependsOn)
 	}
 }

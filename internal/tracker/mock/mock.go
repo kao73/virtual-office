@@ -452,10 +452,16 @@ func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
 	return data, nil
 }
 
-// LinkDependsOn — заглушка, замещается настоящей реализацией в задаче 4
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+// LinkDependsOn связывает key с dependsOnKey. Идемпотентно само по себе:
+// повторный вызов для уже записанной пары ничего не дублирует — completeSplit
+// (internal/pipeline/splits.go) не хранит отдельного флага «уже связано»
+// и может звать LinkDependsOn повторно при повторе после сбоя.
 func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
-	return errors.New("mock.LinkDependsOn: пока не реализовано")
+	return t.mutate(key, by, func(task *tracker.Task) {
+		if !slices.Contains(task.DependsOn, dependsOnKey) {
+			task.DependsOn = append(task.DependsOn, dependsOnKey)
+		}
+	})
 }
 
 // Comment пишет комментарий от имени офиса.
@@ -566,6 +572,7 @@ type taskFile struct {
 	Description string   `yaml:"description,omitempty"`
 	Status      string   `yaml:"status"`
 	Labels      []string `yaml:"labels,omitempty"`
+	DependsOn   []string `yaml:"depends_on,omitempty"`
 	Owner       string   `yaml:"owner,omitempty"`
 	Attempts    int      `yaml:"attempts"`
 	HumanFlag   bool     `yaml:"human_flag"`
@@ -586,7 +593,7 @@ func readTask(dir string) (tracker.Task, error) {
 	}
 	return tracker.Task{
 		Project: f.Project, Summary: f.Summary, Description: f.Description,
-		Status: f.Status, Labels: f.Labels, Owner: f.Owner,
+		Status: f.Status, Labels: f.Labels, DependsOn: f.DependsOn, Owner: f.Owner,
 		Attempts: f.Attempts, HumanFlag: f.HumanFlag,
 	}, nil
 }
@@ -596,7 +603,7 @@ func readTask(dir string) (tracker.Task, error) {
 func writeTask(dir string, task tracker.Task) error {
 	raw, err := yaml.Marshal(taskFile{
 		Project: task.Project, Summary: task.Summary, Description: task.Description,
-		Status: task.Status, Labels: task.Labels, Owner: task.Owner,
+		Status: task.Status, Labels: task.Labels, DependsOn: task.DependsOn, Owner: task.Owner,
 		Attempts: task.Attempts, HumanFlag: task.HumanFlag,
 	})
 	if err != nil {
