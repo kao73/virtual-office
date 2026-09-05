@@ -2444,7 +2444,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 - Produces: `flakyCreate` — тестовый трекер, роняющий `CreateTask` для
   одного конкретного ребёнка (по образцу `flakyClaim` в `pipeline_test.go`).
 
-- [ ] **Step 1: Написать падающий тест**
+- [x] **Step 1: Написать падающий тест**
 
   В `internal/pipeline/splits_test.go` добавить `"errors"` и
   `"github.com/kao73/virtual-office/internal/tracker/mock"` в импорты, затем:
@@ -2520,7 +2520,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
   забирать OFF-1 первым (ключи сортируются по возрастанию), и до OFF-9
   ни один тик не доберётся.
 
-- [ ] **Step 2: Убедиться, что тест падает**
+- [x] **Step 2: Убедиться, что тест падает**
 
   ```bash
   go test ./internal/pipeline/... -run TestCompleteSplitsRecordsFailureNoticeAndContinues -v
@@ -2532,19 +2532,19 @@ REST v2 не отдаёт и не принимает вложения как JSO
   разобраться, прежде чем продолжать (это не «ожидаемый provisional fail»,
   а сигнал, что фикстура собрана неверно).
 
-- [ ] **Step 3: Тест проходит**
+- [x] **Step 3: Тест проходит**
 
   ```bash
   go test ./internal/pipeline/... -run TestCompleteSplitsRecordsFailureNoticeAndContinues -v
   ```
 
-- [ ] **Step 4: Полный прогон пакета**
+- [x] **Step 4: Полный прогон пакета**
 
   ```bash
   go test ./internal/pipeline/...
   ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add internal/pipeline/splits_test.go

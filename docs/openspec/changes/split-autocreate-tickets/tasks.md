@@ -31,7 +31,7 @@
 - [x] 5.2 На подтверждённое второе `split` — скачать вложение по `id` из тега последнего `split`-маркера, распарсить `split.children[]`
 - [x] 5.3 Для каждого ребёнка — `FindByMarker`, создать при отсутствии (`CreateTask`), связать по `depends_on` (`LinkDependsOn`)
 - [x] 5.4 На полном успехе — комментарий «разбита на ...» с перечислением созданных ключей, `Transition` родителя в `Done`
-- [ ] 5.5 На сбое — `NoticeBody`/маркер `event:split-create-failed`, родитель не двигается, `attempts` не тратится
+- [x] 5.5 На сбое — `NoticeBody`/маркер `event:split-create-failed`, родитель не двигается, `attempts` не тратится (все шаги `completeSplit`, включая финальный `closeSplitParent`, теперь идут через `splitFailed` — Task 13 закрыл пробел, найденный ревью Task 11)
 - [x] 5.6 Поведенческие тесты (по образцу `TestTickSplitBlocksAndFlags`): fake-трекер, два тика подряд с `outcome: split` → проверка вызовов `CreateTask`/`LinkDependsOn`/`Transition`; отдельный тест на прерванный батч (`FindByMarker` уже находит часть — досоздаются только недостающие, без дублей); отдельный тест на первое предложение (не запускает создание)
 
 ## 6. `roles/analyst/role.md` и живая спека
