@@ -322,6 +322,28 @@ func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
 	return t.mutate(key, by, func(task *tracker.Task) { task.Attempts = n })
 }
 
+// CreateTask — заглушка, замещается настоящей реализацией в задаче 2
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
+	return tracker.TaskRef{}, errors.New("mock.CreateTask: пока не реализовано")
+}
+
+func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
+	return nil, errors.New("mock.FindByMarker: пока не реализовано")
+}
+
+func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
+	return "", errors.New("mock.AddAttachment: пока не реализовано")
+}
+
+func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
+	return nil, errors.New("mock.GetAttachment: пока не реализовано")
+}
+
+func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
+	return errors.New("mock.LinkDependsOn: пока не реализовано")
+}
+
 // Comment пишет комментарий от имени офиса.
 func (t *Tracker) Comment(key string, by tracker.Actor, body string) error {
 	task, err := t.Get(key)

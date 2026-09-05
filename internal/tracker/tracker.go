@@ -70,6 +70,10 @@ type Task struct {
 	Description string
 	Status      string
 	Labels      []string
+	// DependsOn — ключи задач, от которых зависит эта (LinkDependsOn).
+	// Пишется этой волной, не читается никаким кодом Change 1 — гейт
+	// очерёдности по этому полю добавит Change 2.
+	DependsOn []string
 
 	// Поля аренды. Owner — человекочитаемый владелец (имя роли), RunID — то,
 	// по чему сверяется право на мутацию.
@@ -126,6 +130,15 @@ func (t Task) LeaseAlive(now time.Time) bool { return t.Ref().LeaseAlive(now) }
 // LeaseAlive — жива ли аренда на момент now.
 func (t TaskRef) LeaseAlive(now time.Time) bool {
 	return t.RunID != "" && now.Before(t.LeaseUntil)
+}
+
+// TaskInput — данные для создания новой задачи. Отдельный тип, а не Task
+// целиком: у только что создаваемой задачи нет ни ключа, ни аренды, ни
+// статуса — их назначает сам трекер.
+type TaskInput struct {
+	Summary     string
+	Description string
+	Labels      []string
 }
 
 // Actor — от чьего имени идёт мутация. Видов ровно два, и они противоположны
@@ -271,6 +284,28 @@ type Tracker interface {
 
 	// SetAttempts — записать счётчик попыток.
 	SetAttempts(key string, by Actor, n int) error
+
+	// CreateTask заводит новую задачу. Без Actor: создавать нечего "владеть" —
+	// как у Add в mock (не из контракта) и List/ListReady в самом контракте.
+	CreateTask(project string, input TaskInput) (TaskRef, error)
+
+	// FindByMarker — задачи проекта с данной меткой. Источник идемпотентности
+	// пакетного создания: спрашивает трекер, не хранимую запись о нём.
+	FindByMarker(project, marker string) ([]TaskRef, error)
+
+	// AddAttachment сохраняет сырые данные вложением к существующей, уже
+	// захваченной задаче — Actor и CheckOwner нужны, как у Comment.
+	AddAttachment(key string, by Actor, name string, data []byte) (id string, err error)
+
+	// GetAttachment читает вложение обратно. Без Actor — как Get, чтение
+	// не требует владения.
+	GetAttachment(key, id string) ([]byte, error)
+
+	// LinkDependsOn связывает только что созданную задачу (key) с её
+	// зависимостью (dependsOnKey). by обычно BySystem() — тем же приёмом,
+	// что reap и разбор ответа человека используют для мутаций вне аренды
+	// какой-либо роли.
+	LinkDependsOn(key, dependsOnKey string, by Actor) error
 }
 
 // WorkflowCheck — что раннер узнал о workflow проекта, заглянув в трекер.

@@ -482,6 +482,28 @@ func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
 	return t.update(key, map[string]any{t.cfg.Fields.Attempts: n})
 }
 
+// CreateTask — заглушка, замещается настоящей реализацией в задаче 5
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
+	return tracker.TaskRef{}, errors.New("jira.CreateTask: пока не реализовано")
+}
+
+func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
+	return nil, errors.New("jira.FindByMarker: пока не реализовано")
+}
+
+func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
+	return "", errors.New("jira.AddAttachment: пока не реализовано")
+}
+
+func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
+	return nil, errors.New("jira.GetAttachment: пока не реализовано")
+}
+
+func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
+	return errors.New("jira.LinkDependsOn: пока не реализовано")
+}
+
 // owned читает задачу и проверяет право актора её менять. Правило общее для всех
 // трекеров и живёт в пакете tracker: разъехавшись, реализации дали бы гонку.
 func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, error) {
