@@ -1355,7 +1355,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 - Consumes: `t.owned`, `t.call`, `Config`.
 - Produces: `(*Tracker).LinkDependsOn`, `Config.DependsOnLink`.
 
-- [ ] **Step 1: Расширить `fakeJira` поддержкой `issueLink`**
+- [x] **Step 1: Расширить `fakeJira` поддержкой `issueLink`**
 
   В `internal/tracker/jira/jira_test.go`, поле `fakeJira`:
 
@@ -1373,7 +1373,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 
   В `fixture()`, в литерале `Config{...}`, добавить `DependsOnLink: "Depends"`.
 
-- [ ] **Step 2: Написать падающий тест**
+- [x] **Step 2: Написать падающий тест**
 
   ```go
   func TestLinkDependsOnPostsIssueLink(t *testing.T) {
@@ -1408,13 +1408,13 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 3: Убедиться, что тесты падают**
+- [x] **Step 3: Убедиться, что тесты падают**
 
   ```bash
   go test ./internal/tracker/jira/... -run 'TestLinkDependsOn' -v
   ```
 
-- [ ] **Step 4: Реализовать**
+- [x] **Step 4: Реализовать**
 
   В `Config` (после `IssueType`):
 
@@ -1462,13 +1462,13 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 5: Тесты проходят**
+- [x] **Step 5: Тесты проходят**
 
   ```bash
   go test ./internal/tracker/jira/... -run 'TestLinkDependsOn' -v
   ```
 
-- [ ] **Step 6: Пример конфигурации**
+- [x] **Step 6: Пример конфигурации**
 
   В `tracker.example.yaml`, после только что добавленного `issue_type`:
 
@@ -1480,7 +1480,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
   depends_on_link: Depends
   ```
 
-- [ ] **Step 7: Полный прогон пакета, все заглушки заменены**
+- [x] **Step 7: Полный прогон пакета, все заглушки заменены**
 
   ```bash
   go build ./... && go vet ./... && go test ./internal/tracker/...
@@ -1495,7 +1495,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 
   Ожидаемо: пусто.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
   ```bash
   git add internal/tracker/jira/jira.go internal/tracker/jira/jira_test.go tracker.example.yaml
