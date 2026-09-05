@@ -1,7 +1,7 @@
 ## 1. Контракт `Tracker` — новые методы (`internal/tracker/tracker.go`)
 
-- [ ] 1.1 Добавить в интерфейс `Tracker`: `AddAttachment(key string, by Actor, name string, data []byte) (id string, err error)`, `GetAttachment(key, id string) ([]byte, error)`, `CreateTask(project string, by Actor, input TaskInput) (TaskRef, error)`, `FindByMarker(project, marker string) ([]TaskRef, error)`, `LinkDependsOn(key, dependsOnKey string, by Actor) error` — doc-комментарии тем же тоном, что у остальных методов интерфейса
-- [ ] 1.2 Определить тип `TaskInput` (заголовок, описание, метки) рядом с `Task`/`TaskRef`
+- [x] 1.1 Добавить в интерфейс `Tracker`: `AddAttachment(key string, by Actor, name string, data []byte) (id string, err error)`, `GetAttachment(key, id string) ([]byte, error)`, `CreateTask(project string, input TaskInput) (TaskRef, error)` (без `Actor` — уточнено Design Doc'ом: создавать нечего «владеть»), `FindByMarker(project, marker string) ([]TaskRef, error)`, `LinkDependsOn(key, dependsOnKey string, by Actor) error` — doc-комментарии тем же тоном, что у остальных методов интерфейса
+- [x] 1.2 Определить тип `TaskInput` (заголовок, описание, метки) рядом с `Task`/`TaskRef`
 
 ## 2. Реализация `mock` (`internal/tracker/mock/mock.go`)
 

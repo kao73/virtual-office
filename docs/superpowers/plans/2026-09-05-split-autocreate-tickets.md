@@ -177,7 +177,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   `Tracker.GetAttachment(key, id string) ([]byte, error)`;
   `Tracker.LinkDependsOn(key, dependsOnKey string, by Actor) error`.
 
-- [ ] **Step 1: Написать тест на компиляцию (падающий)**
+- [x] **Step 1: Написать тест на компиляцию (падающий)**
 
   Тест ничего не запускает — он констатирует состояние «интерфейса ещё нет».
   Запусти:
@@ -190,7 +190,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   не провал — следующий шаг специально ломает сборку `mock`/`jira`,
   добавив методы в интерфейс раньше реализаций.
 
-- [ ] **Step 2: Добавить `TaskInput` и методы в интерфейс**
+- [x] **Step 2: Добавить `TaskInput` и методы в интерфейс**
 
   В `internal/tracker/tracker.go`, сразу после `func (t TaskRef) LeaseAlive`
   и перед комментарием `// Actor —`:
@@ -242,7 +242,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
       LinkDependsOn(key, dependsOnKey string, by Actor) error
   ```
 
-- [ ] **Step 3: Убедиться, что сборка сломана именно там, где ожидалось**
+- [x] **Step 3: Убедиться, что сборка сломана именно там, где ожидалось**
 
   ```bash
   go build ./... 2>&1
@@ -252,7 +252,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   `*Tracker does not implement tracker.Tracker (missing method CreateTask)`
   (и ещё четыре метода) в обоих пакетах.
 
-- [ ] **Step 4: Временные заглушки в `mock`**
+- [x] **Step 4: Временные заглушки в `mock`**
 
   В `internal/tracker/mock/mock.go`, после `SetAttempts`:
 
@@ -280,7 +280,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   }
   ```
 
-- [ ] **Step 5: Временные заглушки в `jira`**
+- [x] **Step 5: Временные заглушки в `jira`**
 
   В `internal/tracker/jira/jira.go`, после `SetAttempts`:
 
@@ -308,7 +308,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   }
   ```
 
-- [ ] **Step 6: Сборка проходит снова**
+- [x] **Step 6: Сборка проходит снова**
 
   ```bash
   go build ./... && go vet ./...
@@ -316,7 +316,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 
   Ожидаемо: без ошибок.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add internal/tracker/tracker.go internal/tracker/mock/mock.go internal/tracker/jira/jira.go
