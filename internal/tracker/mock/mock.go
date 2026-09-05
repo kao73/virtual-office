@@ -410,16 +410,46 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 	})
 }
 
-// AddAttachment — заглушка, замещается настоящей реализацией в задаче 3
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+// AddAttachment сохраняет сырые данные вложением. name сегодня не влияет
+// на путь хранения (файл называется по номеру, как и комментарии) —
+// параметр существует ради паритета с jira, которой имя нужно для
+// multipart-формы.
 func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
-	return "", errors.New("mock.AddAttachment: пока не реализовано")
+	task, err := t.Get(key)
+	if err != nil {
+		return "", err
+	}
+	if err := tracker.CheckOwner(task, by, t.Now()); err != nil {
+		return "", err
+	}
+
+	dir := filepath.Join(t.dir(key), attachmentsDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("вложения %s не прочитаны: %w", key, err)
+	}
+
+	f, id, err := nextExclusive(dir, len(entries), "")
+	if err != nil {
+		return "", fmt.Errorf("вложение %s не записано: %w", key, err)
+	}
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return "", fmt.Errorf("вложение %s не записано: %w", key, err)
+	}
+	return id, nil
 }
 
-// GetAttachment — заглушка, замещается настоящей реализацией в задаче 3
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+// GetAttachment читает вложение обратно, байт в байт.
 func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
-	return nil, errors.New("mock.GetAttachment: пока не реализовано")
+	data, err := os.ReadFile(filepath.Join(t.dir(key), attachmentsDir, id))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("%w: вложение %s/%s", tracker.ErrNotFound, key, id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("вложение %s/%s не прочитано: %w", key, id, err)
+	}
+	return data, nil
 }
 
 // LinkDependsOn — заглушка, замещается настоящей реализацией в задаче 4
@@ -482,24 +512,34 @@ func (t *Tracker) AddComment(key, author, body string) error {
 	}
 	content := "---\n" + string(header) + "---\n" + body + "\n"
 
-	// Номер занимаем эксклюзивным созданием: два комментатора одновременно
-	// не должны получить один файл.
-	for n := len(existing) + 1; n < len(existing)+16; n++ {
-		path := filepath.Join(dir, fmt.Sprintf("%04d.md", n))
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, _, err := nextExclusive(dir, len(existing), ".md")
+	if err != nil {
+		return fmt.Errorf("комментарий не записан: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		return fmt.Errorf("комментарий не записан: %w", err)
+	}
+	return nil
+}
+
+// nextExclusive создаёт файл со следующим по счёту именем в каталоге,
+// эксклюзивно: два конкурентных писателя гарантированно получают разные
+// номера. Общий приём для комментариев (AddComment) и вложений
+// (AddAttachment) — вместо двух копий одного и того же цикла.
+func nextExclusive(dir string, existing int, suffix string) (*os.File, string, error) {
+	for n := existing + 1; n < existing+16; n++ {
+		name := fmt.Sprintf("%04d%s", n, suffix)
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if errors.Is(err, os.ErrExist) {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("комментарий не записан: %w", err)
+			return nil, "", fmt.Errorf("файл %s не создан: %w", name, err)
 		}
-		defer f.Close()
-		if _, err := f.WriteString(content); err != nil {
-			return fmt.Errorf("комментарий не записан: %w", err)
-		}
-		return nil
+		return f, name, nil
 	}
-	return errors.New("комментарий не записан: не нашлось свободного номера")
+	return nil, "", errors.New("не нашлось свободного номера")
 }
 
 // mutate — чтение, проверка права, правка, запись.

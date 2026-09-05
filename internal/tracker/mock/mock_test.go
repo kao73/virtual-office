@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -689,5 +690,40 @@ func TestCreateTaskCollisionFailsInsteadOfOverwriting(t *testing.T) {
 
 	if _, err := tr.CreateTask("OFF", tracker.TaskInput{Summary: "x", Description: "y"}); err == nil {
 		t.Error("коллизия ключа с уже существующим каталогом не замечена")
+	}
+}
+
+func TestAddAttachmentThenGetAttachmentRoundTrips(t *testing.T) {
+	tr := fixture(t)
+	data := []byte(`{"children":[{"id":"a","title":"A","description":"d"}]}`)
+
+	id, err := tr.AddAttachment("OFF-1", tracker.BySystem(), "split.json", data)
+	if err != nil {
+		t.Fatalf("вложение не сохранено: %v", err)
+	}
+
+	got, err := tr.GetAttachment("OFF-1", id)
+	if err != nil {
+		t.Fatalf("вложение не прочитано: %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Errorf("вложение %q, ожидалось %q", got, data)
+	}
+}
+
+func TestGetAttachmentUnknownIDFails(t *testing.T) {
+	tr := fixture(t)
+	if _, err := tr.GetAttachment("OFF-1", "9999"); !errors.Is(err, tracker.ErrNotFound) {
+		t.Errorf("ошибка %v, ожидался ErrNotFound", err)
+	}
+}
+
+func TestAddAttachmentRequiresOwnership(t *testing.T) {
+	tr := fixture(t)
+	if err := claim(tr, "прогон-1"); err != nil {
+		t.Fatalf("захват не удался: %v", err)
+	}
+	if _, err := tr.AddAttachment("OFF-1", tracker.ByRun("чужой"), "x", []byte("y")); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("ошибка %v, ожидался ErrNotOwner", err)
 	}
 }
