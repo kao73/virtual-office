@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kao73/virtual-office/internal/runner"
+	"github.com/kao73/virtual-office/internal/tracker"
 )
 
 // tickAs прогоняет цикл названной роли и падает на инфраструктурной ошибке —
@@ -113,5 +114,57 @@ func TestCompleteSplitsSkipsUnconfirmed(t *testing.T) {
 	parent := o.get(t, "OFF-1")
 	if parent.Status != "Blocked" {
 		t.Errorf("статус родителя %q, ожидался Blocked", parent.Status)
+	}
+}
+
+// TestCompleteSplitsResumesInterruptedBatch воспроизводит пачку, прерванную
+// на середине: прошлый проход успел создать только первого ребёнка. Новый
+// проход должен досоздать только недостающего, а не задвоить первого —
+// идемпотентность заложена в ensureChildren задачи 11 (FindByMarker перед
+// каждым CreateTask), этот тест доказывает это конкретным сценарием.
+func TestCompleteSplitsResumesInterruptedBatch(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	// Прошлая попытка успела создать только первого ребёнка — так
+	// выглядит пачка, прерванная на середине.
+	if _, err := o.tasks.CreateTask("OFF", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Модель, миграция, CRUD категорий.",
+		Labels: []string{"split-child:OFF-1:category-crud"},
+	}); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не прошёл: %v", err)
+	}
+
+	category, err := o.tasks.FindByMarker("OFF", "split-child:OFF-1:category-crud")
+	if err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+	if len(category) != 1 {
+		t.Errorf("категория задвоена: %+v", category)
+	}
+
+	transaction, err := o.tasks.FindByMarker("OFF", "split-child:OFF-1:transaction-crud")
+	if err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+	if len(transaction) != 1 {
+		t.Errorf("операции не досозданы или задвоены: %+v", transaction)
+	}
+
+	linked, err := o.tasks.Get(transaction[0].Key)
+	if err != nil {
+		t.Fatalf("операции не прочитаны: %v", err)
+	}
+	if !slices.Contains(linked.DependsOn, category[0].Key) {
+		t.Errorf("зависимость не связана после докатки: %v", linked.DependsOn)
+	}
+
+	parent := o.get(t, "OFF-1")
+	if parent.Status != o.Workflow.PR.Merged {
+		t.Errorf("статус родителя %q, ожидался %q", parent.Status, o.Workflow.PR.Merged)
 	}
 }
