@@ -2,6 +2,8 @@ package mock
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -639,5 +641,53 @@ func TestReportSurvivesRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(stored, "https://github.com/kao73/office-pr-probe/pull/1") {
 		t.Errorf("адрес в артефактах изменился:\n%s", stored)
+	}
+}
+
+func TestCreateTaskThenFindByMarker(t *testing.T) {
+	tr := fixture(t) // OFF-1 уже есть; следующий ключ — OFF-2
+
+	ref, err := tr.CreateTask("OFF", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Модель, миграция, CRUD категорий.",
+		Labels: []string{"split-child:OFF-1:category-crud"},
+	})
+	if err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	if ref.Key != "OFF-2" {
+		t.Errorf("ключ %q, ожидался OFF-2", ref.Key)
+	}
+	if ref.Status != "Analysis" {
+		t.Errorf("статус %q, ожидался Analysis", ref.Status)
+	}
+
+	found, err := tr.FindByMarker("OFF", "split-child:OFF-1:category-crud")
+	if err != nil {
+		t.Fatalf("поиск по метке не удался: %v", err)
+	}
+	if len(found) != 1 || found[0].Key != "OFF-2" {
+		t.Errorf("найдено %+v, ожидалась одна OFF-2", found)
+	}
+}
+
+func TestFindByMarkerEmptyWhenNoneMatch(t *testing.T) {
+	tr := fixture(t)
+	found, err := tr.FindByMarker("OFF", "split-child:OFF-1:none")
+	if err != nil {
+		t.Fatalf("поиск по метке не удался: %v", err)
+	}
+	if len(found) != 0 {
+		t.Errorf("найдено %+v, ожидался пустой список", found)
+	}
+}
+
+func TestCreateTaskCollisionFailsInsteadOfOverwriting(t *testing.T) {
+	tr := fixture(t)
+	if err := os.Mkdir(filepath.Join(tr.Root(), "OFF-2"), 0o755); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+
+	if _, err := tr.CreateTask("OFF", tracker.TaskInput{Summary: "x", Description: "y"}); err == nil {
+		t.Error("коллизия ключа с уже существующим каталогом не замечена")
 	}
 }

@@ -36,10 +36,11 @@ import (
 
 // Имена файлов хранилища.
 const (
-	taskFileName = "task.yaml"
-	commentsDir  = "comments"
-	leasePrefix  = "lease."
-	leaseFree    = leasePrefix + "free"
+	taskFileName   = "task.yaml"
+	commentsDir    = "comments"
+	attachmentsDir = "attachments"
+	leasePrefix    = "lease."
+	leaseFree      = leasePrefix + "free"
 )
 
 // DirName — подкаталог хозяйства раннера, в котором живёт файловый трекер.
@@ -102,6 +103,9 @@ func (t *Tracker) Add(task tracker.Task) error {
 	}
 	if err := os.MkdirAll(filepath.Join(dir, commentsDir), 0o755); err != nil {
 		return fmt.Errorf("каталог задачи не создан: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, attachmentsDir), 0o755); err != nil {
+		return fmt.Errorf("каталог вложений не создан: %w", err)
 	}
 	if err := writeTask(dir, task); err != nil {
 		return err
@@ -322,16 +326,88 @@ func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
 	return t.mutate(key, by, func(task *tracker.Task) { task.Attempts = n })
 }
 
-// CreateTask — заглушка, замещается настоящей реализацией в задаче 2
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
-func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
-	return tracker.TaskRef{}, errors.New("mock.CreateTask: пока не реализовано")
+// createdStatus — начальный статус тикета, заведённого CreateTask. Analysis —
+// тот же вход, что человек даёт обычной задаче, переводя её из Backlog
+// («берите в работу», workflow.yaml). TaskInput статуса не несёт (design
+// doc) — решать его обязана реализация, а не вызывающий код.
+const createdStatus = "Analysis"
+
+// nextKey подбирает следующий свободный ключ проекта: <project>-N, где N —
+// максимум существующих номеров этого проекта плюс один. Считаются только
+// каталоги с настоящей задачей (есть task.yaml) — голый каталог без него
+// не задача, а обрубок незавершённого CreateTask или чужая подготовка, и
+// занимать номер не должен: иначе nextKey тихо перескочит его и коллизию
+// поймать будет не на чем. От коллизии двух параллельных CreateTask,
+// подобравших один и тот же номер, эта функция сама не защищает — защищает
+// os.Mkdir в CreateTask.
+func (t *Tracker) nextKey(project string) (string, error) {
+	keys, err := t.Keys()
+	if err != nil {
+		return "", err
+	}
+	prefix := project + "-"
+	max := 0
+	for _, key := range keys {
+		n, ok := strings.CutPrefix(key, prefix)
+		if !ok {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(t.dir(key), taskFileName)); err != nil {
+			continue
+		}
+		if v, err := strconv.Atoi(n); err == nil && v > max {
+			max = v
+		}
+	}
+	return fmt.Sprintf("%s%d", prefix, max+1), nil
 }
 
-// FindByMarker — заглушка, замещается настоящей реализацией в задаче 2
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+// CreateTask заводит новую задачу с ключом <project>-N. Директория задачи
+// создаётся os.Mkdir, не MkdirAll: коллизия двух параллельных CreateTask,
+// подобравших один и тот же номер, обязана упасть с ошибкой, а не молча
+// переписать половину задачи другого — mock отлаживает конвейер, а не
+// имитирует конкурентный трекер под нагрузкой (доккомментарий пакета).
+func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
+	key, err := t.nextKey(project)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+	dir := t.dir(key)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		return tracker.TaskRef{}, fmt.Errorf("задача %s не создана: %w", key, err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, commentsDir), 0o755); err != nil {
+		return tracker.TaskRef{}, fmt.Errorf("каталог комментариев %s не создан: %w", key, err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, attachmentsDir), 0o755); err != nil {
+		return tracker.TaskRef{}, fmt.Errorf("каталог вложений %s не создан: %w", key, err)
+	}
+
+	task := tracker.Task{
+		Key: key, Project: project, Summary: input.Summary, Description: input.Description,
+		Status: createdStatus, Labels: input.Labels,
+	}
+	if err := writeTask(dir, task); err != nil {
+		return tracker.TaskRef{}, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, leaseFree), nil, 0o644); err != nil {
+		return tracker.TaskRef{}, fmt.Errorf("аренда %s не заведена: %w", key, err)
+	}
+
+	created, err := t.Get(key)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+	ref := created.Ref()
+	ref.Updated = t.updated(key)
+	return ref, nil
+}
+
+// FindByMarker — задачи проекта с данной меткой.
 func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
-	return nil, errors.New("mock.FindByMarker: пока не реализовано")
+	return t.list(func(task tracker.Task) bool {
+		return task.Project == project && slices.Contains(task.Labels, marker)
+	})
 }
 
 // AddAttachment — заглушка, замещается настоящей реализацией в задаче 3
