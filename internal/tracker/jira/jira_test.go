@@ -1,6 +1,7 @@
 package jira
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,12 +63,23 @@ type fakeJira struct {
 	// nextKey — ключ, который вернёт POST /issue. Пусто — по умолчанию VO-2.
 	nextKey string
 	created []fakeIssue
+
+	// baseURL — адрес тестового сервера. Нужен, чтобы отдавать в метаданных
+	// вложения абсолютную ссылку content, как это делает настоящая JIRA.
+	baseURL     string
+	attachments []fakeAttachment
 }
 
 // fakeIssue — задача, заведённая через POST /issue в этом тесте.
 type fakeIssue struct {
 	key    string
 	fields map[string]any
+}
+
+// fakeAttachment — вложение, принятое через POST /issue/{key}/attachments.
+type fakeAttachment struct {
+	id, name string
+	data     []byte
 }
 
 // number — целое из строки запроса, с запасным значением на пустоту и мусор.
@@ -99,6 +111,10 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body := map[string]any{}
 	if r.Body != nil {
 		raw, _ := io.ReadAll(r.Body)
+		// Тело возвращается на место: вложение читает его заново как multipart
+		// (r.ParseMultipartForm), а не как JSON, и ниже ему нужен тот же поток
+		// байт, а не уже осушенный io.ReadAll выше.
+		r.Body = io.NopCloser(bytes.NewReader(raw))
 		if len(raw) > 0 {
 			_ = json.Unmarshal(raw, &body)
 		}
@@ -239,6 +255,43 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		write(map[string]any{"errorMessages": []string{"Issue Does Not Exist"}})
 
+	case r.URL.Path == "/rest/api/2/issue/VO-1/attachments" && r.Method == http.MethodPost:
+		if got := r.Header.Get("X-Atlassian-Token"); got != "no-check" {
+			f.t.Errorf("вложение отправлено без X-Atlassian-Token: no-check, получено %q", got)
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			f.t.Fatalf("вложение не разобрано: %v", err)
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			f.t.Fatalf("файла нет в форме вложения: %v", err)
+		}
+		defer file.Close()
+		data, _ := io.ReadAll(file)
+		id := strconv.Itoa(20000 + len(f.attachments))
+		f.attachments = append(f.attachments, fakeAttachment{id: id, name: header.Filename, data: data})
+		write([]map[string]any{{"id": id, "filename": header.Filename}})
+
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/2/attachment/"):
+		id := strings.TrimPrefix(r.URL.Path, "/rest/api/2/attachment/")
+		for _, a := range f.attachments {
+			if a.id == id {
+				write(map[string]any{"id": id, "content": f.baseURL + "/secure/attachment/" + id})
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+
+	case strings.HasPrefix(r.URL.Path, "/secure/attachment/"):
+		id := strings.TrimPrefix(r.URL.Path, "/secure/attachment/")
+		for _, a := range f.attachments {
+			if a.id == id {
+				w.Write(a.data)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+
 	case strings.HasPrefix(r.URL.Path, "/rest/api/2/issue/"):
 		w.WriteHeader(http.StatusNotFound)
 		write(map[string]any{"errorMessages": []string{"Issue Does Not Exist"}})
@@ -278,6 +331,7 @@ func fixture(t *testing.T) (*Tracker, *fakeJira) {
 	}
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
+	fake.baseURL = server.URL
 
 	t.Setenv("JIRA_USER", "office")
 	t.Setenv("JIRA_PASSWORD", "секрет")
@@ -1075,5 +1129,41 @@ func TestFindByMarkerEmptyWhenNoIssues(t *testing.T) {
 	}
 	if len(found) != 0 {
 		t.Errorf("найдено %+v, ожидался пустой список", found)
+	}
+}
+
+// AddAttachment шлёт вложение multipart-запросом на .../attachments — REST v2
+// не принимает вложения как JSON — и обязан приложить X-Atlassian-Token
+// (проверяется в fakeJira.ServeHTTP), иначе настоящая JIRA отклонит запись.
+func TestAddAttachmentUploadsMultipart(t *testing.T) {
+	tr, fake := fixture(t)
+	id, err := tr.AddAttachment("VO-1", tracker.BySystem(), "split.json", []byte(`{"children":[]}`))
+	if err != nil {
+		t.Fatalf("вложение не отправлено: %v", err)
+	}
+	if len(fake.attachments) != 1 || fake.attachments[0].id != id {
+		t.Fatalf("вложение не сохранено на сервере: %+v", fake.attachments)
+	}
+	if fake.attachments[0].name != "split.json" {
+		t.Errorf("имя файла %q, ожидалось split.json", fake.attachments[0].name)
+	}
+}
+
+// GetAttachment читает вложение по ссылке из метаданных GET /attachment/{id}:
+// ссылка не под /rest/api/2 и не отдаёт JSON, поэтому нужен свой HTTP-вызов.
+func TestGetAttachmentDownloadsContent(t *testing.T) {
+	tr, _ := fixture(t)
+	data := []byte(`{"children":[{"id":"a"}]}`)
+	id, err := tr.AddAttachment("VO-1", tracker.BySystem(), "split.json", data)
+	if err != nil {
+		t.Fatalf("вложение не отправлено: %v", err)
+	}
+
+	got, err := tr.GetAttachment("VO-1", id)
+	if err != nil {
+		t.Fatalf("вложение не прочитано: %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Errorf("вложение %q, ожидалось %q", got, data)
 	}
 }

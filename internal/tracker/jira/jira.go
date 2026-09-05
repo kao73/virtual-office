@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"slices"
@@ -531,16 +532,106 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 	return t.searchProject(project, jql, searchPage, func(tracker.Task) bool { return true })
 }
 
-// AddAttachment — заглушка, замещается настоящей реализацией в задаче 6
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
-func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
-	return "", errors.New("jira.AddAttachment: пока не реализовано")
+// upload выполняет multipart-запрос: вложения не JSON, и t.call им не
+// годится. X-Atlassian-Token обязателен — без него JIRA отклонит запись
+// вложения так же, как отклоняет её без basic-авторизации (см. call).
+func (t *Tracker) upload(path, filename string, data []byte) ([]byte, error) {
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	part, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, fmt.Errorf("вложение не собрано: %w", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return nil, fmt.Errorf("вложение не собрано: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("вложение не собрано: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, t.cfg.BaseURL+apiPath+path, &body)
+	if err != nil {
+		return nil, fmt.Errorf("запрос не собран: %w", err)
+	}
+	req.SetBasicAuth(t.user, t.secret)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("X-Atlassian-Token", "no-check")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", http.MethodPost, path, err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, statusError(http.MethodPost, path, resp.StatusCode, raw)
+	}
+	return raw, nil
 }
 
-// GetAttachment — заглушка, замещается настоящей реализацией в задаче 6
-// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
-func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
-	return nil, errors.New("jira.GetAttachment: пока не реализовано")
+// download читает вложение по прямой ссылке из ответа GET /attachment/{id}:
+// она не под /rest/api/2 и не отдаёт JSON, поэтому не годится t.call.
+func (t *Tracker) download(url string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("запрос вложения не собран: %w", err)
+	}
+	req.SetBasicAuth(t.user, t.secret)
+	req.Header.Set("X-Atlassian-Token", "no-check")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GET %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("вложение не прочитано: %w", err)
+	}
+	if resp.StatusCode >= 300 {
+		return nil, statusError(http.MethodGet, url, resp.StatusCode, raw)
+	}
+	return raw, nil
+}
+
+// AddAttachment сохраняет сырые данные вложением. Ответ JIRA на создание —
+// массив из одного элемента; возвращается его id.
+func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
+	if _, err := t.owned(key, by); err != nil {
+		return "", err
+	}
+
+	raw, err := t.upload("/issue/"+key+"/attachments", name, data)
+	if err != nil {
+		return "", err
+	}
+
+	var created []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &created); err != nil {
+		return "", fmt.Errorf("вложение %s: ответ не разобран: %w\n%s", key, err, snippet(raw))
+	}
+	if len(created) == 0 {
+		return "", fmt.Errorf("вложение %s: сервер не назвал идентификатор", key)
+	}
+	return created[0].ID, nil
+}
+
+// GetAttachment читает вложение обратно. key не используется: идентификаторы
+// вложений в JIRA глобальны — параметр входит в контракт ради файлового
+// трекера, которому путь по ключу задачи и нужен.
+func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
+	var meta struct {
+		Content string `json:"content"`
+	}
+	if err := t.call(http.MethodGet, "/attachment/"+id, nil, &meta); err != nil {
+		return nil, err
+	}
+	return t.download(meta.Content)
 }
 
 // LinkDependsOn — заглушка, замещается настоящей реализацией в задаче 7
