@@ -75,8 +75,11 @@ type Config struct {
 	IssueType string `yaml:"issue_type"`
 
 	// DependsOnLink — имя типа связи "зависит от" на инстансе
-	// (LinkDependsOn, POST /issueLink). Обязателен: без него нечем собрать
-	// тело запроса. Заводится или подбирается на полигоне — см. живую
+	// (LinkDependsOn, POST /issueLink). Не входит в обязательные поля
+	// LoadConfig: нужен он одному-единственному узкому методу, а не каждому
+	// обращению к трекеру, и отказ здесь ронял бы Comment, Transition и Get
+	// из-за поля, которое им не нужно. Пусто — LinkDependsOn откажет сам,
+	// в момент вызова. Заводится или подбирается на полигоне — см. живую
 	// проверку, Task 8 плана
 	// docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 	DependsOnLink string `yaml:"depends_on_link"`
@@ -650,10 +653,18 @@ func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
 // outwardIssue/inwardIssue здесь — решается по факту живой проверки
 // (Task 8 плана).
 //
+// depends_on_link не входит в обязательные поля LoadConfig — им пользуется
+// только этот метод, — поэтому его отсутствие проверяется здесь, до owned()
+// и до любого обращения к серверу: пустое имя типа связи всё равно не собрать
+// в тело запроса, а отказать стоит сразу и ясно, а не после чтения задачи.
+//
 // Идемпотентность повторного POST для той же пары не проверена в коде:
 // Task 8 подтверждает её на реальном инстансе и, если понадобится,
 // добавляет проверку существующих issuelinks перед созданием.
 func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
+	if t.cfg.DependsOnLink == "" {
+		return fmt.Errorf("depends_on_link не задан в tracker.yaml: связь %s → %s не создана", key, dependsOnKey)
+	}
 	if _, err := t.owned(key, by); err != nil {
 		return err
 	}
@@ -1022,9 +1033,6 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if cfg.HumanFlagLabel == "" {
 		errs = append(errs, errors.New("human_flag_label не задан: атрибутом ожидания человека служит метка"))
-	}
-	if cfg.DependsOnLink == "" {
-		errs = append(errs, errors.New("depends_on_link не задан: без него не собрать тип связи для LinkDependsOn"))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("%s нарушает контракт: %w", path, err)

@@ -849,6 +849,37 @@ human_flag_label: office-waits-human
 	}
 }
 
+// depends_on_link нужен только LinkDependsOn — узкой опциональной операции,
+// а не каждому вызову трекера. Отказ на его отсутствие здесь означал бы, что
+// Comment, Transition и Get ломаются из-за поля, которое им не нужно:
+// проверка обязана жить в LinkDependsOn, а не в LoadConfig.
+func TestLoadConfigSucceedsWithoutDependsOnLink(t *testing.T) {
+	body := `base_url: http://localhost
+auth: { mode: basic }
+accounts:
+  default: { user_env: JIRA_USER, secret_env: JIRA_PASSWORD }
+status_map: { Ready: Ready }
+fields:
+  agent_owner: customfield_10001
+  run_id: customfield_10002
+  lease_until: customfield_10003
+  attempts: customfield_10004
+human_flag_label: office-waits-human
+`
+	path := filepath.Join(t.TempDir(), TrackerFile)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("конфигурация не записана: %v", err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("конфигурация без depends_on_link не загружена: %v", err)
+	}
+	if cfg.DependsOnLink != "" {
+		t.Errorf("DependsOnLink = %q, ожидалась пустая строка", cfg.DependsOnLink)
+	}
+}
+
 func TestConfigRequiresCredential(t *testing.T) {
 	t.Setenv("JIRA_USER", "office")
 	t.Setenv("JIRA_PASSWORD", "")
@@ -1209,5 +1240,41 @@ func TestLinkDependsOnRequiresOwnership(t *testing.T) {
 
 	if err := tr.LinkDependsOn("VO-1", "VO-2", tracker.ByRun("чужой")); !errors.Is(err, tracker.ErrNotOwner) {
 		t.Errorf("ошибка %v, ожидался ErrNotOwner", err)
+	}
+}
+
+// Без depends_on_link в tracker.yaml собрать тип связи нечем, и LinkDependsOn
+// обязан отказать сам, ясно и до сети: сервер здесь нарочно недостижим (порт
+// закрыт сразу после старта) — если бы проверка не сработала раньше запроса,
+// тест увидел бы отказ соединения, а не эту ошибку.
+func TestLinkDependsOnFailsFastWithoutConfiguredLinkType(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	server.Close()
+
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	tr, err := Open(Config{
+		BaseURL:   server.URL,
+		Auth:      Auth{Mode: "basic"},
+		Accounts:  Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
+		StatusMap: map[string]string{"Ready": "Ready"},
+		Fields: Fields{
+			Owner: "customfield_10001", RunID: "customfield_10002",
+			LeaseUntil: "customfield_10003", Attempts: "customfield_10004",
+		},
+		HumanFlagLabel: "office-waits-human",
+		// DependsOnLink нарочно не задан.
+	})
+	if err != nil {
+		t.Fatalf("трекер не открыт: %v", err)
+	}
+
+	err = tr.LinkDependsOn("VO-1", "VO-2", tracker.BySystem())
+	if err == nil {
+		t.Fatal("связь создана без настроенного depends_on_link")
+	}
+	if !strings.Contains(err.Error(), "depends_on_link") || !strings.Contains(err.Error(), "tracker.yaml") {
+		t.Errorf("ошибка не похожа на проверку depends_on_link (при недостижимом сервере реальная ошибка была бы про сеть): %v", err)
 	}
 }
