@@ -1996,7 +1996,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
   приватные `completeSplit`, `splitChildren`, `ensureChildren`,
   `linkChildren`, `closeSplitParent`, `splitFailed`, `splitChildMarker`.
 
-- [ ] **Step 1: Написать падающие тесты**
+- [x] **Step 1: Написать падающие тесты**
 
   Создать `internal/pipeline/splits_test.go`:
 
@@ -2121,7 +2121,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 2: Убедиться, что тесты падают**
+- [x] **Step 2: Убедиться, что тесты падают**
 
   ```bash
   go test ./internal/pipeline/... -run 'TestCompleteSplits' -v
@@ -2129,7 +2129,7 @@ REST v2 не отдаёт и не принимает вложения как JSO
 
   Ожидаемо: ошибка компиляции — `CompleteSplits` не существует.
 
-- [ ] **Step 3: Реализовать**
+- [x] **Step 3: Реализовать**
 
   Создать `internal/pipeline/splits.go`:
 
@@ -2327,19 +2327,19 @@ REST v2 не отдаёт и не принимает вложения как JSO
   }
   ```
 
-- [ ] **Step 4: Тесты проходят**
+- [x] **Step 4: Тесты проходят**
 
   ```bash
   go test ./internal/pipeline/... -run 'TestCompleteSplits' -v
   ```
 
-- [ ] **Step 5: Полный прогон пакета**
+- [x] **Step 5: Полный прогон пакета**
 
   ```bash
   go test ./internal/pipeline/...
   ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/pipeline/splits.go internal/pipeline/splits_test.go
