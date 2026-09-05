@@ -488,18 +488,26 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 	return tracker.TaskRef{}, errors.New("jira.CreateTask: пока не реализовано")
 }
 
+// FindByMarker — заглушка, замещается настоящей реализацией в задаче 5
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
 	return nil, errors.New("jira.FindByMarker: пока не реализовано")
 }
 
+// AddAttachment — заглушка, замещается настоящей реализацией в задаче 6
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
 	return "", errors.New("jira.AddAttachment: пока не реализовано")
 }
 
+// GetAttachment — заглушка, замещается настоящей реализацией в задаче 6
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
 	return nil, errors.New("jira.GetAttachment: пока не реализовано")
 }
 
+// LinkDependsOn — заглушка, замещается настоящей реализацией в задаче 7
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
 	return errors.New("jira.LinkDependsOn: пока не реализовано")
 }

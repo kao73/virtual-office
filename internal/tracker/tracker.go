@@ -285,7 +285,7 @@ type Tracker interface {
 	// SetAttempts — записать счётчик попыток.
 	SetAttempts(key string, by Actor, n int) error
 
-	// CreateTask заводит новую задачу. Без Actor: создавать нечего "владеть" —
+	// CreateTask заводит новую задачу. Без Actor: создавать нечего «владеть» —
 	// как у Add в mock (не из контракта) и List/ListReady в самом контракте.
 	CreateTask(project string, input TaskInput) (TaskRef, error)
 

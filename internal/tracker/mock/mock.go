@@ -328,18 +328,26 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 	return tracker.TaskRef{}, errors.New("mock.CreateTask: пока не реализовано")
 }
 
+// FindByMarker — заглушка, замещается настоящей реализацией в задаче 2
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
 	return nil, errors.New("mock.FindByMarker: пока не реализовано")
 }
 
+// AddAttachment — заглушка, замещается настоящей реализацией в задаче 3
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
 	return "", errors.New("mock.AddAttachment: пока не реализовано")
 }
 
+// GetAttachment — заглушка, замещается настоящей реализацией в задаче 3
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
 	return nil, errors.New("mock.GetAttachment: пока не реализовано")
 }
 
+// LinkDependsOn — заглушка, замещается настоящей реализацией в задаче 4
+// плана docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
 	return errors.New("mock.LinkDependsOn: пока не реализовано")
 }
