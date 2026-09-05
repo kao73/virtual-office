@@ -863,7 +863,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 - Produces: `(*Tracker).CreateTask`, `(*Tracker).FindByMarker`,
   `Config.IssueType`, `(*Tracker).issueType() string`.
 
-- [ ] **Step 1: Расширить `fakeJira` тестовой поддержкой создания**
+- [x] **Step 1: Расширить `fakeJira` тестовой поддержкой создания**
 
   В `internal/tracker/jira/jira_test.go` добавить поля в `fakeJira`:
 
@@ -928,7 +928,7 @@ split») закрывается изменениями в `marker.go`+`pipeline.
 
   В `fixture()`, в литерале `Config{...}`, добавить `IssueType: "Task"`.
 
-- [ ] **Step 2: Написать падающий тест**
+- [x] **Step 2: Написать падающий тест**
 
   ```go
   func TestCreateTaskPostsIssueAndReturnsRef(t *testing.T) {
@@ -988,13 +988,13 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   }
   ```
 
-- [ ] **Step 3: Убедиться, что тесты падают**
+- [x] **Step 3: Убедиться, что тесты падают**
 
   ```bash
   go test ./internal/tracker/jira/... -run 'TestCreateTask|TestFindByMarker' -v
   ```
 
-- [ ] **Step 4: Реализовать**
+- [x] **Step 4: Реализовать**
 
   В `Config` (после `HumanFlagLabel`):
 
@@ -1053,13 +1053,13 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   }
   ```
 
-- [ ] **Step 5: Тесты проходят**
+- [x] **Step 5: Тесты проходят**
 
   ```bash
   go test ./internal/tracker/jira/... -run 'TestCreateTask|TestFindByMarker' -v
   ```
 
-- [ ] **Step 6: Пример конфигурации**
+- [x] **Step 6: Пример конфигурации**
 
   В `tracker.example.yaml`, после блока `human_flag_label`, добавить:
 
@@ -1071,13 +1071,13 @@ split») закрывается изменениями в `marker.go`+`pipeline.
   issue_type: Task
   ```
 
-- [ ] **Step 7: Полный прогон пакета**
+- [x] **Step 7: Полный прогон пакета**
 
   ```bash
   go test ./internal/tracker/jira/...
   ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
   ```bash
   git add internal/tracker/jira/jira.go internal/tracker/jira/jira_test.go tracker.example.yaml
