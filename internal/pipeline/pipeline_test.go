@@ -2280,16 +2280,16 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	}
 }
 
-// Loop зовёт CompleteSplits на каждом заходе, тем же порядком, что и Reap:
-// без этого вызова подтверждённый split так и остался бы висеть в Blocked —
-// достраивать его больше некому, ведь свой собственный unit-тест на CompleteSplits
-// (задачи 11–13) этот путь вызова не проверяет вовсе.
+// Loop зовёт CompleteSplits на каждом заходе: без этого вызова подтверждённый
+// split так и остался бы висеть в Blocked — достраивать его больше некому,
+// ведь свой собственный unit-тест на CompleteSplits (задачи 11–13) этот путь
+// вызова не проверяет вовсе.
 //
-// Контекст отменяется заранее: Loop проходит ровно один цикл (Reap,
-// CompleteSplits, tickOnce) и останавливается на ctx.Done(), не дожидаясь
-// таймера. Роль для tickOnce — "reviewer": в этом сценарии для неё нет
-// готовой работы, и цикл роли — no-op, не мешающий проверить именно то,
-// что делает CompleteSplits.
+// Контекст отменяется заранее: Loop проходит ровно один цикл (Reap, tickOnce,
+// CompleteSplits — порядок именно такой, см. TestLoopProcessesHumanReplyBeforeCompletingSplits
+// ниже) и останавливается на ctx.Done(), не дожидаясь таймера. Роль для
+// tickOnce — "reviewer": в этом сценарии для неё нет готовой работы, и цикл
+// роли — no-op, не мешающий проверить именно то, что делает CompleteSplits.
 func TestLoopRunsCompleteSplitsEachCycle(t *testing.T) {
 	o := newOffice(t)
 	confirmSplit(t, o)
@@ -2306,6 +2306,49 @@ func TestLoopRunsCompleteSplitsEachCycle(t *testing.T) {
 	}
 	if _, err := o.tasks.Get("OFF-2"); err != nil {
 		t.Errorf("Loop не вызвал CompleteSplits: ребёнок не создан: %v", err)
+	}
+}
+
+// TestLoopProcessesHumanReplyBeforeCompletingSplits воспроизводит гонку из
+// финального ревью: человек ответил в тикете уже после второго подтверждения
+// split (передумал, добавил новое обстоятельство — неважно, что именно), и
+// его реплика к началу цикла ещё не разобрана. CompleteSplits, окажись он
+// раньше HumanReplies (как было раньше в Loop), увидел бы задачу всё ещё
+// в Blocked с двумя подтверждающими маркерами и создал бы тикеты-детей,
+// проигнорировав то, что человек сказал позже, — auto-create в реальном
+// трекере вопреки непрочитанному ответу. Порядок Loop обязан пропускать
+// tickOnce (а с ним и HumanReplies, которого зовёт Tick) вперёд
+// CompleteSplits: тогда задача успевает уехать из Blocked раньше, чем до
+// неё дойдёт очередь автосоздания.
+//
+// Роль для tickOnce — "reviewer", как и в предыдущем тесте: её собственная
+// claim-логика не должна тронуть OFF-1 — после разбора ответа он уезжает
+// в очередь analyst'а (Analysis), а не reviewer'а (Review).
+func TestLoopProcessesHumanReplyBeforeCompletingSplits(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	if err := o.tasks.AddComment("OFF-1", "human", "Погодите — появилось новое обстоятельство."); err != nil {
+		t.Fatalf("реплика не записана: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := o.Loop(ctx, time.Minute, "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	if _, err := o.tasks.Get("OFF-2"); err == nil {
+		t.Error("CompleteSplits создал детей, хотя свежая реплика человека ещё не была разобрана")
+	}
+
+	parent := o.get(t, "OFF-1")
+	if parent.Status != "Analysis" {
+		t.Errorf("статус родителя %q, ожидался Analysis: реплика человека должна была вернуть "+
+			"задачу в очередь analyst'а раньше, чем до неё дошёл CompleteSplits", parent.Status)
+	}
+	if parent.HumanFlag {
+		t.Error("HumanFlag не снят: разбор ответа человека не состоялся")
 	}
 }
 
