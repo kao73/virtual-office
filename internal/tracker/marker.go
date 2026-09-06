@@ -403,6 +403,14 @@ func HasEvent(comments []Comment, event string) bool {
 // attachmentID берётся из тега **последнего** такого маркера: если человек
 // просил пересмотреть несколько раз, старые вложения остаются в истории,
 // актуально только последнее.
+//
+// Подтверждения без вложения быть не может: под старой (до задачи 10) версией
+// role.md split-маркеры вложения не несли вовсе, и тикет, доживший под ней
+// до второго такого маркера, отдал бы confirmed=true с пустым attachmentID —
+// CompleteSplits затем звал бы GetAttachment(key, "") и падал бы на этом
+// тикете каждый цикл Loop, бесконечно. Поэтому пустой attachmentID
+// у последнего маркера — тоже «ещё не подтверждено», а не «подтверждено,
+// но нечего читать».
 func SplitConfirmed(comments []Comment, role string) (confirmed bool, attachmentID string) {
 	count := 0
 	for _, c := range comments {
@@ -412,6 +420,9 @@ func SplitConfirmed(comments []Comment, role string) (confirmed bool, attachment
 		}
 		count++
 		attachmentID = m.Attachment
+	}
+	if attachmentID == "" {
+		return false, ""
 	}
 	return count >= 2, attachmentID
 }

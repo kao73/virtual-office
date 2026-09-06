@@ -713,18 +713,21 @@ func TestSplitConfirmedNoMarkers(t *testing.T) {
 	}
 }
 
-// Маркер без attachment — не повод ломаться: второй такой всё равно
-// подтверждает split, просто отдавать в контекст нечего.
+// Маркер без attachment — не подтверждение. Под старой (до задачи 10) версией
+// role.md split-маркеры вообще не несли вложения: тикет, доживший под ней до
+// двух таких маркеров, не должен считаться подтверждённым — иначе
+// CompleteSplits вызовет GetAttachment(key, "") и будет проваливаться на
+// каждом цикле Loop, вечно.
 func TestSplitConfirmedWithoutAttachmentTag(t *testing.T) {
 	comments := []Comment{
 		splitReport("analyst", "", 1),
 		splitReport("analyst", "", 2),
 	}
 	confirmed, attachment := SplitConfirmed(comments, "analyst")
-	if !confirmed {
-		t.Error("второй split-маркер должен подтверждать, даже без attachment")
+	if confirmed {
+		t.Error("второй split-маркер без attachment не должен подтверждать")
 	}
 	if attachment != "" {
-		t.Errorf("вложение %q, ожидалось пустое: тега не было", attachment)
+		t.Errorf("вложение %q, ожидалось пустое", attachment)
 	}
 }
