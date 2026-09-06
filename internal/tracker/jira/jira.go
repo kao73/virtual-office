@@ -657,21 +657,19 @@ func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
 
 // LinkDependsOn связывает key с dependsOnKey типом связи из конфигурации.
 //
-// key — исходящая сторона (key "зависит от" dependsOnKey): подобрано под
-// связь, чьё outward-описание читается как "depends on" — так называют
-// стандартный тип "Depends", если он есть на инстансе. Если на инстансе
-// заведён свой тип с обратным направлением, поменяйте местами
-// outwardIssue/inwardIssue здесь — решается по факту живой проверки
-// (Task 8 плана).
-//
-// depends_on_link не входит в обязательные поля LoadConfig — им пользуется
-// только этот метод, — поэтому его отсутствие проверяется здесь, до owned()
-// и до любого обращения к серверу: пустое имя типа связи всё равно не собрать
-// в тело запроса, а отказать стоит сразу и ясно, а не после чтения задачи.
-//
-// Идемпотентность повторного POST для той же пары не проверена в коде:
-// Task 8 подтверждает её на реальном инстансе и, если понадобится,
-// добавляет проверку существующих issuelinks перед созданием.
+// dependsOnKey — исходящая (outward) сторона запроса, key — входящая
+// (inward): эмпирически проверено на живом JIRA Server 8.13
+// (2026-09-06, throwaway-тикеты на полигоне, тип Blocks для независимой
+// сверки, отчёт — docs/notes/analyst-task-splitting.md, «Живой прогон,
+// нашедший разворот direction») — сервер описывает связь через ТУ сторону,
+// которая передана как inwardIssue, используя outward-текст типа, а не
+// наоборот. Иными словами: результат POST {outwardIssue: O, inwardIssue: I}
+// читается как «I <outward-текст> O», не «O <outward-текст> I». Прежняя
+// версия (outwardIssue: key, inwardIssue: dependsOnKey) была развёрнута —
+// прошла собственные юнит-тесты (они проверяли только форму запроса, не
+// его смысл на реальном сервере) и не была поймана живой проверкой Task 8,
+// которая тоже сверяла только факт создания связи, не её видимое
+// направление на обеих карточках.
 func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
 	if t.cfg.DependsOnLink == "" {
 		return fmt.Errorf("depends_on_link не задан в tracker.yaml: связь %s → %s не создана", key, dependsOnKey)
@@ -681,8 +679,8 @@ func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) erro
 	}
 	return t.call(http.MethodPost, "/issueLink", map[string]any{
 		"type":         map[string]any{"name": t.cfg.DependsOnLink},
-		"outwardIssue": map[string]any{"key": key},
-		"inwardIssue":  map[string]any{"key": dependsOnKey},
+		"outwardIssue": map[string]any{"key": dependsOnKey},
+		"inwardIssue":  map[string]any{"key": key},
 	}, nil)
 }
 

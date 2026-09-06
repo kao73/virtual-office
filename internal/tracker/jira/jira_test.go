@@ -1252,9 +1252,11 @@ func TestGetAttachmentDoesNotLeakCredentialsToForeignHost(t *testing.T) {
 }
 
 // LinkDependsOn шлёт POST /issueLink с типом связи из конфигурации: имя типа
-// на реальном инстансе неизвестно заранее (Task 8 плана подтвердит его живьём),
-// и здесь только форма и направление запроса. key «зависит от» dependsOnKey,
-// значит key — outward-сторона связи.
+// на реальном инстансе неизвестно заранее (Task 8 плана подтвердил его живьём),
+// и здесь только форма и направление запроса. VO-1 «зависит от» VO-2 —
+// эмпирически (живой JIRA Server 8.13, 2026-09-06) сервер читает связь через
+// inward-сторону запроса, значит VO-1 обязан быть inwardIssue, а VO-2 —
+// outwardIssue: см. развёрнутый комментарий у LinkDependsOn.
 func TestLinkDependsOnPostsIssueLink(t *testing.T) {
 	tr, fake := fixture(t)
 	if err := tr.LinkDependsOn("VO-1", "VO-2", tracker.BySystem()); err != nil {
@@ -1270,8 +1272,8 @@ func TestLinkDependsOnPostsIssueLink(t *testing.T) {
 	}
 	outward, _ := link["outwardIssue"].(map[string]any)
 	inward, _ := link["inwardIssue"].(map[string]any)
-	if outward["key"] != "VO-1" || inward["key"] != "VO-2" {
-		t.Errorf("направление связи %v/%v: VO-1 «зависит от» VO-2, значит VO-1 — outward", outward, inward)
+	if outward["key"] != "VO-2" || inward["key"] != "VO-1" {
+		t.Errorf("направление связи %v/%v: VO-1 «зависит от» VO-2, значит VO-1 — inward, VO-2 — outward", outward, inward)
 	}
 }
 
