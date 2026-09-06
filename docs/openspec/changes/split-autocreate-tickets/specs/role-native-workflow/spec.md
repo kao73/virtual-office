@@ -1,24 +1,4 @@
-## REMOVED Requirements
-
-### Requirement: A human's reply to a split proposal is not re-investigated as Shape work
-
-**Reason**: Replaced (not just edited) — the live spec's version carries a third
-scenario, "Confirmed child creation ends the split resume loop", written for
-wave 1's manual ticket-creation flow. That scenario has no counterpart in
-this change's world: `split-autocreate-tickets` makes ticket creation
-deterministic runner behavior (`CompleteSplits`), so the second-confirmation
-resume this scenario describes never happens — the manual "have the children
-been created?" question it answered no longer exists. OpenSpec's `MODIFIED`
-merge requires every scenario in the live requirement to survive into the
-replacement block; dropping one is only representable as `REMOVED` + `ADDED`
-under the same name. See `docs/notes/analyst-task-splitting.md` and
-`design.md`, decision #6, for the full reasoning.
-
-**Migration**: None — no code implements the old third scenario's outcome any
-more (`roles/analyst/role.md`'s corresponding resume branch was deleted in
-this change's Task 15/16); nothing regresses by this scenario's removal.
-
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: A human's reply to a split proposal is not re-investigated as Shape work
 When `analyst` resumes a task whose context shows a human reply to a previously posted `split`
@@ -47,3 +27,14 @@ whether the children have been created.
   choosing to carry the постановка as one task
 - **THEN** `analyst` invokes `comet native new` on the original постановка and continues the
   ordinary Shape investigation
+
+#### Scenario: Confirmed child creation ends the split resume loop
+- **WHEN** `analyst` resumes a task and its context shows the human confirmed the proposed
+  children have been created
+- **THEN** this scenario is retired by `split-autocreate-tickets`: its WHEN condition can no
+  longer arise, because `analyst` no longer asks whether children have been created — ticket
+  creation and linking is now deterministic runner behavior (`CompleteSplits`) triggered by the
+  same second `outcome: split` confirmation the "Confirmed split ends the resumed run" scenario
+  above describes, not by a further human reply. Kept under its original name, not deleted, to
+  preserve the historical record that wave 1's manual-creation flow existed and was deliberately
+  retired — see `design.md` decision #6 and `docs/notes/analyst-task-splitting.md`
