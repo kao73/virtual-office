@@ -1,6 +1,6 @@
 workflow: full
 language: en
-phase: verify
+phase: archive
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -13,13 +13,13 @@ auto_transition: true
 base_ref: b8c42419c2d7a9ee486ff40c1f5272ec5d76a7c3
 design_doc: docs/superpowers/specs/2026-09-05-split-autocreate-tickets-design.md
 plan: docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md
-verify_result: pending
+verify_result: pass
 verify_failures: 0
 verification_report: docs/superpowers/reports/2026-09-06-split-autocreate-tickets-verify.md
 branch_status: pending
 created_at: 2026-09-04
-verified_at: null
-archive_confirmation: null
+verified_at: 2026-09-06
+archive_confirmation: pending
 archived: false
 bound_branch: comet/split-autocreate-tickets
 direct_override: null
