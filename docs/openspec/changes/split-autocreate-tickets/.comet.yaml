@@ -1,6 +1,6 @@
 workflow: full
 language: en
-phase: build
+phase: verify
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -8,7 +8,7 @@ subagent_dispatch: confirmed
 tdd_mode: tdd
 review_mode: thorough
 isolation: branch
-verify_mode: null
+verify_mode: full
 auto_transition: true
 base_ref: b8c42419c2d7a9ee486ff40c1f5272ec5d76a7c3
 design_doc: docs/superpowers/specs/2026-09-05-split-autocreate-tickets-design.md
