@@ -5,7 +5,10 @@ When `analyst` resumes a task whose context shows a human reply to a previously 
 question, `analyst` SHALL NOT invoke `comet native new` or perform a Shape investigation of the
 original постановка before branching on that reply: a confirming reply re-affirms `split` without
 new investigation, a declining reply proceeds with ordinary Shape on the whole постановка, and any
-other reply is treated as new information requiring reassessment before either path is taken. The
+other reply is treated as new information: `analyst` SHALL respond with `needs_human` and
+a clarifying question rather than re-affirming `split` or choosing either path outright — a second
+`split` marker is what the runner treats as an unconditional confirmation, and an ambiguous reply
+does not warrant one. The
 re-affirmed `split` carries the same confirmation question as the original proposal: creation of
 the confirmed children is deterministic runner behavior outside any agent run, not something a
 human confirms in a further reply, so `analyst` SHALL NOT invent a follow-up question asking
