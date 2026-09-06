@@ -1,4 +1,24 @@
-## MODIFIED Requirements
+## REMOVED Requirements
+
+### Requirement: A human's reply to a split proposal is not re-investigated as Shape work
+
+**Reason**: Replaced (not just edited) — the live spec's version carries a third
+scenario, "Confirmed child creation ends the split resume loop", written for
+wave 1's manual ticket-creation flow. That scenario has no counterpart in
+this change's world: `split-autocreate-tickets` makes ticket creation
+deterministic runner behavior (`CompleteSplits`), so the second-confirmation
+resume this scenario describes never happens — the manual "have the children
+been created?" question it answered no longer exists. OpenSpec's `MODIFIED`
+merge requires every scenario in the live requirement to survive into the
+replacement block; dropping one is only representable as `REMOVED` + `ADDED`
+under the same name. See `docs/notes/analyst-task-splitting.md` and
+`design.md`, decision #6, for the full reasoning.
+
+**Migration**: None — no code implements the old third scenario's outcome any
+more (`roles/analyst/role.md`'s corresponding resume branch was deleted in
+this change's Task 15/16); nothing regresses by this scenario's removal.
+
+## ADDED Requirements
 
 ### Requirement: A human's reply to a split proposal is not re-investigated as Shape work
 When `analyst` resumes a task whose context shows a human reply to a previously posted `split`
