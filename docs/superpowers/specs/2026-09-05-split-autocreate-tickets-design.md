@@ -2,6 +2,8 @@
 comet_change: split-autocreate-tickets
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-06-split-autocreate-tickets
+status: final
 ---
 
 # split-autocreate-tickets — Technical Design

@@ -2,6 +2,7 @@
 change: split-autocreate-tickets
 design-doc: docs/superpowers/specs/2026-09-05-split-autocreate-tickets-design.md
 base-ref: e908309ebad1f855c5506004aa903cf1cb5140a7
+archived-with: 2026-09-06-split-autocreate-tickets
 ---
 
 # split-autocreate-tickets Implementation Plan
