@@ -171,6 +171,43 @@ func TestCompleteSplitsCopiesParentAttachmentsToChildren(t *testing.T) {
 	}
 }
 
+// TestCompleteSplitsCopiesOnlyOneOfSameNamedParentAttachments — у родителя
+// два разных вложения (разные ID — JIRA не следит за уникальностью имени
+// файла) с одинаковым именем. ensureChildAttachments сверяется по имени
+// (доккомент к ней это явно оговаривает: "докатится только одно") — но
+// карта уже занятых имён обязана обновляться сразу после каждой успешной
+// заливки внутри одного прохода по родительским вложениям, иначе оба
+// пройдут проверку has[name] независимо и оба закатятся одному ребёнку.
+func TestCompleteSplitsCopiesOnlyOneOfSameNamedParentAttachments(t *testing.T) {
+	o := newOffice(t)
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("первая версия")); err != nil {
+		t.Fatalf("первое вложение не добавлено: %v", err)
+	}
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("вторая версия")); err != nil {
+		t.Fatalf("второе вложение не добавлено: %v", err)
+	}
+	confirmSplit(t, o)
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не прошёл: %v", err)
+	}
+
+	child, err := o.tasks.Get("OFF-2")
+	if err != nil {
+		t.Fatalf("OFF-2 не прочитан: %v", err)
+	}
+	count := 0
+	for _, a := range child.Attachments {
+		if a.Name == "schema.png" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("вложений schema.png у ребёнка %d, ожидалось 1 — одноимённые вложения родителя "+
+			"не должны дублироваться на одном ребёнке", count)
+	}
+}
+
 // TestCompleteSplitsBackfillsAttachmentsOnAlreadyCreatedChild воспроизводит
 // ребёнка, созданного прошлым прерванным прогоном ДО того, как вложения
 // родителя успели скопироваться, — следующий проход обязан докатить
@@ -467,6 +504,77 @@ func TestCompleteSplitsRejectsCorruptedAttachment(t *testing.T) {
 	}
 }
 
+// TestCompleteSplitsRefusesToCloseWithoutPRBlock воспроизводит офис без
+// блока pr: в workflow.yaml — граф без прохода pull request легален
+// (config.go, checkPR: пустой блок целиком — офис, который PR не открывает).
+// closeSplitParent тогда читает o.Workflow.PR.Merged == "" и раньше уводил
+// бы родителя в статус "" вместо отказа — prpass.go для своего собственного
+// прохода уже проверяет PR.Set() тем же способом.
+func TestCompleteSplitsRefusesToCloseWithoutPRBlock(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+	o.Workflow.PR = tracker.PRFlow{}
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не должен падать целиком: %v", err)
+	}
+
+	parent := o.get(t, "OFF-1")
+	if parent.Status == "" {
+		t.Error("родитель ушёл в пустой статус вместо отказа с понятной причиной")
+	}
+	if parent.Status != "Blocked" {
+		t.Errorf("статус родителя %q, ожидался Blocked — без pr-блока закрыть родителя нечем", parent.Status)
+	}
+	failComment := lastComment(t, parent)
+	failMarker, ok := tracker.MarkerOf(failComment.Body)
+	if !ok || failMarker.Event != tracker.EventSplitCreateFailed {
+		t.Errorf("нет записи о сбое:\n%s", failComment.Body)
+	}
+}
+
+// TestCompleteSplitsRejectsEmptySplitChildren — та же порча вложения между
+// записью и вторым чтением, что и выше, но другой формой: пустой
+// split.children[]. agentio.Result.Validate это отсекает при первой публикации
+// агентом, но splitChildren читает вложение заново из трекера (runner.Split.
+// Validate) — без собственной проверки на пустоту родитель закрылся бы,
+// не создав ни одного ребёнка, и задача бы бесследно пропала.
+func TestCompleteSplitsRejectsEmptySplitChildren(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	parent := o.get(t, "OFF-1")
+	comment := lastComment(t, parent)
+	marker, ok := tracker.MarkerOf(comment.Body)
+	if !ok || marker.Attachment == "" {
+		t.Fatalf("вложение не найдено в маркере отчёта:\n%s", comment.Body)
+	}
+
+	empty := runner.Split{Children: []runner.SplitChild{}}
+	data, err := json.Marshal(empty)
+	if err != nil {
+		t.Fatalf("вложение не собрано: %v", err)
+	}
+	path := filepath.Join(o.tasks.Root(), "OFF-1", "attachments", marker.Attachment)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("вложение не подменено: %v", err)
+	}
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не должен падать целиком: %v", err)
+	}
+
+	fresh := o.get(t, "OFF-1")
+	if fresh.Status != "Blocked" {
+		t.Errorf("статус родителя %q, ожидался Blocked — пустой список детей не должен закрывать задачу", fresh.Status)
+	}
+	failComment := lastComment(t, fresh)
+	failMarker, ok := tracker.MarkerOf(failComment.Body)
+	if !ok || failMarker.Event != tracker.EventSplitCreateFailed {
+		t.Errorf("нет записи о сбое:\n%s", failComment.Body)
+	}
+}
+
 // flakyCreate роняет CreateTask для ребёнка с данным заголовком: так
 // выглядит частичный сбой пакетного создания.
 type flakyCreate struct {
@@ -633,5 +741,37 @@ func TestCompleteSplitsRecordsCloseFailureNoticeAndContinues(t *testing.T) {
 	if other.Status != o.Workflow.PR.Merged {
 		t.Errorf("вторая задача %q, ожидался %q — беда закрытия первой не должна её касаться",
 			other.Status, o.Workflow.PR.Merged)
+	}
+}
+
+// TestCompleteSplitsDoesNotDuplicateCloseNoticeOnRetry — та же персистентная
+// беда на Transition, что и выше, но проверяет другой угол: если закрытие
+// падает раз за разом, каждый следующий проход CompleteSplits заново находит
+// подтверждённого родителя (дети и связи уже на месте — не-op) и раньше
+// доходил бы до o.record с "Разбита на: …" заново — без дедупликации,
+// применённой к самой этой записи (в отличие от splitFailed, у которой
+// дедупликация уже была), комментарий копился бы на каждом цикле Loop.
+func TestCompleteSplitsDoesNotDuplicateCloseNoticeOnRetry(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+	o.useTracker(&flakyClose{Tracker: o.tasks, failOn: "OFF-1"})
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("первый проход не должен падать целиком: %v", err)
+	}
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("второй проход не должен падать целиком: %v", err)
+	}
+
+	parent := o.get(t, "OFF-1")
+	successes := 0
+	for _, c := range parent.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Event == tracker.EventSplitCreated {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Errorf("запись об успешном разбиении встречена %d раз(а), ожидался ровно 1 — "+
+			"персистентный сбой закрытия не должен копить дубли", successes)
 	}
 }

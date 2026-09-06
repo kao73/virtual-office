@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -150,8 +151,9 @@ func (o *Office) ensureChildren(task tracker.Task, children []runner.SplitChild)
 			continue
 		}
 
+		description, parentVerbatim := childDescription(task, child)
 		ref, err := o.Tracker.CreateTask(task.Project, tracker.TaskInput{
-			Summary: child.Title, Description: childDescription(task, child), Labels: []string{marker},
+			Summary: child.Title, Description: description, DescriptionAppend: parentVerbatim, Labels: []string{marker},
 		})
 		if err != nil {
 			return nil, err
@@ -180,19 +182,27 @@ func (o *Office) ensureChildren(task tracker.Task, children []runner.SplitChild)
 // другого разбиения, его Description уже несёт унаследованный текст своего
 // предка — новый уровень просто наращивает цепочку на одну копию, без
 // отдельного понятия «корень».
-func childDescription(task tracker.Task, child runner.SplitChild) string {
+//
+// Возвращает две части, а не одну строку: parentVerbatim идёт в
+// TaskInput.DescriptionAppend, а не в Description. task.Description мог
+// быть прочитан из трекера уже в чужой разметке (JIRA хранит его как wiki,
+// не markdown, — toTask отдаёт как есть), и если приписать его к
+// Description, общий конвертер прогонит уже-переведённый текст повторно и
+// исказит его (ссылки, упоминания, списки). Заголовок и пояснение — наша
+// собственная, свежая проза, ей конвертация нужна, поэтому они остаются
+// в description.
+func childDescription(task tracker.Task, child runner.SplitChild) (description, parentVerbatim string) {
 	parent := strings.TrimSpace(task.Description)
 	if parent == "" {
-		return child.Description
+		return child.Description, ""
 	}
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(child.Description))
 	b.WriteString("\n\n## Исходная постановка целиком (контекст)\n\n")
 	b.WriteString("Эта задача — часть постановки, разбитой аналитиком на несколько тикетов. ")
 	b.WriteString("Ниже — весь исходный текст: в нём могут быть детали и ограничения, ")
-	b.WriteString("которые касаются именно этой части, но не попали в описание выше.\n\n")
-	b.WriteString(parent)
-	return b.String()
+	b.WriteString("которые касаются именно этой части, но не попали в описание выше.")
+	return b.String(), parent
 }
 
 // ensureChildAttachments докатывает человеческие вложения родителя
@@ -246,6 +256,7 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 			if _, err := o.Tracker.AddAttachment(childKey, by, parentAttachment.Name, data[parentAttachment.ID]); err != nil {
 				return err
 			}
+			has[parentAttachment.Name] = true
 		}
 	}
 	return nil
@@ -270,19 +281,36 @@ func (o *Office) linkChildren(children []runner.SplitChild, keys map[string]stri
 // closeSplitParent сообщает о готовых детях и закрывает родителя — тем же
 // терминальным статусом, что и prSkipped: задача, которой нечего сливать,
 // заканчивает жизнь так же, как слитая.
+//
+// Офис без блока pr: в workflow.yaml — легальный граф (config.go, checkPR),
+// но тогда o.Workflow.PR.Merged пуст, и закрывать родителя в терминальный
+// статус некуда: тем же способом, что PRPass проверяет PR.Set() для своего
+// прохода, отказываемся явно, а не уводим задачу в статус "".
+//
+// Запись «Разбита на: …» — только при первом успехе (HasEvent), тем же
+// приёмом, что splitFailed применяет к своей записи о сбое: если
+// SetHumanFlag/move ниже упадут, повторный проход не должен постить этот
+// комментарий заново на каждом цикле Loop.
 func (o *Office) closeSplitParent(task tracker.Task, keys []string) error {
-	runID, err := runner.NewRunID()
-	if err != nil {
-		return err
+	if !o.Workflow.PR.Set() {
+		return errors.New("в workflow.yaml нет блока pr: закрыть разбитую задачу некуда")
 	}
 	by, to := tracker.BySystem(), o.Workflow.PR.Merged
-	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: splitAnalystRole, Event: tracker.EventSplitCreated, ConfigSHA: o.ConfigSHA,
-	}, fmt.Sprintf("Разбита на: %s. Тикеты-дети созданы и связаны по depends_on автоматически, "+
-		"задача уходит в %s.", strings.Join(keys, ", "), to)); err != nil {
-		return err
+
+	if !tracker.HasEvent(task.Comments, tracker.EventSplitCreated) {
+		runID, err := runner.NewRunID()
+		if err != nil {
+			return err
+		}
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: splitAnalystRole, Event: tracker.EventSplitCreated, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Разбита на: %s. Тикеты-дети созданы и связаны по depends_on автоматически, "+
+			"задача уходит в %s.", strings.Join(keys, ", "), to)); err != nil {
+			return err
+		}
+		o.logf("%s: разбита на %s, уходит в %s", task.Key, strings.Join(keys, ", "), to)
 	}
-	o.logf("%s: разбита на %s, уходит в %s", task.Key, strings.Join(keys, ", "), to)
+
 	// finish() поднял HumanFlag, отправляя подтверждённый split в Blocked
 	// (workflow.yaml). Снять его надо здесь же, как unblock() снимает его
 	// перед своим move: иначе закрытый тикет остаётся с меткой «ждёт

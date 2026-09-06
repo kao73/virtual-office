@@ -162,7 +162,12 @@ type Split struct {
 // данным трекера так же, как только что написанному агентом файлу, — а это
 // разные степени доверия.
 func (s Split) Validate() error {
-	return errors.Join(validateSplitChildren(s.Children)...)
+	var errs []error
+	if len(s.Children) == 0 {
+		errs = append(errs, errors.New("split.children пуст"))
+	}
+	errs = append(errs, validateSplitChildren(s.Children)...)
+	return errors.Join(errs...)
 }
 
 // SplitChild — одна предлагаемая подзадача.
