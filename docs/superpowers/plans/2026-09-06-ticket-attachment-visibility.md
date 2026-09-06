@@ -83,7 +83,7 @@ base-ref: a3a504caeb3f24756e0be5f5712fad75accbea1d
   харнесс пакета `pipeline`).
 - Produces: ничего для последующих задач — независимый тест.
 
-- [ ] **Step 1: Добавить тест**
+- [x] **Step 1: Добавить тест**
 
 Вставить сразу после `TestTickFeedsAgentTaskAndContext` в
 `internal/pipeline/pipeline_test.go`:
@@ -132,13 +132,13 @@ func TestTickMaterializesHumanAttachmentsButNotSplitJSON(t *testing.T) {
 Проверить, что `"errors"` и `"io/fs"` уже в импортах файла — если нет,
 добавить.
 
-- [ ] **Step 2: Прогнать**
+- [x] **Step 2: Прогнать**
 
 Run: `go test ./internal/pipeline/... -run TestTickMaterializesHumanAttachmentsButNotSplitJSON -v`
 Expected: PASS (код уже написан в этой сессии — это подтверждающий, не
 red-green тест).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 Коммит по этой задаче не делаем отдельно — все тесты этого плана уходят
 одним коммитом в Task 6.
@@ -156,7 +156,7 @@ red-green тест).
   `o.tasks.Get`, `o.CompleteSplits(context.Background())` — всё уже
   существует.
 
-- [ ] **Step 1: Добавить тест**
+- [x] **Step 1: Добавить тест**
 
 ```go
 // TestCompleteSplitsCopiesParentAttachmentsToChildren доказывает, что
@@ -197,7 +197,7 @@ func TestCompleteSplitsCopiesParentAttachmentsToChildren(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Прогнать**
+- [x] **Step 2: Прогнать**
 
 Run: `go test ./internal/pipeline/... -run TestCompleteSplitsCopiesParentAttachmentsToChildren -v`
 Expected: PASS.
@@ -215,7 +215,7 @@ Expected: PASS.
   ребёнка, уже созданного прошлым прогоном, — по образцу
   `TestCompleteSplitsResumesInterruptedBatch`).
 
-- [ ] **Step 1: Добавить тест**
+- [x] **Step 1: Добавить тест**
 
 ```go
 // TestCompleteSplitsBackfillsAttachmentsOnAlreadyCreatedChild
@@ -297,7 +297,7 @@ func TestCompleteSplitsBackfillsAttachmentsOnAlreadyCreatedChild(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Прогнать**
+- [x] **Step 2: Прогнать**
 
 Run: `go test ./internal/pipeline/... -run TestCompleteSplitsBackfillsAttachmentsOnAlreadyCreatedChild -v`
 Expected: PASS.
@@ -315,7 +315,7 @@ Expected: PASS.
   (`Office.record`, `internal/pipeline/pipeline.go`) — специально его
   добавлять не нужно, оно уже там.
 
-- [ ] **Step 1: Добавить тест**
+- [x] **Step 1: Добавить тест**
 
 ```go
 // TestCompleteSplitsDoesNotInheritSplitJSON доказывает, что служебное
@@ -355,7 +355,7 @@ func TestCompleteSplitsDoesNotInheritSplitJSON(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Прогнать**
+- [x] **Step 2: Прогнать**
 
 Run: `go test ./internal/pipeline/... -run TestCompleteSplitsDoesNotInheritSplitJSON -v`
 Expected: PASS.
@@ -371,7 +371,7 @@ Expected: PASS.
 
 **Interfaces:** нет — чистая документация.
 
-- [ ] **Step 1: Дописать раздел в `docs/notes/analyst-task-splitting.md`**
+- [x] **Step 1: Дописать раздел в `docs/notes/analyst-task-splitting.md`**
 
 Добавить в конец файла раздел `## 2026-09-06: видимость вложений тикета —
 Comet-изменение ticket-attachment-visibility`, кратко: находка (ни одна
@@ -381,7 +381,7 @@ Comet-изменение ticket-attachment-visibility`, кратко: наход
 идемпотентность наследования), ссылка на
 `docs/openspec/changes/ticket-attachment-visibility/` и на Design Doc.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 Коммит по документации входит в Task 6 (единый коммит на весь план).
 
@@ -391,17 +391,17 @@ Comet-изменение ticket-attachment-visibility`, кратко: наход
 
 **Files:** нет новых — проверка всего, что накопилось.
 
-- [ ] **Step 1: Полная сборка и проверка**
+- [x] **Step 1: Полная сборка и проверка**
 
 Run: `go build ./... && go vet ./... && go test ./...`
 Expected: всё зелёное, без пропущенных пакетов.
 
-- [ ] **Step 2: gofmt**
+- [x] **Step 2: gofmt**
 
 Run: `gofmt -l .`
 Expected: пусто (если нет — `gofmt -w` на перечисленные файлы).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/pipeline/pipeline_test.go internal/pipeline/splits_test.go \
