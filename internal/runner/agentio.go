@@ -19,6 +19,11 @@ import (
 // Dir — каталог обмена внутри workdir.
 const Dir = ".agent"
 
+// DirAttachments — подкаталог вложений тикета внутри Dir. Отдельно от
+// FileTask/FileContext: вложения — настоящие файлы (в них бывают картинки,
+// PDF), а не текст, который можно вписать в markdown.
+const DirAttachments = "attachments"
+
 // Файлы обмена.
 const (
 	FileTask    = "task.md"
@@ -128,6 +133,14 @@ type Result struct {
 	// Split — предложение разбивки, только при outcome=split.
 	Split *Split `json:"split,omitempty"`
 }
+
+// SplitAttachmentName — имя, под которым раннер сохраняет вложение
+// runner.Split (Office.record, internal/pipeline/pipeline.go). Служебная
+// переписка раннера с самим собой, не то, что человек прикладывал к
+// тикету, — по этому имени материализация вложений в рабочую папку агента
+// (Office.humanAttachments) и наследование их split-детьми
+// (splits.go, ensureChildAttachments) его исключают.
+const SplitAttachmentName = "split.json"
 
 // Split — структурированное предложение разбить постановку на подзадачи.
 // Сам агент тикеты не заводит и трекер не трогает: после второго подряд

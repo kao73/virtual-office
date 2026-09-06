@@ -83,6 +83,9 @@ func (o *Office) completeSplit(task tracker.Task, attachmentID string) error {
 	if err != nil {
 		return o.splitFailed(task, fmt.Sprintf("тикеты-дети не досозданы: %v", err))
 	}
+	if err := o.ensureChildAttachments(task, byID); err != nil {
+		return o.splitFailed(task, fmt.Sprintf("вложения родителя не скопированы: %v", err))
+	}
 	if err := o.linkChildren(children, byID); err != nil {
 		return o.splitFailed(task, fmt.Sprintf("связи depends_on не записаны: %v", err))
 	}
@@ -190,6 +193,53 @@ func childDescription(task tracker.Task, child runner.SplitChild) string {
 	b.WriteString("которые касаются именно этой части, но не попали в описание выше.\n\n")
 	b.WriteString(parent)
 	return b.String()
+}
+
+// ensureChildAttachments докатывает человеческие вложения родителя
+// (humanAttachments — служебные вроде runner.SplitAttachmentName сюда не
+// входят) на каждого ребёнка. Тот же принцип идемпотентности, что
+// ensureChildren применяет к самому факту существования тикета, — но
+// сверяется с трекером заново на КАЖДОМ проходе CompleteSplits, а не
+// только при первом создании: прогон, прерванный между «ребёнок создан»
+// и «вложения скопированы», без этого навсегда оставил бы ребёнка без
+// унаследованных вложений — повторный проход нашёл бы его уже
+// существующим (по метке) и не вернулся бы к вложениям вовсе.
+//
+// Сверка — по имени вложения. Двух одноимённых вложений у родителя это
+// не различит (докатится только одно) — узкий случай, которым ради
+// простоты пренебрегаем: назначение здесь — не потерять контекст
+// безвозвратно, не продублировать с абсолютной точностью.
+func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]string) error {
+	parentAttachments := humanAttachments(task)
+	if len(parentAttachments) == 0 {
+		return nil
+	}
+
+	by := tracker.BySystem()
+	for _, childKey := range keys {
+		child, err := o.Tracker.Get(childKey)
+		if err != nil {
+			return err
+		}
+		has := make(map[string]bool, len(child.Attachments))
+		for _, a := range child.Attachments {
+			has[a.Name] = true
+		}
+
+		for _, parentAttachment := range parentAttachments {
+			if has[parentAttachment.Name] {
+				continue
+			}
+			data, err := o.Tracker.GetAttachment(task.Key, parentAttachment.ID)
+			if err != nil {
+				return err
+			}
+			if _, err := o.Tracker.AddAttachment(childKey, by, parentAttachment.Name, data); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // linkChildren связывает уже существующих детей по depends_on. Отдельным

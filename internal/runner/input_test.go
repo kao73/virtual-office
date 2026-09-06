@@ -175,6 +175,104 @@ func TestPrepareInputWritesExchange(t *testing.T) {
 	}
 }
 
+// TestPrepareInputWritesAttachments доказывает, что вложения кладутся
+// настоящими файлами рядом с task.md, а не текстом внутри него — среди них
+// бывают картинки и PDF.
+func TestPrepareInputWritesAttachments(t *testing.T) {
+	workdir := gitRepo(t)
+	in := Input{Task: "Задача\n", Attachments: []InputAttachment{
+		{Name: "schema.png", Data: []byte("данные схемы")},
+	}}
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), in); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(workdir, Dir, DirAttachments, "schema.png"))
+	if err != nil {
+		t.Fatalf("вложение не записано: %v", err)
+	}
+	if string(got) != "данные схемы" {
+		t.Errorf("содержимое вложения %q, ожидалось %q", got, "данные схемы")
+	}
+}
+
+// TestPrepareInputSanitizesAttachmentName доказывает, что имя вложения —
+// чужой ввод — не может вывести запись за пределы каталога вложений.
+// filepath.Base само режет "../../etc/passwd" до "passwd", но голое ".."
+// после Base осталось бы ".." буквально, а Join(dir, "..") — это уже
+// родитель dir, не файл внутри него.
+func TestPrepareInputSanitizesAttachmentName(t *testing.T) {
+	workdir := gitRepo(t)
+	in := Input{Task: "Задача\n", Attachments: []InputAttachment{
+		{Name: "../../etc/passwd", Data: []byte("a")},
+		{Name: "..", Data: []byte("b")},
+	}}
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), in); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	attachmentsDir := filepath.Join(workdir, Dir, DirAttachments)
+	entries, err := os.ReadDir(attachmentsDir)
+	if err != nil {
+		t.Fatalf("каталог вложений не прочитан: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() == ".." || strings.Contains(e.Name(), "..") {
+			t.Errorf("вложение сбежало из каталога: %s", e.Name())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workdir, Dir, "..", "..", "etc", "passwd")); err == nil {
+		t.Error("вложение записано за пределами рабочей папки")
+	}
+	if len(entries) != 2 {
+		t.Errorf("файлов в каталоге вложений %d, ожидалось 2: %v", len(entries), entries)
+	}
+}
+
+// TestPrepareInputDisambiguatesDuplicateAttachmentNames доказывает, что два
+// вложения с одинаковым именем не затирают друг друга.
+func TestPrepareInputDisambiguatesDuplicateAttachmentNames(t *testing.T) {
+	workdir := gitRepo(t)
+	in := Input{Task: "Задача\n", Attachments: []InputAttachment{
+		{Name: "schema.png", Data: []byte("первая")},
+		{Name: "schema.png", Data: []byte("вторая")},
+	}}
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), in); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	attachmentsDir := filepath.Join(workdir, Dir, DirAttachments)
+	entries, err := os.ReadDir(attachmentsDir)
+	if err != nil {
+		t.Fatalf("каталог вложений не прочитан: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("файлов %d, ожидалось 2 (обе версии сохранены): %v", len(entries), entries)
+	}
+}
+
+// TestPrepareInputClearsStaleAttachments воспроизводит повторный прогон в той
+// же рабочей папке: набор вложений тикета мог измениться (человек убрал
+// файл) — прошлый набор не должен продолжать лежать рядом с новым.
+func TestPrepareInputClearsStaleAttachments(t *testing.T) {
+	workdir := gitRepo(t)
+	role, passport := fixtureRole(t), fixturePassport()
+
+	first := Input{Task: "Задача\n", Attachments: []InputAttachment{{Name: "old.txt", Data: []byte("устарело")}}}
+	if err := PrepareInput(workdir, role, passport, first); err != nil {
+		t.Fatalf("первый вход не подготовлен: %v", err)
+	}
+
+	second := Input{Task: "Задача\n"}
+	if err := PrepareInput(workdir, role, passport, second); err != nil {
+		t.Fatalf("второй вход не подготовлен: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(workdir, Dir, DirAttachments, "old.txt")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("устаревшее вложение всё ещё лежит в рабочей папке: %v", err)
+	}
+}
+
 func TestPrepareInputRequiresTask(t *testing.T) {
 	err := PrepareInput(gitRepo(t), fixtureRole(t), fixturePassport(), Input{})
 	if err == nil {

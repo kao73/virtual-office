@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -786,6 +787,45 @@ func TestTickFeedsAgentTaskAndContext(t *testing.T) {
 		if !strings.Contains(string(context), want) {
 			t.Errorf("в контексте нет %q:\n%s", want, context)
 		}
+	}
+}
+
+// TestTickMaterializesHumanAttachmentsButNotSplitJSON доказывает, что
+// человеческое вложение задачи попадает в рабочую папку агента настоящим
+// файлом и упоминается в постановке, а служебное (split.json — переписка
+// раннера с самим собой) — нет ни там, ни там.
+func TestTickMaterializesHumanAttachmentsButNotSplitJSON(t *testing.T) {
+	o := newOffice(t)
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные схемы")); err != nil {
+		t.Fatalf("вложение не добавлено: %v", err)
+	}
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), runner.SplitAttachmentName, []byte(`{"children":[]}`)); err != nil {
+		t.Fatalf("служебное вложение не добавлено: %v", err)
+	}
+
+	o.tick(t)
+
+	req := o.agent.seen
+	got, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.DirAttachments, "schema.png"))
+	if err != nil {
+		t.Fatalf("человеческое вложение не материализовано: %v", err)
+	}
+	if string(got) != "данные схемы" {
+		t.Errorf("содержимое вложения %q, ожидалось %q", got, "данные схемы")
+	}
+	if _, err := os.Stat(filepath.Join(req.Workdir, runner.Dir, runner.DirAttachments, runner.SplitAttachmentName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("служебное вложение материализовано в рабочую папку: %v", err)
+	}
+
+	task, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.FileTask))
+	if err != nil {
+		t.Fatalf("постановка не записана: %v", err)
+	}
+	if !strings.Contains(string(task), "schema.png") {
+		t.Errorf("в постановке нет упоминания вложения:\n%s", task)
+	}
+	if strings.Contains(string(task), runner.SplitAttachmentName) {
+		t.Errorf("служебное вложение упомянуто в постановке:\n%s", task)
 	}
 }
 

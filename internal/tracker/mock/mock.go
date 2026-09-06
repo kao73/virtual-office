@@ -12,6 +12,11 @@
 //	<root>/<KEY>/lease.free             аренды нет
 //	<root>/<KEY>/lease.<unix>.<run_id>  аренда до <unix>, владелец <run_id>
 //	<root>/<KEY>/comments/NNNN.md       комментарии по порядку
+//	<root>/<KEY>/attachments/NNNN       вложение, сырые байты
+//	<root>/<KEY>/attachments/NNNN.yaml  его имя (данные и имя раздельно —
+//	                                    в отличие от комментария, тело вложения
+//	                                    произвольные байты, а не текст, и текстовую
+//	                                    шапку перед ним не приписать безопасно)
 //
 // Владелец и срок живут в **имени** файла аренды, а не внутри него. Так смена
 // состояния аренды — одно атомарное действие: нет промежутка, в котором аренда
@@ -153,7 +158,35 @@ func (t *Tracker) Get(key string) (tracker.Task, error) {
 	if task.Comments, err = readComments(dir); err != nil {
 		return tracker.Task{}, err
 	}
+	if task.Attachments, err = readAttachments(dir); err != nil {
+		return tracker.Task{}, err
+	}
 	return task, nil
+}
+
+// readAttachments — вложения задачи по данным attachmentFiles/AddAttachment.
+// Отсутствующая .yaml-шапка (вложение старше этого поля) не валит чтение —
+// вложение просто остаётся безымянным, тем же номером вместо имени.
+func readAttachments(dir string) ([]tracker.AttachmentRef, error) {
+	attachmentsPath := filepath.Join(dir, attachmentsDir)
+	names, err := attachmentFiles(attachmentsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	refs := make([]tracker.AttachmentRef, 0, len(names))
+	for _, id := range names {
+		name := id
+		raw, err := os.ReadFile(filepath.Join(attachmentsPath, id+".yaml"))
+		if err == nil {
+			var head attachmentHead
+			if err := yaml.Unmarshal(raw, &head); err == nil && head.Name != "" {
+				name = head.Name
+			}
+		}
+		refs = append(refs, tracker.AttachmentRef{ID: id, Name: name})
+	}
+	return refs, nil
 }
 
 // ListReady — кандидаты в статусе проекта: без живой аренды, по возрастанию ключа.
@@ -420,10 +453,37 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 	})
 }
 
-// AddAttachment сохраняет сырые данные вложением. name сегодня не влияет
-// на путь хранения (файл называется по номеру, как и комментарии) —
-// параметр существует ради паритета с jira, которой имя нужно для
-// multipart-формы.
+// attachmentHead — то немногое, что описывает вложение отдельно от его
+// сырых данных. Имя не пишут в файл данных (тело вложения — произвольные
+// байты, а не текст) — оно живёт в отдельном YAML рядом, тем же файловым
+// номером и суффиксом ".yaml".
+type attachmentHead struct {
+	Name string `yaml:"name"`
+}
+
+// attachmentFiles — файлы данных в каталоге вложений, без их .yaml-шапок:
+// тот же приём, что commentFiles применяет к .md, только фильтр в другую
+// сторону (данные — без суффикса, шапка — с ним).
+func attachmentFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("вложения не прочитаны: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && !strings.HasSuffix(e.Name(), ".yaml") {
+			names = append(names, e.Name())
+		}
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// AddAttachment сохраняет сырые данные вложением и его имя отдельным
+// файлом рядом (attachmentHead) — параметр name раньше существовал только
+// ради паритета с jira (которой он нужен для multipart-формы), теперь
+// его хранит и мок: без этого Get() не смог бы сказать, как называется
+// вложение, которое видит агент.
 func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
 	task, err := t.Get(key)
 	if err != nil {
@@ -434,18 +494,26 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 	}
 
 	dir := filepath.Join(t.dir(key), attachmentsDir)
-	entries, err := os.ReadDir(dir)
+	existing, err := attachmentFiles(dir)
 	if err != nil {
 		return "", fmt.Errorf("вложения %s не прочитаны: %w", key, err)
 	}
 
-	f, id, err := nextExclusive(dir, len(entries), "")
+	f, id, err := nextExclusive(dir, len(existing), "")
 	if err != nil {
 		return "", fmt.Errorf("вложение %s не записано: %w", key, err)
 	}
 	defer f.Close()
 	if _, err := f.Write(data); err != nil {
 		return "", fmt.Errorf("вложение %s не записано: %w", key, err)
+	}
+
+	head, err := yaml.Marshal(attachmentHead{Name: name})
+	if err != nil {
+		return "", fmt.Errorf("имя вложения %s не собрано: %w", key, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, id+".yaml"), head, 0o644); err != nil {
+		return "", fmt.Errorf("имя вложения %s не записано: %w", key, err)
 	}
 	return id, nil
 }

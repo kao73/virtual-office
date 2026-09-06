@@ -33,6 +33,61 @@ type Input struct {
 	// Context — разделы, которые допишутся к собранному раннером контексту:
 	// переписка тикета, номер попытки, всё, что зависит от трекера.
 	Context string
+	// Attachments — вложения тикета, уже скачанные (Office.humanAttachments
+	// решает, какие: служебные вроде runner.SplitAttachmentName сюда не
+	// попадают). PrepareInput кладёт их настоящими файлами в DirAttachments —
+	// не текстом в Task, там бывают картинки и PDF.
+	Attachments []InputAttachment
+}
+
+// InputAttachment — одно вложение, готовое лечь в рабочую папку: имя
+// (человеческое, как назвал автор) и сырые данные.
+type InputAttachment struct {
+	Name string
+	Data []byte
+}
+
+// writeAttachments кладёт вложения тикета в DirAttachments настоящими
+// файлами, а не текстом внутри Task: среди них бывают картинки и PDF,
+// которые агент читает своими инструментами, а не разбором markdown.
+//
+// Имя вложения — чужой ввод (человек так назвал файл, не раннер): путь
+// собирается через filepath.Base, а голые "." и ".." после него — тоже
+// не имя файла, а способ выйти из каталога (filepath.Join(dir, "..") —
+// это уже родитель dir), поэтому заменяются заглушкой, как и пустое имя.
+// Одинаковые после обрезки имена не перезаписывают друг друга — второму
+// и далее приписывается спереди счётчик.
+//
+// Каталог перезаписывается целиком: рабочая папка тикета переживает
+// попытки, а набор вложений между ними мог измениться, и вложение,
+// пропавшее у родителя, не должно продолжать лежать в чужой уже папке.
+func writeAttachments(agentDir string, attachments []InputAttachment) error {
+	dir := filepath.Join(agentDir, DirAttachments)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("прошлые вложения не убраны: %w", err)
+	}
+	if len(attachments) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("каталог вложений не создан: %w", err)
+	}
+
+	seen := map[string]int{}
+	for _, a := range attachments {
+		name := filepath.Base(a.Name)
+		if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+			name = "attachment"
+		}
+		seen[name]++
+		if n := seen[name]; n > 1 {
+			name = fmt.Sprintf("%d-%s", n, name)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), a.Data, 0o644); err != nil {
+			return fmt.Errorf("вложение %s не записано: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // PrepareInput готовит каталог обмена перед запуском агента: постановку задачи,
@@ -61,6 +116,10 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 	}
 	if err := os.WriteFile(filepath.Join(agentDir, FileContext), []byte(contextMD), 0o644); err != nil {
 		return fmt.Errorf("%s не записан: %w", filepath.Join(Dir, FileContext), err)
+	}
+
+	if err := writeAttachments(agentDir, in.Attachments); err != nil {
+		return err
 	}
 
 	passport, err := json.MarshalIndent(run, "", "  ")

@@ -27,13 +27,14 @@ var now = time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 type fakeJira struct {
 	t *testing.T
 
-	status     string
-	runID      string
-	owner      string
-	leaseUntil string
-	attempts   float64
-	labels     []string
-	comments   []map[string]any
+	status           string
+	runID            string
+	owner            string
+	leaseUntil       string
+	attempts         float64
+	labels           []string
+	comments         []map[string]any
+	issueAttachments []map[string]any
 
 	// verifyRunID подменяет run_id при перечитывании после захвата: так выглядит
 	// проигранная гонка, ради которой сверка и делается.
@@ -110,6 +111,13 @@ func (f *fakeJira) issue() map[string]any {
 		"customfield_10003": f.leaseUntil,
 		"customfield_10004": f.attempts,
 		"updated":           "2026-08-17T12:00:00.000+0000",
+	}
+	if f.issueAttachments != nil {
+		list := make([]any, len(f.issueAttachments))
+		for i, a := range f.issueAttachments {
+			list[i] = a
+		}
+		fields["attachment"] = list
 	}
 	return map[string]any{"key": "VO-1", "fields": fields}
 }
@@ -415,6 +423,26 @@ func TestGetMapsStatusToColumn(t *testing.T) {
 	}
 	if task.Project != "VO" || task.Summary == "" {
 		t.Errorf("поля задачи: %+v", task)
+	}
+}
+
+// TestGetMapsAttachments доказывает, что toTask больше не выбрасывает
+// fields["attachment"] молча — без этого поля агент никогда не узнал бы,
+// что к тикету что-то приложено (правка "видимость вложений").
+func TestGetMapsAttachments(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.issueAttachments = []map[string]any{
+		{"id": "10004", "filename": "schema.png"},
+		{"id": "10005", "filename": "spec.pdf"},
+	}
+
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	want := []tracker.AttachmentRef{{ID: "10004", Name: "schema.png"}, {ID: "10005", Name: "spec.pdf"}}
+	if !slices.Equal(task.Attachments, want) {
+		t.Errorf("вложения %+v, ожидались %+v", task.Attachments, want)
 	}
 }
 

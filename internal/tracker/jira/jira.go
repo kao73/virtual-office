@@ -873,6 +873,17 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 			task.Labels = append(task.Labels, name)
 		}
 	}
+	if attachments, ok := fields["attachment"].([]any); ok {
+		for _, raw := range attachments {
+			meta, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			task.Attachments = append(task.Attachments, tracker.AttachmentRef{
+				ID: text(meta["id"]), Name: text(meta["filename"]),
+			})
+		}
+	}
 	return task
 }
 

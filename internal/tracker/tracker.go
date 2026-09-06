@@ -85,6 +85,19 @@ type Task struct {
 	HumanFlag bool
 
 	Comments []Comment
+
+	// Attachments — вложения тикета, включая служебные (см. пакет runner,
+	// SplitAttachmentName) — их отсеивает вызывающий, не трекер: трекер
+	// не знает, что для раннера «своё», а что «человеческое».
+	Attachments []AttachmentRef
+}
+
+// AttachmentRef — вложение тикета без содержимого: то немногое, что нужно,
+// чтобы решить, скачивать ли его (GetAttachment), и как назвать файл
+// в рабочей папке агента.
+type AttachmentRef struct {
+	ID   string
+	Name string
 }
 
 // TaskRef — задача в списке: всё, кроме переписки.

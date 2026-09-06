@@ -712,6 +712,29 @@ func TestAddAttachmentThenGetAttachmentRoundTrips(t *testing.T) {
 	}
 }
 
+// TestAddAttachmentPreservesNameInGet доказывает, что Get() видит имя
+// вложения, а не только его номер — без сайдкара attachmentHead раньше
+// name у AddAttachment ни на что не влиял (см. правку "видимость вложений").
+func TestAddAttachmentPreservesNameInGet(t *testing.T) {
+	tr := fixture(t)
+
+	id, err := tr.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные"))
+	if err != nil {
+		t.Fatalf("вложение не сохранено: %v", err)
+	}
+
+	task, err := tr.Get("OFF-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if len(task.Attachments) != 1 {
+		t.Fatalf("вложений %d, ожидалось 1: %+v", len(task.Attachments), task.Attachments)
+	}
+	if got := task.Attachments[0]; got.ID != id || got.Name != "schema.png" {
+		t.Errorf("вложение %+v, ожидалось {ID:%s Name:schema.png}", got, id)
+	}
+}
+
 func TestGetAttachmentUnknownIDFails(t *testing.T) {
 	tr := fixture(t)
 	if _, err := tr.GetAttachment("OFF-1", "9999"); !errors.Is(err, tracker.ErrNotFound) {

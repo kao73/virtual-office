@@ -132,6 +132,152 @@ func TestEnsureChildrenAppendsParentDescription(t *testing.T) {
 	}
 }
 
+// TestCompleteSplitsCopiesParentAttachmentsToChildren доказывает, что
+// человеческие вложения родителя копируются на каждого созданного ребёнка —
+// та же дыра, что уже закрыли для текста описания (childDescription),
+// только для другого носителя.
+func TestCompleteSplitsCopiesParentAttachmentsToChildren(t *testing.T) {
+	o := newOffice(t)
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные схемы")); err != nil {
+		t.Fatalf("вложение не добавлено: %v", err)
+	}
+	confirmSplit(t, o)
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не прошёл: %v", err)
+	}
+
+	for _, key := range []string{"OFF-2", "OFF-3"} {
+		child, err := o.tasks.Get(key)
+		if err != nil {
+			t.Fatalf("%s не прочитан: %v", key, err)
+		}
+		found := false
+		for _, a := range child.Attachments {
+			if a.Name == "schema.png" {
+				found = true
+				data, err := o.tasks.GetAttachment(key, a.ID)
+				if err != nil {
+					t.Fatalf("%s: вложение не прочитано: %v", key, err)
+				}
+				if string(data) != "данные схемы" {
+					t.Errorf("%s: содержимое вложения %q, ожидалось %q", key, data, "данные схемы")
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: вложение родителя не унаследовано, вложения: %+v", key, child.Attachments)
+		}
+	}
+}
+
+// TestCompleteSplitsBackfillsAttachmentsOnAlreadyCreatedChild воспроизводит
+// ребёнка, созданного прошлым прерванным прогоном ДО того, как вложения
+// родителя успели скопироваться, — следующий проход обязан докатить
+// недостающее, а не решить, что раз ребёнок уже найден по метке, ему
+// больше ничего не нужно. У этого же ребёнка уже случайно есть вложение
+// с тем же именем — повторной заливки этого имени быть не должно.
+func TestCompleteSplitsBackfillsAttachmentsOnAlreadyCreatedChild(t *testing.T) {
+	o := newOffice(t)
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные схемы")); err != nil {
+		t.Fatalf("вложение родителя не добавлено: %v", err)
+	}
+	confirmSplit(t, o)
+
+	categoryRef, err := o.tasks.CreateTask("OFF", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Модель, миграция, CRUD категорий.",
+		Labels: []string{"split-child:OFF-1:category-crud"},
+	})
+	if err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if _, err := o.tasks.AddAttachment(categoryRef.Key, tracker.BySystem(), "schema.png", []byte("уже было")); err != nil {
+		t.Fatalf("предварительное вложение не добавлено: %v", err)
+	}
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не прошёл: %v", err)
+	}
+
+	category, err := o.tasks.Get(categoryRef.Key)
+	if err != nil {
+		t.Fatalf("категория не прочитана: %v", err)
+	}
+	count := 0
+	for _, a := range category.Attachments {
+		if a.Name == "schema.png" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("вложений schema.png у уже существовавшего ребёнка %d, ожидалось 1 (не задвоено)", count)
+	}
+	data, err := o.tasks.GetAttachment(categoryRef.Key, category.Attachments[0].ID)
+	if err != nil {
+		t.Fatalf("вложение не прочитано: %v", err)
+	}
+	if string(data) != "уже было" {
+		t.Errorf("существующее вложение перезаписано: %q", data)
+	}
+
+	transaction, err := o.tasks.FindByMarker("OFF", splitChildMarker("OFF-1", "transaction-crud"))
+	if err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+	if len(transaction) != 1 {
+		t.Fatalf("операции не досозданы или задвоены: %+v", transaction)
+	}
+	linked, err := o.tasks.Get(transaction[0].Key)
+	if err != nil {
+		t.Fatalf("операции не прочитаны: %v", err)
+	}
+	found := false
+	for _, a := range linked.Attachments {
+		if a.Name == "schema.png" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("вложение не докатилось на второго, только что созданного ребёнка: %+v", linked.Attachments)
+	}
+}
+
+// TestCompleteSplitsDoesNotInheritSplitJSON доказывает, что служебное
+// вложение с предложением разбивки (split.json), которое confirmSplit
+// уже оставляет на родителе как часть обычного цикла подтверждения, не
+// копируется детям — в отличие от человеческих вложений.
+func TestCompleteSplitsDoesNotInheritSplitJSON(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	parent := o.get(t, "OFF-1")
+	hasSplitJSON := false
+	for _, a := range parent.Attachments {
+		if a.Name == runner.SplitAttachmentName {
+			hasSplitJSON = true
+		}
+	}
+	if !hasSplitJSON {
+		t.Fatal("подготовка теста не удалась: у родителя нет split.json")
+	}
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не прошёл: %v", err)
+	}
+
+	for _, key := range []string{"OFF-2", "OFF-3"} {
+		child, err := o.tasks.Get(key)
+		if err != nil {
+			t.Fatalf("%s не прочитан: %v", key, err)
+		}
+		for _, a := range child.Attachments {
+			if a.Name == runner.SplitAttachmentName {
+				t.Errorf("%s унаследовал служебное вложение split.json", key)
+			}
+		}
+	}
+}
+
 func TestCompleteSplitsSkipsUnconfirmed(t *testing.T) {
 	o := newOffice(t)
 	if err := o.tasks.Move("OFF-1", "Analysis"); err != nil {

@@ -418,11 +418,16 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		RunID: runID, Role: roleName, ConfigSHA: o.ConfigSHA,
 		StartedAt: o.now(), TaskKey: task.Key, BaseCommit: base,
 	}
+	attachments, err := o.fetchAttachments(task)
+	if err != nil {
+		return err
+	}
 	input := runner.Input{
-		Task:       taskBody(task),
-		Branch:     ws.Branch,
-		BaseBranch: "origin/" + c.project.DefaultBranch,
-		Context:    contextBody(task, roleName, o.Accounts, o.Workflow.Limits.MaxAttempts),
+		Task:        taskBody(task),
+		Branch:      ws.Branch,
+		BaseBranch:  "origin/" + c.project.DefaultBranch,
+		Context:     contextBody(task, roleName, o.Accounts, o.Workflow.Limits.MaxAttempts),
+		Attachments: attachments,
 	}
 	if err := runner.PrepareInput(ws.Dir, role, passport, input); err != nil {
 		return err
@@ -741,7 +746,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 		if err != nil {
 			return "", fmt.Errorf("вложение с разбивкой не собрано: %w", err)
 		}
-		attachmentID, err = o.Tracker.AddAttachment(task.Key, by, "split.json", data)
+		attachmentID, err = o.Tracker.AddAttachment(task.Key, by, runner.SplitAttachmentName, data)
 		if err != nil {
 			return "", fmt.Errorf("вложение с разбивкой не сохранено: %w", err)
 		}
@@ -1194,6 +1199,41 @@ func (o *Office) logf(format string, args ...any) {
 	fmt.Fprintf(out, format+"\n", args...)
 }
 
+// humanAttachments — вложения тикета без служебных (runner.SplitAttachmentName
+// и подобных): то, что агенту стоит увидеть, а не переписка раннера с самим
+// собой. Один фильтр на упоминание в task.md (taskBody), материализацию
+// в рабочую папку (work()) и наследование split-детьми (splits.go,
+// ensureChildAttachments) — иначе список «что видит агент» разъехался бы
+// по трём местам.
+func humanAttachments(task tracker.Task) []tracker.AttachmentRef {
+	out := make([]tracker.AttachmentRef, 0, len(task.Attachments))
+	for _, a := range task.Attachments {
+		if a.Name == runner.SplitAttachmentName {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// fetchAttachments скачивает человеческие (не служебные, см. humanAttachments)
+// вложения тикета — то, что PrepareInput положит агенту в рабочую папку.
+func (o *Office) fetchAttachments(task tracker.Task) ([]runner.InputAttachment, error) {
+	refs := humanAttachments(task)
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	out := make([]runner.InputAttachment, len(refs))
+	for i, ref := range refs {
+		data, err := o.Tracker.GetAttachment(task.Key, ref.ID)
+		if err != nil {
+			return nil, fmt.Errorf("вложение %s/%s не скачано: %w", task.Key, ref.Name, err)
+		}
+		out[i] = runner.InputAttachment{Name: ref.Name, Data: data}
+	}
+	return out, nil
+}
+
 // taskBody — постановка задачи для агента. Всё, что знает трекер, и ничего
 // про аренду и попытки: это хозяйство раннера, а не работа.
 func taskBody(task tracker.Task) string {
@@ -1204,6 +1244,14 @@ func taskBody(task tracker.Task) string {
 	}
 	if len(task.Labels) > 0 {
 		fmt.Fprintf(&b, "\nМетки: %s\n", strings.Join(task.Labels, ", "))
+	}
+	if attachments := humanAttachments(task); len(attachments) > 0 {
+		names := make([]string, len(attachments))
+		for i, a := range attachments {
+			names[i] = a.Name
+		}
+		fmt.Fprintf(&b, "\nВложения (файлы лежат в %s/%s/): %s\n",
+			runner.Dir, runner.DirAttachments, strings.Join(names, ", "))
 	}
 	return b.String()
 }
