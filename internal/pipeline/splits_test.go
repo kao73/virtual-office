@@ -305,6 +305,41 @@ func TestCompleteSplitsRecordsFailureNoticeAndContinues(t *testing.T) {
 	}
 }
 
+// TestSplitFailedDoesNotSpamRepeatedNotices воспроизводит тикет, застрявший
+// в Blocked с постоянно падающим CreateTask: Loop зовёт CompleteSplits
+// каждый цикл (по умолчанию раз в две минуты), и без дедупликации
+// одинаковая запись о сбое копилась бы в переписке без конца.
+func TestSplitFailedDoesNotSpamRepeatedNotices(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+	o.useTracker(&flakyCreate{Tracker: o.tasks, failOn: "Category CRUD"})
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("первый проход не должен падать: %v", err)
+	}
+	first := o.get(t, "OFF-1")
+	firstCount := len(first.Comments)
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("второй проход не должен падать: %v", err)
+	}
+	second := o.get(t, "OFF-1")
+	if len(second.Comments) != firstCount {
+		t.Errorf("после второго прохода комментариев %d, было %d: повторная запись о сбое "+
+			"не должна дублироваться", len(second.Comments), firstCount)
+	}
+
+	failures := 0
+	for _, c := range second.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Event == tracker.EventSplitCreateFailed {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Errorf("записей о сбое %d, ожидалась ровно одна", failures)
+	}
+}
+
 // flakyClose роняет Transition для ключа задачи-родителя: так выглядит сбой
 // самого последнего шага completeSplit — закрытия родителя в
 // closeSplitParent, — уже после того как дети созданы, связаны и отчёт

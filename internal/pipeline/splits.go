@@ -197,7 +197,20 @@ func (o *Office) closeSplitParent(task tracker.Task, keys []string) error {
 // тратить attempts или звать человека здесь не за что (тот же довод, что
 // у Archive/открытия PR). Следующий цикл Loop (или ручной
 // runner complete-splits) попробует снова.
+//
+// Запись — только первая: Loop зовёт CompleteSplits каждый цикл (по
+// умолчанию раз в две минуты), а застрявший тикет остаётся в Blocked
+// и подбирается им снова и снова. Без дедупликации, тем же приёмом,
+// что и у warnRunCost, одинаковая запись копилась бы в переписке без
+// конца, пока человек не вмешается. Design.md decision #7 (без счётчика
+// попыток и эскалации) этим не затрагивается — считается не число сбоев,
+// а сам факт «уже сказано».
 func (o *Office) splitFailed(task tracker.Task, text string) error {
+	if tracker.HasEvent(task.Comments, tracker.EventSplitCreateFailed) {
+		o.logf("%s: %s (уже сообщено, повторно не пишу)", task.Key, text)
+		return nil
+	}
+
 	runID, err := runner.NewRunID()
 	if err != nil {
 		return err
