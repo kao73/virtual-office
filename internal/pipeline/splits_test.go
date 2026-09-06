@@ -70,6 +70,13 @@ func TestCompleteSplitsCreatesAndLinksChildren(t *testing.T) {
 	if parent.Status != o.Workflow.PR.Merged {
 		t.Errorf("статус родителя %q, ожидался %q", parent.Status, o.Workflow.PR.Merged)
 	}
+	// finish() поднял HumanFlag, отправляя подтверждённый split в Blocked
+	// (workflow.yaml: split → {to: Blocked, human: true}). closeSplitParent
+	// обязан его снять — иначе закрытый тикет остаётся с меткой «ждёт
+	// человека» на живой доске, хотя ждать уже нечего.
+	if parent.HumanFlag {
+		t.Error("HumanFlag не снят при закрытии родителя")
+	}
 
 	category, err := o.tasks.Get("OFF-2")
 	if err != nil {
@@ -168,6 +175,70 @@ func TestCompleteSplitsResumesInterruptedBatch(t *testing.T) {
 	parent := o.get(t, "OFF-1")
 	if parent.Status != o.Workflow.PR.Merged {
 		t.Errorf("статус родителя %q, ожидался %q", parent.Status, o.Workflow.PR.Merged)
+	}
+}
+
+// duplicateFind добавляет к настоящему результату FindByMarker ещё одну,
+// заведомо постороннюю задачу по той же метке: имитирует коллизию — то,
+// что по одной метке нашлось больше одной задачи, — которую ensureChildren
+// не должен проглатывать молча.
+type duplicateFind struct {
+	*mock.Tracker
+	marker string
+	extra  tracker.TaskRef
+}
+
+func (f *duplicateFind) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
+	found, err := f.Tracker.FindByMarker(project, marker)
+	if err != nil || marker != f.marker {
+		return found, err
+	}
+	return append(found, f.extra), nil
+}
+
+// TestEnsureChildrenLogsWhenMarkerMatchesMultiple доказывает, что коллизия
+// по метке — по одной метке нашлось больше одной задачи — попадает в лог,
+// а не проглатывается молча. Поведение при этом не меняется: берётся
+// по-прежнему первый найденный.
+func TestEnsureChildrenLogsWhenMarkerMatchesMultiple(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	marker := splitChildMarker("OFF-1", "category-crud")
+	if _, err := o.tasks.CreateTask("OFF", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Модель, миграция, CRUD категорий.",
+		Labels: []string{marker},
+	}); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+
+	var log strings.Builder
+	o.Office.Log = &log
+	o.useTracker(&duplicateFind{Tracker: o.tasks, marker: marker, extra: tracker.TaskRef{Key: "OFF-99", Project: "OFF"}})
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не должен падать: %v", err)
+	}
+
+	if !strings.Contains(log.String(), marker) {
+		t.Errorf("коллизия по метке не залогирована:\n%s", log.String())
+	}
+
+	// Поведение не изменилось: связь ушла на настоящего первого найденного
+	// (созданную выше "Category CRUD"), а не на постороннего OFF-99.
+	transaction, err := o.tasks.FindByMarker("OFF", splitChildMarker("OFF-1", "transaction-crud"))
+	if err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+	if len(transaction) != 1 {
+		t.Fatalf("операции не найдены или задвоены: %+v", transaction)
+	}
+	linked, err := o.tasks.Get(transaction[0].Key)
+	if err != nil {
+		t.Fatalf("операции не прочитаны: %v", err)
+	}
+	if slices.Contains(linked.DependsOn, "OFF-99") || !slices.Contains(linked.DependsOn, "OFF-2") {
+		t.Errorf("зависимость ушла не на того: %v, ожидался OFF-2, не OFF-99", linked.DependsOn)
 	}
 }
 

@@ -123,6 +123,14 @@ func (o *Office) ensureChildren(task tracker.Task, children []runner.SplitChild)
 		if err != nil {
 			return nil, err
 		}
+		if len(found) > 1 {
+			// Не должно случаться на одной метке (FindByMarker ищет по
+			// уникальной паре родитель+id), но раз найдено — берём первого
+			// и говорим об этом вслух: тихо взятый первый прятал бы
+			// коллизию, которую стоит увидеть человеку, а не гадать о ней.
+			o.logf("%s: по метке %q найдено %d задач вместо одной, беру первую (%s)",
+				task.Key, marker, len(found), found[0].Key)
+		}
 		if len(found) > 0 {
 			keys[child.ID] = found[0].Key
 			continue
@@ -171,6 +179,15 @@ func (o *Office) closeSplitParent(task tracker.Task, keys []string) error {
 		return err
 	}
 	o.logf("%s: разбита на %s, уходит в %s", task.Key, strings.Join(keys, ", "), to)
+	// finish() поднял HumanFlag, отправляя подтверждённый split в Blocked
+	// (workflow.yaml). Снять его надо здесь же, как unblock() снимает его
+	// перед своим move: иначе закрытый тикет остаётся с меткой «ждёт
+	// человека» на живой доске, хотя ждать уже нечего — HumanReplies его
+	// больше не подберёт (задача не в human-статусе), но метка вводит в
+	// заблуждение того, кто смотрит на доску глазами.
+	if err := o.Tracker.SetHumanFlag(task.Key, by, false); err != nil {
+		return err
+	}
 	return o.move(task, by, to)
 }
 
