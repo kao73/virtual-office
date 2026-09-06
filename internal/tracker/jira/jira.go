@@ -583,7 +583,18 @@ func (t *Tracker) upload(path, filename string, data []byte) ([]byte, error) {
 
 // download читает вложение по прямой ссылке из ответа GET /attachment/{id}:
 // она не под /rest/api/2 и не отдаёт JSON, поэтому не годится t.call.
+//
+// Ссылку называет сам сервер, и доверять ей безоговорочно нельзя: если он
+// когда-нибудь отдаст адрес внешнего хранилища (S3 и подобное) вместо себя
+// самого, безусловный SetBasicAuth ниже отправил бы туда креды инстанса.
+// Редирект с другого хоста Go сам обрежет Authorization начиная с 1.8 —
+// это защита от прямо названного чужого адреса, не от редиректа.
 func (t *Tracker) download(url string) ([]byte, error) {
+	if !strings.HasPrefix(url, t.cfg.BaseURL) {
+		return nil, fmt.Errorf("вложение по ссылке %s: сервер назвал адрес не своего инстанса (%s), запрос не отправлен",
+			url, t.cfg.BaseURL)
+	}
+
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("запрос вложения не собран: %w", err)

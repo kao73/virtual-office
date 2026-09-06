@@ -69,6 +69,11 @@ type fakeJira struct {
 	baseURL     string
 	attachments []fakeAttachment
 
+	// contentHost — если задан, метаданные вложения называют content по этому
+	// адресу вместо baseURL: так подделывается сервер, отдающий ссылку на чужой
+	// хост (S3 и подобное) вместо себя самого.
+	contentHost string
+
 	// issueLinks — тела POST /issueLink, принятые сервером, в порядке прихода.
 	issueLinks []map[string]any
 }
@@ -281,9 +286,13 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/2/attachment/"):
 		id := strings.TrimPrefix(r.URL.Path, "/rest/api/2/attachment/")
+		host := f.baseURL
+		if f.contentHost != "" {
+			host = f.contentHost
+		}
 		for _, a := range f.attachments {
 			if a.id == id {
-				write(map[string]any{"id": id, "content": f.baseURL + "/secure/attachment/" + id})
+				write(map[string]any{"id": id, "content": host + "/secure/attachment/" + id})
 				return
 			}
 		}
@@ -1204,6 +1213,41 @@ func TestGetAttachmentDownloadsContent(t *testing.T) {
 	}
 	if !bytes.Equal(got, data) {
 		t.Errorf("вложение %q, ожидалось %q", got, data)
+	}
+}
+
+// GetAttachment не должен слать базовую авторизацию инстанса на URL, который
+// сервер назвал в content, но который не начинается с адреса самого инстанса.
+// Сегодня content всегда свой (проверено выше), но если сервер когда-нибудь
+// отдаст ссылку на внешнее хранилище (S3 и подобное), креды офиса туда
+// утекать не должны.
+func TestGetAttachmentDoesNotLeakCredentialsToForeignHost(t *testing.T) {
+	tr, fake := fixture(t)
+
+	var hit, gotAuth bool
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		if _, _, ok := r.BasicAuth(); ok {
+			gotAuth = true
+		}
+		w.Write([]byte("нельзя"))
+	}))
+	defer evil.Close()
+
+	id, err := tr.AddAttachment("VO-1", tracker.BySystem(), "split.json", []byte(`{"children":[]}`))
+	if err != nil {
+		t.Fatalf("вложение не отправлено: %v", err)
+	}
+	fake.contentHost = evil.URL
+
+	if _, err := tr.GetAttachment("VO-1", id); err == nil {
+		t.Error("ссылка на чужой хост должна быть отвергнута, а не прочитана молча")
+	}
+	if hit {
+		t.Error("запрос ушёл на чужой хост вовсе — а не должен был уйти")
+	}
+	if gotAuth {
+		t.Error("креды инстанса ушли на чужой хост")
 	}
 }
 
