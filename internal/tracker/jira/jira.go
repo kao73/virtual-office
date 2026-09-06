@@ -17,6 +17,7 @@ import (
 	"maps"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -157,6 +158,9 @@ type Tracker struct {
 	user   string
 	secret string
 	graph  map[string]string // имя статуса в JIRA → статус графа
+	// baseURL — cfg.BaseURL, разобранный один раз при открытии: download()
+	// сверяет по нему scheme+host у ссылок, которые называет сам сервер.
+	baseURL *url.URL
 
 	// Now — часы раннера. Аренду сверяем ими, а не серверными: сервер считает
 	// now() в своей зоне, и полагаться на совпадение не стоит.
@@ -173,6 +177,10 @@ func Open(cfg Config) (*Tracker, error) { return OpenAs(cfg, "") }
 func OpenAs(cfg Config, role string) (*Tracker, error) {
 	if cfg.BaseURL == "" {
 		return nil, errors.New("base_url не задан")
+	}
+	base, err := url.Parse(cfg.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("base_url не разобран: %w", err)
 	}
 	// Режим один, и это не упущение. Персональные токены появились в Jira Server
 	// с 8.14, а целевая версия — 8.13: проверить их не на чем, а необъявленное
@@ -199,12 +207,13 @@ func OpenAs(cfg Config, role string) (*Tracker, error) {
 	}
 
 	return &Tracker{
-		cfg:    cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
-		user:   os.Getenv(account.UserEnv),
-		secret: secret,
-		graph:  graph,
-		Now:    time.Now,
+		cfg:     cfg,
+		client:  &http.Client{Timeout: 30 * time.Second},
+		user:    os.Getenv(account.UserEnv),
+		secret:  secret,
+		graph:   graph,
+		baseURL: base,
+		Now:     time.Now,
 	}, nil
 }
 
@@ -515,10 +524,16 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 	var created struct {
 		Key string `json:"key"`
 	}
+	description := wiki(input.Description)
+	if input.DescriptionAppend != "" {
+		// Без wiki(): DescriptionAppend уже в чужой разметке (см. доккомент
+		// TaskInput.DescriptionAppend), повторный прогон исказил бы её.
+		description += "\n\n" + input.DescriptionAppend
+	}
 	fields := map[string]any{
 		"project":     map[string]any{"key": project},
 		"summary":     input.Summary,
-		"description": wiki(input.Description),
+		"description": description,
 		"issuetype":   map[string]any{"name": t.issueType()},
 	}
 	if len(input.Labels) > 0 {
@@ -589,13 +604,23 @@ func (t *Tracker) upload(path, filename string, data []byte) ([]byte, error) {
 // самого, безусловный SetBasicAuth ниже отправил бы туда креды инстанса.
 // Редирект с другого хоста Go сам обрежет Authorization начиная с 1.8 —
 // это защита от прямо названного чужого адреса, не от редиректа.
-func (t *Tracker) download(url string) ([]byte, error) {
-	if !strings.HasPrefix(url, t.cfg.BaseURL) {
+//
+// Сравнение — по разобранным scheme+host, не по префиксу строки: голый
+// strings.HasPrefix пропустил бы "<BaseURL>@чужой-хост/…" (до "@" — не хост,
+// а userinfo) или "<BaseURL>.чужой-хост/…" (другой домен с тем же началом) —
+// в обоих случаях итоговый хост запроса не совпадает с инстансом, хотя
+// строка с ним совпадает.
+func (t *Tracker) download(dl string) ([]byte, error) {
+	u, err := url.Parse(dl)
+	if err != nil {
+		return nil, fmt.Errorf("вложение по ссылке %s: не разобрано: %w", dl, err)
+	}
+	if u.Scheme != t.baseURL.Scheme || u.Host != t.baseURL.Host {
 		return nil, fmt.Errorf("вложение по ссылке %s: сервер назвал адрес не своего инстанса (%s), запрос не отправлен",
-			url, t.cfg.BaseURL)
+			dl, t.cfg.BaseURL)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, dl, nil)
 	if err != nil {
 		return nil, fmt.Errorf("запрос вложения не собран: %w", err)
 	}
@@ -604,7 +629,7 @@ func (t *Tracker) download(url string) ([]byte, error) {
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", url, err)
+		return nil, fmt.Errorf("GET %s: %w", dl, err)
 	}
 	defer resp.Body.Close()
 
@@ -613,7 +638,7 @@ func (t *Tracker) download(url string) ([]byte, error) {
 		return nil, fmt.Errorf("вложение не прочитано: %w", err)
 	}
 	if resp.StatusCode >= 300 {
-		return nil, statusError(http.MethodGet, url, resp.StatusCode, raw)
+		return nil, statusError(http.MethodGet, dl, resp.StatusCode, raw)
 	}
 	return raw, nil
 }
@@ -670,6 +695,13 @@ func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
 // его смысл на реальном сервере) и не была поймана живой проверкой Task 8,
 // которая тоже сверяла только факт создания связи, не её видимое
 // направление на обеих карточках.
+//
+// Не идемпотентна на стороне клиента (в отличие от mock.LinkDependsOn,
+// которая проверяет slices.Contains перед записью) — повтор после сбоя
+// (completeSplit ретраит весь путь целиком) полагается на то, что сам
+// JIRA Server дедуплицирует одинаковый POST /issueLink; проверено
+// эмпирически на паре одноразовых тикетов (docs/notes/analyst-task-
+// splitting.md), не гарантировано контрактом REST API.
 func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
 	if t.cfg.DependsOnLink == "" {
 		return fmt.Errorf("depends_on_link не задан в tracker.yaml: связь %s → %s не создана", key, dependsOnKey)

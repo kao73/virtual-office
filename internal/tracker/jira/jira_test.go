@@ -1177,6 +1177,33 @@ func TestCreateTaskPostsIssueAndReturnsRef(t *testing.T) {
 	}
 }
 
+// TestCreateTaskDoesNotReconvertDescriptionAppend доказывает, что
+// DescriptionAppend едет в description как есть, а не через wiki(): текст
+// в нём читан из другой задачи и уже в её собственной разметке. Если бы
+// он полз через общий конвертер вместе с Description, wiki-ссылка
+// "[текст|https://example.com]" (легальная, но не markdown-форма)
+// экранировалась бы escapeBrackets так же, как случайная квадратная
+// скобка в прозе, — и превращалась в нечитаемый текст на JIRA.
+func TestCreateTaskDoesNotReconvertDescriptionAppend(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.nextKey = "VO-2"
+
+	const wikiLink = "[инстанс|https://jira.corp.com]"
+	if _, err := tr.CreateTask("VO", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Новый текст ребёнка.",
+		DescriptionAppend: "## Исходная постановка\n\n" + wikiLink,
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	if len(fake.created) != 1 {
+		t.Fatalf("создание не отправлено: %+v", fake.created)
+	}
+	desc, _ := fake.created[0].fields["description"].(string)
+	if !strings.Contains(desc, wikiLink) {
+		t.Errorf("DescriptionAppend изменён конвертером, ожидалась дословная подстрока %q в %q", wikiLink, desc)
+	}
+}
+
 // FindByMarker ищет тем же JQL-поиском, что ListReady/List, но фильтрует
 // по метке, а не по статусу.
 func TestFindByMarkerSearchesByLabel(t *testing.T) {
@@ -1276,6 +1303,43 @@ func TestGetAttachmentDoesNotLeakCredentialsToForeignHost(t *testing.T) {
 	}
 	if gotAuth {
 		t.Error("креды инстанса ушли на чужой хост")
+	}
+}
+
+// TestGetAttachmentDoesNotLeakCredentialsViaUserinfoBypass — та же угроза,
+// что и TestGetAttachmentDoesNotLeakCredentialsToForeignHost, но обходом
+// через userinfo: strings.HasPrefix(url, BaseURL) считает совпадением
+// строку "<BaseURL>@<чужой-хост>/…" — она и правда начинается с BaseURL
+// как текст, но при разборе URL всё до "@" читается как userinfo, а
+// настоящий хост — то, что после. Раздельный host/scheme нужен именно
+// затем, чтобы отличать это от него.
+func TestGetAttachmentDoesNotLeakCredentialsViaUserinfoBypass(t *testing.T) {
+	tr, fake := fixture(t)
+
+	var hit, gotAuth bool
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		if _, _, ok := r.BasicAuth(); ok {
+			gotAuth = true
+		}
+		w.Write([]byte("нельзя"))
+	}))
+	defer evil.Close()
+
+	id, err := tr.AddAttachment("VO-1", tracker.BySystem(), "split.json", []byte(`{"children":[]}`))
+	if err != nil {
+		t.Fatalf("вложение не отправлено: %v", err)
+	}
+	fake.contentHost = fake.baseURL + "@" + strings.TrimPrefix(evil.URL, "http://")
+
+	if _, err := tr.GetAttachment("VO-1", id); err == nil {
+		t.Error("ссылка с userinfo-обходом должна быть отвергнута, а не прочитана молча")
+	}
+	if hit {
+		t.Error("запрос ушёл на чужой хост вовсе — а не должен был уйти")
+	}
+	if gotAuth {
+		t.Error("креды инстанса ушли на чужой хост через userinfo-обход")
 	}
 }
 

@@ -426,8 +426,12 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 		return tracker.TaskRef{}, fmt.Errorf("каталог вложений %s не создан: %w", key, err)
 	}
 
+	description := input.Description
+	if input.DescriptionAppend != "" {
+		description += "\n\n" + input.DescriptionAppend
+	}
 	task := tracker.Task{
-		Key: key, Project: project, Summary: input.Summary, Description: input.Description,
+		Key: key, Project: project, Summary: input.Summary, Description: description,
 		Status: createdStatus, Labels: input.Labels,
 	}
 	if err := writeTask(dir, task); err != nil {
@@ -464,8 +468,18 @@ type attachmentHead struct {
 // attachmentFiles — файлы данных в каталоге вложений, без их .yaml-шапок:
 // тот же приём, что commentFiles применяет к .md, только фильтр в другую
 // сторону (данные — без суффикса, шапка — с ним).
+//
+// Отсутствующий каталог — не беда, а задача старше этой правки (Add начал
+// создавать attachments/ только здесь) или заведённая руками по прежде
+// документированному слою хранилища ("правится руками", пакетный доккомент):
+// тем же допуском, что Keys() уже применяет к отсутствующему корню хранилища.
+// Без него одна такая задача валила бы Get(), а через неё — list() целиком,
+// не только чтение этой задачи.
 func attachmentFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("вложения не прочитаны: %w", err)
 	}
@@ -497,6 +511,12 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 	existing, err := attachmentFiles(dir)
 	if err != nil {
 		return "", fmt.Errorf("вложения %s не прочитаны: %w", key, err)
+	}
+	// Задача старше этой правки (или заведённая руками) могла не получить
+	// attachments/ при создании — attachmentFiles уже терпит его отсутствие
+	// при чтении, здесь досоздаём перед первой записью в неё же.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("каталог вложений %s не создан: %w", key, err)
 	}
 
 	f, id, err := nextExclusive(dir, len(existing), "")

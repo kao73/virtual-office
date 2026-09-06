@@ -73,6 +73,13 @@ type Task struct {
 	// DependsOn — ключи задач, от которых зависит эта (LinkDependsOn).
 	// Пишется этой волной, не читается никаким кодом Change 1 — гейт
 	// очерёдности по этому полю добавит Change 2.
+	//
+	// Get() гарантированно отражает связь, записанную LinkDependsOn, не на
+	// всех реализациях: mock — да (хранит и читает то же поле), jira — нет
+	// (LinkDependsOn там только шлёт POST /issueLink, toTask не разбирает
+	// issuelinks обратно). Сейчас безвредно — поле никто не читает, но
+	// Change 2 обязан спроектировать гейт с учётом этой асимметрии, а не
+	// понадеяться на неё молча.
 	DependsOn []string
 
 	// Поля аренды. Owner — человекочитаемый владелец (имя роли), RunID — то,
@@ -151,7 +158,14 @@ func (t TaskRef) LeaseAlive(now time.Time) bool {
 type TaskInput struct {
 	Summary     string
 	Description string
-	Labels      []string
+	// DescriptionAppend — текст, дописываемый к Description без прогона
+	// через разметку трекера. Description — новая проза, ей конвертация
+	// нужна (markdown → wiki на JIRA); DescriptionAppend — текст, уже
+	// читанный из трекера (Task.Description другой задачи), а значит уже
+	// в его собственной разметке: повторная конвертация исказила бы её
+	// (ссылки/упоминания/списки на JIRA), а не просто ничего не сделала бы.
+	DescriptionAppend string
+	Labels            []string
 }
 
 // Actor — от чьего имени идёт мутация. Видов ровно два, и они противоположны
@@ -318,6 +332,9 @@ type Tracker interface {
 	// зависимостью (dependsOnKey). by обычно BySystem() — тем же приёмом,
 	// что reap и разбор ответа человека используют для мутаций вне аренды
 	// какой-либо роли.
+	//
+	// Не гарантирует, что последующий Get(key).DependsOn увидит эту связь
+	// на всех реализациях — см. доккомент Task.DependsOn.
 	LinkDependsOn(key, dependsOnKey string, by Actor) error
 }
 

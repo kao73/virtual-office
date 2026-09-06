@@ -735,6 +735,40 @@ func TestAddAttachmentPreservesNameInGet(t *testing.T) {
 	}
 }
 
+// TestGetToleratesTaskDirectoryWithoutAttachmentsSubdir воспроизводит задачу
+// старше этой правки (Add начал создавать attachments/ только здесь) или
+// заведённую руками по прежде документированному слою хранилища — оба
+// случая легальны согласно самому пакетному доккомменту ("правится руками").
+// Get() не должен валиться на отсутствии подкаталога, а list() — тем более:
+// одна такая задача иначе валила бы ListReady/List/FindByMarker для всего
+// проекта, а не только чтение этой задачи.
+func TestGetToleratesTaskDirectoryWithoutAttachmentsSubdir(t *testing.T) {
+	tr := fixture(t)
+	if err := os.RemoveAll(filepath.Join(tr.root, "OFF-1", attachmentsDir)); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+
+	task, err := tr.Get("OFF-1")
+	if err != nil {
+		t.Fatalf("Get не должен падать на отсутствии attachments/: %v", err)
+	}
+	if len(task.Attachments) != 0 {
+		t.Errorf("вложений %d, ожидалось 0", len(task.Attachments))
+	}
+
+	refs, err := tr.ListReady("OFF", "Ready")
+	if err != nil {
+		t.Fatalf("ListReady не должен падать на одной задаче без attachments/: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Key != "OFF-1" {
+		t.Errorf("ListReady вернул %+v, ожидалась одна OFF-1", refs)
+	}
+
+	if _, err := tr.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные")); err != nil {
+		t.Fatalf("AddAttachment не должен падать на отсутствии attachments/, обязан досоздать каталог: %v", err)
+	}
+}
+
 func TestGetAttachmentUnknownIDFails(t *testing.T) {
 	tr := fixture(t)
 	if _, err := tr.GetAttachment("OFF-1", "9999"); !errors.Is(err, tracker.ErrNotFound) {
