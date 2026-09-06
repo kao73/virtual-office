@@ -38,6 +38,11 @@
 | `Comment(key, actor, body)` | написать комментарий по протоколу |
 | `SetHumanFlag(key, actor, on)` | атрибут «ждёт человека» |
 | `SetAttempts(key, actor, n)` | счётчик попыток |
+| `CreateTask(project, input TaskInput) → TaskRef` | завести новую задачу; без `actor` — создавать нечего «владеть», как у `Add` в `mock` |
+| `FindByMarker(project, marker) → []TaskRef` | задачи проекта с данной меткой — источник идемпотентности пакетного создания (`CompleteSplits` опрашивает трекер, а не хранимую запись) |
+| `AddAttachment(key, actor, name, data) → id` | сохранить сырые данные вложением к уже захваченной задаче; `actor` и правило владения — как у `Comment` |
+| `GetAttachment(key, id) → []byte` | прочитать вложение обратно; без `actor` — как `Get`, чтение не требует владения |
+| `LinkDependsOn(key, depends_on_key, actor)` | связать только что созданную задачу с её зависимостью; `actor` обычно `BySystem()` |
 
 Комментарии `Get` отдаёт целиком: резать их по маркеру — дело раннера, и правило нарезки
 одно на все реализации.
@@ -208,13 +213,19 @@ reap вернул задачу в `Ready`; зависший прогон всё-
 
 ## Задача
 
-`Task`: `key`, `project`, `summary`, `description`, `status`, `labels`, поля аренды
-(`owner`, `run_id`, `lease_until`), `attempts`, `human_flag`, `comments`.
+`Task`: `key`, `project`, `summary`, `description`, `status`, `labels`, `depends_on`
+(ключи задач, от которых зависит эта — пишет `LinkDependsOn`, а читает будущий гейт
+очерёдности, не код этой волны), поля аренды (`owner`, `run_id`, `lease_until`),
+`attempts`, `human_flag`, `comments`.
 
 `Comment`: `id`, `author`, `created`, `body`.
 
 `TaskRef` — то, чего хватает для выбора одной задачи из списка: `key`, `project`, `status`,
 `attempts`. Тянуть каждого кандидата целиком незачем.
+
+`TaskInput` — данные для `CreateTask`: `summary`, `description`, `labels`. Отдельный тип,
+а не `Task` целиком: у только что заводимой задачи нет ни ключа, ни аренды, ни статуса —
+их назначает сама реализация.
 
 ## Кто человек
 
@@ -241,8 +252,8 @@ reap вернул задачу в `Ready`; зависший прогон всё-
 
 Первая строка любой записи офиса — маркер. Дальше проза для человека.
 
-    [office run:<run_id8> role:<role> outcome:<outcome> next:<owner> config:<sha8>]   отчёт прогона
-    [office run:<run_id8> role:<role> event:<event> config:<sha8>]                    запись раннера
+    [office run:<run_id8> role:<role> outcome:<outcome> next:<owner> attachment:<id> config:<sha8>]   отчёт прогона
+    [office run:<run_id8> role:<role> event:<event> config:<sha8>]                                     запись раннера
 
 - `run` — первые восемь символов `run_id`; по ним прогон находится в архиве
   (`${OFFICE_HOME}/runs/`). Полный идентификатор из маркера не восстановить, и не нужно;
@@ -254,6 +265,11 @@ reap вернул задачу в `Ready`; зависший прогон всё-
   и совпадают они только там, где у исхода есть `by_next_owner`. Без этого ключа
   «вернул на доработку» и «одобрил» в переписке неразличимы, а круги «правки → ревью»
   считать нечем;
+- `attachment` — id вложения с сырыми данными исхода (сегодня только
+  `split.children[]`, `AddAttachment`/`GetAttachment`): второй раунд подтверждения
+  split (`tracker.SplitConfirmed`) читает его, не переразбирая человекочитаемый
+  текст комментария. Необязателен и бывает только у отчёта, как и `next` — у
+  системной записи вложения не бывает;
 - `event` — событие, о котором рассказывает не агент, а обвязка:
 
   | `event` | Когда | Кто подписывает |
@@ -276,6 +292,8 @@ reap вернул задачу в `Ready`; зависший прогон всё-
   | `budget-exceeded` | задача перевалила за `per_task`, режим `warn` | система |
   | `budget-exhausted` | задача перевалила за `per_task`, режим `stop`: работа не начата | система |
   | `run-budget-exceeded` | один прогон стоил дороже `per_run` | прогон |
+  | `split-created` | `CompleteSplits` досоздал и связал всех детей подтверждённого split, родитель закрыт | система |
+  | `split-create-failed` | попытка `CompleteSplits` на этом тикете не удалась; идемпотентный опрос трекера делает повтор безопасным, следующий цикл попробует снова | система |
 
   «Системная» запись — не та, что «про инфраструктуру», а та, что делается **без живой
   аренды**: `CheckOwner` требует от системного актора её отсутствия. Reaper пишет о чужой
