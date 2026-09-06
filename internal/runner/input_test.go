@@ -230,7 +230,8 @@ func TestPrepareInputSanitizesAttachmentName(t *testing.T) {
 }
 
 // TestPrepareInputDisambiguatesDuplicateAttachmentNames доказывает, что два
-// вложения с одинаковым именем не затирают друг друга.
+// вложения с одинаковым именем не затирают друг друга — и что оба
+// сохраняют своё, а не чужое, содержимое.
 func TestPrepareInputDisambiguatesDuplicateAttachmentNames(t *testing.T) {
 	workdir := gitRepo(t)
 	in := Input{Task: "Задача\n", Attachments: []InputAttachment{
@@ -248,6 +249,52 @@ func TestPrepareInputDisambiguatesDuplicateAttachmentNames(t *testing.T) {
 	}
 	if len(entries) != 2 {
 		t.Fatalf("файлов %d, ожидалось 2 (обе версии сохранены): %v", len(entries), entries)
+	}
+
+	first, err := os.ReadFile(filepath.Join(attachmentsDir, "schema.png"))
+	if err != nil {
+		t.Fatalf("первый файл не прочитан: %v", err)
+	}
+	if string(first) != "первая" {
+		t.Errorf("первый файл %q, ожидалось %q", first, "первая")
+	}
+	second, err := os.ReadFile(filepath.Join(attachmentsDir, "2-schema.png"))
+	if err != nil {
+		t.Fatalf("второй файл не прочитан: %v", err)
+	}
+	if string(second) != "вторая" {
+		t.Errorf("второй файл %q, ожидалось %q", second, "вторая")
+	}
+}
+
+// TestResolveAttachmentNamesHandlesNameCollidingWithGeneratedName
+// воспроизводит находку независимого ревью: третье вложение, чьё
+// настоящее имя случайно совпадает с именем, которое разрешение уже
+// сгенерировало для второго ("2-a.png"), не должно тихо затереть его —
+// сверка обязана идти по уже занятым ИТОГОВЫМ именам, а не по счётчику
+// повторов исходного.
+func TestResolveAttachmentNamesHandlesNameCollidingWithGeneratedName(t *testing.T) {
+	got := ResolveAttachmentNames([]string{"a.png", "a.png", "2-a.png"})
+	// Третий элемент возьмёт своё собственное базовое имя ("2-a.png") и,
+	// раз оно уже занято вторым элементом, получит свой собственный
+	// счётчик поверх него ("2-2-a.png") — не самое красивое имя, но
+	// различимое и ничего не теряющее, а большего от разрешения коллизий
+	// не требуется.
+	want := []string{"a.png", "2-a.png", "2-2-a.png"}
+	if len(got) != len(want) {
+		t.Fatalf("имён %d, ожидалось %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("имя %d = %q, ожидалось %q (полностью: %v)", i, got[i], want[i], got)
+		}
+	}
+	seen := map[string]bool{}
+	for _, name := range got {
+		if seen[name] {
+			t.Fatalf("имя %q повторилось — вложение потеряно: %v", name, got)
+		}
+		seen[name] = true
 	}
 }
 

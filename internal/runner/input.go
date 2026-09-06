@@ -47,16 +47,46 @@ type InputAttachment struct {
 	Data []byte
 }
 
-// writeAttachments кладёт вложения тикета в DirAttachments настоящими
-// файлами, а не текстом внутри Task: среди них бывают картинки и PDF,
-// которые агент читает своими инструментами, а не разбором markdown.
+// ResolveAttachmentNames превращает человеческие имена вложений в
+// безопасные и однозначные имена файлов, в том же порядке. Чистая
+// функция без ввода-вывода: и writeAttachments (запись на диск), и
+// pipeline.taskBody (упоминание в постановке) считают одно и то же по
+// одному и тому же списку — иначе постановка называла бы файл так, как
+// его не назвали на самом деле (независимое ревью, находка «task.md
+// advertises pre-sanitization names»).
 //
 // Имя вложения — чужой ввод (человек так назвал файл, не раннер): путь
 // собирается через filepath.Base, а голые "." и ".." после него — тоже
 // не имя файла, а способ выйти из каталога (filepath.Join(dir, "..") —
 // это уже родитель dir), поэтому заменяются заглушкой, как и пустое имя.
-// Одинаковые после обрезки имена не перезаписывают друг друга — второму
-// и далее приписывается спереди счётчик.
+//
+// Одинаковые после обрезки имена не перезаписывают друг друга —
+// проверка идёт по уже ЗАНЯТЫМ итоговым именам, а не по счётчику
+// повторов исходного: без этого третье вложение с именем, случайно
+// совпавшим с уже сгенерированным именем второго (`"2-a.png"`), тихо
+// затирало бы его — независимое ревью воспроизвело эту потерю на
+// `["a.png", "a.png", "2-a.png"]`.
+func ResolveAttachmentNames(names []string) []string {
+	taken := make(map[string]bool, len(names))
+	resolved := make([]string, len(names))
+	for i, raw := range names {
+		name := filepath.Base(raw)
+		if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+			name = "attachment"
+		}
+		unique := name
+		for n := 2; taken[unique]; n++ {
+			unique = fmt.Sprintf("%d-%s", n, name)
+		}
+		taken[unique] = true
+		resolved[i] = unique
+	}
+	return resolved
+}
+
+// writeAttachments кладёт вложения тикета в DirAttachments настоящими
+// файлами, а не текстом внутри Task: среди них бывают картинки и PDF,
+// которые агент читает своими инструментами, а не разбором markdown.
 //
 // Каталог перезаписывается целиком: рабочая папка тикета переживает
 // попытки, а набор вложений между ними мог измениться, и вложение,
@@ -73,18 +103,14 @@ func writeAttachments(agentDir string, attachments []InputAttachment) error {
 		return fmt.Errorf("каталог вложений не создан: %w", err)
 	}
 
-	seen := map[string]int{}
-	for _, a := range attachments {
-		name := filepath.Base(a.Name)
-		if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
-			name = "attachment"
-		}
-		seen[name]++
-		if n := seen[name]; n > 1 {
-			name = fmt.Sprintf("%d-%s", n, name)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), a.Data, 0o644); err != nil {
-			return fmt.Errorf("вложение %s не записано: %w", name, err)
+	raw := make([]string, len(attachments))
+	for i, a := range attachments {
+		raw[i] = a.Name
+	}
+	resolved := ResolveAttachmentNames(raw)
+	for i, a := range attachments {
+		if err := os.WriteFile(filepath.Join(dir, resolved[i]), a.Data, 0o644); err != nil {
+			return fmt.Errorf("вложение %s не записано: %w", resolved[i], err)
 		}
 	}
 	return nil

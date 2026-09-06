@@ -1250,8 +1250,13 @@ func taskBody(task tracker.Task) string {
 		for i, a := range attachments {
 			names[i] = a.Name
 		}
+		// ResolveAttachmentNames — та же функция, что использует
+		// runner.PrepareInput для записи файлов на диск: без общей
+		// функции постановка называла бы файл так, как его назвал
+		// человек, а не так, как он реально лёг на диск после
+		// санитации/разрешения коллизий (независимое ревью).
 		fmt.Fprintf(&b, "\nВложения (файлы лежат в %s/%s/): %s\n",
-			runner.Dir, runner.DirAttachments, strings.Join(names, ", "))
+			runner.Dir, runner.DirAttachments, strings.Join(runner.ResolveAttachmentNames(names), ", "))
 	}
 	return b.String()
 }

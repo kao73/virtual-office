@@ -215,6 +215,19 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 		return nil
 	}
 
+	// Байты родителя скачиваются один раз на вложение, не на каждого
+	// ребёнка: на JIRA GetAttachment — два HTTP-запроса (метаданные +
+	// содержимое), и без кеша разбиение на 5 детей с 3 вложениями стоило
+	// бы 30 запросов ради трёх файлов (независимое ревью).
+	data := make(map[string][]byte, len(parentAttachments))
+	for _, parentAttachment := range parentAttachments {
+		bytes, err := o.Tracker.GetAttachment(task.Key, parentAttachment.ID)
+		if err != nil {
+			return err
+		}
+		data[parentAttachment.ID] = bytes
+	}
+
 	by := tracker.BySystem()
 	for _, childKey := range keys {
 		child, err := o.Tracker.Get(childKey)
@@ -230,11 +243,7 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 			if has[parentAttachment.Name] {
 				continue
 			}
-			data, err := o.Tracker.GetAttachment(task.Key, parentAttachment.ID)
-			if err != nil {
-				return err
-			}
-			if _, err := o.Tracker.AddAttachment(childKey, by, parentAttachment.Name, data); err != nil {
+			if _, err := o.Tracker.AddAttachment(childKey, by, parentAttachment.Name, data[parentAttachment.ID]); err != nil {
 				return err
 			}
 		}
