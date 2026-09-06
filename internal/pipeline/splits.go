@@ -99,6 +99,14 @@ func (o *Office) completeSplit(task tracker.Task, attachmentID string) error {
 
 // splitChildren скачивает вложение подтверждённого split и разбирает его
 // в исходный список подзадач.
+//
+// Разбор заканчивается той же проверкой графа, что agentio.Result.Validate
+// применяет к результату сразу после прогона агента (validateSplitChildren,
+// findSplitCycle) — вложение лежит в трекере само по себе между записью
+// и этим чтением, и человек, поправивший его руками, или порча хранилища
+// может внести то, чего агент не писал: пустой или повторённый id, ссылку
+// на несуществующий, цикл. Без повторной проверки такое дошло бы до
+// LinkDependsOn пустым ключом или циклом связей.
 func (o *Office) splitChildren(task tracker.Task, attachmentID string) ([]runner.SplitChild, error) {
 	data, err := o.Tracker.GetAttachment(task.Key, attachmentID)
 	if err != nil {
@@ -107,6 +115,9 @@ func (o *Office) splitChildren(task tracker.Task, attachmentID string) ([]runner
 	var split runner.Split
 	if err := json.Unmarshal(data, &split); err != nil {
 		return nil, fmt.Errorf("вложение не разобрано: %w", err)
+	}
+	if err := split.Validate(); err != nil {
+		return nil, fmt.Errorf("вложение не прошло проверку: %w", err)
 	}
 	return split.Children, nil
 }

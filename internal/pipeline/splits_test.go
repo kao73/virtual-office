@@ -2,7 +2,10 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -239,6 +242,56 @@ func TestEnsureChildrenLogsWhenMarkerMatchesMultiple(t *testing.T) {
 	}
 	if slices.Contains(linked.DependsOn, "OFF-99") || !slices.Contains(linked.DependsOn, "OFF-2") {
 		t.Errorf("зависимость ушла не на того: %v, ожидался OFF-2, не OFF-99", linked.DependsOn)
+	}
+}
+
+// TestCompleteSplitsRejectsCorruptedAttachment воспроизводит вложение,
+// испорченное между записью и вторым чтением (правка руками, порча
+// хранилища): depends_on ссылается на несуществующий id. splitChildren
+// обязан перепроверить граф той же проверкой, что agentio.Result.Validate
+// применяет к свежему результату агента, — иначе LinkDependsOn получил бы
+// пустой ключ (dep, которого нет в keys), а jira на пустом ключе ответила
+// бы 400.
+func TestCompleteSplitsRejectsCorruptedAttachment(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	parent := o.get(t, "OFF-1")
+	comment := lastComment(t, parent)
+	marker, ok := tracker.MarkerOf(comment.Body)
+	if !ok || marker.Attachment == "" {
+		t.Fatalf("вложение не найдено в маркере отчёта:\n%s", comment.Body)
+	}
+
+	corrupted := runner.Split{Children: []runner.SplitChild{
+		{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD категорий.",
+			DependsOn: []string{"нет-такого-id"}},
+	}}
+	data, err := json.Marshal(corrupted)
+	if err != nil {
+		t.Fatalf("вложение не собрано: %v", err)
+	}
+	path := filepath.Join(o.tasks.Root(), "OFF-1", "attachments", marker.Attachment)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("вложение не подменено: %v", err)
+	}
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не должен падать целиком: %v", err)
+	}
+
+	if _, err := o.tasks.Get("OFF-2"); err == nil {
+		t.Error("дети не должны создаваться на испорченном вложении")
+	}
+
+	fresh := o.get(t, "OFF-1")
+	if fresh.Status != "Blocked" {
+		t.Errorf("статус родителя %q, ожидался Blocked — испорченное вложение не должно двигать задачу", fresh.Status)
+	}
+	failComment := lastComment(t, fresh)
+	failMarker, ok := tracker.MarkerOf(failComment.Body)
+	if !ok || failMarker.Event != tracker.EventSplitCreateFailed {
+		t.Errorf("нет записи о сбое:\n%s", failComment.Body)
 	}
 }
 
