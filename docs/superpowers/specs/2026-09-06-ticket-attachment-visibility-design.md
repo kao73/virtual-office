@@ -2,6 +2,8 @@
 comet_change: ticket-attachment-visibility
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-06-ticket-attachment-visibility
+status: final
 ---
 
 # Видимость вложений тикета — глубокий технический дизайн

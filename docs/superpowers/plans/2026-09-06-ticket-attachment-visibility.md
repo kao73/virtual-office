@@ -2,6 +2,7 @@
 change: ticket-attachment-visibility
 design-doc: docs/superpowers/specs/2026-09-06-ticket-attachment-visibility-design.md
 base-ref: a3a504caeb3f24756e0be5f5712fad75accbea1d
+archived-with: 2026-09-06-ticket-attachment-visibility
 ---
 
 # Видимость вложений тикета — Implementation Plan
