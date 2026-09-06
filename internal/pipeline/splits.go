@@ -148,7 +148,7 @@ func (o *Office) ensureChildren(task tracker.Task, children []runner.SplitChild)
 		}
 
 		ref, err := o.Tracker.CreateTask(task.Project, tracker.TaskInput{
-			Summary: child.Title, Description: child.Description, Labels: []string{marker},
+			Summary: child.Title, Description: childDescription(task, child), Labels: []string{marker},
 		})
 		if err != nil {
 			return nil, err
@@ -156,6 +156,40 @@ func (o *Office) ensureChildren(task tracker.Task, children []runner.SplitChild)
 		keys[child.ID] = ref.Key
 	}
 	return keys, nil
+}
+
+// childDescription — описание ребёнка плюс исходная постановка родителя
+// целиком, дословно, а не в пересказе.
+//
+// analyst у ребёнка не видит трекер (roles/analyst/role.md) и не может сам
+// прочитать родителя, если тот не Done, — split.children[].description
+// пишется до исследования, наспех, и то, что в него не попало (общая рамка
+// задания, «вне рамок», требование из другого среза, которое касается и
+// этого), для ребёнка пропадает безвозвратно. Живой прогон EXP-15→EXP-16..20
+// (docs/notes/analyst-task-splitting.md) это показал: «вне рамок» и сквозные
+// ограничения родителя ни в одном из пяти детей не встретились. Дословная
+// копия, а не отдельная просьба к аналитику пересказать точнее — потому что
+// для технической постановки пересказ рискует незаметно подменить точную
+// деталь (схему, версию, формулировку) похожей, но другой.
+//
+// Копия — от task.Description, каким он был у **непосредственного**
+// родителя на момент создания. Если родитель сам когда-то был ребёнком
+// другого разбиения, его Description уже несёт унаследованный текст своего
+// предка — новый уровень просто наращивает цепочку на одну копию, без
+// отдельного понятия «корень».
+func childDescription(task tracker.Task, child runner.SplitChild) string {
+	parent := strings.TrimSpace(task.Description)
+	if parent == "" {
+		return child.Description
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(child.Description))
+	b.WriteString("\n\n## Исходная постановка целиком (контекст)\n\n")
+	b.WriteString("Эта задача — часть постановки, разбитой аналитиком на несколько тикетов. ")
+	b.WriteString("Ниже — весь исходный текст: в нём могут быть детали и ограничения, ")
+	b.WriteString("которые касаются именно этой части, но не попали в описание выше.\n\n")
+	b.WriteString(parent)
+	return b.String()
 }
 
 // linkChildren связывает уже существующих детей по depends_on. Отдельным

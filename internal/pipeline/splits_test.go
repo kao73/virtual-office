@@ -106,6 +106,32 @@ func TestCompleteSplitsCreatesAndLinksChildren(t *testing.T) {
 	}
 }
 
+// TestEnsureChildrenAppendsParentDescription доказывает, что ребёнок несёт не
+// только свой короткий срез, но и дословную исходную постановку родителя —
+// analyst у ребёнка не видит трекер и не может сам её прочитать, если
+// в собственном описании ребёнка её нет (docs/notes/analyst-task-splitting.md,
+// живой прогон EXP-15→EXP-16..20: «вне рамок» и сквозные ограничения
+// потерялись, потому что нигде, кроме родителя, не сохранялись).
+func TestEnsureChildrenAppendsParentDescription(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не прошёл: %v", err)
+	}
+
+	category, err := o.tasks.Get("OFF-2")
+	if err != nil {
+		t.Fatalf("категория не создана: %v", err)
+	}
+	if !strings.Contains(category.Description, "Модель, миграция, CRUD категорий.") {
+		t.Errorf("свой срез описания потерян:\n%s", category.Description)
+	}
+	if !strings.Contains(category.Description, "Сделать что-нибудь полезное.") {
+		t.Errorf("исходная постановка родителя (OFF-1) не найдена в описании ребёнка:\n%s", category.Description)
+	}
+}
+
 func TestCompleteSplitsSkipsUnconfirmed(t *testing.T) {
 	o := newOffice(t)
 	if err := o.tasks.Move("OFF-1", "Analysis"); err != nil {
