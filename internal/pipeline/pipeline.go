@@ -1198,16 +1198,32 @@ func (o *Office) logf(format string, args ...any) {
 	fmt.Fprintf(out, format+"\n", args...)
 }
 
-// humanAttachments — вложения тикета без служебных (runner.SplitAttachmentName
-// и подобных): то, что агенту стоит увидеть, а не переписка раннера с самим
-// собой. Один фильтр на упоминание в task.md (taskBody), материализацию
-// в рабочую папку (work()) и наследование split-детьми (splits.go,
-// ensureChildAttachments) — иначе список «что видит агент» разъехался бы
-// по трём местам.
+// splitAttachmentIDs — id вложений, которые роль сама записала себе как
+// split.json (attachment:<id> настоящего outcome:split-маркера этой
+// задачи), а не человек. Сверка по id, не по имени файла: человек,
+// приложивший СВОЙ файл случайно с тем же именем runner.SplitAttachmentName,
+// не должен молча потерять его в humanAttachments (внешнее ревью,
+// pr-converge раунд 1).
+func splitAttachmentIDs(task tracker.Task) map[string]bool {
+	ids := make(map[string]bool)
+	for _, c := range task.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Outcome == string(runner.OutcomeSplit) && m.Attachment != "" {
+			ids[m.Attachment] = true
+		}
+	}
+	return ids
+}
+
+// humanAttachments — вложения тикета без служебных (split.json — переписка
+// раннера с самим собой): то, что агенту стоит увидеть. Один фильтр на
+// упоминание в task.md (taskBody), материализацию в рабочую папку (work())
+// и наследование split-детьми (splits.go, ensureChildAttachments) — иначе
+// список «что видит агент» разъехался бы по трём местам.
 func humanAttachments(task tracker.Task) []tracker.AttachmentRef {
+	service := splitAttachmentIDs(task)
 	out := make([]tracker.AttachmentRef, 0, len(task.Attachments))
 	for _, a := range task.Attachments {
-		if a.Name == runner.SplitAttachmentName {
+		if service[a.ID] {
 			continue
 		}
 		out = append(out, a)

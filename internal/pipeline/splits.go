@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -41,6 +40,16 @@ func (o *Office) CompleteSplits(ctx context.Context) error {
 		// достраивать split-предложения некому, и это не повод падать.
 		return nil
 	}
+	if !o.Workflow.PR.Set() {
+		// Проверка здесь, а не в closeSplitParent (её прежнее место —
+		// последний шаг completeSplit): свойство офиса целиком, не одного
+		// тикета, и раньше каждый цикл Loop создавал детей, копировал
+		// вложения и связывал их заново, чтобы только на последнем шаге
+		// узнать, что закрывать родителя всё равно некуда (config.go,
+		// checkPR — граф без блока pr легален).
+		o.logf("complete-splits: в workflow.yaml нет блока pr — закрывать разбитые задачи некуда, пропускаю")
+		return nil
+	}
 
 	for _, project := range o.projects() {
 		refs, err := o.Tracker.List(project, []string{flow.Blocked()})
@@ -53,14 +62,26 @@ func (o *Office) CompleteSplits(ctx context.Context) error {
 		for _, ref := range refs {
 			task, err := o.Tracker.Get(ref.Key)
 			if err != nil {
-				return err
+				// Тем же приёмом, что Reap разбирает ErrNotOwner (pipeline.go):
+				// беда с одним тикетом не должна глушить обход остальных.
+				// Следующий цикл Loop попробует эту задачу снова.
+				o.logf("%s: не прочитана, пропускаю: %v", ref.Key, err)
+				continue
 			}
 			confirmed, attachmentID := tracker.SplitConfirmed(task.Comments, splitAnalystRole)
 			if !confirmed {
 				continue
 			}
 			if err := o.completeSplit(task, attachmentID); err != nil {
-				return err
+				// completeSplit сам оборачивает ожидаемые сбои шагов через
+				// splitFailed (который возвращает nil), так что ошибка,
+				// дошедшая сюда, — неожиданная (например, упала сама запись
+				// о сбое). Доккомент completeSplit обещает не прерывать
+				// обход остальных задач; без этой развилки любая такая
+				// ошибка обрывала бы CompleteSplits целиком, по всем
+				// оставшимся тикетам и проектам.
+				o.logf("%s: проход не завершён, пробую снова в следующем цикле: %v", task.Key, err)
+				continue
 			}
 		}
 	}
@@ -219,18 +240,50 @@ func childDescription(task tracker.Task, child runner.SplitChild) (description, 
 // не различит (докатится только одно) — узкий случай, которым ради
 // простоты пренебрегаем: назначение здесь — не потерять контекст
 // безвозвратно, не продублировать с абсолютной точностью.
+//
+// Скачивание — только для того, чего кому-то из детей и правда не хватает
+// (сверяется по именам их уже имеющихся вложений раньше, чем по байтам
+// родителя). Застрявший тикет (splitFailed на более позднем шаге, а этот
+// уже прошёл) подбирается каждым циклом Loop заново, и без этой развилки
+// каждый такой цикл заново качал бы с родителя всё вложения ради самой
+// сверки, которая в итоге ничего не докатывает.
 func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]string) error {
 	parentAttachments := humanAttachments(task)
 	if len(parentAttachments) == 0 {
 		return nil
 	}
 
-	// Байты родителя скачиваются один раз на вложение, не на каждого
-	// ребёнка: на JIRA GetAttachment — два HTTP-запроса (метаданные +
-	// содержимое), и без кеша разбиение на 5 детей с 3 вложениями стоило
-	// бы 30 запросов ради трёх файлов (независимое ревью).
-	data := make(map[string][]byte, len(parentAttachments))
+	children := make(map[string]tracker.Task, len(keys))
+	needed := make(map[string]bool, len(parentAttachments)) // имя вложения → не хватает хотя бы одному ребёнку
+	for _, childKey := range keys {
+		child, err := o.Tracker.Get(childKey)
+		if err != nil {
+			return err
+		}
+		children[childKey] = child
+		has := make(map[string]bool, len(child.Attachments))
+		for _, a := range child.Attachments {
+			has[a.Name] = true
+		}
+		for _, parentAttachment := range parentAttachments {
+			if !has[parentAttachment.Name] {
+				needed[parentAttachment.Name] = true
+			}
+		}
+	}
+	if len(needed) == 0 {
+		return nil
+	}
+
+	// Байты родителя скачиваются один раз на нужное вложение, не на
+	// каждого ребёнка: на JIRA GetAttachment — два HTTP-запроса
+	// (метаданные + содержимое), и без кеша разбиение на 5 детей
+	// с 3 вложениями стоило бы 30 запросов ради трёх файлов.
+	data := make(map[string][]byte, len(needed))
 	for _, parentAttachment := range parentAttachments {
+		if !needed[parentAttachment.Name] {
+			continue
+		}
 		bytes, err := o.Tracker.GetAttachment(task.Key, parentAttachment.ID)
 		if err != nil {
 			return err
@@ -239,16 +292,11 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 	}
 
 	by := tracker.BySystem()
-	for _, childKey := range keys {
-		child, err := o.Tracker.Get(childKey)
-		if err != nil {
-			return err
-		}
+	for childKey, child := range children {
 		has := make(map[string]bool, len(child.Attachments))
 		for _, a := range child.Attachments {
 			has[a.Name] = true
 		}
-
 		for _, parentAttachment := range parentAttachments {
 			if has[parentAttachment.Name] {
 				continue
@@ -282,19 +330,14 @@ func (o *Office) linkChildren(children []runner.SplitChild, keys map[string]stri
 // терминальным статусом, что и prSkipped: задача, которой нечего сливать,
 // заканчивает жизнь так же, как слитая.
 //
-// Офис без блока pr: в workflow.yaml — легальный граф (config.go, checkPR),
-// но тогда o.Workflow.PR.Merged пуст, и закрывать родителя в терминальный
-// статус некуда: тем же способом, что PRPass проверяет PR.Set() для своего
-// прохода, отказываемся явно, а не уводим задачу в статус "".
+// PR.Set() здесь не проверяется — единственный вызывающий, CompleteSplits,
+// уже отказался раньше первой мутации, если блока pr нет вовсе.
 //
 // Запись «Разбита на: …» — только при первом успехе (HasEvent), тем же
 // приёмом, что splitFailed применяет к своей записи о сбое: если
 // SetHumanFlag/move ниже упадут, повторный проход не должен постить этот
 // комментарий заново на каждом цикле Loop.
 func (o *Office) closeSplitParent(task tracker.Task, keys []string) error {
-	if !o.Workflow.PR.Set() {
-		return errors.New("в workflow.yaml нет блока pr: закрыть разбитую задачу некуда")
-	}
 	by, to := tracker.BySystem(), o.Workflow.PR.Merged
 
 	if !tracker.HasEvent(task.Comments, tracker.EventSplitCreated) {
@@ -330,16 +373,20 @@ func (o *Office) closeSplitParent(task tracker.Task, keys []string) error {
 // у Archive/открытия PR). Следующий цикл Loop (или ручной
 // runner complete-splits) попробует снова.
 //
-// Запись — только первая: Loop зовёт CompleteSplits каждый цикл (по
-// умолчанию раз в две минуты), а застрявший тикет остаётся в Blocked
-// и подбирается им снова и снова. Без дедупликации, тем же приёмом,
-// что и у warnRunCost, одинаковая запись копилась бы в переписке без
-// конца, пока человек не вмешается. Design.md decision #7 (без счётчика
+// Запись — только если причина новая: Loop зовёт CompleteSplits каждый
+// цикл (по умолчанию раз в две минуты), а застрявший тикет остаётся
+// в Blocked и подбирается им снова и снова. Дедупликация — по тексту
+// последней такой записи (LastEventText), не по самому факту события
+// (HasEvent): человек мог починить первую беду, а проход — упасть уже
+// на другой, и об этом стоит сказать, а не решить, что раз
+// EventSplitCreateFailed уже был, значит и сейчас то же самое (внешнее
+// ревью, pr-converge раунд 1). Design.md decision #7 (без счётчика
 // попыток и эскалации) этим не затрагивается — считается не число сбоев,
-// а сам факт «уже сказано».
+// а сам факт «об этой причине уже сказано».
 func (o *Office) splitFailed(task tracker.Task, text string) error {
-	if tracker.HasEvent(task.Comments, tracker.EventSplitCreateFailed) {
-		o.logf("%s: %s (уже сообщено, повторно не пишу)", task.Key, text)
+	text = strings.TrimSpace(text)
+	if last, found := tracker.LastEventText(task.Comments, tracker.EventSplitCreateFailed); found && last == text {
+		o.logf("%s: %s (та же причина уже сообщена, повторно не пишу)", task.Key, text)
 		return nil
 	}
 

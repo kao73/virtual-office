@@ -208,6 +208,42 @@ func TestCompleteSplitsCopiesOnlyOneOfSameNamedParentAttachments(t *testing.T) {
 	}
 }
 
+// noGetAttachment роняет тест, если вложение родителя вообще скачивается —
+// сверка "нужно ли докатывать" обязана справляться по одним лишь именам
+// уже имеющихся у детей вложений, не читая содержимое заново.
+type noGetAttachment struct {
+	*mock.Tracker
+	t *testing.T
+}
+
+func (f *noGetAttachment) GetAttachment(key, id string) ([]byte, error) {
+	f.t.Errorf("GetAttachment(%s, %s) вызван — у всех детей уже есть все вложения родителя, скачивать было нечего", key, id)
+	return f.Tracker.GetAttachment(key, id)
+}
+
+// TestEnsureChildAttachmentsSkipsDownloadWhenAllChildrenAlreadyHaveEverything
+// — застрявший тикет подбирается каждым циклом Loop заново (splitFailed,
+// например), и до этой правки ensureChildAttachments каждый раз качала
+// все вложения родителя заново, даже когда всем детям уже всего хватает
+// (внешнее ревью, pr-converge раунд 1).
+func TestEnsureChildAttachmentsSkipsDownloadWhenAllChildrenAlreadyHaveEverything(t *testing.T) {
+	o := newOffice(t)
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные")); err != nil {
+		t.Fatalf("вложение не добавлено: %v", err)
+	}
+	confirmSplit(t, o)
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не прошёл: %v", err)
+	}
+
+	parent := o.get(t, "OFF-1")
+	keys := map[string]string{"category-crud": "OFF-2", "transaction-crud": "OFF-3"}
+	o.useTracker(&noGetAttachment{Tracker: o.tasks, t: t})
+	if err := o.ensureChildAttachments(parent, keys); err != nil {
+		t.Fatalf("повторный вызов не должен падать: %v", err)
+	}
+}
+
 // TestCompleteSplitsBackfillsAttachmentsOnAlreadyCreatedChild воспроизводит
 // ребёнка, созданного прошлым прерванным прогоном ДО того, как вложения
 // родителя успели скопироваться, — следующий проход обязан докатить
@@ -507,9 +543,13 @@ func TestCompleteSplitsRejectsCorruptedAttachment(t *testing.T) {
 // TestCompleteSplitsRefusesToCloseWithoutPRBlock воспроизводит офис без
 // блока pr: в workflow.yaml — граф без прохода pull request легален
 // (config.go, checkPR: пустой блок целиком — офис, который PR не открывает).
-// closeSplitParent тогда читает o.Workflow.PR.Merged == "" и раньше уводил
-// бы родителя в статус "" вместо отказа — prpass.go для своего собственного
-// прохода уже проверяет PR.Set() тем же способом.
+// Без блока pr закрывать разбитые задачи некуда — CompleteSplits обязан
+// отказаться в самом начале, до первой мутации, а не создать детей,
+// скопировать вложения и связать их, и только на последнем шаге узнать,
+// что закрывать родителя некуда (внешнее ревью, pr-converge раунд 1:
+// раньше проверка стояла в closeSplitParent — самом последнем шаге —
+// и каждый цикл Loop повторял всю необратимую работу заново, чтобы
+// упасть в том же месте).
 func TestCompleteSplitsRefusesToCloseWithoutPRBlock(t *testing.T) {
 	o := newOffice(t)
 	confirmSplit(t, o)
@@ -520,16 +560,11 @@ func TestCompleteSplitsRefusesToCloseWithoutPRBlock(t *testing.T) {
 	}
 
 	parent := o.get(t, "OFF-1")
-	if parent.Status == "" {
-		t.Error("родитель ушёл в пустой статус вместо отказа с понятной причиной")
-	}
 	if parent.Status != "Blocked" {
-		t.Errorf("статус родителя %q, ожидался Blocked — без pr-блока закрыть родителя нечем", parent.Status)
+		t.Errorf("статус родителя %q, ожидался Blocked — без pr-блока к нему вообще не притрагиваются", parent.Status)
 	}
-	failComment := lastComment(t, parent)
-	failMarker, ok := tracker.MarkerOf(failComment.Body)
-	if !ok || failMarker.Event != tracker.EventSplitCreateFailed {
-		t.Errorf("нет записи о сбое:\n%s", failComment.Body)
+	if _, err := o.tasks.Get("OFF-2"); err == nil {
+		t.Error("дети не должны создаваться, пока не выяснено, что закрывать родителя всё равно некуда")
 	}
 }
 
@@ -673,6 +708,71 @@ func TestSplitFailedDoesNotSpamRepeatedNotices(t *testing.T) {
 	}
 }
 
+// TestSplitFailedReportsANewReasonEvenAfterAnOldOne — дедупликация
+// splitFailed сравнивает по факту события, не по тексту причины: первая
+// же неудача навсегда занимает EventSplitCreateFailed, и если человек
+// починил первую беду, а проход упал уже на другой, второй раз никто об
+// этом не узнает (внешнее ревью, pr-converge раунд 1). Первая беда —
+// испорченное вложение (дублирующий id, как в
+// TestCompleteSplitsRejectsCorruptedAttachment), вторая — сбой закрытия
+// родителя после того, как вложение починили руками.
+func TestSplitFailedReportsANewReasonEvenAfterAnOldOne(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	parent := o.get(t, "OFF-1")
+	comment := lastComment(t, parent)
+	marker, ok := tracker.MarkerOf(comment.Body)
+	if !ok || marker.Attachment == "" {
+		t.Fatalf("вложение не найдено в маркере отчёта:\n%s", comment.Body)
+	}
+	attachmentPath := filepath.Join(o.tasks.Root(), "OFF-1", "attachments", marker.Attachment)
+
+	corrupted := runner.Split{Children: []runner.SplitChild{
+		{ID: "a", Title: "A", Description: "d", DependsOn: []string{"нет-такого-id"}},
+	}}
+	data, err := json.Marshal(corrupted)
+	if err != nil {
+		t.Fatalf("вложение не собрано: %v", err)
+	}
+	if err := os.WriteFile(attachmentPath, data, 0o644); err != nil {
+		t.Fatalf("вложение не подменено: %v", err)
+	}
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("первый проход не должен падать: %v", err)
+	}
+
+	valid, err := json.Marshal(splitResult().Split)
+	if err != nil {
+		t.Fatalf("вложение не собрано: %v", err)
+	}
+	if err := os.WriteFile(attachmentPath, valid, 0o644); err != nil {
+		t.Fatalf("вложение не починено: %v", err)
+	}
+	o.useTracker(&flakyClose{Tracker: o.tasks, failOn: "OFF-1"})
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("второй проход не должен падать: %v", err)
+	}
+
+	fresh := o.get(t, "OFF-1")
+	var failures []string
+	for _, c := range fresh.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Event == tracker.EventSplitCreateFailed {
+			_, text, _ := strings.Cut(c.Body, "\n")
+			failures = append(failures, strings.TrimSpace(text))
+		}
+	}
+	if len(failures) != 2 {
+		t.Fatalf("записей о сбое %d, ожидалось 2 (разные причины): %+v", len(failures), failures)
+	}
+	if !strings.Contains(failures[0], "не прошло проверку") {
+		t.Errorf("первая причина %q, ожидалась про испорченное вложение", failures[0])
+	}
+	if !strings.Contains(failures[1], "не закрыт") {
+		t.Errorf("вторая причина %q, ожидалась про закрытие родителя", failures[1])
+	}
+}
+
 // flakyClose роняет Transition для ключа задачи-родителя: так выглядит сбой
 // самого последнего шага completeSplit — закрытия родителя в
 // closeSplitParent, — уже после того как дети созданы, связаны и отчёт
@@ -773,5 +873,80 @@ func TestCompleteSplitsDoesNotDuplicateCloseNoticeOnRetry(t *testing.T) {
 	if successes != 1 {
 		t.Errorf("запись об успешном разбиении встречена %d раз(а), ожидался ровно 1 — "+
 			"персистентный сбой закрытия не должен копить дубли", successes)
+	}
+}
+
+// flakyComment роняет Comment для данного ключа: так выглядит сбой самой
+// записи о неудаче — splitFailed пишет комментарий через o.record, и если
+// падает уже эта запись (не шаг, который она описывает), ошибка раньше
+// уходила из completeSplit наружу необёрнутой.
+type flakyComment struct {
+	*mock.Tracker
+	failOn string
+}
+
+func (f *flakyComment) Comment(key string, by tracker.Actor, body string) error {
+	if key == f.failOn {
+		return errors.New("сеть недоступна")
+	}
+	return f.Tracker.Comment(key, by, body)
+}
+
+// TestCompleteSplitsContinuesPastTaskWhoseFailureNoticeCannotBeWritten
+// доказывает, что беда внутри самого splitFailed (не beда, которую он
+// описывает, а сбой записи о ней) не прерывает CompleteSplits: доккомент
+// completeSplit прямо обещает, что ошибка любого шага "не прерывает обход
+// остальных задач" — но раньше CompleteSplits возвращал результат
+// completeSplit наружу без развилки, и такая ошибка обрывала весь проход
+// по всем оставшимся тикетам и проектам, тем же способом, что Reap уже
+// разбирает для ErrNotOwner (pipeline.go).
+func TestCompleteSplitsContinuesPastTaskWhoseFailureNoticeCannotBeWritten(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	parent := o.get(t, "OFF-1")
+	comment := lastComment(t, parent)
+	marker, ok := tracker.MarkerOf(comment.Body)
+	if !ok || marker.Attachment == "" {
+		t.Fatalf("вложение не найдено в маркере отчёта:\n%s", comment.Body)
+	}
+	// Портим вложение OFF-1 (та же порча, что и в TestCompleteSplitsRejectsEmptySplitChildren),
+	// чтобы completeSplit дошёл до splitFailed, — а Comment для OFF-1 роняем,
+	// чтобы упала уже сама запись о сбое.
+	empty := runner.Split{Children: []runner.SplitChild{}}
+	data, err := json.Marshal(empty)
+	if err != nil {
+		t.Fatalf("вложение не собрано: %v", err)
+	}
+	path := filepath.Join(o.tasks.Root(), "OFF-1", "attachments", marker.Attachment)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("вложение не подменено: %v", err)
+	}
+
+	// Второй, независимый подтверждённый тикет — доказывает, что беда
+	// на OFF-1 не роняет весь проход CompleteSplits.
+	o.add("OFF-9", "Analysis")
+	o.agent.result = splitResult()
+	worked, err := o.Tick(context.Background(), "analyst")
+	if err != nil || !worked {
+		t.Fatalf("предложение OFF-9 не взято в работу: worked=%v err=%v", worked, err)
+	}
+	if err := o.tasks.AddComment("OFF-9", "human", "Да, разбивай."); err != nil {
+		t.Fatalf("ответ не записан: %v", err)
+	}
+	if worked, err := o.Tick(context.Background(), "analyst"); err != nil || !worked {
+		t.Fatalf("подтверждение OFF-9 не взято в работу: worked=%v err=%v", worked, err)
+	}
+
+	o.useTracker(&flakyComment{Tracker: o.tasks, failOn: "OFF-1"})
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("сбой записи о неудаче на OFF-1 не должен ронять весь проход: %v", err)
+	}
+
+	other := o.get(t, "OFF-9")
+	if other.Status != o.Workflow.PR.Merged {
+		t.Errorf("OFF-9 %q, ожидался %q — беда с записью на OFF-1 не должна её касаться",
+			other.Status, o.Workflow.PR.Merged)
 	}
 }

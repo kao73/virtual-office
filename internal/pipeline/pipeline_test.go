@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -793,14 +792,30 @@ func TestTickFeedsAgentTaskAndContext(t *testing.T) {
 // TestTickMaterializesHumanAttachmentsButNotSplitJSON доказывает, что
 // человеческое вложение задачи попадает в рабочую папку агента настоящим
 // файлом и упоминается в постановке, а служебное (split.json — переписка
-// раннера с самим собой) — нет ни там, ни там.
+// раннера с самим собой) — нет ни там, ни там. Отличает их humanAttachments
+// по id вложения, названному в attachment:<id> настоящего outcome:split-
+// маркера этой задачи (а не по имени файла) — иначе человек, приложивший
+// СВОЙ файл с тем же именем split.json, молча потерял бы его: агент бы его
+// не увидел, а split-дети не унаследовали.
 func TestTickMaterializesHumanAttachmentsButNotSplitJSON(t *testing.T) {
 	o := newOffice(t)
 	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные схемы")); err != nil {
 		t.Fatalf("вложение не добавлено: %v", err)
 	}
-	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), runner.SplitAttachmentName, []byte(`{"children":[]}`)); err != nil {
+	serviceID, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), runner.SplitAttachmentName, []byte(`{"children":[]}`))
+	if err != nil {
 		t.Fatalf("служебное вложение не добавлено: %v", err)
+	}
+	// Настоящий маркер, как его пишет finish(): без него attachment-id
+	// служебного вложения неоткуда взять, и по id его не отличить от
+	// человеческого.
+	marker := tracker.Marker{RunID: "аналитик-1", Role: "analyst", Outcome: "split", Next: "human", Attachment: serviceID, ConfigSHA: "5bc6a3b0"}
+	if err := o.tasks.Comment("OFF-1", tracker.BySystem(), tracker.NoticeBody(marker, "Постановка описывает две сущности.")); err != nil {
+		t.Fatalf("маркер не записан: %v", err)
+	}
+	// Человек мог приложить файл с ровно тем же именем — своё, не служебное.
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), runner.SplitAttachmentName, []byte("человеческий файл с тем же именем")); err != nil {
+		t.Fatalf("человеческое вложение с служебным именем не добавлено: %v", err)
 	}
 
 	o.tick(t)
@@ -813,8 +828,12 @@ func TestTickMaterializesHumanAttachmentsButNotSplitJSON(t *testing.T) {
 	if string(got) != "данные схемы" {
 		t.Errorf("содержимое вложения %q, ожидалось %q", got, "данные схемы")
 	}
-	if _, err := os.Stat(filepath.Join(req.Workdir, runner.Dir, runner.DirAttachments, runner.SplitAttachmentName)); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("служебное вложение материализовано в рабочую папку: %v", err)
+	humanNamedSplit, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.DirAttachments, runner.SplitAttachmentName))
+	if err != nil {
+		t.Fatalf("человеческое вложение с именем split.json не материализовано: %v", err)
+	}
+	if string(humanNamedSplit) != "человеческий файл с тем же именем" {
+		t.Errorf("под именем split.json материализовано не то содержимое: %q", humanNamedSplit)
 	}
 
 	task, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.FileTask))
@@ -824,8 +843,8 @@ func TestTickMaterializesHumanAttachmentsButNotSplitJSON(t *testing.T) {
 	if !strings.Contains(string(task), "schema.png") {
 		t.Errorf("в постановке нет упоминания вложения:\n%s", task)
 	}
-	if strings.Contains(string(task), runner.SplitAttachmentName) {
-		t.Errorf("служебное вложение упомянуто в постановке:\n%s", task)
+	if !strings.Contains(string(task), runner.SplitAttachmentName) {
+		t.Errorf("человеческое вложение с именем split.json не упомянуто в постановке:\n%s", task)
 	}
 }
 
