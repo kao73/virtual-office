@@ -67,7 +67,7 @@
 
 ## 6. `roles/analyst/role.md`
 
-- [ ] 6.1 Add the `depends_on` criterion next to the existing `split`
+- [x] 6.1 Add the `depends_on` criterion next to the existing `split`
       outcome description: a dependency is set only when the dependent
       child's work cannot begin before the other child's code is merged
       (shared schema/migration/model/interface), not for a merely

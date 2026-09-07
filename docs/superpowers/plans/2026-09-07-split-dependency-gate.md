@@ -1357,7 +1357,7 @@ Closes **tasks.md 6.1**.
 
 **Interfaces:** none (prose only).
 
-- [ ] **Step 1: Insert the criterion next to the `split` outcome description**
+- [x] **Step 1: Insert the criterion next to the `split` outcome description**
 
   In `roles/analyst/role.md`, in the `## Исходы` section, replace:
 
@@ -1394,7 +1394,7 @@ Closes **tasks.md 6.1**.
   ## Когда задачу вернул разработчик
   ```
 
-- [ ] **Step 2: Verify — no automated test targets role.md prose directly**
+- [x] **Step 2: Verify — no automated test targets role.md prose directly**
 
   `internal/runner/role_test.go` and `cmd/eval-roles/run_test.go` load
   role files structurally (front matter, network domains) and don't assert
@@ -1406,7 +1406,7 @@ Closes **tasks.md 6.1**.
   convenience ordering is not recorded as a dependency") to confirm the
   wording covers both.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
   ```bash
   git add roles/analyst/role.md
