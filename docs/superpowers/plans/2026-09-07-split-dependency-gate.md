@@ -1612,7 +1612,7 @@ not a fake.
 
 **Procedure:**
 
-- [ ] **Step 1: Set up a real split with a genuine dependency**
+- [x] **Step 1: Set up a real split with a genuine dependency**
 
   On the polygon, run (or resume) an `analyst` progon against a task shaped
   so that `split.children[]` naturally has one child depending on another
@@ -1621,7 +1621,7 @@ not a fake.
   row), letting `CompleteSplits` create and link the children as it already
   does per Change 1.
 
-- [ ] **Step 2: Confirm the dependent child is withheld**
+- [x] **Step 2: Confirm the dependent child is withheld**
 
   Run `runner ls` (or `runner tick`/`runner loop` for the relevant role)
   and confirm:
@@ -1632,14 +1632,14 @@ not a fake.
   - the log line from `claim()` (Task 7) names the same thing when the tick
     runs with the dependent child as the only ready candidate.
 
-- [ ] **Step 3: Confirm the dependent child unblocks**
+- [x] **Step 3: Confirm the dependent child unblocks**
 
   Move the blocker to `Done` (merge its PR through the normal PR pass, or
   move it by hand if this is a scratch scenario) and confirm a subsequent
   tick claims the dependent child — no manual step beyond the normal
   workflow.
 
-- [ ] **Step 4: Record the outcome**
+- [x] **Step 4: Record the outcome**
 
   Add a short entry to `docs/notes/analyst-task-splitting.md` (same
   convention as prior live-verification write-ups in that file) noting

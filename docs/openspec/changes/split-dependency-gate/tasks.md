@@ -84,7 +84,7 @@
 
 - [x] 8.1 `go build ./... && go vet ./... && go test ./...` green after
       each task and at the end.
-- [ ] 8.2 Live end-to-end check on the polygon: a split with a real
+- [x] 8.2 Live end-to-end check on the polygon: a split with a real
       dependency between two children shows the dependent one withheld
       from `claim()` and `ls` reporting what it waits on, then picked up
       once the dependency reaches `Done`.
