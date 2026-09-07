@@ -15,8 +15,11 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -66,6 +69,22 @@ type Config struct {
 	// HumanFlagLabel — метка «ждёт человека». Метка, а не поле: её видно
 	// в списке задач и она не требует настройки экранов.
 	HumanFlagLabel string `yaml:"human_flag_label"`
+
+	// IssueType — тип задачи для CreateTask. JIRA v2 требует issuetype
+	// в теле POST /issue. Пусто — код берёт "Task" (issueType()): на
+	// большинстве инстансов он есть из коробки, и заставлять заполнять
+	// поле ради дефолтного значения незачем.
+	IssueType string `yaml:"issue_type"`
+
+	// DependsOnLink — имя типа связи "зависит от" на инстансе
+	// (LinkDependsOn, POST /issueLink). Не входит в обязательные поля
+	// LoadConfig: нужен он одному-единственному узкому методу, а не каждому
+	// обращению к трекеру, и отказ здесь ронял бы Comment, Transition и Get
+	// из-за поля, которое им не нужно. Пусто — LinkDependsOn откажет сам,
+	// в момент вызова. Заводится или подбирается на полигоне — см. живую
+	// проверку, Task 8 плана
+	// docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
+	DependsOnLink string `yaml:"depends_on_link"`
 }
 
 // Auth — способ авторизации. Он один на все учётки: как ходить — свойство
@@ -140,6 +159,9 @@ type Tracker struct {
 	user   string
 	secret string
 	graph  map[string]string // имя статуса в JIRA → статус графа
+	// baseURL — cfg.BaseURL, разобранный один раз при открытии: download()
+	// сверяет по нему scheme+host у ссылок, которые называет сам сервер.
+	baseURL *url.URL
 
 	// Now — часы раннера. Аренду сверяем ими, а не серверными: сервер считает
 	// now() в своей зоне, и полагаться на совпадение не стоит.
@@ -156,6 +178,17 @@ func Open(cfg Config) (*Tracker, error) { return OpenAs(cfg, "") }
 func OpenAs(cfg Config, role string) (*Tracker, error) {
 	if cfg.BaseURL == "" {
 		return nil, errors.New("base_url не задан")
+	}
+	base, err := url.Parse(cfg.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("base_url не разобран: %w", err)
+	}
+	// "jira.example.com" (без схемы) url.Parse разбирает без ошибки, но
+	// с пустым Host — весь текст уходит в Path. Без проверки здесь download()
+	// на каждой ссылке молча отвергал бы её как чужую (пустой Host никогда
+	// не совпадёт с настоящим), и причина не была бы видна до первого вложения.
+	if base.Scheme == "" || base.Host == "" {
+		return nil, fmt.Errorf("base_url=%q: нет схемы или хоста (пример: https://jira.example.com)", cfg.BaseURL)
 	}
 	// Режим один, и это не упущение. Персональные токены появились в Jira Server
 	// с 8.14, а целевая версия — 8.13: проверить их не на чем, а необъявленное
@@ -182,12 +215,13 @@ func OpenAs(cfg Config, role string) (*Tracker, error) {
 	}
 
 	return &Tracker{
-		cfg:    cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
-		user:   os.Getenv(account.UserEnv),
-		secret: secret,
-		graph:  graph,
-		Now:    time.Now,
+		cfg:     cfg,
+		client:  &http.Client{Timeout: 30 * time.Second},
+		user:    os.Getenv(account.UserEnv),
+		secret:  secret,
+		graph:   graph,
+		baseURL: base,
+		Now:     time.Now,
 	}, nil
 }
 
@@ -482,6 +516,244 @@ func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
 	return t.update(key, map[string]any{t.cfg.Fields.Attempts: n})
 }
 
+// issueType — тип задачи для CreateTask, с дефолтом.
+func (t *Tracker) issueType() string {
+	if t.cfg.IssueType != "" {
+		return t.cfg.IssueType
+	}
+	return "Task"
+}
+
+// CreateTask заводит новую задачу. Статус создания решает workflow проекта
+// на инстансе — POST /issue не умеет задать статус, и эта реализация не
+// пытается: см. живую проверку (Task 8 плана
+// docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md).
+func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
+	var created struct {
+		Key string `json:"key"`
+	}
+	description := wiki(input.Description)
+	if input.DescriptionAppend != "" {
+		// Без wiki(): DescriptionAppend уже в чужой разметке (см. доккомент
+		// TaskInput.DescriptionAppend), повторный прогон исказил бы её.
+		// Разделитель — только когда есть что разделять: пустой Description
+		// с непустым DescriptionAppend не должен оставлять висячий отступ.
+		if description == "" {
+			description = input.DescriptionAppend
+		} else {
+			description += "\n\n" + input.DescriptionAppend
+		}
+	}
+	fields := map[string]any{
+		"project":     map[string]any{"key": project},
+		"summary":     input.Summary,
+		"description": description,
+		"issuetype":   map[string]any{"name": t.issueType()},
+	}
+	if len(input.Labels) > 0 {
+		fields["labels"] = input.Labels
+	}
+	if err := t.call(http.MethodPost, "/issue", map[string]any{"fields": fields}, &created); err != nil {
+		return tracker.TaskRef{}, err
+	}
+
+	task, err := t.Get(created.Key)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+	return task.Ref(), nil
+}
+
+// FindByMarker — задачи проекта с данной меткой, тем же JQL-поиском, что
+// ListReady/List.
+func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
+	jql := fmt.Sprintf(`project = %q AND labels = %q`, project, marker)
+	return t.searchProject(project, jql, searchPage, func(tracker.Task) bool { return true })
+}
+
+// upload выполняет multipart-запрос: вложения не JSON, и t.call им не
+// годится. X-Atlassian-Token обязателен — без него JIRA отклонит запись
+// вложения так же, как отклоняет её без basic-авторизации (см. call).
+func (t *Tracker) upload(path, filename string, data []byte) ([]byte, error) {
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	part, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, fmt.Errorf("вложение не собрано: %w", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return nil, fmt.Errorf("вложение не собрано: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("вложение не собрано: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, t.cfg.BaseURL+apiPath+path, &body)
+	if err != nil {
+		return nil, fmt.Errorf("запрос не собран: %w", err)
+	}
+	req.SetBasicAuth(t.user, t.secret)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("X-Atlassian-Token", "no-check")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", http.MethodPost, path, err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, statusError(http.MethodPost, path, resp.StatusCode, raw)
+	}
+	return raw, nil
+}
+
+// download читает вложение по прямой ссылке из ответа GET /attachment/{id}:
+// она не под /rest/api/2 и не отдаёт JSON, поэтому не годится t.call.
+//
+// Ссылку называет сам сервер, и доверять ей безоговорочно нельзя: если он
+// когда-нибудь отдаст адрес внешнего хранилища (S3 и подобное) вместо себя
+// самого, безусловный SetBasicAuth ниже отправил бы туда креды инстанса.
+// Редирект с другого хоста Go сам обрежет Authorization начиная с 1.8 —
+// это защита от прямо названного чужого адреса, не от редиректа.
+//
+// Сравнение — по разобранным scheme+host, не по префиксу строки: голый
+// strings.HasPrefix пропустил бы "<BaseURL>@чужой-хост/…" (до "@" — не хост,
+// а userinfo) или "<BaseURL>.чужой-хост/…" (другой домен с тем же началом) —
+// в обоих случаях итоговый хост запроса не совпадает с инстансом, хотя
+// строка с ним совпадает.
+//
+// Путь сверяется отдельно, когда у BaseURL он не пустой и не корень: инстанс
+// за контекстным путём (base_url вида "https://host/jira" — call()/upload()
+// уже строят из него BaseURL+apiPath+path) делит хост с чем угодно ещё на
+// этом же сервере, и голого совпадения scheme+host было бы мало — оно
+// пропустило бы "https://host/другое-приложение" как "свой" адрес. Обе части
+// сравниваются через path.Clean, чтобы ".." в ссылке не обошёл проверку.
+func (t *Tracker) download(dl string) ([]byte, error) {
+	u, err := url.Parse(dl)
+	if err != nil {
+		return nil, fmt.Errorf("вложение по ссылке %s: не разобрано: %w", dl, err)
+	}
+	foreign := fmt.Errorf("вложение по ссылке %s: сервер назвал адрес не своего инстанса (%s), запрос не отправлен",
+		dl, t.cfg.BaseURL)
+	if u.Scheme != t.baseURL.Scheme || u.Host != t.baseURL.Host {
+		return nil, foreign
+	}
+	if t.baseURL.Path != "" && t.baseURL.Path != "/" {
+		base := path.Clean(t.baseURL.Path)
+		got := path.Clean(u.Path)
+		if got != base && !strings.HasPrefix(got, base+"/") {
+			return nil, foreign
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodGet, dl, nil)
+	if err != nil {
+		return nil, fmt.Errorf("запрос вложения не собран: %w", err)
+	}
+	req.SetBasicAuth(t.user, t.secret)
+	req.Header.Set("X-Atlassian-Token", "no-check")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GET %s: %w", dl, err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("вложение не прочитано: %w", err)
+	}
+	if resp.StatusCode >= 300 {
+		return nil, statusError(http.MethodGet, dl, resp.StatusCode, raw)
+	}
+	return raw, nil
+}
+
+// AddAttachment сохраняет сырые данные вложением. Ответ JIRA на создание —
+// массив из одного элемента; возвращается его id.
+func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
+	if _, err := t.owned(key, by); err != nil {
+		return "", err
+	}
+
+	raw, err := t.upload("/issue/"+key+"/attachments", name, data)
+	if err != nil {
+		return "", err
+	}
+
+	var created []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &created); err != nil {
+		return "", fmt.Errorf("вложение %s: ответ не разобран: %w\n%s", key, err, snippet(raw))
+	}
+	if len(created) == 0 {
+		return "", fmt.Errorf("вложение %s: сервер не назвал идентификатор", key)
+	}
+	return created[0].ID, nil
+}
+
+// GetAttachment читает вложение обратно. key не используется: идентификаторы
+// вложений в JIRA глобальны — параметр входит в контракт ради файлового
+// трекера, которому путь по ключу задачи и нужен.
+func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
+	// Второй заслон, не только у ParseMarker (единственного сегодняшнего
+	// источника id): id склеивается прямо в REST-путь, и без проверки
+	// здесь значение вроде "../issue/VO-1" ушло бы на сервер как есть —
+	// а если тот сам нормализует ".." при маршрутизации (многие веб-
+	// фреймворки так делают), запрос попал бы на совсем другой эндпойнт
+	// (внешнее ревью, pr-converge раунд 3).
+	if !tracker.ValidAttachmentID(id) {
+		return nil, fmt.Errorf("%w: вложение %s", tracker.ErrNotFound, id)
+	}
+	var meta struct {
+		Content string `json:"content"`
+	}
+	if err := t.call(http.MethodGet, "/attachment/"+id, nil, &meta); err != nil {
+		return nil, err
+	}
+	return t.download(meta.Content)
+}
+
+// LinkDependsOn связывает key с dependsOnKey типом связи из конфигурации.
+//
+// dependsOnKey — исходящая (outward) сторона запроса, key — входящая
+// (inward): эмпирически проверено на живом JIRA Server 8.13
+// (2026-09-06, throwaway-тикеты на полигоне, тип Blocks для независимой
+// сверки, отчёт — docs/notes/analyst-task-splitting.md, «Живой прогон,
+// нашедший разворот direction») — сервер описывает связь через ТУ сторону,
+// которая передана как inwardIssue, используя outward-текст типа, а не
+// наоборот. Иными словами: результат POST {outwardIssue: O, inwardIssue: I}
+// читается как «I <outward-текст> O», не «O <outward-текст> I». Прежняя
+// версия (outwardIssue: key, inwardIssue: dependsOnKey) была развёрнута —
+// прошла собственные юнит-тесты (они проверяли только форму запроса, не
+// его смысл на реальном сервере) и не была поймана живой проверкой Task 8,
+// которая тоже сверяла только факт создания связи, не её видимое
+// направление на обеих карточках.
+//
+// Не идемпотентна на стороне клиента (в отличие от mock.LinkDependsOn,
+// которая проверяет slices.Contains перед записью) — повтор после сбоя
+// (completeSplit ретраит весь путь целиком) полагается на то, что сам
+// JIRA Server дедуплицирует одинаковый POST /issueLink; проверено
+// эмпирически на паре одноразовых тикетов (docs/notes/analyst-task-
+// splitting.md), не гарантировано контрактом REST API.
+func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
+	if t.cfg.DependsOnLink == "" {
+		return fmt.Errorf("depends_on_link не задан в tracker.yaml: связь %s → %s не создана", key, dependsOnKey)
+	}
+	if _, err := t.owned(key, by); err != nil {
+		return err
+	}
+	return t.call(http.MethodPost, "/issueLink", map[string]any{
+		"type":         map[string]any{"name": t.cfg.DependsOnLink},
+		"outwardIssue": map[string]any{"key": dependsOnKey},
+		"inwardIssue":  map[string]any{"key": key},
+	}, nil)
+}
+
 // owned читает задачу и проверяет право актора её менять. Правило общее для всех
 // трекеров и живёт в пакете tracker: разъехавшись, реализации дали бы гонку.
 func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, error) {
@@ -669,6 +941,17 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 				continue
 			}
 			task.Labels = append(task.Labels, name)
+		}
+	}
+	if attachments, ok := fields["attachment"].([]any); ok {
+		for _, raw := range attachments {
+			meta, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			task.Attachments = append(task.Attachments, tracker.AttachmentRef{
+				ID: text(meta["id"]), Name: text(meta["filename"]),
+			})
 		}
 	}
 	return task

@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
@@ -9,6 +10,28 @@ import (
 
 // Prefix — с чего начинается любая запись офиса в трекере.
 const Prefix = "[office "
+
+// attachmentIDPattern — форма значения attachment:. И mock, и jira строят
+// из этого значения путь/URL к вложению напрямую (mock.GetAttachment:
+// filepath.Join, jira.GetAttachment: часть REST-пути) — а маркер разбирается
+// по тексту комментария, не по праву владения его автора (pr-converge,
+// принятый риск «подлинность маркера не проверяется»). Без ограничения
+// алфавита значение вроде "../../OTHER-1/attachments/0" увело бы mock-чтение
+// за пределы каталога задачи. Реальные id (`nextExclusive` у mock, числовые
+// у jira) укладываются в куда более узкий алфавит — этот не режет ничего,
+// что тракеры сами когда-либо порождают.
+var attachmentIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// ValidAttachmentID проверяет id вложения по той же форме, что ParseMarker
+// требует на чтении attachment:. Экспортирован ради записи: AddAttachment
+// у jira отдаёт id, который назвал сам сервер, без всякой проверки — если
+// он однажды выйдет за этот алфавит, маркер с ним всё равно не переживёт
+// собственное чтение (ParseMarker его отвергнет), и офис перестанет видеть
+// свой же отчёт. Лучше отказать здесь, на записи, с понятной причиной, чем
+// молча сломаться там.
+func ValidAttachmentID(id string) bool {
+	return attachmentIDPattern.MatchString(id)
+}
 
 // События записей раннера — тех, что делает не агент, а обвязка вокруг него.
 //
@@ -71,6 +94,14 @@ const (
 	// не входит — открытый PR конфликт не закрывает.
 	EventMergeConflict = "merge-conflict"
 
+	// EventSplitCreated — CompleteSplits досоздал и связал всех детей
+	// подтверждённого split-предложения, родитель закрыт.
+	EventSplitCreated = "split-created"
+	// EventSplitCreateFailed — попытка CompleteSplits на этом тикете не
+	// удалась; идемпотентный опрос трекера делает повтор безопасным,
+	// это не расход попытки агента.
+	EventSplitCreateFailed = "split-create-failed"
+
 	// EventBudgetExceeded — задача перевалила за свой предел расхода, но работа
 	// продолжается: предел в режиме warn. Пишется до захвата, когда аренды ещё нет,
 	// и потому системная.
@@ -102,8 +133,14 @@ type Marker struct {
 	// граф. Без него «вернул на доработку» и «одобрил» в переписке
 	// неразличимы, а круги «правки → ревью» считать нечем. Необязателен:
 	// у системных записей его нет вовсе, у отчётов этапа 2 не было.
-	Next      string
-	ConfigSHA string // SHA конфига, возможно с суффиксом -dirty
+	Next string
+	// Attachment — id вложения с сырыми данными исхода (сегодня только
+	// split.children[]): второй раунд подтверждения split читает его,
+	// не переразбирая человекочитаемый текст комментария (SplitConfirmed).
+	// Значим только у отчётов, как и Next — у системных записей вложения
+	// не бывает.
+	Attachment string
+	ConfigSHA  string // SHA конфига, возможно с суффиксом -dirty
 }
 
 // String собирает первую строку комментария.
@@ -115,9 +152,12 @@ func (m Marker) String() string {
 
 	fields := []string{"run:" + shorten(m.RunID), "role:" + m.Role, kind + ":" + value}
 	// Пустое значение поля маркером не является вовсе (см. ParseMarker),
-	// поэтому пустой next в строку не идёт.
+	// поэтому пустые next и attachment в строку не идут.
 	if m.Next != "" && m.Outcome != "" {
 		fields = append(fields, "next:"+m.Next)
+	}
+	if m.Attachment != "" && m.Outcome != "" {
+		fields = append(fields, "attachment:"+m.Attachment)
 	}
 	return Prefix + strings.Join(append(fields, "config:"+shortenSHA(m.ConfigSHA)), " ") + "]"
 }
@@ -127,7 +167,8 @@ func (m Marker) String() string {
 // нет, и передавать ей нечего.
 func (m Marker) Valid() bool {
 	oneKind := (m.Outcome == "") != (m.Event == "")
-	return oneKind && m.Role != "" && m.RunID != "" && (m.Next == "" || m.Outcome != "")
+	return oneKind && m.Role != "" && m.RunID != "" &&
+		(m.Next == "" || m.Outcome != "") && (m.Attachment == "" || m.Outcome != "")
 }
 
 // ParseMarker разбирает первую строку комментария. Разбор строгий: неизвестный
@@ -157,6 +198,11 @@ func ParseMarker(line string) (Marker, bool) {
 			m.Event = value
 		case "next":
 			m.Next = value
+		case "attachment":
+			if !attachmentIDPattern.MatchString(value) {
+				return Marker{}, false
+			}
+			m.Attachment = value
 		case "config":
 			m.ConfigSHA = value
 		default:
@@ -364,6 +410,75 @@ func HasEvent(comments []Comment, event string) bool {
 		}
 	}
 	return false
+}
+
+// EventCategories — множество уже сказанных причин для данного события:
+// первая строка текста (без строки маркера — NoticeBody кладёт маркер
+// первой строкой, текст дальше) каждой записи с этим событием, по всей
+// переписке, а не только последней. Нужен там, где дедупликация обязана
+// сравнивать причину, а не только факт события: HasEvent сказал бы «уже
+// сообщено» и для тикета, который свежая, другая по сути беда постигла
+// уже после первой (splitFailed).
+//
+// По ВСЕЙ переписке, не по последней записи (LastEventText — прежняя,
+// более узкая версия этой функции — сравнивала только с ней): если ранний
+// шаг падает изредка, а поздний — стабильно, их причины чередуются между
+// циклами Loop, и сравнение с последней всегда видело бы «новую» причину,
+// хотя обе уже звучали (внешнее ревью, pr-converge раунд 3).
+func EventCategories(comments []Comment, event string) map[string]bool {
+	categories := make(map[string]bool)
+	for _, c := range comments {
+		m, ok := MarkerOf(c.Body)
+		if !ok || m.Event != event {
+			continue
+		}
+		_, rest, _ := strings.Cut(c.Body, "\n")
+		category, _, _ := strings.Cut(strings.TrimSpace(rest), "\n")
+		categories[category] = true
+	}
+	return categories
+}
+
+// SplitConfirmed решает, подтверждён ли split этой роли: считает все
+// комментарии-маркеры outcome:split от role в переписке — второй такой
+// маркер и есть подтверждение. Общий с DESIGN.md §2.8 приём — состояние
+// выводится из переписки на лету, а не хранится отдельным флагом, — а не
+// то же самое правило: §2.8 берёт последнюю запись, здесь считает счётчик.
+//
+// Считает по всей истории, а не суффиксом с конца (в отличие от
+// eventStreak/ReturnRounds): между двумя split-маркерами роли лежит
+// системная запись event:human-reply с тем же Role (unblock() подписывает
+// её ролью, которой был задан вопрос) — суффиксный счёт оборвался бы на
+// ней, посчитав её «другой записью этой роли». Повторное «пересмотреть»
+// несколько раз подряд этот плоский счёт не отличает от подтверждения —
+// принятое упрощение этой волны, не забытый случай
+// (docs/notes/analyst-task-splitting.md, «открытый вопрос» волны 1).
+//
+// attachmentID берётся из тега **последнего** такого маркера: если человек
+// просил пересмотреть несколько раз, старые вложения остаются в истории,
+// актуально только последнее.
+//
+// Подтверждения без вложения быть не может: под старой (до задачи 10) версией
+// role.md split-маркеры вложения не несли вовсе, и тикет, доживший под ней
+// до второго такого маркера, отдал бы confirmed=true с пустым attachmentID —
+// CompleteSplits затем звал бы GetAttachment(key, "") и падал бы на этом
+// тикете каждый цикл Loop, бесконечно. Поэтому пустой attachmentID
+// у последнего маркера — тоже «ещё не подтверждено», а не «подтверждено,
+// но нечего читать».
+func SplitConfirmed(comments []Comment, role string) (confirmed bool, attachmentID string) {
+	count := 0
+	for _, c := range comments {
+		m, ok := MarkerOf(c.Body)
+		if !ok || m.Role != role || m.Outcome != "split" {
+			continue
+		}
+		count++
+		attachmentID = m.Attachment
+	}
+	if attachmentID == "" {
+		return false, ""
+	}
+	return count >= 2, attachmentID
 }
 
 // IsHandover — передаёт ли отчёт задачу дальше по конвейеру, то есть закрывает

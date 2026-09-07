@@ -1,7 +1,11 @@
 package mock
 
 import (
+	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -639,5 +643,224 @@ func TestReportSurvivesRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(stored, "https://github.com/kao73/office-pr-probe/pull/1") {
 		t.Errorf("адрес в артефактах изменился:\n%s", stored)
+	}
+}
+
+func TestCreateTaskThenFindByMarker(t *testing.T) {
+	tr := fixture(t) // OFF-1 уже есть; следующий ключ — OFF-2
+
+	ref, err := tr.CreateTask("OFF", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Модель, миграция, CRUD категорий.",
+		Labels: []string{"split-child:OFF-1:category-crud"},
+	})
+	if err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	if ref.Key != "OFF-2" {
+		t.Errorf("ключ %q, ожидался OFF-2", ref.Key)
+	}
+	if ref.Status != "Analysis" {
+		t.Errorf("статус %q, ожидался Analysis", ref.Status)
+	}
+
+	found, err := tr.FindByMarker("OFF", "split-child:OFF-1:category-crud")
+	if err != nil {
+		t.Fatalf("поиск по метке не удался: %v", err)
+	}
+	if len(found) != 1 || found[0].Key != "OFF-2" {
+		t.Errorf("найдено %+v, ожидалась одна OFF-2", found)
+	}
+}
+
+func TestFindByMarkerEmptyWhenNoneMatch(t *testing.T) {
+	tr := fixture(t)
+	found, err := tr.FindByMarker("OFF", "split-child:OFF-1:none")
+	if err != nil {
+		t.Fatalf("поиск по метке не удался: %v", err)
+	}
+	if len(found) != 0 {
+		t.Errorf("найдено %+v, ожидался пустой список", found)
+	}
+}
+
+func TestCreateTaskCollisionFailsInsteadOfOverwriting(t *testing.T) {
+	tr := fixture(t)
+	if err := os.Mkdir(filepath.Join(tr.Root(), "OFF-2"), 0o755); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+
+	if _, err := tr.CreateTask("OFF", tracker.TaskInput{Summary: "x", Description: "y"}); err == nil {
+		t.Error("коллизия ключа с уже существующим каталогом не замечена")
+	}
+}
+
+func TestAddAttachmentThenGetAttachmentRoundTrips(t *testing.T) {
+	tr := fixture(t)
+	data := []byte(`{"children":[{"id":"a","title":"A","description":"d"}]}`)
+
+	id, err := tr.AddAttachment("OFF-1", tracker.BySystem(), "split.json", data)
+	if err != nil {
+		t.Fatalf("вложение не сохранено: %v", err)
+	}
+
+	got, err := tr.GetAttachment("OFF-1", id)
+	if err != nil {
+		t.Fatalf("вложение не прочитано: %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Errorf("вложение %q, ожидалось %q", got, data)
+	}
+}
+
+// TestAddAttachmentPreservesNameInGet доказывает, что Get() видит имя
+// вложения, а не только его номер — без сайдкара attachmentHead раньше
+// name у AddAttachment ни на что не влиял (см. правку "видимость вложений").
+func TestAddAttachmentPreservesNameInGet(t *testing.T) {
+	tr := fixture(t)
+
+	id, err := tr.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные"))
+	if err != nil {
+		t.Fatalf("вложение не сохранено: %v", err)
+	}
+
+	task, err := tr.Get("OFF-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if len(task.Attachments) != 1 {
+		t.Fatalf("вложений %d, ожидалось 1: %+v", len(task.Attachments), task.Attachments)
+	}
+	if got := task.Attachments[0]; got.ID != id || got.Name != "schema.png" {
+		t.Errorf("вложение %+v, ожидалось {ID:%s Name:schema.png}", got, id)
+	}
+}
+
+// TestGetToleratesTaskDirectoryWithoutAttachmentsSubdir воспроизводит задачу
+// старше этой правки (Add начал создавать attachments/ только здесь) или
+// заведённую руками по прежде документированному слою хранилища — оба
+// случая легальны согласно самому пакетному доккомменту ("правится руками").
+// Get() не должен валиться на отсутствии подкаталога, а list() — тем более:
+// одна такая задача иначе валила бы ListReady/List/FindByMarker для всего
+// проекта, а не только чтение этой задачи.
+func TestGetToleratesTaskDirectoryWithoutAttachmentsSubdir(t *testing.T) {
+	tr := fixture(t)
+	if err := os.RemoveAll(filepath.Join(tr.root, "OFF-1", attachmentsDir)); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+
+	task, err := tr.Get("OFF-1")
+	if err != nil {
+		t.Fatalf("Get не должен падать на отсутствии attachments/: %v", err)
+	}
+	if len(task.Attachments) != 0 {
+		t.Errorf("вложений %d, ожидалось 0", len(task.Attachments))
+	}
+
+	refs, err := tr.ListReady("OFF", "Ready")
+	if err != nil {
+		t.Fatalf("ListReady не должен падать на одной задаче без attachments/: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Key != "OFF-1" {
+		t.Errorf("ListReady вернул %+v, ожидалась одна OFF-1", refs)
+	}
+
+	if _, err := tr.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные")); err != nil {
+		t.Fatalf("AddAttachment не должен падать на отсутствии attachments/, обязан досоздать каталог: %v", err)
+	}
+}
+
+// TestCreateTaskJoinsEmptyDescriptionWithAppendCleanly — тот же случай, что
+// и на jira: TaskInput допускает пустой Description с непустым
+// DescriptionAppend, и голая конкатенация оставляла бы висячий отступ.
+func TestCreateTaskJoinsEmptyDescriptionWithAppendCleanly(t *testing.T) {
+	tr := fixture(t)
+	ref, err := tr.CreateTask("OFF", tracker.TaskInput{
+		Summary: "Category CRUD", DescriptionAppend: "исходный текст",
+	})
+	if err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	task, err := tr.Get(ref.Key)
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if strings.HasPrefix(task.Description, "\n") || strings.HasPrefix(task.Description, " ") {
+		t.Errorf("description начинается с висячего отступа: %q", task.Description)
+	}
+}
+
+func TestGetAttachmentUnknownIDFails(t *testing.T) {
+	tr := fixture(t)
+	if _, err := tr.GetAttachment("OFF-1", "9999"); !errors.Is(err, tracker.ErrNotFound) {
+		t.Errorf("ошибка %v, ожидался ErrNotFound", err)
+	}
+}
+
+// TestGetAttachmentRejectsIDOutsideMarkerAlphabet — заслон от path traversal
+// (ParseMarker, attachmentIDPattern) сегодня единственный и стоит далеко от
+// стока: сам GetAttachment id, из которого строит путь filepath.Join,
+// никак не проверяет. Канарейка вне хранилища доказывает, что побег реален,
+// а не гипотетичен: без здешнего заслона запрос вида id="../../canary.txt"
+// (attachments/../.. поднимает на уровень выше каталога задачи) читает файл
+// вне дерева вложений вообще. Второй, здешний заслон делает отказ свойством
+// самого метода, а не только вызывающего через маркер (внешнее ревью,
+// pr-converge раунд 3).
+func TestGetAttachmentRejectsIDOutsideMarkerAlphabet(t *testing.T) {
+	tr := fixture(t)
+	canary := filepath.Join(tr.root, "canary.txt")
+	if err := os.WriteFile(canary, []byte("не должно быть прочитано через GetAttachment"), 0o644); err != nil {
+		t.Fatalf("канарейка не создана: %v", err)
+	}
+
+	if _, err := tr.GetAttachment("OFF-1", "../../canary.txt"); err == nil {
+		t.Error("id с разделителями пути должен быть отвергнут заслоном, а не дойти до чтения файла вне хранилища")
+	}
+}
+
+func TestAddAttachmentRequiresOwnership(t *testing.T) {
+	tr := fixture(t)
+	if err := claim(tr, "прогон-1"); err != nil {
+		t.Fatalf("захват не удался: %v", err)
+	}
+	if _, err := tr.AddAttachment("OFF-1", tracker.ByRun("чужой"), "x", []byte("y")); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("ошибка %v, ожидался ErrNotOwner", err)
+	}
+}
+
+func TestLinkDependsOnRecordsDependency(t *testing.T) {
+	tr := fixture(t)
+	if _, err := tr.CreateTask("OFF", tracker.TaskInput{
+		Summary: "B", Description: "d", Labels: []string{"split-child:OFF-1:b"},
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+
+	if err := tr.LinkDependsOn("OFF-2", "OFF-1", tracker.BySystem()); err != nil {
+		t.Fatalf("связь не записана: %v", err)
+	}
+
+	task, err := tr.Get("OFF-2")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if !slices.Contains(task.DependsOn, "OFF-1") {
+		t.Errorf("DependsOn %v не содержит OFF-1", task.DependsOn)
+	}
+}
+
+func TestLinkDependsOnIsIdempotent(t *testing.T) {
+	tr := fixture(t)
+	if err := tr.LinkDependsOn("OFF-1", "OFF-1", tracker.BySystem()); err != nil {
+		t.Fatalf("связь не записана: %v", err)
+	}
+	if err := tr.LinkDependsOn("OFF-1", "OFF-1", tracker.BySystem()); err != nil {
+		t.Fatalf("повторная связь не должна падать: %v", err)
+	}
+	task, err := tr.Get("OFF-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if len(task.DependsOn) != 1 {
+		t.Errorf("DependsOn %v — связь задвоилась", task.DependsOn)
 	}
 }

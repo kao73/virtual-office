@@ -8,6 +8,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -417,11 +418,16 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		RunID: runID, Role: roleName, ConfigSHA: o.ConfigSHA,
 		StartedAt: o.now(), TaskKey: task.Key, BaseCommit: base,
 	}
+	attachments, err := o.fetchAttachments(task)
+	if err != nil {
+		return err
+	}
 	input := runner.Input{
-		Task:       taskBody(task),
-		Branch:     ws.Branch,
-		BaseBranch: "origin/" + c.project.DefaultBranch,
-		Context:    contextBody(task, roleName, o.Accounts, o.Workflow.Limits.MaxAttempts),
+		Task:        taskBody(task),
+		Branch:      ws.Branch,
+		BaseBranch:  "origin/" + c.project.DefaultBranch,
+		Context:     contextBody(task, roleName, o.Accounts, o.Workflow.Limits.MaxAttempts),
+		Attachments: attachments,
 	}
 	if err := runner.PrepareInput(ws.Dir, role, passport, input); err != nil {
 		return err
@@ -729,9 +735,35 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	}
 
 	by := tracker.ByRun(runID)
+
+	// Вложение — раньше маркера: тегу attachment:<id> нужен уже готовый id,
+	// а второй раунд подтверждения split читает его именно оттуда, не
+	// переразбирая человекочитаемый текст комментария
+	// (internal/pipeline/splits.go, tracker.SplitConfirmed).
+	var attachmentID string
+	if result.Outcome == runner.OutcomeSplit && result.Split != nil {
+		data, err := json.Marshal(result.Split)
+		if err != nil {
+			return "", fmt.Errorf("вложение с разбивкой не собрано: %w", err)
+		}
+		attachmentID, err = o.Tracker.AddAttachment(task.Key, by, runner.SplitAttachmentName, data)
+		if err != nil {
+			return "", fmt.Errorf("вложение с разбивкой не сохранено: %w", err)
+		}
+		// id называет сам сервер (jira.AddAttachment отдаёт его из ответа
+		// без проверки) — если он однажды выйдет за алфавит, который
+		// ParseMarker требует на чтении attachment:, свой же отчёт станет
+		// для офиса невидимым молча. Лучше отказать здесь, с понятной
+		// причиной (внешнее ревью, pr-converge раунд 2).
+		if !tracker.ValidAttachmentID(attachmentID) {
+			return "", fmt.Errorf("вложение с разбивкой сохранено, но сервер назвал id %q — вне алфавита, "+
+				"который переживает запись маркера", attachmentID)
+		}
+	}
+
 	marker := tracker.Marker{
 		RunID: runID, Role: roleName, Outcome: string(result.Outcome),
-		Next: result.NextOwner, ConfigSHA: o.ConfigSHA,
+		Next: result.NextOwner, Attachment: attachmentID, ConfigSHA: o.ConfigSHA,
 	}
 
 	// Круги считаются по маркерам, а этот ещё не написан: к прошлым добавляется
@@ -1023,6 +1055,22 @@ func (o *Office) sweep(task tracker.Task) {
 // Это не демон и не supervisor: он не следит за собой, не перезапускается
 // и не держит состояния между циклами. Ошибка цикла — повод сказать о ней
 // и пойти дальше, а не умереть: следующий заход может пройти.
+//
+// CompleteSplits идёт после tickOnce, а не до него, и порядок здесь не
+// косметика. tickOnce зовёт Tick или TickAll, а оба первым делом —
+// HumanReplies: реплика человека, пришедшая между циклами, обязана увести
+// задачу из Blocked раньше, чем до неё дойдёт CompleteSplits. Иначе тикет с
+// двумя подтверждающими split-маркерами всё ещё лежал бы в Blocked, когда
+// CompleteSplits его увидит, и автосоздание тикетов-детей в реальном
+// трекере состоялось бы вопреки ответу, который никто ещё не прочитал.
+// Гонку внутри одного и того же цикла это не убирает целиком — реплика
+// может прийти и посреди самого CompleteSplits, — а лишь ставит проверку
+// на менее опасную сторону порядка.
+//
+// Reap перед tickOnce не переставлен: он разбирает задачи с истёкшей
+// арендой (в работе у роли), а не задачи в Blocked, где эта гонка вообще
+// возможна, — то же разделение ролей, что различает ListExpired и
+// HumanStatuses.
 func (o *Office) Loop(ctx context.Context, every time.Duration, roleName string) error {
 	for {
 		if err := o.Reap(ctx); err != nil {
@@ -1030,6 +1078,9 @@ func (o *Office) Loop(ctx context.Context, every time.Duration, roleName string)
 		}
 		if err := o.tickOnce(ctx, roleName); err != nil {
 			o.logf("tick: %v", err)
+		}
+		if err := o.CompleteSplits(ctx); err != nil {
+			o.logf("complete-splits: %v", err)
 		}
 
 		select {
@@ -1156,6 +1207,63 @@ func (o *Office) logf(format string, args ...any) {
 	fmt.Fprintf(out, format+"\n", args...)
 }
 
+// splitAttachmentIDs — id вложений, которые роль сама записала себе как
+// split.json (attachment:<id> настоящего outcome:split-маркера этой
+// задачи), а не человек. Сверка по id, не по имени файла: человек,
+// приложивший СВОЙ файл случайно с тем же именем runner.SplitAttachmentName,
+// не должен молча потерять его в humanAttachments (внешнее ревью,
+// pr-converge раунд 1).
+//
+// Осознанный узкий риск (раунд 2 предложил вернуть имя вторым условием,
+// решено не делать): прогон, упавший между AddAttachment и записью
+// маркера (finish(), pipeline.go), оставляет split.json без маркера —
+// такое вложение навсегда считается человеческим. Реже и мягче, чем
+// потерянный вручную приложенный файл, который правка раунда 1 закрывала.
+func splitAttachmentIDs(task tracker.Task) map[string]bool {
+	ids := make(map[string]bool)
+	for _, c := range task.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Outcome == string(runner.OutcomeSplit) && m.Attachment != "" {
+			ids[m.Attachment] = true
+		}
+	}
+	return ids
+}
+
+// humanAttachments — вложения тикета без служебных (split.json — переписка
+// раннера с самим собой): то, что агенту стоит увидеть. Один фильтр на
+// упоминание в task.md (taskBody), материализацию в рабочую папку (work())
+// и наследование split-детьми (splits.go, ensureChildAttachments) — иначе
+// список «что видит агент» разъехался бы по трём местам.
+func humanAttachments(task tracker.Task) []tracker.AttachmentRef {
+	service := splitAttachmentIDs(task)
+	out := make([]tracker.AttachmentRef, 0, len(task.Attachments))
+	for _, a := range task.Attachments {
+		if service[a.ID] {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// fetchAttachments скачивает человеческие (не служебные, см. humanAttachments)
+// вложения тикета — то, что PrepareInput положит агенту в рабочую папку.
+func (o *Office) fetchAttachments(task tracker.Task) ([]runner.InputAttachment, error) {
+	refs := humanAttachments(task)
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	out := make([]runner.InputAttachment, len(refs))
+	for i, ref := range refs {
+		data, err := o.Tracker.GetAttachment(task.Key, ref.ID)
+		if err != nil {
+			return nil, fmt.Errorf("вложение %s/%s не скачано: %w", task.Key, ref.Name, err)
+		}
+		out[i] = runner.InputAttachment{Name: ref.Name, Data: data}
+	}
+	return out, nil
+}
+
 // taskBody — постановка задачи для агента. Всё, что знает трекер, и ничего
 // про аренду и попытки: это хозяйство раннера, а не работа.
 func taskBody(task tracker.Task) string {
@@ -1166,6 +1274,19 @@ func taskBody(task tracker.Task) string {
 	}
 	if len(task.Labels) > 0 {
 		fmt.Fprintf(&b, "\nМетки: %s\n", strings.Join(task.Labels, ", "))
+	}
+	if attachments := humanAttachments(task); len(attachments) > 0 {
+		names := make([]string, len(attachments))
+		for i, a := range attachments {
+			names[i] = a.Name
+		}
+		// ResolveAttachmentNames — та же функция, что использует
+		// runner.PrepareInput для записи файлов на диск: без общей
+		// функции постановка называла бы файл так, как его назвал
+		// человек, а не так, как он реально лёг на диск после
+		// санитации/разрешения коллизий (независимое ревью).
+		fmt.Fprintf(&b, "\nВложения (файлы лежат в %s/%s/): %s\n",
+			runner.Dir, runner.DirAttachments, strings.Join(runner.ResolveAttachmentNames(names), ", "))
 	}
 	return b.String()
 }

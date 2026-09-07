@@ -19,6 +19,11 @@ import (
 // Dir — каталог обмена внутри workdir.
 const Dir = ".agent"
 
+// DirAttachments — подкаталог вложений тикета внутри Dir. Отдельно от
+// FileTask/FileContext: вложения — настоящие файлы (в них бывают картинки,
+// PDF), а не текст, который можно вписать в markdown.
+const DirAttachments = "attachments"
+
 // Файлы обмена.
 const (
 	FileTask    = "task.md"
@@ -43,8 +48,11 @@ const (
 	// OutcomeSplit — постановка описывает несколько независимых сущностей
 	// или возможностей и её предлагается резать на подзадачи, а не вести
 	// одним изменением Comet Native. Несёт questions (как needs_human) и
-	// split.children[] — структурированное предложение разбивки; подзадачи
-	// по-прежнему заводит человек, split их не создаёт (roles/analyst/role.md).
+	// split.children[] — структурированное предложение разбивки; сам агент
+	// тикеты не заводит и трекер не трогает — после второго подряд
+	// подтверждающего split от той же роли это делает раннер, детерминированным
+	// кодом, без нового прогона (internal/pipeline/splits.go, CompleteSplits;
+	// roles/analyst/role.md).
 	OutcomeSplit Outcome = "split"
 )
 
@@ -126,18 +134,49 @@ type Result struct {
 	Split *Split `json:"split,omitempty"`
 }
 
+// SplitAttachmentName — имя, под которым раннер сохраняет вложение
+// runner.Split (Office.record, internal/pipeline/pipeline.go). Служебная
+// переписка раннера с самим собой, не то, что человек прикладывал к
+// тикету, — по этому имени материализация вложений в рабочую папку агента
+// (Office.humanAttachments) и наследование их split-детьми
+// (splits.go, ensureChildAttachments) его исключают.
+const SplitAttachmentName = "split.json"
+
 // Split — структурированное предложение разбить постановку на подзадачи.
-// Подзадачи заводит человек — split их не создаёт и не трогает трекер;
-// это машиночитаемая замена прозе, которую пришлось бы разбирать вручную.
+// Сам агент тикеты не заводит и трекер не трогает: после второго подряд
+// подтверждающего split от той же роли раннер сам заводит и связывает
+// тикеты-детей, детерминированным кодом, без нового прогона агента
+// (internal/pipeline/splits.go, CompleteSplits) — это машиночитаемая
+// замена прозе, которую иначе пришлось бы разбирать вручную.
 type Split struct {
 	Children []SplitChild `json:"children"`
 }
 
+// Validate перепроверяет граф подзадач вложения тем же правилом, что
+// Result.Validate применяет при первой публикации агентом (validateSplitChildren,
+// findSplitCycle). Нужен второму читателю: между записью вложения и его вторым
+// раундом чтения (internal/pipeline/splits.go, CompleteSplits) оно лежит
+// в трекере само по себе, и человек, правящий вложение руками, или порча
+// хранилища может внести то, чего агент не писал, — пустой или повторённый
+// id, ссылку на несуществующий, цикл. Не перепроверять значило бы доверять
+// данным трекера так же, как только что написанному агентом файлу, — а это
+// разные степени доверия.
+func (s Split) Validate() error {
+	var errs []error
+	if len(s.Children) == 0 {
+		errs = append(errs, errors.New("split.children пуст"))
+	}
+	errs = append(errs, validateSplitChildren(s.Children)...)
+	return errors.Join(errs...)
+}
+
 // SplitChild — одна предлагаемая подзадача.
 //
-// DependsOn в этой волне — чисто информационное поле для человека: он сам
-// решает очерёдность заведения и запуска подзадач. Программно на него никто
-// не опирается (docs/notes/analyst-task-splitting.md, «Волна 2»).
+// DependsOn читает и исполняет раннер сам: CompleteSplits связывает уже
+// созданных детей по этому полю через Tracker.LinkDependsOn тем же проходом,
+// что заводит тикеты (internal/pipeline/splits.go) — это не только
+// информация для человека, как было до автосоздания
+// (docs/notes/analyst-task-splitting.md, «Волна 2»).
 type SplitChild struct {
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
@@ -227,15 +266,25 @@ func (r Result) Validate() error {
 		errs = append(errs, fmt.Errorf("blocker заполнен при outcome=%q: блокер только для blocked", r.Outcome))
 	}
 
-	if r.Outcome == OutcomeSplit {
-		if r.Split == nil || len(r.Split.Children) == 0 {
-			errs = append(errs, errors.New("outcome=split, но split.children пуст"))
+	// Проверка графа детей — одна, в Split.Validate(), а не повторена
+	// здесь же: та же проверка нужна и второму читателю (splits.go,
+	// CompleteSplits, читает вложение заново из трекера) — разъехавшись,
+	// эти две копии однажды проверяли бы не одно и то же.
+	//
+	// Ветка "split заполнен при неверном outcome" ниже граф детей больше
+	// не проверяет (раньше проверяла — pr-converge раунд 2 это заметил):
+	// намеренно. Несовпадение outcome уже названо, и agent увидит его
+	// первым; звать заодно и про граф значило бы лечить структуру
+	// вложения, которое агенту всё равно указано убрать целиком.
+	switch {
+	case r.Outcome == OutcomeSplit && r.Split == nil:
+		errs = append(errs, errors.New("outcome=split, но split.children пуст"))
+	case r.Outcome == OutcomeSplit:
+		if err := r.Split.Validate(); err != nil {
+			errs = append(errs, err)
 		}
-	} else if r.Split != nil {
+	case r.Split != nil:
 		errs = append(errs, fmt.Errorf("split заполнен при outcome=%q: split только для outcome=split", r.Outcome))
-	}
-	if r.Split != nil {
-		errs = append(errs, validateSplitChildren(r.Split.Children)...)
 	}
 
 	return errors.Join(errs...)
@@ -445,7 +494,8 @@ func ResultSpec(resultFile string) string {
   протокола. Длинное объяснение — в ` + "`details_md`" + `.
 - ` + "`blocker`" + ` — только при ` + "`outcome=blocked`" + `.
 - ` + "`split`" + ` — только при ` + "`outcome=split`" + `, с непустым ` + "`children`" + `.
-  Каждый ребёнок — будущий тикет, который заведёт человек, не ты: ` + "`id`" + ` —
+  Каждый ребёнок — будущий тикет; не ты его заведёшь и свяжешь — при повторном
+  подтверждении это делает раннер сам, детерминированным кодом. ` + "`id`" + ` —
   свой короткий ключ без пробелов (не ключ трекера — его ещё нет), ` + "`title`" + ` — заголовок,
   ` + "`description`" + ` — суть в 1-3 предложения, как верхнеуровневый ` + "`summary`" + `.
   Оба — **одной строкой каждый**, как текст вопроса; подробный план для

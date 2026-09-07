@@ -1,6 +1,7 @@
 package jira
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,13 +27,19 @@ var now = time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 type fakeJira struct {
 	t *testing.T
 
-	status     string
-	runID      string
-	owner      string
-	leaseUntil string
-	attempts   float64
-	labels     []string
-	comments   []map[string]any
+	// hitPaths — путь каждого дошедшего запроса, по порядку. Нужен там, где
+	// проверяется, что заслон отказал ДО отправки запроса, а не полагается
+	// на то, что сервер сам ответит 404 незнакомому пути.
+	hitPaths []string
+
+	status           string
+	runID            string
+	owner            string
+	leaseUntil       string
+	attempts         float64
+	labels           []string
+	comments         []map[string]any
+	issueAttachments []map[string]any
 
 	// verifyRunID подменяет run_id при перечитывании после захвата: так выглядит
 	// проигранная гонка, ради которой сверка и делается.
@@ -58,6 +65,35 @@ type fakeJira struct {
 	// в projects.yaml: JQL по несуществующему проекту JIRA отвергает.
 	badSearch    bool
 	knownProject string
+
+	// nextKey — ключ, который вернёт POST /issue. Пусто — по умолчанию VO-2.
+	nextKey string
+	created []fakeIssue
+
+	// baseURL — адрес тестового сервера. Нужен, чтобы отдавать в метаданных
+	// вложения абсолютную ссылку content, как это делает настоящая JIRA.
+	baseURL     string
+	attachments []fakeAttachment
+
+	// contentHost — если задан, метаданные вложения называют content по этому
+	// адресу вместо baseURL: так подделывается сервер, отдающий ссылку на чужой
+	// хост (S3 и подобное) вместо себя самого.
+	contentHost string
+
+	// issueLinks — тела POST /issueLink, принятые сервером, в порядке прихода.
+	issueLinks []map[string]any
+}
+
+// fakeIssue — задача, заведённая через POST /issue в этом тесте.
+type fakeIssue struct {
+	key    string
+	fields map[string]any
+}
+
+// fakeAttachment — вложение, принятое через POST /issue/{key}/attachments.
+type fakeAttachment struct {
+	id, name string
+	data     []byte
 }
 
 // number — целое из строки запроса, с запасным значением на пустоту и мусор.
@@ -81,14 +117,26 @@ func (f *fakeJira) issue() map[string]any {
 		"customfield_10004": f.attempts,
 		"updated":           "2026-08-17T12:00:00.000+0000",
 	}
+	if f.issueAttachments != nil {
+		list := make([]any, len(f.issueAttachments))
+		for i, a := range f.issueAttachments {
+			list[i] = a
+		}
+		fields["attachment"] = list
+	}
 	return map[string]any{"key": "VO-1", "fields": fields}
 }
 
 func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.hitPaths = append(f.hitPaths, r.URL.Path)
 	f.lastUser, _, _ = r.BasicAuth()
 	body := map[string]any{}
 	if r.Body != nil {
 		raw, _ := io.ReadAll(r.Body)
+		// Тело возвращается на место: вложение читает его заново как multipart
+		// (r.ParseMultipartForm), а не как JSON, и ниже ему нужен тот же поток
+		// байт, а не уже осушенный io.ReadAll выше.
+		r.Body = io.NopCloser(bytes.NewReader(raw))
 		if len(raw) > 0 {
 			_ = json.Unmarshal(raw, &body)
 		}
@@ -126,6 +174,20 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		write(map[string]any{"errorMessages": []string{"No project could be found with key"}})
 
+	case r.URL.Path == "/rest/api/2/issue" && r.Method == http.MethodPost:
+		fields, _ := body["fields"].(map[string]any)
+		key := f.nextKey
+		if key == "" {
+			key = "VO-2"
+		}
+		f.created = append(f.created, fakeIssue{key: key, fields: fields})
+		w.WriteHeader(http.StatusCreated)
+		write(map[string]any{"id": "10100", "key": key})
+
+	case r.URL.Path == "/rest/api/2/issueLink" && r.Method == http.MethodPost:
+		f.issueLinks = append(f.issueLinks, body)
+		w.WriteHeader(http.StatusCreated)
+
 	case r.URL.Path == "/rest/api/2/issue/VO-1" && r.Method == http.MethodGet:
 		issue := f.issue()
 		if f.claimed && f.verifyRunID != "" {
@@ -162,7 +224,17 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.claimed = true
 		w.WriteHeader(http.StatusNoContent)
 
-	case r.URL.Path == "/rest/api/2/issue/VO-1/comment" && r.Method == http.MethodGet:
+	// GET на переписку общий для VO-1 и задач, заведённых в этом тесте через
+	// POST /issue (CreateTask сам перечитывает созданную задачу через Get,
+	// а тот всегда тянет комментарии): у VO-1 своя история в f.comments,
+	// у только что созданных задач комментариев ещё не бывает.
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/2/issue/") &&
+		strings.HasSuffix(r.URL.Path, "/comment"):
+		key := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/rest/api/2/issue/"), "/comment")
+		if key != "VO-1" {
+			write(map[string]any{"comments": []map[string]any{}, "total": 0, "startAt": 0, "maxResults": 0})
+			return
+		}
 		// Страницы отдаются честно: сервер режет выдачу по startAt и maxResults,
 		// а полный размер сообщает в total. Отдавай подделка всё разом — тест
 		// на пагинацию проходил бы и без пагинации.
@@ -191,6 +263,64 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		w.WriteHeader(http.StatusCreated)
 		write(map[string]any{"id": "1"})
+
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/2/issue/") &&
+		!strings.Contains(strings.TrimPrefix(r.URL.Path, "/rest/api/2/issue/"), "/"):
+		key := strings.TrimPrefix(r.URL.Path, "/rest/api/2/issue/")
+		for _, c := range f.created {
+			if c.key != key {
+				continue
+			}
+			write(map[string]any{"key": key, "fields": map[string]any{
+				"summary": c.fields["summary"], "description": c.fields["description"],
+				"status": map[string]any{"name": "Backlog"}, "project": map[string]any{"key": f.knownProject},
+				"labels": c.fields["labels"], "updated": "2026-08-17T12:00:00.000+0000",
+			}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		write(map[string]any{"errorMessages": []string{"Issue Does Not Exist"}})
+
+	case r.URL.Path == "/rest/api/2/issue/VO-1/attachments" && r.Method == http.MethodPost:
+		if got := r.Header.Get("X-Atlassian-Token"); got != "no-check" {
+			f.t.Errorf("вложение отправлено без X-Atlassian-Token: no-check, получено %q", got)
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			f.t.Fatalf("вложение не разобрано: %v", err)
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			f.t.Fatalf("файла нет в форме вложения: %v", err)
+		}
+		defer file.Close()
+		data, _ := io.ReadAll(file)
+		id := strconv.Itoa(20000 + len(f.attachments))
+		f.attachments = append(f.attachments, fakeAttachment{id: id, name: header.Filename, data: data})
+		write([]map[string]any{{"id": id, "filename": header.Filename}})
+
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/2/attachment/"):
+		id := strings.TrimPrefix(r.URL.Path, "/rest/api/2/attachment/")
+		host := f.baseURL
+		if f.contentHost != "" {
+			host = f.contentHost
+		}
+		for _, a := range f.attachments {
+			if a.id == id {
+				write(map[string]any{"id": id, "content": host + "/secure/attachment/" + id})
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+
+	case strings.HasPrefix(r.URL.Path, "/secure/attachment/"):
+		id := strings.TrimPrefix(r.URL.Path, "/secure/attachment/")
+		for _, a := range f.attachments {
+			if a.id == id {
+				w.Write(a.data)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
 
 	case strings.HasPrefix(r.URL.Path, "/rest/api/2/issue/"):
 		w.WriteHeader(http.StatusNotFound)
@@ -231,6 +361,7 @@ func fixture(t *testing.T) (*Tracker, *fakeJira) {
 	}
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
+	fake.baseURL = server.URL
 
 	t.Setenv("JIRA_USER", "office")
 	t.Setenv("JIRA_PASSWORD", "секрет")
@@ -245,6 +376,8 @@ func fixture(t *testing.T) (*Tracker, *fakeJira) {
 			LeaseUntil: "customfield_10003", Attempts: "customfield_10004",
 		},
 		HumanFlagLabel: "office-waits-human",
+		IssueType:      "Task",
+		DependsOnLink:  "Depends",
 	})
 	if err != nil {
 		t.Fatalf("трекер не открыт: %v", err)
@@ -296,6 +429,26 @@ func TestGetMapsStatusToColumn(t *testing.T) {
 	}
 	if task.Project != "VO" || task.Summary == "" {
 		t.Errorf("поля задачи: %+v", task)
+	}
+}
+
+// TestGetMapsAttachments доказывает, что toTask больше не выбрасывает
+// fields["attachment"] молча — без этого поля агент никогда не узнал бы,
+// что к тикету что-то приложено (правка "видимость вложений").
+func TestGetMapsAttachments(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.issueAttachments = []map[string]any{
+		{"id": "10004", "filename": "schema.png"},
+		{"id": "10005", "filename": "spec.pdf"},
+	}
+
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	want := []tracker.AttachmentRef{{ID: "10004", Name: "schema.png"}, {ID: "10005", Name: "spec.pdf"}}
+	if !slices.Equal(task.Attachments, want) {
+		t.Errorf("вложения %+v, ожидались %+v", task.Attachments, want)
 	}
 }
 
@@ -739,6 +892,37 @@ human_flag_label: office-waits-human
 	}
 }
 
+// depends_on_link нужен только LinkDependsOn — узкой опциональной операции,
+// а не каждому вызову трекера. Отказ на его отсутствие здесь означал бы, что
+// Comment, Transition и Get ломаются из-за поля, которое им не нужно:
+// проверка обязана жить в LinkDependsOn, а не в LoadConfig.
+func TestLoadConfigSucceedsWithoutDependsOnLink(t *testing.T) {
+	body := `base_url: http://localhost
+auth: { mode: basic }
+accounts:
+  default: { user_env: JIRA_USER, secret_env: JIRA_PASSWORD }
+status_map: { Ready: Ready }
+fields:
+  agent_owner: customfield_10001
+  run_id: customfield_10002
+  lease_until: customfield_10003
+  attempts: customfield_10004
+human_flag_label: office-waits-human
+`
+	path := filepath.Join(t.TempDir(), TrackerFile)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("конфигурация не записана: %v", err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("конфигурация без depends_on_link не загружена: %v", err)
+	}
+	if cfg.DependsOnLink != "" {
+		t.Errorf("DependsOnLink = %q, ожидалась пустая строка", cfg.DependsOnLink)
+	}
+}
+
 func TestConfigRequiresCredential(t *testing.T) {
 	t.Setenv("JIRA_USER", "office")
 	t.Setenv("JIRA_PASSWORD", "")
@@ -813,6 +997,24 @@ func TestGetStopsWhenServerLiesAboutTotal(t *testing.T) {
 // Режим pat конфигурация объявляла, а код не реализовывал: запрос уходил
 // с basic-авторизацией независимо от него. Обещание, которого никто не держит,
 // хуже отсутствия обещания — и Open теперь отказывается его давать.
+// TestOpenRejectsBaseURLWithoutSchemeOrHost — "jira.example.com" (без схемы)
+// разбирается url.Parse без ошибки, но даёт пустой Host: без проверки на
+// открытии всё ломалось бы позже и молча, на каждом download() (внешнее
+// ревью, pr-converge раунд 1).
+func TestOpenRejectsBaseURLWithoutSchemeOrHost(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	_, err := Open(Config{
+		BaseURL:  "jira.example.com",
+		Auth:     Auth{Mode: "basic"},
+		Accounts: Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
+	})
+	if err == nil {
+		t.Fatal("base_url без схемы принят — download() будет молча ломаться на пустом хосте")
+	}
+}
+
 func TestOpenRejectsUnimplementedAuthMode(t *testing.T) {
 	t.Setenv("JIRA_USER", "office")
 	t.Setenv("JIRA_PASSWORD", "секрет")
@@ -964,5 +1166,379 @@ func TestLoadConfigNamesWhatIsMissing(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("отказ не назвал %s: %v", want, err)
 		}
+	}
+}
+
+// CreateTask заводит задачу через POST /issue: тип задачи, метки и переписанное
+// в wiki-разметку описание обязаны доехать до тела запроса, а ключ созданной
+// задачи — вернуться в TaskRef тем же путём, что и обычное чтение (Get).
+func TestCreateTaskPostsIssueAndReturnsRef(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.nextKey = "VO-2"
+
+	ref, err := tr.CreateTask("VO", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Модель, миграция, CRUD категорий.",
+		Labels: []string{"split-child:VO-1:category-crud"},
+	})
+	if err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	if ref.Key != "VO-2" {
+		t.Errorf("ключ %q, ожидался VO-2", ref.Key)
+	}
+	if len(fake.created) != 1 {
+		t.Fatalf("создание не отправлено: %+v", fake.created)
+	}
+	issuetype, _ := fake.created[0].fields["issuetype"].(map[string]any)
+	if issuetype["name"] != "Task" {
+		t.Errorf("issuetype %v, ожидался Task", issuetype)
+	}
+	// Тело запроса едет через настоящий HTTP: сервер разбирает JSON в map[string]any,
+	// и массив приходит как []any, а не []string — так же, как в apply() выше.
+	labels, _ := fake.created[0].fields["labels"].([]any)
+	if len(labels) != 1 || labels[0] != "split-child:VO-1:category-crud" {
+		t.Errorf("labels %v", fake.created[0].fields["labels"])
+	}
+}
+
+// TestCreateTaskDoesNotReconvertDescriptionAppend доказывает, что
+// DescriptionAppend едет в description как есть, а не через wiki(): текст
+// в нём читан из другой задачи и уже в её собственной разметке. Если бы
+// он полз через общий конвертер вместе с Description, wiki-ссылка
+// "[текст|https://example.com]" (легальная, но не markdown-форма)
+// экранировалась бы escapeBrackets так же, как случайная квадратная
+// скобка в прозе, — и превращалась в нечитаемый текст на JIRA.
+func TestCreateTaskDoesNotReconvertDescriptionAppend(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.nextKey = "VO-2"
+
+	const wikiLink = "[инстанс|https://jira.corp.com]"
+	if _, err := tr.CreateTask("VO", tracker.TaskInput{
+		Summary: "Category CRUD", Description: "Новый текст ребёнка.",
+		DescriptionAppend: "## Исходная постановка\n\n" + wikiLink,
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	if len(fake.created) != 1 {
+		t.Fatalf("создание не отправлено: %+v", fake.created)
+	}
+	desc, _ := fake.created[0].fields["description"].(string)
+	if !strings.Contains(desc, wikiLink) {
+		t.Errorf("DescriptionAppend изменён конвертером, ожидалась дословная подстрока %q в %q", wikiLink, desc)
+	}
+}
+
+// TestCreateTaskJoinsEmptyDescriptionWithAppendCleanly — TaskInput допускает
+// пустой Description с непустым DescriptionAppend (childDescription сегодня
+// такую пару не производит, но контракт TaskInput её не запрещает), и голая
+// конкатенация через "\n\n" оставляла бы висячий пустой отступ перед текстом.
+func TestCreateTaskJoinsEmptyDescriptionWithAppendCleanly(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.nextKey = "VO-2"
+
+	if _, err := tr.CreateTask("VO", tracker.TaskInput{
+		Summary: "Category CRUD", DescriptionAppend: "исходный текст",
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	desc, _ := fake.created[0].fields["description"].(string)
+	if strings.HasPrefix(desc, "\n") || strings.HasPrefix(desc, " ") {
+		t.Errorf("description начинается с висячего отступа: %q", desc)
+	}
+}
+
+// FindByMarker ищет тем же JQL-поиском, что ListReady/List, но фильтрует
+// по метке, а не по статусу.
+func TestFindByMarkerSearchesByLabel(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.labels = []string{"split-child:VO-1:category-crud"}
+
+	found, err := tr.FindByMarker("VO", "split-child:VO-1:category-crud")
+	if err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+	if len(found) != 1 || found[0].Key != "VO-1" {
+		t.Errorf("найдено %+v", found)
+	}
+	if !strings.Contains(fake.lastJQL, `labels = "split-child:VO-1:category-crud"`) {
+		t.Errorf("JQL %q не фильтрует по метке", fake.lastJQL)
+	}
+}
+
+func TestFindByMarkerEmptyWhenNoIssues(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.noIssues = true
+
+	found, err := tr.FindByMarker("VO", "split-child:VO-1:none")
+	if err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+	if len(found) != 0 {
+		t.Errorf("найдено %+v, ожидался пустой список", found)
+	}
+}
+
+// AddAttachment шлёт вложение multipart-запросом на .../attachments — REST v2
+// не принимает вложения как JSON — и обязан приложить X-Atlassian-Token
+// (проверяется в fakeJira.ServeHTTP), иначе настоящая JIRA отклонит запись.
+func TestAddAttachmentUploadsMultipart(t *testing.T) {
+	tr, fake := fixture(t)
+	id, err := tr.AddAttachment("VO-1", tracker.BySystem(), "split.json", []byte(`{"children":[]}`))
+	if err != nil {
+		t.Fatalf("вложение не отправлено: %v", err)
+	}
+	if len(fake.attachments) != 1 || fake.attachments[0].id != id {
+		t.Fatalf("вложение не сохранено на сервере: %+v", fake.attachments)
+	}
+	if fake.attachments[0].name != "split.json" {
+		t.Errorf("имя файла %q, ожидалось split.json", fake.attachments[0].name)
+	}
+}
+
+// GetAttachment читает вложение по ссылке из метаданных GET /attachment/{id}:
+// ссылка не под /rest/api/2 и не отдаёт JSON, поэтому нужен свой HTTP-вызов.
+func TestGetAttachmentDownloadsContent(t *testing.T) {
+	tr, _ := fixture(t)
+	data := []byte(`{"children":[{"id":"a"}]}`)
+	id, err := tr.AddAttachment("VO-1", tracker.BySystem(), "split.json", data)
+	if err != nil {
+		t.Fatalf("вложение не отправлено: %v", err)
+	}
+
+	got, err := tr.GetAttachment("VO-1", id)
+	if err != nil {
+		t.Fatalf("вложение не прочитано: %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Errorf("вложение %q, ожидалось %q", got, data)
+	}
+}
+
+// TestGetAttachmentRejectsIDOutsideMarkerAlphabet — второй заслон, не
+// только у ParseMarker (единственного сегодняшнего источника id): id
+// склеивается прямо в REST-путь ("/attachment/"+id), и без проверки здесь
+// значение вроде "../issue/VO-1" увело бы запрос на другой эндпойнт REST
+// API, а не отказало бы явно (внешнее ревью, pr-converge раунд 3).
+func TestGetAttachmentRejectsIDOutsideMarkerAlphabet(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.hitPaths = nil
+
+	if _, err := tr.GetAttachment("VO-1", "../issue/VO-1"); err == nil {
+		t.Error("id с разделителями пути должен быть отвергнут заслоном, а не уйти в запрос")
+	}
+	if len(fake.hitPaths) != 0 {
+		t.Errorf("запрос всё же ушёл на сервер: %v — заслон обязан отказать раньше, а не полагаться на 404 сервера", fake.hitPaths)
+	}
+}
+
+// GetAttachment не должен слать базовую авторизацию инстанса на URL, который
+// сервер назвал в content, но который не начинается с адреса самого инстанса.
+// Сегодня content всегда свой (проверено выше), но если сервер когда-нибудь
+// отдаст ссылку на внешнее хранилище (S3 и подобное), креды офиса туда
+// утекать не должны.
+func TestGetAttachmentDoesNotLeakCredentialsToForeignHost(t *testing.T) {
+	tr, fake := fixture(t)
+
+	var hit, gotAuth bool
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		if _, _, ok := r.BasicAuth(); ok {
+			gotAuth = true
+		}
+		w.Write([]byte("нельзя"))
+	}))
+	defer evil.Close()
+
+	id, err := tr.AddAttachment("VO-1", tracker.BySystem(), "split.json", []byte(`{"children":[]}`))
+	if err != nil {
+		t.Fatalf("вложение не отправлено: %v", err)
+	}
+	fake.contentHost = evil.URL
+
+	if _, err := tr.GetAttachment("VO-1", id); err == nil {
+		t.Error("ссылка на чужой хост должна быть отвергнута, а не прочитана молча")
+	}
+	if hit {
+		t.Error("запрос ушёл на чужой хост вовсе — а не должен был уйти")
+	}
+	if gotAuth {
+		t.Error("креды инстанса ушли на чужой хост")
+	}
+}
+
+// TestEventCategoriesSurviveWikiRoundTrip — сбойная запись
+// (internal/pipeline/splits.go, splitFailed) кладёт стабильную категорию
+// первой строкой текста, а следом — свободный текст причины, который может
+// нести тело ответа JIRA (квадратные скобки, как в типичном
+// {"errorMessages":["..."]}) . Comment() прогоняет весь текст через wiki()
+// на записи (jira.go:489), а обратного перевода нет — читается ровно то,
+// что уехало. Если бы категория тоже несла спецсимволы wiki, дедупликация
+// по первой строке (tracker.EventCategories) сравнивала бы разное на
+// каждом проходе. Категория — простая русская проза без wiki-разметки,
+// и обязана пережить круг без изменений; свободный текст причины со
+// скобками — нет, и не должен участвовать в сравнении.
+func TestEventCategoriesSurviveWikiRoundTrip(t *testing.T) {
+	tr, _ := fixture(t)
+
+	const category = "вложения родителя не скопированы"
+	marker := tracker.Marker{RunID: "abcdef12", Role: "analyst", Event: tracker.EventSplitCreateFailed, ConfigSHA: "5bc6a3b0"}
+	detail := `запрос отклонён: {"errorMessages":["вложение [10042] не найдено"],"errors":{}}`
+	body := tracker.NoticeBody(marker, category+"\n"+detail)
+
+	if err := tr.Comment("VO-1", tracker.BySystem(), body); err != nil {
+		t.Fatalf("запись не отправлена: %v", err)
+	}
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+
+	categories := tracker.EventCategories(task.Comments, tracker.EventSplitCreateFailed)
+	if !categories[category] {
+		t.Errorf("категория после круга через wiki() не найдена среди %+v, ожидалась %q — дедупликация сравнивала бы разное на каждом проходе", categories, category)
+	}
+}
+
+// TestGetAttachmentDoesNotLeakCredentialsViaUserinfoBypass — та же угроза,
+// что и TestGetAttachmentDoesNotLeakCredentialsToForeignHost, но обходом
+// через userinfo: strings.HasPrefix(url, BaseURL) считает совпадением
+// строку "<BaseURL>@<чужой-хост>/…" — она и правда начинается с BaseURL
+// как текст, но при разборе URL всё до "@" читается как userinfo, а
+// настоящий хост — то, что после. Раздельный host/scheme нужен именно
+// затем, чтобы отличать это от него.
+func TestGetAttachmentDoesNotLeakCredentialsViaUserinfoBypass(t *testing.T) {
+	tr, fake := fixture(t)
+
+	var hit, gotAuth bool
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		if _, _, ok := r.BasicAuth(); ok {
+			gotAuth = true
+		}
+		w.Write([]byte("нельзя"))
+	}))
+	defer evil.Close()
+
+	id, err := tr.AddAttachment("VO-1", tracker.BySystem(), "split.json", []byte(`{"children":[]}`))
+	if err != nil {
+		t.Fatalf("вложение не отправлено: %v", err)
+	}
+	fake.contentHost = fake.baseURL + "@" + strings.TrimPrefix(evil.URL, "http://")
+
+	if _, err := tr.GetAttachment("VO-1", id); err == nil {
+		t.Error("ссылка с userinfo-обходом должна быть отвергнута, а не прочитана молча")
+	}
+	if hit {
+		t.Error("запрос ушёл на чужой хост вовсе — а не должен был уйти")
+	}
+	if gotAuth {
+		t.Error("креды инстанса ушли на чужой хост через userinfo-обход")
+	}
+}
+
+// TestDownloadRejectsSameHostOutsideContextPath — инстанс за контекстным путём
+// (base_url вида "https://host/jira", поддержано call()/upload() через
+// BaseURL+apiPath+path) не должен доверять ссылке на тот же хост, но вне
+// этого пути: внешнее ревью (pr-converge, раунд 1) нашло, что сведение
+// проверки к голым scheme+host потеряло ограничение по пути, которое раньше
+// давал strings.HasPrefix(url, BaseURL) целиком, и открыло SSRF на соседнее
+// приложение того же хоста.
+func TestDownloadRejectsSameHostOutsideContextPath(t *testing.T) {
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("не должно быть скачано"))
+	}))
+	defer evil.Close()
+
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	tr, err := Open(Config{
+		BaseURL:  evil.URL + "/jira",
+		Auth:     Auth{Mode: "basic"},
+		Accounts: Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
+	})
+	if err != nil {
+		t.Fatalf("трекер не открыт: %v", err)
+	}
+
+	if _, err := tr.download(evil.URL + "/other-app/secure/attachment/1"); err == nil {
+		t.Error("ссылка на тот же хост вне контекстного пути инстанса должна быть отвергнута")
+	}
+	// Ссылка внутри контекстного пути — по-прежнему легальна.
+	if _, err := tr.download(evil.URL + "/jira/secure/attachment/1"); err != nil {
+		t.Errorf("ссылка внутри контекстного пути отвергнута напрасно: %v", err)
+	}
+}
+
+// LinkDependsOn шлёт POST /issueLink с типом связи из конфигурации: имя типа
+// на реальном инстансе неизвестно заранее (Task 8 плана подтвердил его живьём),
+// и здесь только форма и направление запроса. VO-1 «зависит от» VO-2 —
+// эмпирически (живой JIRA Server 8.13, 2026-09-06) сервер читает связь через
+// inward-сторону запроса, значит VO-1 обязан быть inwardIssue, а VO-2 —
+// outwardIssue: см. развёрнутый комментарий у LinkDependsOn.
+func TestLinkDependsOnPostsIssueLink(t *testing.T) {
+	tr, fake := fixture(t)
+	if err := tr.LinkDependsOn("VO-1", "VO-2", tracker.BySystem()); err != nil {
+		t.Fatalf("связь не записана: %v", err)
+	}
+	if len(fake.issueLinks) != 1 {
+		t.Fatalf("issueLink не отправлен: %+v", fake.issueLinks)
+	}
+	link := fake.issueLinks[0]
+	linkType, _ := link["type"].(map[string]any)
+	if linkType["name"] != "Depends" {
+		t.Errorf("тип связи %v, ожидался Depends", linkType)
+	}
+	outward, _ := link["outwardIssue"].(map[string]any)
+	inward, _ := link["inwardIssue"].(map[string]any)
+	if outward["key"] != "VO-2" || inward["key"] != "VO-1" {
+		t.Errorf("направление связи %v/%v: VO-1 «зависит от» VO-2, значит VO-1 — inward, VO-2 — outward", outward, inward)
+	}
+}
+
+// LinkDependsOn — мутация, и владение проверяется так же, как у Comment/AddAttachment.
+func TestLinkDependsOnRequiresOwnership(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.status = "In Progress"
+	fake.runID = "прогон-1"
+	fake.leaseUntil = "2026-08-17T12:30:00.000+0000"
+
+	if err := tr.LinkDependsOn("VO-1", "VO-2", tracker.ByRun("чужой")); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("ошибка %v, ожидался ErrNotOwner", err)
+	}
+}
+
+// Без depends_on_link в tracker.yaml собрать тип связи нечем, и LinkDependsOn
+// обязан отказать сам, ясно и до сети: сервер здесь нарочно недостижим (порт
+// закрыт сразу после старта) — если бы проверка не сработала раньше запроса,
+// тест увидел бы отказ соединения, а не эту ошибку.
+func TestLinkDependsOnFailsFastWithoutConfiguredLinkType(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	server.Close()
+
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	tr, err := Open(Config{
+		BaseURL:   server.URL,
+		Auth:      Auth{Mode: "basic"},
+		Accounts:  Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
+		StatusMap: map[string]string{"Ready": "Ready"},
+		Fields: Fields{
+			Owner: "customfield_10001", RunID: "customfield_10002",
+			LeaseUntil: "customfield_10003", Attempts: "customfield_10004",
+		},
+		HumanFlagLabel: "office-waits-human",
+		// DependsOnLink нарочно не задан.
+	})
+	if err != nil {
+		t.Fatalf("трекер не открыт: %v", err)
+	}
+
+	err = tr.LinkDependsOn("VO-1", "VO-2", tracker.BySystem())
+	if err == nil {
+		t.Fatal("связь создана без настроенного depends_on_link")
+	}
+	if !strings.Contains(err.Error(), "depends_on_link") || !strings.Contains(err.Error(), "tracker.yaml") {
+		t.Errorf("ошибка не похожа на проверку depends_on_link (при недостижимом сервере реальная ошибка была бы про сеть): %v", err)
 	}
 }

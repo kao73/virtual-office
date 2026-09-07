@@ -175,6 +175,151 @@ func TestPrepareInputWritesExchange(t *testing.T) {
 	}
 }
 
+// TestPrepareInputWritesAttachments доказывает, что вложения кладутся
+// настоящими файлами рядом с task.md, а не текстом внутри него — среди них
+// бывают картинки и PDF.
+func TestPrepareInputWritesAttachments(t *testing.T) {
+	workdir := gitRepo(t)
+	in := Input{Task: "Задача\n", Attachments: []InputAttachment{
+		{Name: "schema.png", Data: []byte("данные схемы")},
+	}}
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), in); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(workdir, Dir, DirAttachments, "schema.png"))
+	if err != nil {
+		t.Fatalf("вложение не записано: %v", err)
+	}
+	if string(got) != "данные схемы" {
+		t.Errorf("содержимое вложения %q, ожидалось %q", got, "данные схемы")
+	}
+}
+
+// TestPrepareInputSanitizesAttachmentName доказывает, что имя вложения —
+// чужой ввод — не может вывести запись за пределы каталога вложений.
+// filepath.Base само режет "../../etc/passwd" до "passwd", но голое ".."
+// после Base осталось бы ".." буквально, а Join(dir, "..") — это уже
+// родитель dir, не файл внутри него.
+func TestPrepareInputSanitizesAttachmentName(t *testing.T) {
+	workdir := gitRepo(t)
+	in := Input{Task: "Задача\n", Attachments: []InputAttachment{
+		{Name: "../../etc/passwd", Data: []byte("a")},
+		{Name: "..", Data: []byte("b")},
+	}}
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), in); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	attachmentsDir := filepath.Join(workdir, Dir, DirAttachments)
+	entries, err := os.ReadDir(attachmentsDir)
+	if err != nil {
+		t.Fatalf("каталог вложений не прочитан: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() == ".." || strings.Contains(e.Name(), "..") {
+			t.Errorf("вложение сбежало из каталога: %s", e.Name())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workdir, Dir, "..", "..", "etc", "passwd")); err == nil {
+		t.Error("вложение записано за пределами рабочей папки")
+	}
+	if len(entries) != 2 {
+		t.Errorf("файлов в каталоге вложений %d, ожидалось 2: %v", len(entries), entries)
+	}
+}
+
+// TestPrepareInputDisambiguatesDuplicateAttachmentNames доказывает, что два
+// вложения с одинаковым именем не затирают друг друга — и что оба
+// сохраняют своё, а не чужое, содержимое.
+func TestPrepareInputDisambiguatesDuplicateAttachmentNames(t *testing.T) {
+	workdir := gitRepo(t)
+	in := Input{Task: "Задача\n", Attachments: []InputAttachment{
+		{Name: "schema.png", Data: []byte("первая")},
+		{Name: "schema.png", Data: []byte("вторая")},
+	}}
+	if err := PrepareInput(workdir, fixtureRole(t), fixturePassport(), in); err != nil {
+		t.Fatalf("вход не подготовлен: %v", err)
+	}
+
+	attachmentsDir := filepath.Join(workdir, Dir, DirAttachments)
+	entries, err := os.ReadDir(attachmentsDir)
+	if err != nil {
+		t.Fatalf("каталог вложений не прочитан: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("файлов %d, ожидалось 2 (обе версии сохранены): %v", len(entries), entries)
+	}
+
+	first, err := os.ReadFile(filepath.Join(attachmentsDir, "schema.png"))
+	if err != nil {
+		t.Fatalf("первый файл не прочитан: %v", err)
+	}
+	if string(first) != "первая" {
+		t.Errorf("первый файл %q, ожидалось %q", first, "первая")
+	}
+	second, err := os.ReadFile(filepath.Join(attachmentsDir, "2-schema.png"))
+	if err != nil {
+		t.Fatalf("второй файл не прочитан: %v", err)
+	}
+	if string(second) != "вторая" {
+		t.Errorf("второй файл %q, ожидалось %q", second, "вторая")
+	}
+}
+
+// TestResolveAttachmentNamesHandlesNameCollidingWithGeneratedName
+// воспроизводит находку независимого ревью: третье вложение, чьё
+// настоящее имя случайно совпадает с именем, которое разрешение уже
+// сгенерировало для второго ("2-a.png"), не должно тихо затереть его —
+// сверка обязана идти по уже занятым ИТОГОВЫМ именам, а не по счётчику
+// повторов исходного.
+func TestResolveAttachmentNamesHandlesNameCollidingWithGeneratedName(t *testing.T) {
+	got := ResolveAttachmentNames([]string{"a.png", "a.png", "2-a.png"})
+	// Третий элемент возьмёт своё собственное базовое имя ("2-a.png") и,
+	// раз оно уже занято вторым элементом, получит свой собственный
+	// счётчик поверх него ("2-2-a.png") — не самое красивое имя, но
+	// различимое и ничего не теряющее, а большего от разрешения коллизий
+	// не требуется.
+	want := []string{"a.png", "2-a.png", "2-2-a.png"}
+	if len(got) != len(want) {
+		t.Fatalf("имён %d, ожидалось %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("имя %d = %q, ожидалось %q (полностью: %v)", i, got[i], want[i], got)
+		}
+	}
+	seen := map[string]bool{}
+	for _, name := range got {
+		if seen[name] {
+			t.Fatalf("имя %q повторилось — вложение потеряно: %v", name, got)
+		}
+		seen[name] = true
+	}
+}
+
+// TestPrepareInputClearsStaleAttachments воспроизводит повторный прогон в той
+// же рабочей папке: набор вложений тикета мог измениться (человек убрал
+// файл) — прошлый набор не должен продолжать лежать рядом с новым.
+func TestPrepareInputClearsStaleAttachments(t *testing.T) {
+	workdir := gitRepo(t)
+	role, passport := fixtureRole(t), fixturePassport()
+
+	first := Input{Task: "Задача\n", Attachments: []InputAttachment{{Name: "old.txt", Data: []byte("устарело")}}}
+	if err := PrepareInput(workdir, role, passport, first); err != nil {
+		t.Fatalf("первый вход не подготовлен: %v", err)
+	}
+
+	second := Input{Task: "Задача\n"}
+	if err := PrepareInput(workdir, role, passport, second); err != nil {
+		t.Fatalf("второй вход не подготовлен: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(workdir, Dir, DirAttachments, "old.txt")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("устаревшее вложение всё ещё лежит в рабочей папке: %v", err)
+	}
+}
+
 func TestPrepareInputRequiresTask(t *testing.T) {
 	err := PrepareInput(gitRepo(t), fixtureRole(t), fixturePassport(), Input{})
 	if err == nil {

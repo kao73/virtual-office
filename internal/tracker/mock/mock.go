@@ -12,6 +12,11 @@
 //	<root>/<KEY>/lease.free             аренды нет
 //	<root>/<KEY>/lease.<unix>.<run_id>  аренда до <unix>, владелец <run_id>
 //	<root>/<KEY>/comments/NNNN.md       комментарии по порядку
+//	<root>/<KEY>/attachments/NNNN       вложение, сырые байты
+//	<root>/<KEY>/attachments/NNNN.yaml  его имя (данные и имя раздельно —
+//	                                    в отличие от комментария, тело вложения
+//	                                    произвольные байты, а не текст, и текстовую
+//	                                    шапку перед ним не приписать безопасно)
 //
 // Владелец и срок живут в **имени** файла аренды, а не внутри него. Так смена
 // состояния аренды — одно атомарное действие: нет промежутка, в котором аренда
@@ -36,10 +41,11 @@ import (
 
 // Имена файлов хранилища.
 const (
-	taskFileName = "task.yaml"
-	commentsDir  = "comments"
-	leasePrefix  = "lease."
-	leaseFree    = leasePrefix + "free"
+	taskFileName   = "task.yaml"
+	commentsDir    = "comments"
+	attachmentsDir = "attachments"
+	leasePrefix    = "lease."
+	leaseFree      = leasePrefix + "free"
 )
 
 // DirName — подкаталог хозяйства раннера, в котором живёт файловый трекер.
@@ -103,6 +109,9 @@ func (t *Tracker) Add(task tracker.Task) error {
 	if err := os.MkdirAll(filepath.Join(dir, commentsDir), 0o755); err != nil {
 		return fmt.Errorf("каталог задачи не создан: %w", err)
 	}
+	if err := os.MkdirAll(filepath.Join(dir, attachmentsDir), 0o755); err != nil {
+		return fmt.Errorf("каталог вложений не создан: %w", err)
+	}
 	if err := writeTask(dir, task); err != nil {
 		return err
 	}
@@ -149,7 +158,35 @@ func (t *Tracker) Get(key string) (tracker.Task, error) {
 	if task.Comments, err = readComments(dir); err != nil {
 		return tracker.Task{}, err
 	}
+	if task.Attachments, err = readAttachments(dir); err != nil {
+		return tracker.Task{}, err
+	}
 	return task, nil
+}
+
+// readAttachments — вложения задачи по данным attachmentFiles/AddAttachment.
+// Отсутствующая .yaml-шапка (вложение старше этого поля) не валит чтение —
+// вложение просто остаётся безымянным, тем же номером вместо имени.
+func readAttachments(dir string) ([]tracker.AttachmentRef, error) {
+	attachmentsPath := filepath.Join(dir, attachmentsDir)
+	names, err := attachmentFiles(attachmentsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	refs := make([]tracker.AttachmentRef, 0, len(names))
+	for _, id := range names {
+		name := id
+		raw, err := os.ReadFile(filepath.Join(attachmentsPath, id+".yaml"))
+		if err == nil {
+			var head attachmentHead
+			if err := yaml.Unmarshal(raw, &head); err == nil && head.Name != "" {
+				name = head.Name
+			}
+		}
+		refs = append(refs, tracker.AttachmentRef{ID: id, Name: name})
+	}
+	return refs, nil
 }
 
 // ListReady — кандидаты в статусе проекта: без живой аренды, по возрастанию ключа.
@@ -322,6 +359,220 @@ func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
 	return t.mutate(key, by, func(task *tracker.Task) { task.Attempts = n })
 }
 
+// createdStatus — начальный статус тикета, заведённого CreateTask. Analysis —
+// тот же вход, что человек даёт обычной задаче, переводя её из Backlog
+// («берите в работу», workflow.yaml). TaskInput статуса не несёт (design
+// doc) — решать его обязана реализация, а не вызывающий код.
+const createdStatus = "Analysis"
+
+// nextKey подбирает следующий свободный ключ проекта: <project>-N, где N —
+// максимум существующих номеров этого проекта плюс один. Считаются только
+// каталоги с настоящей задачей (есть task.yaml) — голый каталог без него
+// не задача, а обрубок незавершённого CreateTask или чужая подготовка, и
+// занимать номер не должен: иначе nextKey тихо перескочит его и коллизию
+// поймать будет не на чем. От коллизии двух параллельных CreateTask,
+// подобравших один и тот же номер, эта функция сама не защищает — защищает
+// os.Mkdir в CreateTask.
+//
+// Радиус у голого каталога шире, чем видно по этой функции: Keys()
+// перечисляет все каталоги без разбора, а t.list() (через него ListReady,
+// List, FindByMarker — вся выборка задач проекта) зовёт Get на каждый ключ
+// и падает на первом же без task.yaml — ломая листинг **всего** проекта,
+// а не только нумерацию здесь. Это не новый риск этой задачи (заведение
+// CreateTask): тем же свойством страдает и путь Add, существовавший до неё.
+// mock документирован пакетно как инструмент отладки, а не имитация
+// конкурентного трекера под нагрузкой (см. доккомментарий пакета) — так что
+// это принятый, а не новый класс риска, и новой защиты не требует.
+func (t *Tracker) nextKey(project string) (string, error) {
+	keys, err := t.Keys()
+	if err != nil {
+		return "", err
+	}
+	prefix := project + "-"
+	max := 0
+	for _, key := range keys {
+		n, ok := strings.CutPrefix(key, prefix)
+		if !ok {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(t.dir(key), taskFileName)); err != nil {
+			continue
+		}
+		if v, err := strconv.Atoi(n); err == nil && v > max {
+			max = v
+		}
+	}
+	return fmt.Sprintf("%s%d", prefix, max+1), nil
+}
+
+// CreateTask заводит новую задачу с ключом <project>-N. Директория задачи
+// создаётся os.Mkdir, не MkdirAll: коллизия двух параллельных CreateTask,
+// подобравших один и тот же номер, обязана упасть с ошибкой, а не молча
+// переписать половину задачи другого — mock отлаживает конвейер, а не
+// имитирует конкурентный трекер под нагрузкой (доккомментарий пакета).
+func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
+	key, err := t.nextKey(project)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+	dir := t.dir(key)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		return tracker.TaskRef{}, fmt.Errorf("задача %s не создана: %w", key, err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, commentsDir), 0o755); err != nil {
+		return tracker.TaskRef{}, fmt.Errorf("каталог комментариев %s не создан: %w", key, err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, attachmentsDir), 0o755); err != nil {
+		return tracker.TaskRef{}, fmt.Errorf("каталог вложений %s не создан: %w", key, err)
+	}
+
+	description := input.Description
+	if input.DescriptionAppend != "" {
+		if description == "" {
+			description = input.DescriptionAppend
+		} else {
+			description += "\n\n" + input.DescriptionAppend
+		}
+	}
+	task := tracker.Task{
+		Key: key, Project: project, Summary: input.Summary, Description: description,
+		Status: createdStatus, Labels: input.Labels,
+	}
+	if err := writeTask(dir, task); err != nil {
+		return tracker.TaskRef{}, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, leaseFree), nil, 0o644); err != nil {
+		return tracker.TaskRef{}, fmt.Errorf("аренда %s не заведена: %w", key, err)
+	}
+
+	created, err := t.Get(key)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+	ref := created.Ref()
+	ref.Updated = t.updated(key)
+	return ref, nil
+}
+
+// FindByMarker — задачи проекта с данной меткой.
+func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
+	return t.list(func(task tracker.Task) bool {
+		return task.Project == project && slices.Contains(task.Labels, marker)
+	})
+}
+
+// attachmentHead — то немногое, что описывает вложение отдельно от его
+// сырых данных. Имя не пишут в файл данных (тело вложения — произвольные
+// байты, а не текст) — оно живёт в отдельном YAML рядом, тем же файловым
+// номером и суффиксом ".yaml".
+type attachmentHead struct {
+	Name string `yaml:"name"`
+}
+
+// attachmentFiles — файлы данных в каталоге вложений, без их .yaml-шапок:
+// тот же приём, что commentFiles применяет к .md, только фильтр в другую
+// сторону (данные — без суффикса, шапка — с ним).
+//
+// Отсутствующий каталог — не беда, а задача старше этой правки (Add начал
+// создавать attachments/ только здесь) или заведённая руками по прежде
+// документированному слою хранилища ("правится руками", пакетный доккомент):
+// тем же допуском, что Keys() уже применяет к отсутствующему корню хранилища.
+// Без него одна такая задача валила бы Get(), а через неё — list() целиком,
+// не только чтение этой задачи.
+func attachmentFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("вложения не прочитаны: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && !strings.HasSuffix(e.Name(), ".yaml") {
+			names = append(names, e.Name())
+		}
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// AddAttachment сохраняет сырые данные вложением и его имя отдельным
+// файлом рядом (attachmentHead) — параметр name раньше существовал только
+// ради паритета с jira (которой он нужен для multipart-формы), теперь
+// его хранит и мок: без этого Get() не смог бы сказать, как называется
+// вложение, которое видит агент.
+func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
+	task, err := t.Get(key)
+	if err != nil {
+		return "", err
+	}
+	if err := tracker.CheckOwner(task, by, t.Now()); err != nil {
+		return "", err
+	}
+
+	dir := filepath.Join(t.dir(key), attachmentsDir)
+	existing, err := attachmentFiles(dir)
+	if err != nil {
+		return "", fmt.Errorf("вложения %s не прочитаны: %w", key, err)
+	}
+	// Задача старше этой правки (или заведённая руками) могла не получить
+	// attachments/ при создании — attachmentFiles уже терпит его отсутствие
+	// при чтении, здесь досоздаём перед первой записью в неё же.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("каталог вложений %s не создан: %w", key, err)
+	}
+
+	f, id, err := nextExclusive(dir, len(existing), "")
+	if err != nil {
+		return "", fmt.Errorf("вложение %s не записано: %w", key, err)
+	}
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return "", fmt.Errorf("вложение %s не записано: %w", key, err)
+	}
+
+	head, err := yaml.Marshal(attachmentHead{Name: name})
+	if err != nil {
+		return "", fmt.Errorf("имя вложения %s не собрано: %w", key, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, id+".yaml"), head, 0o644); err != nil {
+		return "", fmt.Errorf("имя вложения %s не записано: %w", key, err)
+	}
+	return id, nil
+}
+
+// GetAttachment читает вложение обратно, байт в байт.
+func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
+	// Второй заслон, не только у ParseMarker (единственного сегодняшнего
+	// источника id): filepath.Join ниже не проверяет, что id остаётся
+	// внутри attachmentsDir — id вида "../../etc/passwd" уходит за пределы
+	// хранилища вовсе (внешнее ревью, pr-converge раунд 3).
+	if !tracker.ValidAttachmentID(id) {
+		return nil, fmt.Errorf("%w: вложение %s/%s", tracker.ErrNotFound, key, id)
+	}
+	data, err := os.ReadFile(filepath.Join(t.dir(key), attachmentsDir, id))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("%w: вложение %s/%s", tracker.ErrNotFound, key, id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("вложение %s/%s не прочитано: %w", key, id, err)
+	}
+	return data, nil
+}
+
+// LinkDependsOn связывает key с dependsOnKey. Идемпотентно само по себе:
+// повторный вызов для уже записанной пары ничего не дублирует — completeSplit
+// (internal/pipeline/splits.go) не хранит отдельного флага «уже связано»
+// и может звать LinkDependsOn повторно при повторе после сбоя.
+func (t *Tracker) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
+	return t.mutate(key, by, func(task *tracker.Task) {
+		if !slices.Contains(task.DependsOn, dependsOnKey) {
+			task.DependsOn = append(task.DependsOn, dependsOnKey)
+		}
+	})
+}
+
 // Comment пишет комментарий от имени офиса.
 func (t *Tracker) Comment(key string, by tracker.Actor, body string) error {
 	task, err := t.Get(key)
@@ -376,24 +627,34 @@ func (t *Tracker) AddComment(key, author, body string) error {
 	}
 	content := "---\n" + string(header) + "---\n" + body + "\n"
 
-	// Номер занимаем эксклюзивным созданием: два комментатора одновременно
-	// не должны получить один файл.
-	for n := len(existing) + 1; n < len(existing)+16; n++ {
-		path := filepath.Join(dir, fmt.Sprintf("%04d.md", n))
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, _, err := nextExclusive(dir, len(existing), ".md")
+	if err != nil {
+		return fmt.Errorf("комментарий не записан: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		return fmt.Errorf("комментарий не записан: %w", err)
+	}
+	return nil
+}
+
+// nextExclusive создаёт файл со следующим по счёту именем в каталоге,
+// эксклюзивно: два конкурентных писателя гарантированно получают разные
+// номера. Общий приём для комментариев (AddComment) и вложений
+// (AddAttachment) — вместо двух копий одного и того же цикла.
+func nextExclusive(dir string, existing int, suffix string) (*os.File, string, error) {
+	for n := existing + 1; n < existing+16; n++ {
+		name := fmt.Sprintf("%04d%s", n, suffix)
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if errors.Is(err, os.ErrExist) {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("комментарий не записан: %w", err)
+			return nil, "", fmt.Errorf("файл %s не создан: %w", name, err)
 		}
-		defer f.Close()
-		if _, err := f.WriteString(content); err != nil {
-			return fmt.Errorf("комментарий не записан: %w", err)
-		}
-		return nil
+		return f, name, nil
 	}
-	return errors.New("комментарий не записан: не нашлось свободного номера")
+	return nil, "", errors.New("не нашлось свободного номера")
 }
 
 // mutate — чтение, проверка права, правка, запись.
@@ -420,6 +681,7 @@ type taskFile struct {
 	Description string   `yaml:"description,omitempty"`
 	Status      string   `yaml:"status"`
 	Labels      []string `yaml:"labels,omitempty"`
+	DependsOn   []string `yaml:"depends_on,omitempty"`
 	Owner       string   `yaml:"owner,omitempty"`
 	Attempts    int      `yaml:"attempts"`
 	HumanFlag   bool     `yaml:"human_flag"`
@@ -440,7 +702,7 @@ func readTask(dir string) (tracker.Task, error) {
 	}
 	return tracker.Task{
 		Project: f.Project, Summary: f.Summary, Description: f.Description,
-		Status: f.Status, Labels: f.Labels, Owner: f.Owner,
+		Status: f.Status, Labels: f.Labels, DependsOn: f.DependsOn, Owner: f.Owner,
 		Attempts: f.Attempts, HumanFlag: f.HumanFlag,
 	}, nil
 }
@@ -450,7 +712,7 @@ func readTask(dir string) (tracker.Task, error) {
 func writeTask(dir string, task tracker.Task) error {
 	raw, err := yaml.Marshal(taskFile{
 		Project: task.Project, Summary: task.Summary, Description: task.Description,
-		Status: task.Status, Labels: task.Labels, Owner: task.Owner,
+		Status: task.Status, Labels: task.Labels, DependsOn: task.DependsOn, Owner: task.Owner,
 		Attempts: task.Attempts, HumanFlag: task.HumanFlag,
 	})
 	if err != nil {

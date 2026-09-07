@@ -84,6 +84,48 @@ func TestMarkerCarriesNextOwner(t *testing.T) {
 	}
 }
 
+// Вложение — как next: значимо только у отчётов, и пустое в строку не идёт.
+func TestMarkerCarriesAttachment(t *testing.T) {
+	m := Marker{RunID: runID, Role: "analyst", Outcome: "split", Attachment: "10042", ConfigSHA: "5bc6a3b0"}
+	line := "[office run:488e8d8f role:analyst outcome:split attachment:10042 config:5bc6a3b0]"
+
+	if got := m.String(); got != line {
+		t.Errorf("маркер %q, ожидался %q", got, line)
+	}
+	parsed, ok := ParseMarker(line)
+	if !ok {
+		t.Fatalf("свой же маркер не разобран: %s", line)
+	}
+	if parsed.Attachment != "10042" {
+		t.Errorf("attachment разобран как %q", parsed.Attachment)
+	}
+
+	without := Marker{RunID: runID, Role: "analyst", Outcome: "split", ConfigSHA: "5bc6a3b0"}
+	if got := without.String(); strings.Contains(got, "attachment:") {
+		t.Errorf("пустой attachment попал в маркер: %s", got)
+	}
+}
+
+// TestParseMarkerRejectsAttachmentPathTraversal — attachment: не проверяет
+// алфавит своего значения нигде дальше, а mock.GetAttachment (и jira.
+// GetAttachment для своего REST-пути) строит из него путь/URL напрямую.
+// Комментарий никем не подписывается по праву владения (маркеры разбираются
+// по тексту, не по автору — pr-converge, принятый риск), так что значение
+// вроде "../../OTHER-1/attachments/0" должно быть отвергнуто на разборе,
+// а не дойти до чтения файла.
+func TestParseMarkerRejectsAttachmentPathTraversal(t *testing.T) {
+	lines := []string{
+		"[office run:488e8d8f role:analyst outcome:split attachment:../../OTHER-1/attachments/0 config:5bc6a3b0]",
+		"[office run:488e8d8f role:analyst outcome:split attachment:/etc/passwd config:5bc6a3b0]",
+		"[office run:488e8d8f role:analyst outcome:split attachment:.. config:5bc6a3b0]",
+	}
+	for _, line := range lines {
+		if _, ok := ParseMarker(line); ok {
+			t.Errorf("вложение с разделителями пути принято за маркер: %q", line)
+		}
+	}
+}
+
 func TestParseMarkerRejectsForeignLines(t *testing.T) {
 	lines := []string{
 		"",
@@ -96,6 +138,8 @@ func TestParseMarkerRejectsForeignLines(t *testing.T) {
 		// Кому передана задача — свойство отчёта о прогоне. У системной записи
 		// исхода нет, и передавать ей нечего.
 		"[office run:488e8d8f role:implementer event:lease-expired next:human config:5bc6a3b0]",
+		// Вложение — тоже свойство отчёта. У системной записи его не бывает.
+		"[office run:488e8d8f role:implementer event:lease-expired attachment:10042 config:5bc6a3b0]",
 	}
 	for _, line := range lines {
 		if _, ok := ParseMarker(line); ok {
@@ -614,5 +658,96 @@ func TestWithoutMarker(t *testing.T) {
 	human := "Открывай заново.\nPR закрыли по ошибке."
 	if got := WithoutMarker(human); got != human {
 		t.Errorf("слова человека обрезаны: %q", got)
+	}
+}
+
+// splitReport — комментарий-маркер outcome:split с данным вложением:
+// так выглядит и первое предложение, и подтверждение — разница только
+// в том, какой по счёту в переписке.
+func splitReport(role, attachment string, minute int) Comment {
+	m := Marker{RunID: runID, Role: role, Outcome: "split", Attachment: attachment, ConfigSHA: "5bc6a3b0"}
+	return comment("office", m.String()+"\nПредложение разбивки.", minute)
+}
+
+func TestSplitConfirmedNeedsSecondMarker(t *testing.T) {
+	comments := []Comment{splitReport("analyst", "10001", 1)}
+	if confirmed, _ := SplitConfirmed(comments, "analyst"); confirmed {
+		t.Error("одно предложение не должно считаться подтверждением")
+	}
+}
+
+// Между двумя split-маркерами лежит системная запись event:human-reply,
+// подписанная той же ролью (unblock() ставит Role роли, которой был задан
+// вопрос) — она не должна обрывать счёт: SplitConfirmed считает по всей
+// истории, а не серией с конца.
+func TestSplitConfirmedSurvivesInterveningHumanReply(t *testing.T) {
+	comments := []Comment{
+		splitReport("analyst", "10001", 1),
+		comment("human", "Да, разбивай.", 2),
+		notice("analyst", EventHumanReply, 3),
+		splitReport("analyst", "10002", 4),
+	}
+	confirmed, attachment := SplitConfirmed(comments, "analyst")
+	if !confirmed {
+		t.Fatal("второе подряд предложение должно быть подтверждением")
+	}
+	if attachment != "10002" {
+		t.Errorf("вложение %q, ожидалось последнее — 10002", attachment)
+	}
+}
+
+func TestSplitConfirmedIgnoresOtherRole(t *testing.T) {
+	comments := []Comment{
+		splitReport("implementer", "10001", 1),
+		splitReport("implementer", "10002", 2),
+	}
+	if confirmed, _ := SplitConfirmed(comments, "analyst"); confirmed {
+		t.Error("split чужой роли не считается")
+	}
+}
+
+// Пустая история и история вовсе без split-маркеров этой роли — не
+// подтверждение: нулевой счёт от единичного отличать нечем, обе не
+// подтверждение, но регрессия проверяет вырожденный случай отдельно.
+func TestSplitConfirmedNoMarkers(t *testing.T) {
+	cases := []struct {
+		name     string
+		comments []Comment
+	}{
+		{"пустая история", nil},
+		{"есть переписка, но не split этой роли", []Comment{
+			report("analyst", "done", 1),
+			comment("human", "Ок.", 2),
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			confirmed, attachment := SplitConfirmed(tc.comments, "analyst")
+			if confirmed {
+				t.Error("подтверждения быть не должно")
+			}
+			if attachment != "" {
+				t.Errorf("вложение %q, ожидалось пустое", attachment)
+			}
+		})
+	}
+}
+
+// Маркер без attachment — не подтверждение. Под старой (до задачи 10) версией
+// role.md split-маркеры вообще не несли вложения: тикет, доживший под ней до
+// двух таких маркеров, не должен считаться подтверждённым — иначе
+// CompleteSplits вызовет GetAttachment(key, "") и будет проваливаться на
+// каждом цикле Loop, вечно.
+func TestSplitConfirmedWithoutAttachmentTag(t *testing.T) {
+	comments := []Comment{
+		splitReport("analyst", "", 1),
+		splitReport("analyst", "", 2),
+	}
+	confirmed, attachment := SplitConfirmed(comments, "analyst")
+	if confirmed {
+		t.Error("второй split-маркер без attachment не должен подтверждать")
+	}
+	if attachment != "" {
+		t.Errorf("вложение %q, ожидалось пустое", attachment)
 	}
 }

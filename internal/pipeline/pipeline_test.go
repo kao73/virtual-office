@@ -789,6 +789,65 @@ func TestTickFeedsAgentTaskAndContext(t *testing.T) {
 	}
 }
 
+// TestTickMaterializesHumanAttachmentsButNotSplitJSON доказывает, что
+// человеческое вложение задачи попадает в рабочую папку агента настоящим
+// файлом и упоминается в постановке, а служебное (split.json — переписка
+// раннера с самим собой) — нет ни там, ни там. Отличает их humanAttachments
+// по id вложения, названному в attachment:<id> настоящего outcome:split-
+// маркера этой задачи (а не по имени файла) — иначе человек, приложивший
+// СВОЙ файл с тем же именем split.json, молча потерял бы его: агент бы его
+// не увидел, а split-дети не унаследовали.
+func TestTickMaterializesHumanAttachmentsButNotSplitJSON(t *testing.T) {
+	o := newOffice(t)
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("данные схемы")); err != nil {
+		t.Fatalf("вложение не добавлено: %v", err)
+	}
+	serviceID, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), runner.SplitAttachmentName, []byte(`{"children":[]}`))
+	if err != nil {
+		t.Fatalf("служебное вложение не добавлено: %v", err)
+	}
+	// Настоящий маркер, как его пишет finish(): без него attachment-id
+	// служебного вложения неоткуда взять, и по id его не отличить от
+	// человеческого.
+	marker := tracker.Marker{RunID: "аналитик-1", Role: "analyst", Outcome: "split", Next: "human", Attachment: serviceID, ConfigSHA: "5bc6a3b0"}
+	if err := o.tasks.Comment("OFF-1", tracker.BySystem(), tracker.NoticeBody(marker, "Постановка описывает две сущности.")); err != nil {
+		t.Fatalf("маркер не записан: %v", err)
+	}
+	// Человек мог приложить файл с ровно тем же именем — своё, не служебное.
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), runner.SplitAttachmentName, []byte("человеческий файл с тем же именем")); err != nil {
+		t.Fatalf("человеческое вложение с служебным именем не добавлено: %v", err)
+	}
+
+	o.tick(t)
+
+	req := o.agent.seen
+	got, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.DirAttachments, "schema.png"))
+	if err != nil {
+		t.Fatalf("человеческое вложение не материализовано: %v", err)
+	}
+	if string(got) != "данные схемы" {
+		t.Errorf("содержимое вложения %q, ожидалось %q", got, "данные схемы")
+	}
+	humanNamedSplit, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.DirAttachments, runner.SplitAttachmentName))
+	if err != nil {
+		t.Fatalf("человеческое вложение с именем split.json не материализовано: %v", err)
+	}
+	if string(humanNamedSplit) != "человеческий файл с тем же именем" {
+		t.Errorf("под именем split.json материализовано не то содержимое: %q", humanNamedSplit)
+	}
+
+	task, err := os.ReadFile(filepath.Join(req.Workdir, runner.Dir, runner.FileTask))
+	if err != nil {
+		t.Fatalf("постановка не записана: %v", err)
+	}
+	if !strings.Contains(string(task), "schema.png") {
+		t.Errorf("в постановке нет упоминания вложения:\n%s", task)
+	}
+	if !strings.Contains(string(task), runner.SplitAttachmentName) {
+		t.Errorf("человеческое вложение с именем split.json не упомянуто в постановке:\n%s", task)
+	}
+}
+
 // Роль, дошедшая до агента, обязана нести уже смёрженные с проектом
 // network/tools — слияние происходит после claim(), не сразу при загрузке
 // роли, потому что до захвата задачи проект не известен.
@@ -873,6 +932,84 @@ func TestTickSplitBlocksAndFlags(t *testing.T) {
 	}
 	if body := lastComment(t, task).Body; !strings.Contains(body, "Category CRUD") || !strings.Contains(body, "category-crud") {
 		t.Errorf("разбивки нет в комментарии:\n%s", body)
+	}
+}
+
+// badIDAttachment возвращает id вне алфавита, который ParseMarker требует
+// от attachment: (внешнее ревью, pr-converge раунд 2: id называет сам
+// сервер, и AddAttachment у jira его никак не проверяет).
+type badIDAttachment struct {
+	*mock.Tracker
+}
+
+func (f *badIDAttachment) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
+	if name == runner.SplitAttachmentName {
+		return "../../OTHER-1/attachments/0", nil
+	}
+	return f.Tracker.AddAttachment(key, by, name, data)
+}
+
+// TestTickFailsLoudlyWhenAttachmentIDOutlivesMarkerAlphabet доказывает, что
+// finish() не пишет маркер с id, которого ParseMarker сам же не разберёт
+// обратно, — молчание здесь означало бы, что офис навсегда перестал видеть
+// собственный отчёт о split-предложении.
+func TestTickFailsLoudlyWhenAttachmentIDOutlivesMarkerAlphabet(t *testing.T) {
+	o := newOffice(t)
+	o.useTracker(&badIDAttachment{Tracker: o.tasks})
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeSplit, Summary: "Постановка описывает две сущности.", NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split: &runner.Split{Children: []runner.SplitChild{
+			{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD категорий."},
+		}},
+	}
+
+	_, err := o.Tick(context.Background(), "implementer")
+	if err == nil {
+		t.Fatal("прогон должен отказать: сервер назвал id вне алфавита attachment:")
+	}
+	if !strings.Contains(err.Error(), "вне алфавита") {
+		t.Errorf("ошибка %q не объясняет причину", err)
+	}
+}
+
+// Второе предложение находит своё же вложение по attachment:<id> из тега
+// последнего маркера split — тест проверяет round-trip через сам Tracker,
+// а не сравнением строк.
+func TestTickSplitAttachesRawChildren(t *testing.T) {
+	o := newOffice(t)
+	split := &runner.Split{Children: []runner.SplitChild{
+		{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD категорий."},
+		{ID: "transaction-crud", Title: "Transaction CRUD", Description: "Модель, миграция, CRUD операций.", DependsOn: []string{"category-crud"}},
+	}}
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeSplit, Summary: "Постановка описывает две сущности.", NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split:     split,
+	}
+
+	o.tick(t)
+
+	task := o.get(t, "OFF-1")
+	body := lastComment(t, task).Body
+	marker, ok := tracker.MarkerOf(body)
+	if !ok || marker.Attachment == "" {
+		t.Fatalf("в маркере нет attachment:<id>:\n%s", body)
+	}
+	if !strings.Contains(body, "attachment:"+marker.Attachment) {
+		t.Errorf("тег комментария не содержит attachment:%s:\n%s", marker.Attachment, body)
+	}
+
+	raw, err := o.tasks.GetAttachment(task.Key, marker.Attachment)
+	if err != nil {
+		t.Fatalf("вложение не прочитано: %v", err)
+	}
+	var got runner.Split
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("вложение не разобрано: %v", err)
+	}
+	if len(got.Children) != 2 || got.Children[1].DependsOn[0] != "category-crud" {
+		t.Errorf("вложение потеряло данные: %+v", got)
 	}
 }
 
@@ -2237,6 +2374,78 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "на этой машине нет") {
 		t.Errorf("лог молчит о том, что песочницы не нашлось:\n%s", log.String())
+	}
+}
+
+// Loop зовёт CompleteSplits на каждом заходе: без этого вызова подтверждённый
+// split так и остался бы висеть в Blocked — достраивать его больше некому,
+// ведь свой собственный unit-тест на CompleteSplits (задачи 11–13) этот путь
+// вызова не проверяет вовсе.
+//
+// Контекст отменяется заранее: Loop проходит ровно один цикл (Reap, tickOnce,
+// CompleteSplits — порядок именно такой, см. TestLoopProcessesHumanReplyBeforeCompletingSplits
+// ниже) и останавливается на ctx.Done(), не дожидаясь таймера. Роль для
+// tickOnce — "reviewer": в этом сценарии для неё нет готовой работы, и цикл
+// роли — no-op, не мешающий проверить именно то, что делает CompleteSplits.
+func TestLoopRunsCompleteSplitsEachCycle(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := o.Loop(ctx, time.Minute, "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	parent := o.get(t, "OFF-1")
+	if parent.Status != o.Workflow.PR.Merged {
+		t.Errorf("Loop не вызвал CompleteSplits: статус родителя %q, ожидался %q", parent.Status, o.Workflow.PR.Merged)
+	}
+	if _, err := o.tasks.Get("OFF-2"); err != nil {
+		t.Errorf("Loop не вызвал CompleteSplits: ребёнок не создан: %v", err)
+	}
+}
+
+// TestLoopProcessesHumanReplyBeforeCompletingSplits воспроизводит гонку из
+// финального ревью: человек ответил в тикете уже после второго подтверждения
+// split (передумал, добавил новое обстоятельство — неважно, что именно), и
+// его реплика к началу цикла ещё не разобрана. CompleteSplits, окажись он
+// раньше HumanReplies (как было раньше в Loop), увидел бы задачу всё ещё
+// в Blocked с двумя подтверждающими маркерами и создал бы тикеты-детей,
+// проигнорировав то, что человек сказал позже, — auto-create в реальном
+// трекере вопреки непрочитанному ответу. Порядок Loop обязан пропускать
+// tickOnce (а с ним и HumanReplies, которого зовёт Tick) вперёд
+// CompleteSplits: тогда задача успевает уехать из Blocked раньше, чем до
+// неё дойдёт очередь автосоздания.
+//
+// Роль для tickOnce — "reviewer", как и в предыдущем тесте: её собственная
+// claim-логика не должна тронуть OFF-1 — после разбора ответа он уезжает
+// в очередь analyst'а (Analysis), а не reviewer'а (Review).
+func TestLoopProcessesHumanReplyBeforeCompletingSplits(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+
+	if err := o.tasks.AddComment("OFF-1", "human", "Погодите — появилось новое обстоятельство."); err != nil {
+		t.Fatalf("реплика не записана: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := o.Loop(ctx, time.Minute, "reviewer"); err != nil {
+		t.Fatalf("цикл не прошёл: %v", err)
+	}
+
+	if _, err := o.tasks.Get("OFF-2"); err == nil {
+		t.Error("CompleteSplits создал детей, хотя свежая реплика человека ещё не была разобрана")
+	}
+
+	parent := o.get(t, "OFF-1")
+	if parent.Status != "Analysis" {
+		t.Errorf("статус родителя %q, ожидался Analysis: реплика человека должна была вернуть "+
+			"задачу в очередь analyst'а раньше, чем до неё дошёл CompleteSplits", parent.Status)
+	}
+	if parent.HumanFlag {
+		t.Error("HumanFlag не снят: разбор ответа человека не состоялся")
 	}
 }
 

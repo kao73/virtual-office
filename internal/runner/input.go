@@ -33,6 +33,87 @@ type Input struct {
 	// Context — разделы, которые допишутся к собранному раннером контексту:
 	// переписка тикета, номер попытки, всё, что зависит от трекера.
 	Context string
+	// Attachments — вложения тикета, уже скачанные (Office.humanAttachments
+	// решает, какие: служебные вроде runner.SplitAttachmentName сюда не
+	// попадают). PrepareInput кладёт их настоящими файлами в DirAttachments —
+	// не текстом в Task, там бывают картинки и PDF.
+	Attachments []InputAttachment
+}
+
+// InputAttachment — одно вложение, готовое лечь в рабочую папку: имя
+// (человеческое, как назвал автор) и сырые данные.
+type InputAttachment struct {
+	Name string
+	Data []byte
+}
+
+// ResolveAttachmentNames превращает человеческие имена вложений в
+// безопасные и однозначные имена файлов, в том же порядке. Чистая
+// функция без ввода-вывода: и writeAttachments (запись на диск), и
+// pipeline.taskBody (упоминание в постановке) считают одно и то же по
+// одному и тому же списку — иначе постановка называла бы файл так, как
+// его не назвали на самом деле (независимое ревью, находка «task.md
+// advertises pre-sanitization names»).
+//
+// Имя вложения — чужой ввод (человек так назвал файл, не раннер): путь
+// собирается через filepath.Base, а голые "." и ".." после него — тоже
+// не имя файла, а способ выйти из каталога (filepath.Join(dir, "..") —
+// это уже родитель dir), поэтому заменяются заглушкой, как и пустое имя.
+//
+// Одинаковые после обрезки имена не перезаписывают друг друга —
+// проверка идёт по уже ЗАНЯТЫМ итоговым именам, а не по счётчику
+// повторов исходного: без этого третье вложение с именем, случайно
+// совпавшим с уже сгенерированным именем второго (`"2-a.png"`), тихо
+// затирало бы его — независимое ревью воспроизвело эту потерю на
+// `["a.png", "a.png", "2-a.png"]`.
+func ResolveAttachmentNames(names []string) []string {
+	taken := make(map[string]bool, len(names))
+	resolved := make([]string, len(names))
+	for i, raw := range names {
+		name := filepath.Base(raw)
+		if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+			name = "attachment"
+		}
+		unique := name
+		for n := 2; taken[unique]; n++ {
+			unique = fmt.Sprintf("%d-%s", n, name)
+		}
+		taken[unique] = true
+		resolved[i] = unique
+	}
+	return resolved
+}
+
+// writeAttachments кладёт вложения тикета в DirAttachments настоящими
+// файлами, а не текстом внутри Task: среди них бывают картинки и PDF,
+// которые агент читает своими инструментами, а не разбором markdown.
+//
+// Каталог перезаписывается целиком: рабочая папка тикета переживает
+// попытки, а набор вложений между ними мог измениться, и вложение,
+// пропавшее у родителя, не должно продолжать лежать в чужой уже папке.
+func writeAttachments(agentDir string, attachments []InputAttachment) error {
+	dir := filepath.Join(agentDir, DirAttachments)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("прошлые вложения не убраны: %w", err)
+	}
+	if len(attachments) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("каталог вложений не создан: %w", err)
+	}
+
+	raw := make([]string, len(attachments))
+	for i, a := range attachments {
+		raw[i] = a.Name
+	}
+	resolved := ResolveAttachmentNames(raw)
+	for i, a := range attachments {
+		if err := os.WriteFile(filepath.Join(dir, resolved[i]), a.Data, 0o644); err != nil {
+			return fmt.Errorf("вложение %s не записано: %w", resolved[i], err)
+		}
+	}
+	return nil
 }
 
 // PrepareInput готовит каталог обмена перед запуском агента: постановку задачи,
@@ -61,6 +142,10 @@ func PrepareInput(workdir string, role Role, run Run, in Input) error {
 	}
 	if err := os.WriteFile(filepath.Join(agentDir, FileContext), []byte(contextMD), 0o644); err != nil {
 		return fmt.Errorf("%s не записан: %w", filepath.Join(Dir, FileContext), err)
+	}
+
+	if err := writeAttachments(agentDir, in.Attachments); err != nil {
+		return err
 	}
 
 	passport, err := json.MarshalIndent(run, "", "  ")

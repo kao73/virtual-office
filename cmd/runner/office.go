@@ -230,6 +230,16 @@ func reapCommand(args []string, out io.Writer) error {
 	return o.Reap(context.Background())
 }
 
+// completeSplitsCommand достраивает и связывает тикеты-детей подтверждённых
+// split-предложений — отдельно от loop, вручную или по cron (по образцу reap).
+func completeSplitsCommand(args []string, out io.Writer) error {
+	o, err := office(flags("complete-splits"), args, out)
+	if err != nil {
+		return err
+	}
+	return o.CompleteSplits(context.Background())
+}
+
 // loopCommand гоняет цикл по расписанию, пока не остановят сигналом.
 //
 // Это не демон: он не следит за собой и не перезапускается. Запускать его
