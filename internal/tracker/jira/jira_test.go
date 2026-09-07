@@ -40,6 +40,11 @@ type fakeJira struct {
 	labels           []string
 	comments         []map[string]any
 	issueAttachments []map[string]any
+	// remoteIssuelinks — то, что "issuelinks" отдаёт GET/поиск задачи в
+	// этом тесте: подделывает то, что реально хранит сервер, в отличие
+	// от issueLinks (без круглой буквы l после "issue") выше, которое
+	// ловит исходящие POST /issueLink этого же трекера.
+	remoteIssuelinks []any
 
 	// verifyRunID подменяет run_id при перечитывании после захвата: так выглядит
 	// проигранная гонка, ради которой сверка и делается.
@@ -123,6 +128,9 @@ func (f *fakeJira) issue() map[string]any {
 			list[i] = a
 		}
 		fields["attachment"] = list
+	}
+	if f.remoteIssuelinks != nil {
+		fields["issuelinks"] = f.remoteIssuelinks
 	}
 	return map[string]any{"key": "VO-1", "fields": fields}
 }
@@ -449,6 +457,58 @@ func TestGetMapsAttachments(t *testing.T) {
 	want := []tracker.AttachmentRef{{ID: "10004", Name: "schema.png"}, {ID: "10005", Name: "spec.pdf"}}
 	if !slices.Equal(task.Attachments, want) {
 		t.Errorf("вложения %+v, ожидались %+v", task.Attachments, want)
+	}
+}
+
+// TestGetParsesDependsOnFromIssuelinks покрывает четыре формы записи
+// issuelinks разом (tasks.md 1.4): связь с совпадающим типом, связь с
+// чужим type.name (игнорируется), несколько связей сразу, запись только
+// с inwardIssue (обратная сторона — не читается: DependsOn — это "от
+// кого зависит эта задача", не "кто зависит от неё").
+func TestGetParsesDependsOnFromIssuelinks(t *testing.T) {
+	tr, fake := fixture(t) // fixture() уже задаёт DependsOnLink: "Depends"
+	fake.remoteIssuelinks = []any{
+		map[string]any{
+			"type":         map[string]any{"name": "Depends"},
+			"outwardIssue": map[string]any{"key": "VO-5"},
+		},
+		map[string]any{
+			// чужой тип связи — не должен попасть в DependsOn
+			"type":         map[string]any{"name": "Blocks"},
+			"outwardIssue": map[string]any{"key": "VO-9"},
+		},
+		map[string]any{
+			// обратная сторона — не читается
+			"type":        map[string]any{"name": "Depends"},
+			"inwardIssue": map[string]any{"key": "VO-3"},
+		},
+		map[string]any{
+			"type":         map[string]any{"name": "Depends"},
+			"outwardIssue": map[string]any{"key": "VO-6"},
+		},
+	}
+
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	want := []string{"VO-5", "VO-6"}
+	if !slices.Equal(task.DependsOn, want) {
+		t.Errorf("DependsOn = %v, ожидалось %v", task.DependsOn, want)
+	}
+}
+
+// TestGetDependsOnEmptyWithoutIssuelinksField — задача без issuelinks
+// вовсе (обычный случай для большинства тикетов) не должна давать сбой
+// разбора и не должна давать ложных зависимостей.
+func TestGetDependsOnEmptyWithoutIssuelinksField(t *testing.T) {
+	tr, _ := fixture(t)
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if len(task.DependsOn) != 0 {
+		t.Errorf("DependsOn = %v, ожидался пустой список", task.DependsOn)
 	}
 }
 

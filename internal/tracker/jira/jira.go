@@ -954,6 +954,28 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 			})
 		}
 	}
+	if links, ok := fields["issuelinks"].([]any); ok {
+		for _, raw := range links {
+			link, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			typ, _ := link["type"].(map[string]any)
+			if text(typ["name"]) != t.cfg.DependsOnLink {
+				continue
+			}
+			// outwardIssue заполнен только у той стороны связи, что была
+			// записана как outwardIssue при POST /issueLink — а
+			// LinkDependsOn пишет туда dependsOnKey (см. его доккомент
+			// про развёрнутое направление). inwardIssue здесь —
+			// обратная связь ("кто зависит от меня"), её не читаем:
+			// DependsOn — это "от кого зависит эта задача", не "кто
+			// зависит от неё".
+			if out, ok := link["outwardIssue"].(map[string]any); ok {
+				task.DependsOn = append(task.DependsOn, text(out["key"]))
+			}
+		}
+	}
 	return task
 }
 
