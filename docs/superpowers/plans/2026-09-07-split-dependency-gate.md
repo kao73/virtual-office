@@ -234,7 +234,7 @@ Closes **tasks.md 1.2** and the `toTask`-facing half of **1.4**.
   string` (existing helper).
 - Produces: `toTask` populates `tracker.Task.DependsOn`.
 
-- [ ] **Step 1: Extend the fake server with an `issuelinks` fixture field**
+- [x] **Step 1: Extend the fake server with an `issuelinks` fixture field**
 
   In `internal/tracker/jira/jira_test.go`, add a field to `fakeJira` (near
   `issueAttachments`):
@@ -256,7 +256,7 @@ Closes **tasks.md 1.2** and the `toTask`-facing half of **1.4**.
       }
   ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
   In `internal/tracker/jira/jira_test.go`:
 
@@ -314,12 +314,12 @@ Closes **tasks.md 1.2** and the `toTask`-facing half of **1.4**.
   }
   ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
   Run: `go test ./internal/tracker/jira/... -run TestGetParsesDependsOnFromIssuelinks -v`
   Expected: FAIL — `task.DependsOn` stays empty, `want` isn't matched.
 
-- [ ] **Step 4: Implement the parsing**
+- [x] **Step 4: Implement the parsing**
 
   In `internal/tracker/jira/jira.go`, `toTask`, right before `return task`
   (after the `attachment` block):
@@ -355,16 +355,16 @@ Closes **tasks.md 1.2** and the `toTask`-facing half of **1.4**.
   `LinkDependsOn` (`internal/tracker/jira/jira.go`, вокруг строки 744), но
   без явного `error`: здесь это не операция записи, падать нечему.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
   Run: `go test ./internal/tracker/jira/... -run 'TestGetParsesDependsOnFromIssuelinks|TestGetDependsOnEmptyWithoutIssuelinksField' -v`
   Expected: PASS.
 
-- [ ] **Step 6: Full package run**
+- [x] **Step 6: Full package run**
 
   Run: `go build ./... && go vet ./... && go test ./internal/tracker/jira/...`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add internal/tracker/jira/jira.go internal/tracker/jira/jira_test.go

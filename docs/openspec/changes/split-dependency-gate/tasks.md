@@ -2,7 +2,7 @@
 
 - [x] 1.1 Add `DependsOn []string` to `tracker.TaskRef`; copy it in
       `Task.Ref()` alongside the other mirrored fields.
-- [ ] 1.2 Parse `fields["issuelinks"]` in `jira.toTask`: an entry whose
+- [x] 1.2 Parse `fields["issuelinks"]` in `jira.toTask`: an entry whose
       `type.name` matches `cfg.DependsOnLink` and carries `outwardIssue`
       contributes that issue's key to `Task.DependsOn`; an entry carrying
       `inwardIssue` instead (the reverse relation) is not read.
