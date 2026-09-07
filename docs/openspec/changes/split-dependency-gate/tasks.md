@@ -58,11 +58,11 @@
 
 ## 5. Visibility in `runner ls`
 
-- [ ] 5.1 Extend `printBoard` (`cmd/runner/board.go`) to reuse the same
+- [x] 5.1 Extend `printBoard` (`cmd/runner/board.go`) to reuse the same
       `List` call already made for the board and show, for a row with
       unmet dependencies, the blocking task's key and current status
       (e.g. "ждёт: EXP-5 (Review)").
-- [ ] 5.2 Test or manually verify the rendered output for a blocked row
+- [x] 5.2 Test or manually verify the rendered output for a blocked row
       and a row with no dependencies (column stays empty).
 
 ## 6. `roles/analyst/role.md`

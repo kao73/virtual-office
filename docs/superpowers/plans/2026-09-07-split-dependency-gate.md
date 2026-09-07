@@ -1180,7 +1180,7 @@ Closes **tasks.md 5.1** and **5.2**.
   terminal func(string) bool, now time.Time, out io.Writer) error` (new
   `terminal` parameter); `dependsColumn(unmet []tracker.TaskRef) string`.
 
-- [ ] **Step 1: Write the failing test, update existing call sites**
+- [x] **Step 1: Write the failing test, update existing call sites**
 
   In `cmd/runner/board_test.go`, update the three existing `printBoard`
   calls to pass a `terminal` function (matching the real `workflow.yaml`,
@@ -1240,14 +1240,14 @@ Closes **tasks.md 5.1** and **5.2**.
   }
   ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
   Run: `go test ./cmd/runner/... -run TestBoard -v`
   Expected: compile failure everywhere (`printBoard` signature mismatch)
   until Step 3 lands, then `TestBoardShowsBlockedDependency` specifically
   fails on the missing column.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   In `cmd/runner/board.go`, add the import:
 
@@ -1330,16 +1330,16 @@ Closes **tasks.md 5.1** and **5.2**.
   return printBoard(o.Tracker, projects, o.Workflow.Statuses, o.Workflow.IsTerminal, time.Now(), out)
   ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
   Run: `go test ./cmd/runner/... -run TestBoard -v`
   Expected: PASS.
 
-- [ ] **Step 5: Full package run**
+- [x] **Step 5: Full package run**
 
   Run: `go build ./... && go vet ./... && go test ./cmd/runner/...`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add cmd/runner/board.go cmd/runner/board_test.go
