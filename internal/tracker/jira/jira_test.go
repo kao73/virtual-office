@@ -1343,6 +1343,43 @@ func TestGetAttachmentDoesNotLeakCredentialsToForeignHost(t *testing.T) {
 	}
 }
 
+// TestLastEventTextCategorySurvivesWikiRoundTrip — сбойная запись
+// (internal/pipeline/splits.go, splitFailed) кладёт стабильную категорию
+// первой строкой текста, а следом — свободный текст причины, который может
+// нести тело ответа JIRA (квадратные скобки, как в типичном
+// {"errorMessages":["..."]}) . Comment() прогоняет весь текст через wiki()
+// на записи (jira.go:489), а обратного перевода нет — читается ровно то,
+// что уехало. Если бы категория тоже несла спецсимволы wiki, дедупликация
+// по первой строке (tracker.LastEventText + strings.Cut) сравнивала бы
+// разное на каждом проходе. Категория — простая русская проза без
+// wiki-разметки, и обязана пережить круг без изменений; свободный текст
+// причины со скобками — нет, и не должен участвовать в сравнении.
+func TestLastEventTextCategorySurvivesWikiRoundTrip(t *testing.T) {
+	tr, _ := fixture(t)
+
+	const category = "вложения родителя не скопированы"
+	marker := tracker.Marker{RunID: "abcdef12", Role: "analyst", Event: tracker.EventSplitCreateFailed, ConfigSHA: "5bc6a3b0"}
+	detail := `запрос отклонён: {"errorMessages":["вложение [10042] не найдено"],"errors":{}}`
+	body := tracker.NoticeBody(marker, category+"\n"+detail)
+
+	if err := tr.Comment("VO-1", tracker.BySystem(), body); err != nil {
+		t.Fatalf("запись не отправлена: %v", err)
+	}
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+
+	last, found := tracker.LastEventText(task.Comments, tracker.EventSplitCreateFailed)
+	if !found {
+		t.Fatalf("запись не найдена среди комментариев")
+	}
+	gotCategory, _, _ := strings.Cut(last, "\n")
+	if gotCategory != category {
+		t.Errorf("категория после круга через wiki() = %q, ожидалась %q — дедупликация сравнивала бы разное на каждом проходе", gotCategory, category)
+	}
+}
+
 // TestGetAttachmentDoesNotLeakCredentialsViaUserinfoBypass — та же угроза,
 // что и TestGetAttachmentDoesNotLeakCredentialsToForeignHost, но обходом
 // через userinfo: strings.HasPrefix(url, BaseURL) считает совпадением

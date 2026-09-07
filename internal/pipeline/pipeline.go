@@ -750,6 +750,15 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 		if err != nil {
 			return "", fmt.Errorf("вложение с разбивкой не сохранено: %w", err)
 		}
+		// id называет сам сервер (jira.AddAttachment отдаёт его из ответа
+		// без проверки) — если он однажды выйдет за алфавит, который
+		// ParseMarker требует на чтении attachment:, свой же отчёт станет
+		// для офиса невидимым молча. Лучше отказать здесь, с понятной
+		// причиной (внешнее ревью, pr-converge раунд 2).
+		if !tracker.ValidAttachmentID(attachmentID) {
+			return "", fmt.Errorf("вложение с разбивкой сохранено, но сервер назвал id %q — вне алфавита, "+
+				"который переживает запись маркера", attachmentID)
+		}
 	}
 
 	marker := tracker.Marker{
@@ -1204,6 +1213,12 @@ func (o *Office) logf(format string, args ...any) {
 // приложивший СВОЙ файл случайно с тем же именем runner.SplitAttachmentName,
 // не должен молча потерять его в humanAttachments (внешнее ревью,
 // pr-converge раунд 1).
+//
+// Осознанный узкий риск (раунд 2 предложил вернуть имя вторым условием,
+// решено не делать): прогон, упавший между AddAttachment и записью
+// маркера (finish(), pipeline.go), оставляет split.json без маркера —
+// такое вложение навсегда считается человеческим. Реже и мягче, чем
+// потерянный вручную приложенный файл, который правка раунда 1 закрывала.
 func splitAttachmentIDs(task tracker.Task) map[string]bool {
 	ids := make(map[string]bool)
 	for _, c := range task.Comments {

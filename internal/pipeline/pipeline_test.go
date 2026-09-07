@@ -935,6 +935,44 @@ func TestTickSplitBlocksAndFlags(t *testing.T) {
 	}
 }
 
+// badIDAttachment возвращает id вне алфавита, который ParseMarker требует
+// от attachment: (внешнее ревью, pr-converge раунд 2: id называет сам
+// сервер, и AddAttachment у jira его никак не проверяет).
+type badIDAttachment struct {
+	*mock.Tracker
+}
+
+func (f *badIDAttachment) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
+	if name == runner.SplitAttachmentName {
+		return "../../OTHER-1/attachments/0", nil
+	}
+	return f.Tracker.AddAttachment(key, by, name, data)
+}
+
+// TestTickFailsLoudlyWhenAttachmentIDOutlivesMarkerAlphabet доказывает, что
+// finish() не пишет маркер с id, которого ParseMarker сам же не разберёт
+// обратно, — молчание здесь означало бы, что офис навсегда перестал видеть
+// собственный отчёт о split-предложении.
+func TestTickFailsLoudlyWhenAttachmentIDOutlivesMarkerAlphabet(t *testing.T) {
+	o := newOffice(t)
+	o.useTracker(&badIDAttachment{Tracker: o.tasks})
+	o.agent.result = runner.Result{
+		Outcome: runner.OutcomeSplit, Summary: "Постановка описывает две сущности.", NextOwner: "human",
+		Questions: []runner.Question{{ID: "Q1", Text: "Разбить на 2, как предложено?"}},
+		Split: &runner.Split{Children: []runner.SplitChild{
+			{ID: "category-crud", Title: "Category CRUD", Description: "Модель, миграция, CRUD категорий."},
+		}},
+	}
+
+	_, err := o.Tick(context.Background(), "implementer")
+	if err == nil {
+		t.Fatal("прогон должен отказать: сервер назвал id вне алфавита attachment:")
+	}
+	if !strings.Contains(err.Error(), "вне алфавита") {
+		t.Errorf("ошибка %q не объясняет причину", err)
+	}
+}
+
 // Второе предложение находит своё же вложение по attachment:<id> из тега
 // последнего маркера split — тест проверяет round-trip через сам Tracker,
 // а не сравнением строк.
