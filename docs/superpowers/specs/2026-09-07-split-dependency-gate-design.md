@@ -2,7 +2,6 @@
 comet_change: split-dependency-gate
 role: technical-design
 canonical_spec: openspec
-status: draft
 ---
 
 # split-dependency-gate — глубокий технический дизайн
