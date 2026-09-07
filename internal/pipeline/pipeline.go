@@ -310,11 +310,26 @@ func (o *Office) claim(roleName string, flow tracker.RoleFlow, role runner.Role)
 
 		// Статусы зависимостей — один List на проект, не Get() на каждую
 		// зависимость каждого кандидата: тот же принцип, что уже
-		// применяет printBoard (cmd/runner/board.go). Ленивый: только
-		// когда в refs вообще есть кандидаты (design.md decision #3).
-		byKey, err := o.projectByKey(project)
-		if err != nil {
-			return claimed{}, err
+		// применяет printBoard (cmd/runner/board.go). Ленивый вдвойне
+		// (fix round 2, Finding 2): не только когда в refs вообще есть
+		// кандидаты (design.md decision #3), но и только когда хотя бы
+		// у одного из них есть depends_on — сегодня это малая часть
+		// задач (дети сплита), и после того как List() у jira стал
+		// полностью постраничным (fix round 1, Finding 1), безусловный
+		// вызов здесь означал полный постраничный скан проекта на каждом
+		// тике каждой роли, даже когда зависимостей ни у кого нет. Когда
+		// условие ложно, byKey остаётся nil — UnmetDependencies на
+		// кандидате с пустым DependsOn и так возвращает nil, не читая
+		// byKey вовсе (deps.go).
+		var byKey map[string]tracker.TaskRef
+		if slices.ContainsFunc(refs, func(r tracker.TaskRef) bool { return len(r.DependsOn) > 0 }) {
+			byKey, err = o.projectByKey(project)
+			if o.skipProject(project, err) {
+				continue
+			}
+			if err != nil {
+				return claimed{}, err
+			}
 		}
 
 		for _, ref := range refs {

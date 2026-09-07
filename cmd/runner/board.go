@@ -61,8 +61,17 @@ func printBoard(tasks tracker.Tracker, projects, statuses []string, terminal fun
 
 		for _, ref := range refs {
 			unmet := pipeline.UnmetDependencies(ref, byKey, terminal)
-			fmt.Fprintf(out, "%-10s %-12s %-24s попыток:%d %-16s %s%-10s %s\n",
-				ref.Key, ref.Status, lease(ref, now), ref.Attempts, waiting(ref), dependsColumn(unmet), age(ref.Updated, now), ref.Summary)
+			// dependsColumn — хвостом строки, после summary, а не вставкой
+			// между waiting и age (fix round 2, Finding 6): переменная
+			// ширина в середине строки сдвигала бы вправо все колонки
+			// после себя на любой заблокированной задаче, и вся доска
+			// теряла построчное выравнивание, не только одна ячейка.
+			line := fmt.Sprintf("%-10s %-12s %-24s попыток:%d %-16s %-10s %s",
+				ref.Key, ref.Status, lease(ref, now), ref.Attempts, waiting(ref), age(ref.Updated, now), ref.Summary)
+			if depends := dependsColumn(unmet); depends != "" {
+				line += " " + depends
+			}
+			fmt.Fprintln(out, line)
 			shown++
 		}
 	}
@@ -74,11 +83,14 @@ func printBoard(tasks tracker.Tracker, projects, statuses []string, terminal fun
 	return nil
 }
 
-// dependsColumn — «ждёт: OFF-1 (Ready) » рядом с задачей, у которой есть
+// dependsColumn — «ждёт: OFF-1 (Ready)» для задачи, у которой есть
 // незакрытые зависимости; пусто — зависимостей нет или все терминальны.
-// Несёт собственную заполняющую пробельность: формат строки выше не
-// держит отдельного места для этой колонки между waiting и age, только
-// сама колонка и её хвостовой пробел, когда она непуста.
+// Печатается хвостом строки printBoard, после summary (fix round 2,
+// Finding 6): переменная ширина здесь не сдвигает ни одну из колонок
+// фиксированной ширины левее себя, в отличие от прежнего места — между
+// waiting и age, где она сдвигала весь остаток строки на любой
+// заблокированной задаче. Без собственного обрамляющего пробела — вызывающий
+// (printBoard) сам решает, ставить ли разделитель перед непустым значением.
 func dependsColumn(unmet []tracker.TaskRef) string {
 	if len(unmet) == 0 {
 		return ""
@@ -87,11 +99,17 @@ func dependsColumn(unmet []tracker.TaskRef) string {
 	for i, dep := range unmet {
 		key := dep.Key
 		if key == "" {
-			key = "неизвестная задача"
+			// Формулировка — та же, что describeUnmet в
+			// internal/pipeline/deps.go, и по той же причине (fix round
+			// 2, Finding 3): отсутствие в byKey не означает
+			// несуществование задачи, только то, что её нет среди
+			// статусов графа этого проекта (статус вне графа или чужой
+			// проект) — а этого утверждать нечем без лишнего Get().
+			key = "не найдена в статусах графа"
 		}
 		parts[i] = fmt.Sprintf("%s (%s)", key, dep.Status)
 	}
-	return fmt.Sprintf("ждёт: %s ", strings.Join(parts, ", "))
+	return fmt.Sprintf("ждёт: %s", strings.Join(parts, ", "))
 }
 
 // lease — кто держит задачу. Истёкшая аренда показывается отдельно от её

@@ -78,9 +78,21 @@ func TestDescribeUnmetNamesKeyAndStatus(t *testing.T) {
 	}
 }
 
+// TestDescribeUnmetHandlesMissingDependency — пустой Key (защитный запасной
+// путь, не путь сегодняшнего claim(), который всегда отдаёт непустой Key —
+// см. TestDescribeUnmetNamesMissingDependencyKey) не должен читаться как
+// «эта задача удалена»: byKey строится из List(project, статусы графа), и
+// ключ может отсутствовать в нём и по другим причинам — задача в статусе
+// вне графа этого проекта (human перевёл в Closed/Won't Do/свой статус) или
+// зависимость на задачу из другого проекта (fix round 2, Finding 3:
+// «неизвестная задача» звучала как утверждение о несуществовании, которое
+// код проверить не может).
 func TestDescribeUnmetHandlesMissingDependency(t *testing.T) {
 	got := describeUnmet([]tracker.TaskRef{{}})
-	if !strings.Contains(got, "неизвестная") {
-		t.Errorf("describeUnmet не сообщает о пропавшей зависимости: %q", got)
+	if !strings.Contains(got, "не найдена в статусах графа") {
+		t.Errorf("describeUnmet не сообщает о пропавшей зависимости корректной формулировкой: %q", got)
+	}
+	if strings.Contains(got, "неизвестная") {
+		t.Errorf("describeUnmet всё ещё утверждает несуществование, которое не может проверить: %q", got)
 	}
 }

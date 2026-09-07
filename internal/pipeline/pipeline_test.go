@@ -3465,7 +3465,9 @@ func TestClaimTreatsMissingDependencyAsUnresolved(t *testing.T) {
 // (pipeline-dependency-gate/spec.md, "The gate applies uniformly across
 // workflow roles").
 func TestClaimGatesAnalystCandidateTheSameWay(t *testing.T) {
+	var log strings.Builder
 	o := newOffice(t)
+	o.Office.Log = &log
 	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
 		t.Fatalf("подготовка не удалась: %v", err)
 	}
@@ -3490,5 +3492,130 @@ func TestClaimGatesAnalystCandidateTheSameWay(t *testing.T) {
 	}
 	if task := o.get(t, "OFF-5"); task.RunID != "" {
 		t.Errorf("заблокированная постановка всё равно захвачена: %+v", task)
+	}
+	// Fix round 2, Finding 9: та же сила доказательства, что у сиблинга
+	// TestClaimSkipsCandidateWithUnresolvedDependency — лог обязан
+	// называть и заблокированную задачу, и то, чего она ждёт, а не
+	// только факт «аналитик ничего не взял».
+	if !strings.Contains(log.String(), "OFF-5") || !strings.Contains(log.String(), "OFF-2") {
+		t.Errorf("лог не называет ни заблокированную постановку, ни блокирующую задачу:\n%s", log.String())
+	}
+}
+
+// countingListTracker считает вызовы List — тем же приёмом, что
+// countingLinksFlakyClose (splits_test.go) считает LinkDependsOn.
+// Нужен для проверки того, что claim() не зовёт projectByKey (а через
+// него — полный List() проекта) вхолостую, когда ни у одного кандидата
+// нет depends_on (fix round 2, Finding 2): после того как List() у jira
+// стал полностью постраничным (fix round 1, Finding 1), безобидный
+// «один лишний List на тик» стал полным постраничным сканом проекта на
+// каждом тике каждой роли, даже когда зависимостей ни у кого нет.
+type countingListTracker struct {
+	tracker.Tracker
+	listCalls int
+}
+
+func (c *countingListTracker) List(project string, statuses []string) ([]tracker.TaskRef, error) {
+	c.listCalls++
+	return c.Tracker.List(project, statuses)
+}
+
+// TestClaimSkipsListWhenNoCandidateHasDependency доказывает, что тик без
+// единого кандидата с depends_on не читает список задач проекта заново —
+// ListReady уже сказал всё, что нужно гейту, если зависимостей нет ни у
+// кого.
+func TestClaimSkipsListWhenNoCandidateHasDependency(t *testing.T) {
+	o := newOffice(t)
+	wrap := &countingListTracker{Tracker: o.tasks}
+	o.useTracker(wrap)
+
+	if !o.tick(t) {
+		t.Fatal("задача без зависимостей должна была уйти в работу")
+	}
+	if wrap.listCalls != 0 {
+		t.Errorf("List вызван %d раз(а) при отсутствии кандидатов с depends_on, ожидалось 0", wrap.listCalls)
+	}
+}
+
+// TestClaimCallsListWhenCandidateHasDependency — зеркало предыдущего
+// теста: как только среди кандидатов есть хоть один с depends_on, гейту
+// снова есть на чём строить byKey, и List() обязан быть вызван.
+func TestClaimCallsListWhenCandidateHasDependency(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Done", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Ready", Summary: "Зависимая часть",
+		DependsOn: []string{"OFF-2"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+	wrap := &countingListTracker{Tracker: o.tasks}
+	o.useTracker(wrap)
+
+	if !o.tick(t) {
+		t.Fatal("задача с разрешённой зависимостью должна была уйти в работу")
+	}
+	if wrap.listCalls == 0 {
+		t.Error("List ни разу не вызван, хотя среди кандидатов есть depends_on")
+	}
+}
+
+// failingListForProject — трекер, у которого ListReady работает как
+// обычно, а List (тот, что дёргает projectByKey под капотом claim())
+// не знает один из проектов. Нужен для Finding 5: единственный вызывающий
+// projectByKey — claim(), и её ошибка должна получать то же самое
+// обхождение unknown-project через skipProject, что уже применяет
+// ListReady чуть выше по тому же циклу — иначе один плохо
+// сконфигурированный проект прерывает обход остальных, тем же багом,
+// что unknownProject/TestTickSkipsProjectUnknownToTracker уже ловил
+// для ListReady/ListExpired.
+type failingListForProject struct {
+	tracker.Tracker
+	missing string
+}
+
+func (f failingListForProject) List(project string, statuses []string) ([]tracker.TaskRef, error) {
+	if project == f.missing {
+		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	}
+	return f.Tracker.List(project, statuses)
+}
+
+// TestClaimSkipsProjectWhenProjectByKeyFailsUnknown доказывает, что
+// ошибка ErrNoProject из projectByKey не бросает весь тик — ровно как
+// уже не бросает такая же ошибка из ListReady. Проект AAA (раньше OFF
+// по алфавиту, обход дойдёт до него первым) даёт кандидата с
+// depends_on, чтобы claim() вообще позвал projectByKey; List() для AAA
+// отказывает — тик обязан пропустить AAA и всё равно дойти до OFF-1.
+func TestClaimSkipsProjectWhenProjectByKeyFailsUnknown(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	o.Office.Projects["AAA"] = tracker.Project{
+		RepoURL: o.origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "mock",
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "AAA-1", Project: "AAA", Status: "Ready", Summary: "Есть зависимость",
+		DependsOn: []string{"AAA-2"},
+	}); err != nil {
+		t.Fatalf("кандидат AAA не заведён: %v", err)
+	}
+	o.useTracker(failingListForProject{Tracker: o.tasks, missing: "AAA"})
+
+	if !o.tick(t) {
+		t.Fatal("тик не должен был провалиться целиком из-за одного незнакомого трекеру проекта")
+	}
+	if task := o.get(t, "OFF-1"); task.Status == "Ready" {
+		t.Errorf("годный проект не обслужен после сбоя на AAA: %+v", task)
+	}
+	if !strings.Contains(log.String(), "AAA") {
+		t.Errorf("пропуск проекта AAA не объяснён в логе:\n%s", log.String())
 	}
 }

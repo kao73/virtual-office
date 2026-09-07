@@ -173,4 +173,30 @@ func TestBoardShowsBlockedDependency(t *testing.T) {
 	if strings.Contains(off1Line, "ждёт:") {
 		t.Errorf("у задачи без зависимостей появилась колонка ожидания:\n%s", off1Line)
 	}
+	// Fix round 2, Finding 6: зависимость — хвост строки, после summary, а
+	// не вставка между waiting и age. Мидроу-вставка сдвигала бы вправо
+	// все колонки строки, у которых есть незакрытая зависимость (age,
+	// summary), и делала бы доску нечитаемой построчно.
+	summaryAt := strings.Index(off2Line, "Вторая часть")
+	dependsAt := strings.Index(off2Line, "ждёт: OFF-1 (Ready)")
+	if summaryAt == -1 || dependsAt == -1 || dependsAt < summaryAt {
+		t.Errorf("зависимость должна идти хвостом после summary, а не перед ним:\n%s", off2Line)
+	}
+}
+
+// TestDependsColumnNamesMissingDependencyByGraphAbsence — dependsColumn
+// обязан описывать пропавшую зависимость так же, как describeUnmet
+// (internal/pipeline/deps.go): не как утверждение, что задачи не
+// существует, а как «её нет среди статусов графа» — деп может быть в
+// статусе вне графа проекта или в чужом проекте, а не только удалён
+// (fix round 2, Finding 3 — формулировка должна совпадать в обоих
+// местах, board.go и deps.go, а не только логика).
+func TestDependsColumnNamesMissingDependencyByGraphAbsence(t *testing.T) {
+	got := dependsColumn([]tracker.TaskRef{{}})
+	if !strings.Contains(got, "не найдена в статусах графа") {
+		t.Errorf("dependsColumn = %q, ожидалась формулировка про отсутствие в статусах графа", got)
+	}
+	if strings.Contains(got, "неизвестная") {
+		t.Errorf("dependsColumn всё ещё утверждает несуществование, которое не может проверить: %q", got)
+	}
 }
