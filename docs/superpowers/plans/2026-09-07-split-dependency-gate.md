@@ -726,7 +726,7 @@ Closes **tasks.md 3.1** and **3.2**.
   []tracker.TaskRef`; `describeUnmet(unmet []tracker.TaskRef) string`
   (unexported, used by Task 7's `claim()` log line).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
   Create `internal/pipeline/deps_test.go`:
 
@@ -802,12 +802,12 @@ Closes **tasks.md 3.1** and **3.2**.
   }
   ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
   Run: `go test ./internal/pipeline/... -run 'TestUnmetDependencies|TestDescribeUnmet' -v`
   Expected: FAIL to compile — `UnmetDependencies`/`describeUnmet` undefined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   Create `internal/pipeline/deps.go`:
 
@@ -867,16 +867,16 @@ Closes **tasks.md 3.1** and **3.2**.
   }
   ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
   Run: `go test ./internal/pipeline/... -run 'TestUnmetDependencies|TestDescribeUnmet' -v`
   Expected: PASS.
 
-- [ ] **Step 5: Full package run**
+- [x] **Step 5: Full package run**
 
   Run: `go build ./... && go vet ./... && go test ./internal/pipeline/...`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/pipeline/deps.go internal/pipeline/deps_test.go

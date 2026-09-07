@@ -30,12 +30,12 @@
 
 ## 3. Dependency-status helper
 
-- [ ] 3.1 Add `internal/pipeline/deps.go` with a helper that, given a
+- [x] 3.1 Add `internal/pipeline/deps.go` with a helper that, given a
       `TaskRef` and a `map[string]TaskRef` for its project plus
       `Workflow.IsTerminal`, returns the dependencies that are not yet
       terminal (including a marker for a dependency key absent from the
       map — treated as unresolved, not satisfied).
-- [ ] 3.2 Unit tests: all dependencies terminal (none unmet), one
+- [x] 3.2 Unit tests: all dependencies terminal (none unmet), one
       non-terminal dependency (returned), dependency key missing from the
       map (returned as unmet, not silently dropped), no `DependsOn` at all
       (none unmet, no lookup needed).
