@@ -138,7 +138,7 @@ implementations' `List`/`ListReady` paths in one place.
 **Interfaces:**
 - Produces: `TaskRef.DependsOn []string`; `Task.Ref()` now copies it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
   In `internal/tracker/tracker_test.go`, add `"slices"` to the imports,
   then:
@@ -166,13 +166,13 @@ implementations' `List`/`ListReady` paths in one place.
   }
   ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
   Run: `go test ./internal/tracker/... -run TestTaskRefCopiesDependsOn -v`
   Expected: FAIL to compile — `ref.DependsOn undefined (type TaskRef has no
   field or method DependsOn)`.
 
-- [ ] **Step 3: Add the field and copy it**
+- [x] **Step 3: Add the field and copy it**
 
   In `internal/tracker/tracker.go`, in `TaskRef` (after `Status string`):
 
@@ -203,16 +203,16 @@ implementations' `List`/`ListReady` paths in one place.
   }
   ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
   Run: `go test ./internal/tracker/... -run TestTaskRefCopiesDependsOn -v`
   Expected: PASS.
 
-- [ ] **Step 5: Full package run — nothing else broke**
+- [x] **Step 5: Full package run — nothing else broke**
 
   Run: `go build ./... && go vet ./... && go test ./internal/tracker/...`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/tracker/tracker.go internal/tracker/tracker_test.go
