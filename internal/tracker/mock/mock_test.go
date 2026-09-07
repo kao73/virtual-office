@@ -796,6 +796,27 @@ func TestGetAttachmentUnknownIDFails(t *testing.T) {
 	}
 }
 
+// TestGetAttachmentRejectsIDOutsideMarkerAlphabet — заслон от path traversal
+// (ParseMarker, attachmentIDPattern) сегодня единственный и стоит далеко от
+// стока: сам GetAttachment id, из которого строит путь filepath.Join,
+// никак не проверяет. Канарейка вне хранилища доказывает, что побег реален,
+// а не гипотетичен: без здешнего заслона запрос вида id="../../canary.txt"
+// (attachments/../.. поднимает на уровень выше каталога задачи) читает файл
+// вне дерева вложений вообще. Второй, здешний заслон делает отказ свойством
+// самого метода, а не только вызывающего через маркер (внешнее ревью,
+// pr-converge раунд 3).
+func TestGetAttachmentRejectsIDOutsideMarkerAlphabet(t *testing.T) {
+	tr := fixture(t)
+	canary := filepath.Join(tr.root, "canary.txt")
+	if err := os.WriteFile(canary, []byte("не должно быть прочитано через GetAttachment"), 0o644); err != nil {
+		t.Fatalf("канарейка не создана: %v", err)
+	}
+
+	if _, err := tr.GetAttachment("OFF-1", "../../canary.txt"); err == nil {
+		t.Error("id с разделителями пути должен быть отвергнут заслоном, а не дойти до чтения файла вне хранилища")
+	}
+}
+
 func TestAddAttachmentRequiresOwnership(t *testing.T) {
 	tr := fixture(t)
 	if err := claim(tr, "прогон-1"); err != nil {

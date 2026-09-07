@@ -700,6 +700,15 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 // вложений в JIRA глобальны — параметр входит в контракт ради файлового
 // трекера, которому путь по ключу задачи и нужен.
 func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
+	// Второй заслон, не только у ParseMarker (единственного сегодняшнего
+	// источника id): id склеивается прямо в REST-путь, и без проверки
+	// здесь значение вроде "../issue/VO-1" ушло бы на сервер как есть —
+	// а если тот сам нормализует ".." при маршрутизации (многие веб-
+	// фреймворки так делают), запрос попал бы на совсем другой эндпойнт
+	// (внешнее ревью, pr-converge раунд 3).
+	if !tracker.ValidAttachmentID(id) {
+		return nil, fmt.Errorf("%w: вложение %s", tracker.ErrNotFound, id)
+	}
 	var meta struct {
 		Content string `json:"content"`
 	}

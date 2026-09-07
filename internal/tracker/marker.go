@@ -412,19 +412,31 @@ func HasEvent(comments []Comment, event string) bool {
 	return false
 }
 
-// LastEventText — текст последней записи с данным событием, без строки
-// маркера (NoticeBody кладёт маркер первой строкой, текст — дальше).
-// Нужен там, где дедупликация обязана сравнивать причину, а не только факт
-// события: HasEvent сказал бы «уже сообщено» и для тикета, который свежая,
-// другая по сути беда постигла уже после первой (splitFailed).
-func LastEventText(comments []Comment, event string) (text string, found bool) {
+// EventCategories — множество уже сказанных причин для данного события:
+// первая строка текста (без строки маркера — NoticeBody кладёт маркер
+// первой строкой, текст дальше) каждой записи с этим событием, по всей
+// переписке, а не только последней. Нужен там, где дедупликация обязана
+// сравнивать причину, а не только факт события: HasEvent сказал бы «уже
+// сообщено» и для тикета, который свежая, другая по сути беда постигла
+// уже после первой (splitFailed).
+//
+// По ВСЕЙ переписке, не по последней записи (LastEventText — прежняя,
+// более узкая версия этой функции — сравнивала только с ней): если ранний
+// шаг падает изредка, а поздний — стабильно, их причины чередуются между
+// циклами Loop, и сравнение с последней всегда видело бы «новую» причину,
+// хотя обе уже звучали (внешнее ревью, pr-converge раунд 3).
+func EventCategories(comments []Comment, event string) map[string]bool {
+	categories := make(map[string]bool)
 	for _, c := range comments {
-		if m, ok := MarkerOf(c.Body); ok && m.Event == event {
-			_, rest, _ := strings.Cut(c.Body, "\n")
-			text, found = strings.TrimSpace(rest), true
+		m, ok := MarkerOf(c.Body)
+		if !ok || m.Event != event {
+			continue
 		}
+		_, rest, _ := strings.Cut(c.Body, "\n")
+		category, _, _ := strings.Cut(strings.TrimSpace(rest), "\n")
+		categories[category] = true
 	}
-	return text, found
+	return categories
 }
 
 // SplitConfirmed решает, подтверждён ли split этой роли: считает все

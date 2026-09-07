@@ -27,6 +27,11 @@ var now = time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 type fakeJira struct {
 	t *testing.T
 
+	// hitPaths — путь каждого дошедшего запроса, по порядку. Нужен там, где
+	// проверяется, что заслон отказал ДО отправки запроса, а не полагается
+	// на то, что сервер сам ответит 404 незнакомому пути.
+	hitPaths []string
+
 	status           string
 	runID            string
 	owner            string
@@ -123,6 +128,7 @@ func (f *fakeJira) issue() map[string]any {
 }
 
 func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.hitPaths = append(f.hitPaths, r.URL.Path)
 	f.lastUser, _, _ = r.BasicAuth()
 	body := map[string]any{}
 	if r.Body != nil {
@@ -1308,6 +1314,23 @@ func TestGetAttachmentDownloadsContent(t *testing.T) {
 	}
 }
 
+// TestGetAttachmentRejectsIDOutsideMarkerAlphabet — второй заслон, не
+// только у ParseMarker (единственного сегодняшнего источника id): id
+// склеивается прямо в REST-путь ("/attachment/"+id), и без проверки здесь
+// значение вроде "../issue/VO-1" увело бы запрос на другой эндпойнт REST
+// API, а не отказало бы явно (внешнее ревью, pr-converge раунд 3).
+func TestGetAttachmentRejectsIDOutsideMarkerAlphabet(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.hitPaths = nil
+
+	if _, err := tr.GetAttachment("VO-1", "../issue/VO-1"); err == nil {
+		t.Error("id с разделителями пути должен быть отвергнут заслоном, а не уйти в запрос")
+	}
+	if len(fake.hitPaths) != 0 {
+		t.Errorf("запрос всё же ушёл на сервер: %v — заслон обязан отказать раньше, а не полагаться на 404 сервера", fake.hitPaths)
+	}
+}
+
 // GetAttachment не должен слать базовую авторизацию инстанса на URL, который
 // сервер назвал в content, но который не начинается с адреса самого инстанса.
 // Сегодня content всегда свой (проверено выше), но если сервер когда-нибудь
@@ -1343,18 +1366,18 @@ func TestGetAttachmentDoesNotLeakCredentialsToForeignHost(t *testing.T) {
 	}
 }
 
-// TestLastEventTextCategorySurvivesWikiRoundTrip — сбойная запись
+// TestEventCategoriesSurviveWikiRoundTrip — сбойная запись
 // (internal/pipeline/splits.go, splitFailed) кладёт стабильную категорию
 // первой строкой текста, а следом — свободный текст причины, который может
 // нести тело ответа JIRA (квадратные скобки, как в типичном
 // {"errorMessages":["..."]}) . Comment() прогоняет весь текст через wiki()
 // на записи (jira.go:489), а обратного перевода нет — читается ровно то,
 // что уехало. Если бы категория тоже несла спецсимволы wiki, дедупликация
-// по первой строке (tracker.LastEventText + strings.Cut) сравнивала бы
-// разное на каждом проходе. Категория — простая русская проза без
-// wiki-разметки, и обязана пережить круг без изменений; свободный текст
-// причины со скобками — нет, и не должен участвовать в сравнении.
-func TestLastEventTextCategorySurvivesWikiRoundTrip(t *testing.T) {
+// по первой строке (tracker.EventCategories) сравнивала бы разное на
+// каждом проходе. Категория — простая русская проза без wiki-разметки,
+// и обязана пережить круг без изменений; свободный текст причины со
+// скобками — нет, и не должен участвовать в сравнении.
+func TestEventCategoriesSurviveWikiRoundTrip(t *testing.T) {
 	tr, _ := fixture(t)
 
 	const category = "вложения родителя не скопированы"
@@ -1370,13 +1393,9 @@ func TestLastEventTextCategorySurvivesWikiRoundTrip(t *testing.T) {
 		t.Fatalf("задача не прочитана: %v", err)
 	}
 
-	last, found := tracker.LastEventText(task.Comments, tracker.EventSplitCreateFailed)
-	if !found {
-		t.Fatalf("запись не найдена среди комментариев")
-	}
-	gotCategory, _, _ := strings.Cut(last, "\n")
-	if gotCategory != category {
-		t.Errorf("категория после круга через wiki() = %q, ожидалась %q — дедупликация сравнивала бы разное на каждом проходе", gotCategory, category)
+	categories := tracker.EventCategories(task.Comments, tracker.EventSplitCreateFailed)
+	if !categories[category] {
+		t.Errorf("категория после круга через wiki() не найдена среди %+v, ожидалась %q — дедупликация сравнивала бы разное на каждом проходе", categories, category)
 	}
 }
 

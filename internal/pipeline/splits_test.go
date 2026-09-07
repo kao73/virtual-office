@@ -870,6 +870,46 @@ func TestSplitFailedDedupsByStableCategoryNotFreeformText(t *testing.T) {
 	}
 }
 
+// TestSplitFailedDedupsAgainstAllPastCategoriesNotJustLast — раунд 2 сравнивал
+// со всей перепиской по одной причине; раунд 3 нашёл, что сравнение шло
+// только с ПОСЛЕДНЕЙ записью (tracker.LastEventText), а не со множеством уже
+// сказанных причин. Ранний шаг completeSplit, падающий изредка, и поздний,
+// падающий стабильно, чередуют свои категории между циклами Loop — и каждая
+// из них "новая" относительно предыдущей, хотя обе уже звучали.
+func TestSplitFailedDedupsAgainstAllPastCategoriesNotJustLast(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+	task := o.get(t, "OFF-1")
+
+	// Цикл 1: ранняя причина.
+	if err := o.splitFailed(task, "связи depends_on не записаны", errors.New("первая попытка")); err != nil {
+		t.Fatalf("запись не удалась: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+	// Цикл 2: поздняя причина — ранняя починилась, дошли дальше.
+	if err := o.splitFailed(task, "родитель не закрыт", errors.New("вторая попытка")); err != nil {
+		t.Fatalf("запись не удалась: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+	// Цикл 3: ранняя причина снова — та же самая, что и в цикле 1.
+	if err := o.splitFailed(task, "связи depends_on не записаны", errors.New("третья попытка")); err != nil {
+		t.Fatalf("запись не удалась: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+
+	var categories []string
+	for _, c := range task.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Event == tracker.EventSplitCreateFailed {
+			_, rest, _ := strings.Cut(c.Body, "\n")
+			category, _, _ := strings.Cut(strings.TrimSpace(rest), "\n")
+			categories = append(categories, category)
+		}
+	}
+	if len(categories) != 2 {
+		t.Errorf("записей о сбое %d, ожидалось 2 (обе причины уже звучали): %+v", len(categories), categories)
+	}
+}
+
 // flakyClose роняет Transition для ключа задачи-родителя: так выглядит сбой
 // самого последнего шага completeSplit — закрытия родителя в
 // closeSplitParent, — уже после того как дети созданы, связаны и отчёт

@@ -544,6 +544,13 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 
 // GetAttachment читает вложение обратно, байт в байт.
 func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
+	// Второй заслон, не только у ParseMarker (единственного сегодняшнего
+	// источника id): filepath.Join ниже не проверяет, что id остаётся
+	// внутри attachmentsDir — id вида "../../etc/passwd" уходит за пределы
+	// хранилища вовсе (внешнее ревью, pr-converge раунд 3).
+	if !tracker.ValidAttachmentID(id) {
+		return nil, fmt.Errorf("%w: вложение %s/%s", tracker.ErrNotFound, key, id)
+	}
 	data, err := os.ReadFile(filepath.Join(t.dir(key), attachmentsDir, id))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("%w: вложение %s/%s", tracker.ErrNotFound, key, id)
