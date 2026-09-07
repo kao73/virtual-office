@@ -1573,7 +1573,7 @@ time is short.
 
 Closes **tasks.md 8.1**.
 
-- [ ] **Step 1: Run the full verification suite**
+- [x] **Step 1: Run the full verification suite**
 
   ```bash
   gofmt -l .
@@ -1585,7 +1585,7 @@ Closes **tasks.md 8.1**.
   Expected: `gofmt -l .` prints nothing; `go build`/`go vet` exit 0; `go
   test ./...` all green.
 
-- [ ] **Step 2: Skim the diff against the spec's scenarios**
+- [x] **Step 2: Skim the diff against the spec's scenarios**
 
   For each scenario in
   `docs/openspec/changes/split-dependency-gate/specs/pipeline-dependency-gate/spec.md`
@@ -1596,7 +1596,7 @@ Closes **tasks.md 8.1**.
   don't defer it to Task 12's live check, which is not automated and not a
   substitute for unit coverage.
 
-- [ ] **Step 3: Commit (only if Step 2 found and fixed a gap)**
+- [x] **Step 3: Commit (only if Step 2 found and fixed a gap)**
 
   If Step 2 didn't require any code changes, there's nothing to commit for
   this task — it's a verification checkpoint, not a code-producing one.

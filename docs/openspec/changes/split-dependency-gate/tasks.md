@@ -82,7 +82,7 @@
 
 ## 8. Verification
 
-- [ ] 8.1 `go build ./... && go vet ./... && go test ./...` green after
+- [x] 8.1 `go build ./... && go vet ./... && go test ./...` green after
       each task and at the end.
 - [ ] 8.2 Live end-to-end check on the polygon: a split with a real
       dependency between two children shows the dependent one withheld
