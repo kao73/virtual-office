@@ -2,6 +2,7 @@
 change: split-dependency-gate
 design-doc: docs/superpowers/specs/2026-09-07-split-dependency-gate-design.md
 base-ref: 7ef17c6268e3091ff22f7a2d503966d8576f34c0
+archived-with: 2026-09-08-split-dependency-gate
 ---
 
 # split-dependency-gate Implementation Plan
