@@ -65,9 +65,18 @@ type fakeJira struct {
 	// запрос).
 	lastSearchFields []any
 	lastLimit        int      // maxResults последнего поиска
+	lastStartAt      int      // startAt последнего поиска
 	transitons       []string // имена статусов, в которые переводили
 	commentPages     int      // сколько раз спрашивали страницу комментариев
 	fakeTotal        int      // ненулевой — сервер врёт про размер переписки
+
+	// searchIssues — если задано, /search отдаёт постранично ИМЕННО этот
+	// список (по startAt/maxResults из тела запроса), а не единственный
+	// f.issue(). Нужен для проверки пагинации List() (fix round 1,
+	// Finding 1): по умолчанию (nil) сервер ведёт себя как раньше — одна
+	// страница с единственной VO-1.
+	searchIssues []map[string]any
+	searchPages  int // сколько раз запрашивали страницу поиска (searchIssues != nil)
 
 	lastUser string // учётка последнего запроса: под кем ходил трекер
 
@@ -170,6 +179,11 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if limit, ok := body["maxResults"].(float64); ok {
 			f.lastLimit = int(limit)
 		}
+		if startAt, ok := body["startAt"].(float64); ok {
+			f.lastStartAt = int(startAt)
+		} else {
+			f.lastStartAt = 0
+		}
 		if f.badSearch {
 			w.WriteHeader(http.StatusBadRequest)
 			write(map[string]any{"errorMessages": []string{"поиск не удался"}})
@@ -177,6 +191,26 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if f.noIssues {
 			write(map[string]any{"issues": []any{}})
+			return
+		}
+		if f.searchIssues != nil {
+			// Страницы отдаются честно, тем же приёмом, что и переписка
+			// (см. комментарии выше по startAt/maxResults): без этого
+			// тест на пагинацию List() проходил бы и без пагинации.
+			f.searchPages++
+			size := f.lastLimit
+			if size <= 0 {
+				size = 50
+			}
+			start := f.lastStartAt
+			var page []any
+			if start < len(f.searchIssues) {
+				end := min(start+size, len(f.searchIssues))
+				for _, iss := range f.searchIssues[start:end] {
+					page = append(page, iss)
+				}
+			}
+			write(map[string]any{"issues": page, "total": len(f.searchIssues)})
 			return
 		}
 		write(map[string]any{"issues": []any{f.issue()}})
@@ -958,6 +992,62 @@ func TestListBuildsJQLForStatuses(t *testing.T) {
 	}
 	if fake.commentPages != 0 {
 		t.Errorf("список задач полез за переписью: страниц %d", fake.commentPages)
+	}
+}
+
+// fakeSearchIssue — минимальная задача для страницы /search: только то,
+// что нужно List(), чтобы дойти до конца и не упасть на разборе полей.
+func fakeSearchIssue(key string) map[string]any {
+	return map[string]any{
+		"key": key,
+		"fields": map[string]any{
+			"summary": "задача " + key,
+			"status":  map[string]any{"name": "Ready"},
+			"project": map[string]any{"key": "VO"},
+			"updated": "2026-08-17T12:00:00.000+0000",
+		},
+	}
+}
+
+// TestListPaginatesBeyondFirstPage доказывает fix round 1, Finding 1:
+// List() раньше отдавал только первую страницу поиска (searchPage=50)
+// от старых задач по created ASC — дети сплита, будучи самыми новыми,
+// молча выпадали из среза, на котором строится гейт зависимостей
+// (Office.projectByKey → UnmetDependencies), и заблокированная задача
+// стояла бы вечно, приняв настоящую-но-невидимую зависимость за
+// отсутствующую. Тест даёт фейковому серверу заведомо больше одной
+// страницы фикстур и проверяет, что List() вернул их все — с
+// пагинацией по startAt, тем же приёмом, что comments() уже делает
+// для переписки.
+func TestListPaginatesBeyondFirstPage(t *testing.T) {
+	tr, fake := fixture(t)
+	const total = searchPage + 7 // заведомо больше одной страницы
+	fake.searchIssues = make([]map[string]any, total)
+	want := make(map[string]bool, total)
+	for i := range total {
+		key := fmt.Sprintf("VO-%d", i+1)
+		fake.searchIssues[i] = fakeSearchIssue(key)
+		want[key] = true
+	}
+
+	refs, err := tr.List("VO", []string{"Ready"})
+	if err != nil {
+		t.Fatalf("список не прочитан: %v", err)
+	}
+	if len(refs) != total {
+		t.Fatalf("получено %d задач из %d: список обрублен первой страницей поиска", len(refs), total)
+	}
+	for _, ref := range refs {
+		if !want[ref.Key] {
+			t.Errorf("неожиданный ключ %s", ref.Key)
+		}
+		delete(want, ref.Key)
+	}
+	if len(want) != 0 {
+		t.Errorf("не вернулись ключи: %v", want)
+	}
+	if fake.searchPages < 2 {
+		t.Errorf("страниц запрошено %d: пагинации не было, тест бы прошёл и без фикса", fake.searchPages)
 	}
 }
 

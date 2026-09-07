@@ -18,17 +18,25 @@ import (
 // который они и так уже делают).
 //
 // Зависимость, которой нет в byKey (задача удалена или никогда не
-// существовала), тоже считается незакрытой — её нулевое значение,
-// TaskRef{} (Key == ""), возвращается как есть, а не подменяется:
-// явный сигнал вызывающему «эту зависимость нечем подтвердить», а не
-// тихий пропуск. Падать громко, не считать свободной зависимость,
+// существовала), тоже считается незакрытой — но вместо нулевого
+// значения byKey[key] в unmet попадает TaskRef{Key: key}: тот самый
+// ключ, который искали, с пустым Status. Явный сигнал вызывающему «эту
+// зависимость нечем подтвердить», а не тихий пропуск — и, в отличие от
+// TaskRef{}, называющий, ЧЕГО не хватает (fix round 1, Finding 2:
+// прежняя версия отдавала byKey[key] как есть, а его нулевое значение
+// при !found теряло искомый ключ — лог видел «незакрытая зависимость»,
+// но не видел какая). Падать громко, не считать свободной зависимость,
 // которую нечем подтвердить (docs/DESIGN.md, принцип видимых отказов;
 // design.md decision #6).
 func UnmetDependencies(ref tracker.TaskRef, byKey map[string]tracker.TaskRef, terminal func(string) bool) []tracker.TaskRef {
 	var unmet []tracker.TaskRef
 	for _, key := range ref.DependsOn {
 		dep, found := byKey[key]
-		if !found || !terminal(dep.Status) {
+		if !found {
+			unmet = append(unmet, tracker.TaskRef{Key: key})
+			continue
+		}
+		if !terminal(dep.Status) {
 			unmet = append(unmet, dep)
 		}
 	}
@@ -36,10 +44,14 @@ func UnmetDependencies(ref tracker.TaskRef, byKey map[string]tracker.TaskRef, te
 }
 
 // describeUnmet — «OFF-2 (Review), OFF-3 (InProgress)» для лога claim():
-// имя и текущий статус каждой незакрытой зависимости. Пустой Key
-// (UnmetDependencies отдаёт его для зависимости, которой нет в byKey)
-// показывается отдельной пометкой — молчать о том, что зависимость
-// вообще пропала, было бы хуже, чем показать её без статуса.
+// имя и текущий статус каждой незакрытой зависимости. Пропавшая
+// зависимость теперь приходит с непустым Key (UnmetDependencies отдаёт
+// TaskRef{Key: key}, не нулевое значение — fix round 1, Finding 2) и
+// печатается как «OFF-404 ()»: пустой статус, но настоящий ключ — это и
+// есть диагностируемая форма. Пометка «неизвестная задача» ниже —
+// защитный запасной путь на случай пустого Key от какого-то другого
+// вызывающего; сегодняшний единственный вызывающий (claim()) её больше
+// не задействует.
 func describeUnmet(unmet []tracker.TaskRef) string {
 	parts := make([]string, len(unmet))
 	for i, dep := range unmet {

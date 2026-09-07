@@ -30,9 +30,11 @@ func TestUnmetDependenciesReturnsNonTerminal(t *testing.T) {
 
 // TestUnmetDependenciesTreatsMissingKeyAsUnresolved — зависимость,
 // которой нет в byKey (удалена, никогда не существовала), не должна
-// считаться свободной. Возвращается нулевой TaskRef{} (Key == "") —
-// явный сигнал вызывающему "нечем подтвердить", а не тихий пропуск
-// (design doc §2, decision #6 в design.md).
+// считаться свободной. Возвращается TaskRef{Key: "OFF-404"} — тот самый
+// ключ, который искали, а не нулевое значение: оператору нужно видеть,
+// ЧЕГО не хватает, а не только что чего-то не хватает (fix round 1,
+// Finding 2 — зеркально предыдущей версии, которая отдавала byKey[key]
+// как есть и теряла ключ в нулевом значении).
 func TestUnmetDependenciesTreatsMissingKeyAsUnresolved(t *testing.T) {
 	ref := tracker.TaskRef{Key: "OFF-2", DependsOn: []string{"OFF-404"}}
 	byKey := map[string]tracker.TaskRef{}
@@ -41,8 +43,23 @@ func TestUnmetDependenciesTreatsMissingKeyAsUnresolved(t *testing.T) {
 	if len(unmet) != 1 {
 		t.Fatalf("отсутствующая зависимость не считается незакрытой: %+v", unmet)
 	}
-	if unmet[0].Key != "" {
-		t.Errorf("ожидался нулевой TaskRef для отсутствующей зависимости, получено %+v", unmet[0])
+	if unmet[0].Key != "OFF-404" {
+		t.Errorf("ожидался TaskRef{Key: \"OFF-404\"} для отсутствующей зависимости, получено %+v", unmet[0])
+	}
+	if unmet[0].Status != "" {
+		t.Errorf("у отсутствующей зависимости не должно быть статуса, получено %+v", unmet[0])
+	}
+}
+
+// TestDescribeUnmetNamesMissingDependencyKey — describeUnmet обязан
+// показать ключ отсутствующей зависимости, а не только факт, что
+// что-то пропало: "неизвестная задача ()" не говорит оператору, какую
+// задачу заводить или искать (fix round 1, Finding 2).
+func TestDescribeUnmetNamesMissingDependencyKey(t *testing.T) {
+	got := describeUnmet([]tracker.TaskRef{{Key: "OFF-404"}})
+	want := "OFF-404 ()"
+	if got != want {
+		t.Errorf("describeUnmet = %q, ожидалось %q", got, want)
 	}
 }
 

@@ -3429,9 +3429,15 @@ func TestClaimTakesCandidateOnceDependencyIsTerminal(t *testing.T) {
 // TestClaimTreatsMissingDependencyAsUnresolved — depends_on называет
 // задачу, которой в трекере нет вовсе: гейт обязан считать её незакрытой,
 // а не свободной (pipeline-dependency-gate/spec.md, "A missing
-// dependency task blocks the candidate").
+// dependency task blocks the candidate"). Лог обязан назвать не только
+// заблокированную задачу, но и пропавший ключ — до fix round 1, Finding
+// 2 в UnmetDependencies попадало нулевое значение TaskRef{}, и
+// describeUnmet печатал «неизвестная задача ()» вместо «OFF-404 ()»
+// (Finding 3: этот тест раньше не проверял лог вовсе).
 func TestClaimTreatsMissingDependencyAsUnresolved(t *testing.T) {
+	var log strings.Builder
 	o := newOffice(t)
+	o.Office.Log = &log
 	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
 		t.Fatalf("подготовка не удалась: %v", err)
 	}
@@ -3448,6 +3454,9 @@ func TestClaimTreatsMissingDependencyAsUnresolved(t *testing.T) {
 	task := o.get(t, "OFF-3")
 	if task.RunID != "" {
 		t.Errorf("задача с зависимостью на несуществующий тикет всё равно захвачена: %+v", task)
+	}
+	if !strings.Contains(log.String(), "OFF-3") || !strings.Contains(log.String(), "OFF-404") {
+		t.Errorf("лог не называет ни заблокированную задачу, ни пропавшую зависимость:\n%s", log.String())
 	}
 }
 

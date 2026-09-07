@@ -282,7 +282,12 @@ func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, er
 	jql := fmt.Sprintf(`project = %q AND status IN (%s) ORDER BY created ASC`,
 		project, strings.Join(names, ", "))
 
-	return t.searchProject(project, jql, searchPage, func(tracker.Task) bool { return true })
+	// Единственный вызывающий, которому нужен список целиком, а не первый
+	// годный кандидат: см. searchAllProject — гейт зависимостей строит
+	// ground truth именно отсюда (Office.projectByKey), и дети сплита,
+	// будучи самыми новыми при сортировке ORDER BY created ASC, обязаны
+	// попасть в список наравне со старыми задачами (fix round 1, Finding 1).
+	return t.searchAllProject(project, jql, searchPage, func(tracker.Task) bool { return true })
 }
 
 // ListExpired — задачи с истёкшей арендой: сырьё для reaper.
@@ -329,6 +334,9 @@ func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.Workflow
 }
 
 // searchProject — поиск по проекту, отличающий незнакомый проект от прочих бед.
+// Одна страница: годится там, где решение принимает первый подходящий
+// кандидат, а не весь список (ListReady, ListExpired, CheckWorkflow,
+// FindByMarker) — см. доккомент search().
 //
 // JQL по несуществующему проекту JIRA отвергает четырёхсоткой, и без разбора
 // такой отказ роняет весь цикл: раннер обходит проекты по порядку и на первом же
@@ -339,14 +347,42 @@ func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.Workflow
 // молча. Вместо этого спрашиваем сам проект — и только когда поиск уже упал,
 // так что в счастливом пути лишнего запроса не появляется.
 func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
-	refs, err := t.search(jql, limit, keep)
+	refs, _, err := t.search(jql, 0, limit, keep)
 	if err == nil {
 		return refs, nil
 	}
-	if known, checkErr := t.projectExists(project); checkErr == nil && !known {
-		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	return nil, t.wrapSearchErr(project, err)
+}
+
+// searchAllProject — тот же поиск, но без потолка в searchPage: цикл по
+// startAt, как в comments() для переписки, пока страница не вернёт меньше,
+// чем просили (или ничего). Нужен только List() (fix round 1, Finding 1):
+// это единственный вызывающий, которому нужен весь список, а не первый
+// подходящий кандидат — на нём строится ground truth гейта зависимостей
+// (Office.projectByKey → UnmetDependencies), и неполный список делает
+// настоящую зависимость неотличимой от удалённой задачи.
+func (t *Tracker) searchAllProject(project, jql string, pageSize int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+	var all []tracker.TaskRef
+	for startAt := 0; ; {
+		refs, got, err := t.search(jql, startAt, pageSize, keep)
+		if err != nil {
+			return nil, t.wrapSearchErr(project, err)
+		}
+		all = append(all, refs...)
+		startAt += got
+		if got < pageSize {
+			return all, nil
+		}
 	}
-	return nil, err
+}
+
+// wrapSearchErr — общая для searchProject/searchAllProject развязка
+// «незнакомый проект» от прочих бед поиска (см. доккомент searchProject).
+func (t *Tracker) wrapSearchErr(project string, err error) error {
+	if known, checkErr := t.projectExists(project); checkErr == nil && !known {
+		return fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	}
+	return err
 }
 
 // projectExists спрашивает у сервера, знает ли он такой проект.
@@ -819,19 +855,25 @@ func (t *Tracker) transitions(key string) ([]transitionOption, error) {
 	return options, nil
 }
 
-// search выполняет JQL и отбирает то, что прошло проверку раннера.
+// search выполняет JQL на одной странице (startAt/limit) и отбирает то, что
+// прошло проверку раннера. Возвращает вдобавок число присланных сервером
+// задач (до фильтра keep) — так searchAllProject узнаёт, была страница
+// полной или последней, не полагаясь на keep, который у List() всегда true,
+// а у ListReady/ListExpired может срезать часть страницы.
 //
-// Страница одна, и это предел на будущее, а не насовсем. ListReady от него не
-// страдает: из кандидатов берут первого годного, а не весь список. Reap разберёт
-// остаток следующим заходом. Когда очередь одного статуса перестанет влезать
-// в пятьдесят, страницы крутятся по startAt — как в comments.
-func (t *Tracker) search(jql string, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+// Единственная страница по умолчанию — предел для ListReady/ListExpired/
+// CheckWorkflow/FindByMarker, вызывающих через searchProject, и он им не
+// вредит: из кандидатов берут первого годного, а не весь список, а reap
+// разберёт остаток следующим заходом. List() же нужен полный список — см.
+// searchAllProject, которая крутит эту же search() по startAt, как comments()
+// крутит страницы переписки (fix round 1, Finding 1).
+func (t *Tracker) search(jql string, startAt, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, int, error) {
 	var result struct {
 		Issues []issue `json:"issues"`
 	}
-	body := map[string]any{"jql": jql, "maxResults": limit, "fields": t.searchFields()}
+	body := map[string]any{"jql": jql, "startAt": startAt, "maxResults": limit, "fields": t.searchFields()}
 	if err := t.call(http.MethodPost, "/search", body, &result); err != nil {
-		return nil, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
+		return nil, 0, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
 	}
 
 	var refs []tracker.TaskRef
@@ -848,7 +890,7 @@ func (t *Tracker) search(jql string, limit int, keep func(tracker.Task) bool) ([
 		}
 		refs = append(refs, ref)
 	}
-	return refs, nil
+	return refs, len(result.Issues), nil
 }
 
 func (t *Tracker) searchFields() []string {
