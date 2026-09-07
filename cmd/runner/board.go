@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kao73/virtual-office/internal/pipeline"
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
@@ -31,11 +32,17 @@ func boardCommand(args []string, out io.Writer) error {
 		}
 		projects = []string{*project}
 	}
-	return printBoard(o.Tracker, projects, o.Workflow.Statuses, time.Now(), out)
+	return printBoard(o.Tracker, projects, o.Workflow.Statuses, o.Workflow.IsTerminal, time.Now(), out)
 }
 
 // printBoard печатает доску проектов: по запросу на проект, без переписки.
-func printBoard(tasks tracker.Tracker, projects, statuses []string, now time.Time, out io.Writer) error {
+//
+// terminal решает, что считать «зависимость уже разрешена» — то же
+// понятие графа, что использует гейт claim() (internal/pipeline.
+// UnmetDependencies), а не отдельное здесь понятие: расхождение между
+// тем, что видит ls, и тем, что реально блокирует claim(), было бы хуже,
+// чем лишний параметр.
+func printBoard(tasks tracker.Tracker, projects, statuses []string, terminal func(string) bool, now time.Time, out io.Writer) error {
 	shown := 0
 	for _, project := range projects {
 		refs, err := tasks.List(project, statuses)
@@ -46,9 +53,16 @@ func printBoard(tasks tracker.Tracker, projects, statuses []string, now time.Tim
 		if err != nil {
 			return err
 		}
+
+		byKey := make(map[string]tracker.TaskRef, len(refs))
 		for _, ref := range refs {
-			fmt.Fprintf(out, "%-10s %-12s %-24s попыток:%d %-16s %-10s %s\n",
-				ref.Key, ref.Status, lease(ref, now), ref.Attempts, waiting(ref), age(ref.Updated, now), ref.Summary)
+			byKey[ref.Key] = ref
+		}
+
+		for _, ref := range refs {
+			unmet := pipeline.UnmetDependencies(ref, byKey, terminal)
+			fmt.Fprintf(out, "%-10s %-12s %-24s попыток:%d %-16s %s%-10s %s\n",
+				ref.Key, ref.Status, lease(ref, now), ref.Attempts, waiting(ref), dependsColumn(unmet), age(ref.Updated, now), ref.Summary)
 			shown++
 		}
 	}
@@ -58,6 +72,26 @@ func printBoard(tasks tracker.Tracker, projects, statuses []string, now time.Tim
 		fmt.Fprintf(out, "задач нет (проекты: %s)\n", strings.Join(projects, ", "))
 	}
 	return nil
+}
+
+// dependsColumn — «ждёт: OFF-1 (Ready) » рядом с задачей, у которой есть
+// незакрытые зависимости; пусто — зависимостей нет или все терминальны.
+// Несёт собственную заполняющую пробельность: формат строки выше не
+// держит отдельного места для этой колонки между waiting и age, только
+// сама колонка и её хвостовой пробел, когда она непуста.
+func dependsColumn(unmet []tracker.TaskRef) string {
+	if len(unmet) == 0 {
+		return ""
+	}
+	parts := make([]string, len(unmet))
+	for i, dep := range unmet {
+		key := dep.Key
+		if key == "" {
+			key = "неизвестная задача"
+		}
+		parts[i] = fmt.Sprintf("%s (%s)", key, dep.Status)
+	}
+	return fmt.Sprintf("ждёт: %s ", strings.Join(parts, ", "))
 }
 
 // lease — кто держит задачу. Истёкшая аренда показывается отдельно от её

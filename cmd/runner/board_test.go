@@ -42,7 +42,7 @@ func TestBoardShowsWhoWorksAndForHowLong(t *testing.T) {
 
 	var out bytes.Buffer
 	statuses := []string{"Ready", "InProgress", "Review", "Blocked"}
-	if err := printBoard(tr, []string{"OFF"}, statuses, boardNow, &out); err != nil {
+	if err := printBoard(tr, []string{"OFF"}, statuses, func(s string) bool { return s == "Done" }, boardNow, &out); err != nil {
 		t.Fatalf("доска не напечатана: %v", err)
 	}
 
@@ -65,7 +65,7 @@ func TestBoardSaysWhenEmpty(t *testing.T) {
 	tr.Now = func() time.Time { return boardNow }
 
 	var out bytes.Buffer
-	if err := printBoard(tr, []string{"OFF"}, []string{"Ready"}, boardNow, &out); err != nil {
+	if err := printBoard(tr, []string{"OFF"}, []string{"Ready"}, func(s string) bool { return s == "Done" }, boardNow, &out); err != nil {
 		t.Fatalf("доска не напечатана: %v", err)
 	}
 	if !strings.Contains(out.String(), "задач нет") {
@@ -121,7 +121,7 @@ func TestBoardSkipsProjectUnknownToTracker(t *testing.T) {
 	var out bytes.Buffer
 	// Имя нарочно раньше OFF по алфавиту: обход дойдёт до него первым.
 	tasks := unknownProject{Tracker: tr, missing: "AAA"}
-	if err := printBoard(tasks, []string{"AAA", "OFF"}, []string{"Ready"}, boardNow, &out); err != nil {
+	if err := printBoard(tasks, []string{"AAA", "OFF"}, []string{"Ready"}, func(s string) bool { return s == "Done" }, boardNow, &out); err != nil {
 		t.Fatalf("доска не напечатана: %v", err)
 	}
 
@@ -133,5 +133,44 @@ func TestBoardSkipsProjectUnknownToTracker(t *testing.T) {
 	// а задач по ней не видно — человеку нужно знать почему.
 	if !strings.Contains(got, "AAA") {
 		t.Errorf("о пропущенном проекте не сказано ни слова:\n%s", got)
+	}
+}
+
+// TestBoardShowsBlockedDependency доказывает, что ls называет, чего
+// ждёт заблокированная задача, без отдельной команды
+// (pipeline-dependency-gate/spec.md, "A blocked candidate's wait is
+// visible without extra tooling").
+func TestBoardShowsBlockedDependency(t *testing.T) {
+	tr := mock.New(t.TempDir())
+	tr.Now = func() time.Time { return boardNow }
+
+	add := func(task tracker.Task) {
+		if err := tr.Add(task); err != nil {
+			t.Fatalf("задача не создана: %v", err)
+		}
+	}
+	add(tracker.Task{Key: "OFF-1", Project: "OFF", Status: "Ready", Summary: "Первая часть"})
+	add(tracker.Task{Key: "OFF-2", Project: "OFF", Status: "Ready", Summary: "Вторая часть", DependsOn: []string{"OFF-1"}})
+
+	var out bytes.Buffer
+	terminal := func(s string) bool { return s == "Done" }
+	if err := printBoard(tr, []string{"OFF"}, []string{"Ready"}, terminal, boardNow, &out); err != nil {
+		t.Fatalf("доска не напечатана: %v", err)
+	}
+
+	var off1Line, off2Line string
+	for _, line := range strings.Split(out.String(), "\n") {
+		switch {
+		case strings.HasPrefix(line, "OFF-1 "):
+			off1Line = line
+		case strings.HasPrefix(line, "OFF-2 "):
+			off2Line = line
+		}
+	}
+	if !strings.Contains(off2Line, "ждёт: OFF-1 (Ready)") {
+		t.Errorf("строка OFF-2 не называет зависимость:\n%s", off2Line)
+	}
+	if strings.Contains(off1Line, "ждёт:") {
+		t.Errorf("у задачи без зависимостей появилась колонка ожидания:\n%s", off1Line)
 	}
 }
