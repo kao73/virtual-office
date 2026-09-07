@@ -565,7 +565,7 @@ in this line used, per `docs/notes/analyst-task-splitting.md`).
 
 **Procedure:**
 
-- [ ] **Step 1: Set up request variables**
+- [x] **Step 1: Set up request variables**
 
   ```bash
   BASE="<base_url from the polygon's tracker.yaml>"
@@ -573,7 +573,7 @@ in this line used, per `docs/notes/analyst-task-splitting.md`).
   PROJECT="<throwaway project key on the polygon>"
   ```
 
-- [ ] **Step 2: Create two throwaway issues, A and B**
+- [x] **Step 2: Create two throwaway issues, A and B**
 
   ```bash
   curl -s -u "$AUTH" -H "Content-Type: application/json" -H "X-Atlassian-Token: no-check" \
@@ -586,7 +586,7 @@ in this line used, per `docs/notes/analyst-task-splitting.md`).
 
   Record the returned keys as `KEY_A`, `KEY_B`.
 
-- [ ] **Step 3: Link them by hand with the reference `Blocks` type — not
+- [x] **Step 3: Link them by hand with the reference `Blocks` type — not
       through `LinkDependsOn`/`jira.go`**
 
   Choose roles explicitly and deliberately, independent of any assumption
@@ -598,13 +598,13 @@ in this line used, per `docs/notes/analyst-task-splitting.md`).
     -d "{\"type\":{\"name\":\"Blocks\"},\"outwardIssue\":{\"key\":\"$KEY_A\"},\"inwardIssue\":{\"key\":\"$KEY_B\"}}"
   ```
 
-- [ ] **Step 4: Read the UI's own account of the relationship**
+- [x] **Step 4: Read the UI's own account of the relationship**
 
   Open both `$KEY_A` and `$KEY_B` in the JIRA web UI. Note, in your own
   words, which issue the UI says "blocks" the other, and which says "is
   blocked by".
 
-- [ ] **Step 5: Inspect the raw `issuelinks` JSON on both sides**
+- [x] **Step 5: Inspect the raw `issuelinks` JSON on both sides**
 
   ```bash
   curl -s -u "$AUTH" "$BASE/rest/api/2/issue/$KEY_A?fields=issuelinks" | jq .
@@ -614,7 +614,7 @@ in this line used, per `docs/notes/analyst-task-splitting.md`).
   Record which key's own `issuelinks` entry for this link carries
   `outwardIssue` and which carries `inwardIssue`.
 
-- [ ] **Step 6: Compare Step 4 and Step 5, write down the finding**
+- [x] **Step 6: Compare Step 4 and Step 5, write down the finding**
 
   Confirm the JSON's `outwardIssue`-carrying side is the one the UI calls
   the blocker (the outward-facing text of type `Blocks` is literally
@@ -623,7 +623,7 @@ in this line used, per `docs/notes/analyst-task-splitting.md`).
   the concrete finding down (a line in your working notes is enough — Task 5
   folds the combined finding into `docs/notes/analyst-task-splitting.md`).
 
-- [ ] **Step 7: Delete both throwaway issues**
+- [x] **Step 7: Delete both throwaway issues**
 
   ```bash
   curl -s -u "$AUTH" -X DELETE "$BASE/rest/api/2/issue/$KEY_A"
@@ -645,12 +645,12 @@ non-TDD nature — this is what the design doc calls "тот же приём, к
 
 **Procedure:**
 
-- [ ] **Step 1: Create two more throwaway issues, C and D**
+- [x] **Step 1: Create two more throwaway issues, C and D**
 
   Same as Task 4 Step 2, with new summaries (e.g. "throwaway C/D (real
   DependsOnLink check)").
 
-- [ ] **Step 2: Link them through the actual code path under review**
+- [x] **Step 2: Link them through the actual code path under review**
 
   Read the real `depends_on_link` value from the polygon's
   `${OFFICE_HOME}/tracker.yaml` (whatever string is configured there — do
@@ -669,14 +669,14 @@ non-TDD nature — this is what the design doc calls "тот же приём, к
 
   (this mirrors `key=C` depends on `dependsOnKey=D`, i.e. "C depends on D").
 
-- [ ] **Step 2: Read both sides**
+- [x] **Step 2: Read both sides**
 
   ```bash
   curl -s -u "$AUTH" "$BASE/rest/api/2/issue/$KEY_C?fields=issuelinks" | jq .
   curl -s -u "$AUTH" "$BASE/rest/api/2/issue/$KEY_D?fields=issuelinks" | jq .
   ```
 
-- [ ] **Step 3: Confirm the direction Task 2's parsing assumes**
+- [x] **Step 3: Confirm the direction Task 2's parsing assumes**
 
   Confirm `$KEY_C`'s own `issuelinks` entry for this link carries
   `outwardIssue: {key: $KEY_D}` — this is exactly what Task 2's code reads
@@ -685,14 +685,14 @@ non-TDD nature — this is what the design doc calls "тот же приём, к
   same regardless of link type name — if it isn't, that's the finding to
   write down and act on, not paper over.
 
-- [ ] **Step 4: Delete both throwaway issues**
+- [x] **Step 4: Delete both throwaway issues**
 
   ```bash
   curl -s -u "$AUTH" -X DELETE "$BASE/rest/api/2/issue/$KEY_C"
   curl -s -u "$AUTH" -X DELETE "$BASE/rest/api/2/issue/$KEY_D"
   ```
 
-- [ ] **Step 5: Record the outcome, gate proceeding on it**
+- [x] **Step 5: Record the outcome, gate proceeding on it**
 
   If Step 3 confirms the direction Task 2's code already assumes, add a
   short entry to `docs/notes/analyst-task-splitting.md` (matching the

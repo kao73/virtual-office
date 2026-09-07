@@ -19,12 +19,12 @@
 
 ## 2. Live verification on the JIRA polygon
 
-- [ ] 2.1 Verify the read direction empirically, independent of what the
+- [x] 2.1 Verify the read direction empirically, independent of what the
       code under test expects: throwaway pair linked by the reference
       `Blocks` type, confirm via `GET /issue` which side carries
       `outwardIssue` vs `inwardIssue` and that it matches what the JIRA UI
       shows ("A blocks B"). Delete the throwaway pair after.
-- [ ] 2.2 Repeat on a pair linked through the real `DependsOnLink`
+- [x] 2.2 Repeat on a pair linked through the real `DependsOnLink`
       config/`LinkDependsOn`, confirm the parsing from 1.2 reads the
       dependency in the expected direction. Delete the pair after.
 
