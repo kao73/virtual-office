@@ -56,12 +56,18 @@ type fakeJira struct {
 	transitionsTo []string
 	noIssues      bool // поиск ничего не находит
 
-	lastUpdate   map[string]any // fields последнего PUT
-	lastJQL      string
-	lastLimit    int      // maxResults последнего поиска
-	transitons   []string // имена статусов, в которые переводили
-	commentPages int      // сколько раз спрашивали страницу комментариев
-	fakeTotal    int      // ненулевой — сервер врёт про размер переписки
+	lastUpdate map[string]any // fields последнего PUT
+	lastJQL    string
+	// lastSearchFields — "fields" последнего тела POST /search: то, что
+	// на самом деле запрашивает searchFields(), не то, что фейковый
+	// сервер решает вернуть (он всегда отдаёт issue() целиком — см.
+	// TestSearchRequestsIssuelinksField ниже, которая проверяет именно
+	// запрос).
+	lastSearchFields []any
+	lastLimit        int      // maxResults последнего поиска
+	transitons       []string // имена статусов, в которые переводили
+	commentPages     int      // сколько раз спрашивали страницу комментариев
+	fakeTotal        int      // ненулевой — сервер врёт про размер переписки
 
 	lastUser string // учётка последнего запроса: под кем ходил трекер
 
@@ -160,6 +166,7 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case r.URL.Path == "/rest/api/2/search":
 		f.lastJQL, _ = body["jql"].(string)
+		f.lastSearchFields, _ = body["fields"].([]any)
 		if limit, ok := body["maxResults"].(float64); ok {
 			f.lastLimit = int(limit)
 		}
@@ -495,6 +502,57 @@ func TestGetParsesDependsOnFromIssuelinks(t *testing.T) {
 	want := []string{"VO-5", "VO-6"}
 	if !slices.Equal(task.DependsOn, want) {
 		t.Errorf("DependsOn = %v, ожидалось %v", task.DependsOn, want)
+	}
+}
+
+// TestSearchRequestsIssuelinksField доказывает, что searchFields()
+// просит issuelinks у сервера — без этого поля ListReady/List на живом
+// JIRA отдавали бы пустой DependsOn у каждого кандидата даже при верном
+// toTask (design doc §1).
+func TestSearchRequestsIssuelinksField(t *testing.T) {
+	tr, fake := fixture(t)
+	if _, err := tr.ListReady("VO", "Ready"); err != nil {
+		t.Fatalf("список не прочитан: %v", err)
+	}
+
+	found := false
+	for _, raw := range fake.lastSearchFields {
+		if s, _ := raw.(string); s == "issuelinks" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("запрошенные поля поиска не включают issuelinks: %v", fake.lastSearchFields)
+	}
+}
+
+// TestListCandidateCarriesDependsOnLikeGet доказывает, что кандидат из
+// List() несёт ту же зависимость, что и Get() той же задачи — не только
+// форма запроса верна, но и итоговое значение совпадает (tasks.md 1.4,
+// последний пункт).
+func TestListCandidateCarriesDependsOnLikeGet(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.remoteIssuelinks = []any{
+		map[string]any{"type": map[string]any{"name": "Depends"}, "outwardIssue": map[string]any{"key": "VO-5"}},
+	}
+
+	refs, err := tr.List("VO", []string{"Ready"})
+	if err != nil {
+		t.Fatalf("список не прочитан: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("кандидатов %d, ожидался 1", len(refs))
+	}
+
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if !slices.Equal(refs[0].DependsOn, task.DependsOn) {
+		t.Errorf("List().DependsOn = %v, Get().DependsOn = %v — разошлись", refs[0].DependsOn, task.DependsOn)
+	}
+	if !slices.Equal(refs[0].DependsOn, []string{"VO-5"}) {
+		t.Errorf("DependsOn = %v, ожидалось [VO-5]", refs[0].DependsOn)
 	}
 }
 

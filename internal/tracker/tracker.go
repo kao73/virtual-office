@@ -70,16 +70,14 @@ type Task struct {
 	Description string
 	Status      string
 	Labels      []string
-	// DependsOn — ключи задач, от которых зависит эта (LinkDependsOn).
-	// Пишется этой волной, не читается никаким кодом Change 1 — гейт
-	// очерёдности по этому полю добавит Change 2.
-	//
-	// Get() гарантированно отражает связь, записанную LinkDependsOn, не на
-	// всех реализациях: mock — да (хранит и читает то же поле), jira — нет
-	// (LinkDependsOn там только шлёт POST /issueLink, toTask не разбирает
-	// issuelinks обратно). Сейчас безвредно — поле никто не читает, но
-	// Change 2 обязан спроектировать гейт с учётом этой асимметрии, а не
-	// понадеяться на неё молча.
+	// DependsOn — ключи задач, от которых зависит эта. Пишется
+	// LinkDependsOn, читается обратно через Get/List/ListReady на обеих
+	// реализациях: mock хранит и читает то же поле, jira разбирает
+	// issuelinks в toTask (см. его доккомент про направление
+	// outward/inward) и запрашивает это поле явно в searchFields() —
+	// без него List/ListReady отдавали бы пустой DependsOn даже при
+	// верном Get(). Гейт очерёдности по этому полю —
+	// internal/pipeline/deps.go, Office.claim().
 	DependsOn []string
 
 	// Поля аренды. Owner — человекочитаемый владелец (имя роли), RunID — то,

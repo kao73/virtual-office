@@ -853,7 +853,7 @@ func (t *Tracker) search(jql string, limit int, keep func(tracker.Task) bool) ([
 
 func (t *Tracker) searchFields() []string {
 	return []string{
-		"summary", "description", "status", "project", "labels", "updated",
+		"summary", "description", "status", "project", "labels", "updated", "issuelinks",
 		t.cfg.Fields.Owner, t.cfg.Fields.RunID, t.cfg.Fields.LeaseUntil, t.cfg.Fields.Attempts,
 	}
 }
