@@ -3359,3 +3359,127 @@ func TestOversizedTaskGoesBackToHuman(t *testing.T) {
 		t.Error("метка ожидания пережила перенос")
 	}
 }
+
+// TestClaimSkipsCandidateWithUnresolvedDependency доказывает, что
+// кандидат с незакрытым depends_on не берётся в работу: implementer не
+// должен опереться на код, которого зависимость ещё не смержила.
+func TestClaimSkipsCandidateWithUnresolvedDependency(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	// OFF-1 (заведена newOffice по умолчанию в Ready) не участвует в этом
+	// тесте как кандидат — иначе она будет взята первой (ключи в mock
+	// возвращаются по возрастанию) и гейт для OFF-3 не проверится вовсе.
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Review", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Ready", Summary: "Зависимая часть",
+		DependsOn: []string{"OFF-2"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+
+	if o.tick(t) {
+		t.Fatal("незакрытая зависимость не должна была позволить взять задачу")
+	}
+
+	task := o.get(t, "OFF-3")
+	if task.RunID != "" || task.Status != "Ready" {
+		t.Errorf("заблокированная задача сдвинулась: %+v", task)
+	}
+	if !strings.Contains(log.String(), "OFF-3") || !strings.Contains(log.String(), "OFF-2") {
+		t.Errorf("лог не называет, чего ждёт задача:\n%s", log.String())
+	}
+}
+
+// TestClaimTakesCandidateOnceDependencyIsTerminal — тот же кандидат, что
+// выше, но зависимость уже в терминальном статусе: гейт больше не мешает.
+func TestClaimTakesCandidateOnceDependencyIsTerminal(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Done", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Ready", Summary: "Зависимая часть",
+		DependsOn: []string{"OFF-2"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+
+	if !o.tick(t) {
+		t.Fatal("задача с разрешённой зависимостью должна была уйти в работу")
+	}
+	if o.agent.seen.Passport.TaskKey != "OFF-3" {
+		t.Errorf("в работу ушла %q, ожидалась OFF-3", o.agent.seen.Passport.TaskKey)
+	}
+}
+
+// TestClaimTreatsMissingDependencyAsUnresolved — depends_on называет
+// задачу, которой в трекере нет вовсе: гейт обязан считать её незакрытой,
+// а не свободной (pipeline-dependency-gate/spec.md, "A missing
+// dependency task blocks the candidate").
+func TestClaimTreatsMissingDependencyAsUnresolved(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Ready", Summary: "Зависимая часть",
+		DependsOn: []string{"OFF-404"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+
+	if o.tick(t) {
+		t.Fatal("зависимость на несуществующую задачу не должна считаться разрешённой")
+	}
+	task := o.get(t, "OFF-3")
+	if task.RunID != "" {
+		t.Errorf("задача с зависимостью на несуществующий тикет всё равно захвачена: %+v", task)
+	}
+}
+
+// TestClaimGatesAnalystCandidateTheSameWay — тот же гейт для analyst'а,
+// не только для implementer'а: единый код без исключений по роли
+// (pipeline-dependency-gate/spec.md, "The gate applies uniformly across
+// workflow roles").
+func TestClaimGatesAnalystCandidateTheSameWay(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Ready", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-5", Project: "OFF", Status: "Analysis", Summary: "Дочерняя постановка",
+		DependsOn: []string{"OFF-2"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+
+	worked, err := o.Tick(context.Background(), "analyst")
+	if err != nil {
+		t.Fatalf("тик не прошёл: %v", err)
+	}
+	if worked {
+		t.Fatal("аналитик не должен был взять задачу с незакрытой зависимостью")
+	}
+	if task := o.get(t, "OFF-5"); task.RunID != "" {
+		t.Errorf("заблокированная постановка всё равно захвачена: %+v", task)
+	}
+}

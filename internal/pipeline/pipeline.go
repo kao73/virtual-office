@@ -304,9 +304,29 @@ func (o *Office) claim(roleName string, flow tracker.RoleFlow, role runner.Role)
 		if err != nil {
 			return claimed{}, err
 		}
+		if len(refs) == 0 {
+			continue
+		}
+
+		// Статусы зависимостей — один List на проект, не Get() на каждую
+		// зависимость каждого кандидата: тот же принцип, что уже
+		// применяет printBoard (cmd/runner/board.go). Ленивый: только
+		// когда в refs вообще есть кандидаты (design.md decision #3).
+		byKey, err := o.projectByKey(project)
+		if err != nil {
+			return claimed{}, err
+		}
+
 		for _, ref := range refs {
 			if ref.Attempts >= o.Workflow.Limits.MaxAttempts {
 				o.logf("%s: попытки исчерпаны (%d), пропускаю", ref.Key, ref.Attempts)
+				continue
+			}
+			// Гейт очерёдности: один и тот же код для всех ролей графа,
+			// без исключения reviewer — его зависимость уже разрешена
+			// к этому моменту по построению (design.md decision #4).
+			if unmet := UnmetDependencies(ref, byKey, o.Workflow.IsTerminal); len(unmet) > 0 {
+				o.logf("%s: ждёт %s, пропускаю", ref.Key, describeUnmet(unmet))
 				continue
 			}
 			task, taken, err := o.take(ref, roleName, flow, lease)
@@ -319,6 +339,22 @@ func (o *Office) claim(roleName string, flow tracker.RoleFlow, role runner.Role)
 		}
 	}
 	return claimed{}, nil
+}
+
+// projectByKey — задачи проекта во всех статусах графа, по ключу. Общее
+// сырьё для гейта зависимостей (claim(), через UnmetDependencies) и для
+// видимости в runner ls (cmd/runner/board.go, printBoard) — оба
+// спрашивают трекер о том же самом List(project, statuses).
+func (o *Office) projectByKey(project string) (map[string]tracker.TaskRef, error) {
+	refs, err := o.Tracker.List(project, o.Workflow.Statuses)
+	if err != nil {
+		return nil, err
+	}
+	byKey := make(map[string]tracker.TaskRef, len(refs))
+	for _, ref := range refs {
+		byKey[ref.Key] = ref
+	}
+	return byKey, nil
 }
 
 // take берёт одного кандидата: сперва рабочую папку, потом задачу.
