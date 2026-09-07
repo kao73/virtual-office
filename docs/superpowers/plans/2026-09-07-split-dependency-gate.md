@@ -398,7 +398,7 @@ tashes ... **но НЕ** search()"): fix and prove it with a test on the
 - Produces: `searchFields()` includes `"issuelinks"`; `ListReady`/`List`
   candidates carry `DependsOn`.
 
-- [ ] **Step 1: Capture the requested field list in the fake server**
+- [x] **Step 1: Capture the requested field list in the fake server**
 
   In `internal/tracker/jira/jira_test.go`, add a field to `fakeJira`:
 
@@ -419,7 +419,7 @@ tashes ... **но НЕ** search()"): fix and prove it with a test on the
       f.lastSearchFields, _ = body["fields"].([]any)
   ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
   ```go
   // TestSearchRequestsIssuelinksField доказывает, что searchFields()
@@ -474,7 +474,7 @@ tashes ... **но НЕ** search()"): fix and prove it with a test on the
   }
   ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
   Run: `go test ./internal/tracker/jira/... -run 'TestSearchRequestsIssuelinksField|TestListCandidateCarriesDependsOnLikeGet' -v`
   Expected: `TestSearchRequestsIssuelinksField` FAILs (field list doesn't
@@ -484,7 +484,7 @@ tashes ... **но НЕ** search()"): fix and prove it with a test on the
   it's still worth keeping as a regression guard once the request itself is
   fixed.
 
-- [ ] **Step 4: Add `"issuelinks"` to `searchFields()`**
+- [x] **Step 4: Add `"issuelinks"` to `searchFields()`**
 
   In `internal/tracker/jira/jira.go`:
 
@@ -497,7 +497,7 @@ tashes ... **но НЕ** search()"): fix and prove it with a test on the
   }
   ```
 
-- [ ] **Step 5: Update the now-stale doc comment on `Task.DependsOn`**
+- [x] **Step 5: Update the now-stale doc comment on `Task.DependsOn`**
 
   In `internal/tracker/tracker.go`, replace:
 
@@ -529,16 +529,16 @@ tashes ... **но НЕ** search()"): fix and prove it with a test on the
       DependsOn []string
   ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
   Run: `go test ./internal/tracker/jira/... -run 'TestSearchRequestsIssuelinksField|TestListCandidateCarriesDependsOnLikeGet' -v`
   Expected: PASS.
 
-- [ ] **Step 7: Full package run**
+- [x] **Step 7: Full package run**
 
   Run: `go build ./... && go vet ./... && go test ./internal/tracker/...`
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
   ```bash
   git add internal/tracker/jira/jira.go internal/tracker/jira/jira_test.go internal/tracker/tracker.go

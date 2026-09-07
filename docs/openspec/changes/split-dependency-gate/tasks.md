@@ -6,15 +6,15 @@
       `type.name` matches `cfg.DependsOnLink` and carries `outwardIssue`
       contributes that issue's key to `Task.DependsOn`; an entry carrying
       `inwardIssue` instead (the reverse relation) is not read.
-- [ ] 1.3 Add `"issuelinks"` to `jira.searchFields()` so `ListReady`/`List`
+- [x] 1.3 Add `"issuelinks"` to `jira.searchFields()` so `ListReady`/`List`
       results (which go through `search()`, not `Get()`) carry `DependsOn`
       too — without this, the gate would see an empty `DependsOn` on every
       candidate even after 1.2.
-- [ ] 1.4 Unit tests for the parsing in 1.2/1.3: link present with matching
+- [x] 1.4 Unit tests for the parsing in 1.2/1.3: link present with matching
       type, link with a non-matching `type.name` (ignored), multiple links
       at once, `inwardIssue`-only entry (not read), and a `TaskRef` from
       `search()` carrying the same `DependsOn` a `Get()` would.
-- [ ] 1.5 Update the `Task.DependsOn` doc comment (`internal/tracker/tracker.go`)
+- [x] 1.5 Update the `Task.DependsOn` doc comment (`internal/tracker/tracker.go`)
       to drop the now-stale claim that JIRA never reads this back.
 
 ## 2. Live verification on the JIRA polygon
