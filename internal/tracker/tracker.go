@@ -110,7 +110,7 @@ type AttachmentRef struct {
 // TaskRef — задача в списке: всё, кроме переписки.
 //
 // Переписки здесь нет намеренно, и это не «Task с пустым Comments»: комментарии
-// тянутся отдельным запросом на задачу, и притвориться, что их просто нет,
+// тянутся отдельным запросом на задачу, и притворится, что их просто нет,
 // значило бы соврать тихо. Кому нужна история — берёт Get.
 type TaskRef struct {
 	Key     string
@@ -129,6 +129,13 @@ type TaskRef struct {
 	// Updated — когда задачу трогали в последний раз. Нужен `ls`, чтобы показать
 	// возраст: задача, висящая в статусе неделю, — то, что человек ищет глазами.
 	Updated time.Time
+
+	// DependsOn — ключи задач, от которых зависит эта. То же поле, что
+	// Task.DependsOn (см. его доккомент) — Ref() копирует его наравне
+	// с остальными: гейт очерёдности (internal/pipeline) и runner ls
+	// читают именно TaskRef, полученный через ListReady/List, не Task
+	// через Get().
+	DependsOn []string
 }
 
 // Ref — та же задача без переписки.
@@ -136,7 +143,7 @@ func (t Task) Ref() TaskRef {
 	return TaskRef{
 		Key: t.Key, Project: t.Project, Summary: t.Summary, Status: t.Status,
 		Owner: t.Owner, RunID: t.RunID, LeaseUntil: t.LeaseUntil,
-		Attempts: t.Attempts, HumanFlag: t.HumanFlag,
+		Attempts: t.Attempts, HumanFlag: t.HumanFlag, DependsOn: t.DependsOn,
 	}
 }
 
