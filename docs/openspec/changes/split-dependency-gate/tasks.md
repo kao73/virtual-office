@@ -42,13 +42,13 @@
 
 ## 4. Gate in `claim()`
 
-- [ ] 4.1 In `internal/pipeline/pipeline.go`, `claim()`: after
+- [x] 4.1 In `internal/pipeline/pipeline.go`, `claim()`: after
       `ListReady`, when there are candidates, fetch
       `List(project, o.Workflow.Statuses)` once and build the lookup map;
       skip a candidate with unmet dependencies (via the task 3 helper)
       the same way an exhausted-attempts candidate is skipped, with a log
       line naming what it waits on.
-- [ ] 4.2 Pipeline tests (`internal/pipeline/pipeline_test.go`, fake
+- [x] 4.2 Pipeline tests (`internal/pipeline/pipeline_test.go`, fake
       tracker): candidate with an unresolved dependency is not claimed;
       the same candidate is claimed once the dependency reaches a
       terminal status; a candidate with a dependency key not present in

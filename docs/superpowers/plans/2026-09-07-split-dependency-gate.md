@@ -898,7 +898,7 @@ Closes **tasks.md 4.1** and **4.2**.
 - Produces: `Office.projectByKey(project string) (map[string]tracker.TaskRef,
   error)`; `claim()` skips candidates with unmet dependencies.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
   In `internal/pipeline/pipeline_test.go`:
 
@@ -1028,7 +1028,7 @@ Closes **tasks.md 4.1** and **4.2**.
   }
   ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
   Run: `go test ./internal/pipeline/... -run 'TestClaimSkipsCandidateWithUnresolvedDependency|TestClaimTakesCandidateOnceDependencyIsTerminal|TestClaimTreatsMissingDependencyAsUnresolved|TestClaimGatesAnalystCandidateTheSameWay' -v`
   Expected: FAIL — `TestClaimSkipsCandidateWithUnresolvedDependency`,
@@ -1038,7 +1038,7 @@ Closes **tasks.md 4.1** and **4.2**.
   already passes (nothing blocks it yet) — that's expected, it's a
   regression guard for after the gate lands.
 
-- [ ] **Step 3: Wire the gate into `claim()`, add `projectByKey`**
+- [x] **Step 3: Wire the gate into `claim()`, add `projectByKey`**
 
   In `internal/pipeline/pipeline.go`, replace the existing `claim()`:
 
@@ -1144,12 +1144,12 @@ Closes **tasks.md 4.1** and **4.2**.
   }
   ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
   Run: `go test ./internal/pipeline/... -run 'TestClaimSkipsCandidateWithUnresolvedDependency|TestClaimTakesCandidateOnceDependencyIsTerminal|TestClaimTreatsMissingDependencyAsUnresolved|TestClaimGatesAnalystCandidateTheSameWay' -v`
   Expected: PASS.
 
-- [ ] **Step 5: Full package run — the rest of the suite still passes**
+- [x] **Step 5: Full package run — the rest of the suite still passes**
 
   Run: `go build ./... && go vet ./... && go test ./internal/pipeline/...`
   This is the step most likely to expose a fixture that implicitly relied
@@ -1157,7 +1157,7 @@ Closes **tasks.md 4.1** and **4.2**.
   than papering over it (e.g. a fake tracker embedding `mock.Tracker` but
   missing a working `List` override for a test-specific status).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/pipeline/pipeline.go internal/pipeline/pipeline_test.go
