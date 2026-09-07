@@ -77,6 +77,14 @@ type fakeJira struct {
 	// страница с единственной VO-1.
 	searchIssues []map[string]any
 	searchPages  int // сколько раз запрашивали страницу поиска (searchIssues != nil)
+	// searchServerCap — если не 0, сервер режет страницу по этому размеру,
+	// что бы клиент ни просил в maxResults, и честно эхает применённый
+	// размер обратно в "maxResults" ответа — так выглядит инстанс со
+	// своим потолком поиска (jira.search.views.default.max) ниже
+	// searchPage. Нужен для fix round 2, Finding 8: пагинация не должна
+	// принимать «страница короче ЗАПРОШЕННОГО» за «это была последняя
+	// страница», если сервер сам никогда не отдаёт больше своего потолка.
+	searchServerCap int
 
 	lastUser string // учётка последнего запроса: под кем ходил трекер
 
@@ -202,6 +210,14 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if size <= 0 {
 				size = 50
 			}
+			if f.searchServerCap > 0 && f.searchServerCap < size {
+				// Свой потолок инстанса — ниже того, что просил клиент.
+				// Честно эхаем применённый размер в "maxResults": ровно
+				// то поле, на которое обязана опираться пагинация
+				// клиента, раз "короче запрошенного" сервер отдаёт на
+				// каждой странице, а не только на последней.
+				size = f.searchServerCap
+			}
 			start := f.lastStartAt
 			var page []any
 			if start < len(f.searchIssues) {
@@ -210,7 +226,7 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					page = append(page, iss)
 				}
 			}
-			write(map[string]any{"issues": page, "total": len(f.searchIssues)})
+			write(map[string]any{"issues": page, "total": len(f.searchIssues), "maxResults": size, "startAt": start})
 			return
 		}
 		write(map[string]any{"issues": []any{f.issue()}})
@@ -1048,6 +1064,49 @@ func TestListPaginatesBeyondFirstPage(t *testing.T) {
 	}
 	if fake.searchPages < 2 {
 		t.Errorf("страниц запрошено %d: пагинации не было, тест бы прошёл и без фикса", fake.searchPages)
+	}
+}
+
+// TestListSurvivesLowerServerSideMaxResultsCap доказывает fix round 2,
+// Finding 8: старая проверка «страница короче ЗАПРОШЕННОГО — значит,
+// последняя» ломается об инстанс со своим потолком страницы поиска
+// (jira.search.views.default.max) ниже searchPage — там КАЖДАЯ страница
+// короче запрошенного, и старый код обрывал бы пагинацию после первой
+// же страницы, теряя весь хвост списка, на котором строится ground
+// truth гейта зависимостей (Office.projectByKey → UnmetDependencies).
+// Новая логика опирается на total и на maxResults, которые сервер
+// сообщает в самом ответе, а не на то, что было запрошено.
+func TestListSurvivesLowerServerSideMaxResultsCap(t *testing.T) {
+	tr, fake := fixture(t)
+	const total = searchPage + 7 // больше одной страницы даже без потолка сервера
+	fake.searchIssues = make([]map[string]any, total)
+	want := make(map[string]bool, total)
+	for i := range total {
+		key := fmt.Sprintf("VO-%d", i+1)
+		fake.searchIssues[i] = fakeSearchIssue(key)
+		want[key] = true
+	}
+	// Сервер не отдаёт больше 10 штук за раз, что бы клиент ни просил
+	// (searchPage=50) — заведомо ниже searchPage и не делитель total, чтобы
+	// короткая последняя страница осталась короткой и по старому критерию
+	// тоже (иначе тест давал бы ложный зелёный на старом коде).
+	fake.searchServerCap = 10
+
+	refs, err := tr.List("VO", []string{"Ready"})
+	if err != nil {
+		t.Fatalf("список не прочитан: %v", err)
+	}
+	if len(refs) != total {
+		t.Fatalf("получено %d задач из %d: пагинация приняла серверный потолок страницы за конец списка", len(refs), total)
+	}
+	for _, ref := range refs {
+		if !want[ref.Key] {
+			t.Errorf("неожиданный ключ %s", ref.Key)
+		}
+		delete(want, ref.Key)
+	}
+	if len(want) != 0 {
+		t.Errorf("не вернулись ключи: %v", want)
 	}
 }
 

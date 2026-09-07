@@ -355,22 +355,47 @@ func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracke
 }
 
 // searchAllProject — тот же поиск, но без потолка в searchPage: цикл по
-// startAt, как в comments() для переписки, пока страница не вернёт меньше,
-// чем просили (или ничего). Нужен только List() (fix round 1, Finding 1):
-// это единственный вызывающий, которому нужен весь список, а не первый
-// подходящий кандидат — на нём строится ground truth гейта зависимостей
-// (Office.projectByKey → UnmetDependencies), и неполный список делает
-// настоящую зависимость неотличимой от удалённой задачи.
+// startAt, как в comments() для переписки. Нужен только List() (fix
+// round 1, Finding 1): это единственный вызывающий, которому нужен весь
+// список, а не первый подходящий кандидат — на нём строится ground truth
+// гейта зависимостей (Office.projectByKey → UnmetDependencies), и
+// неполный список делает настоящую зависимость неотличимой от удалённой
+// задачи.
+//
+// Останов цикла отдаёт предпочтение total, который JIRA присылает в самом
+// ответе поиска, а не тому, что мы попросили в maxResults (fix round 2,
+// Finding 8): инстанс со своим потолком страницы (например,
+// jira.search.views.default.max) может честно резать каждую страницу
+// ниже pageSize, и тогда «страница короче ЗАПРОШЕННОГО» была бы истинной
+// на каждой странице, а не только на последней — старая проверка обрывала
+// бы пагинацию после первой же страницы. total>0 и накопленный (свой,
+// а не сервером эхом возвращённый — не все инстансы обязаны его честно
+// эхать) startAt дают точный останов независимо от того, какой размер
+// страницы сервер решил применить. Короткая страница остаётся резервным
+// путём для сервера, который total не прислал или прислал 0 при реальных
+// данных — но сравнивается с эффективным maxResults ответа (тем, что
+// сервер применил на самом деле), а не с pageSize, который мы запросили.
 func (t *Tracker) searchAllProject(project, jql string, pageSize int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
 	var all []tracker.TaskRef
 	for startAt := 0; ; {
-		refs, got, err := t.search(jql, startAt, pageSize, keep)
+		refs, page, err := t.search(jql, startAt, pageSize, keep)
 		if err != nil {
 			return nil, t.wrapSearchErr(project, err)
 		}
 		all = append(all, refs...)
-		startAt += got
-		if got < pageSize {
+		startAt += page.got
+
+		if page.got == 0 {
+			return all, nil
+		}
+		if page.total > 0 && startAt >= page.total {
+			return all, nil
+		}
+		effective := page.maxResults
+		if effective <= 0 {
+			effective = pageSize
+		}
+		if page.got < effective {
 			return all, nil
 		}
 	}
@@ -855,11 +880,24 @@ func (t *Tracker) transitions(key string) ([]transitionOption, error) {
 	return options, nil
 }
 
+// pageInfo — то, что ответ JIRA на /search сообщает о самой странице,
+// помимо задач: got — сколько задач сервер прислал (до фильтра keep),
+// total — сколько всего задач подходит под JQL, maxResults — фактический
+// размер страницы, который сервер применил (может быть меньше limit,
+// который мы запросили, если у инстанса свой потолок, например
+// jira.search.views.default.max). searchAllProject использует все три,
+// чтобы не спутать «сервер срезал страницу своим потолком» с «это была
+// последняя страница» (fix round 2, Finding 8).
+type pageInfo struct {
+	got        int
+	total      int
+	maxResults int
+}
+
 // search выполняет JQL на одной странице (startAt/limit) и отбирает то, что
-// прошло проверку раннера. Возвращает вдобавок число присланных сервером
-// задач (до фильтра keep) — так searchAllProject узнаёт, была страница
-// полной или последней, не полагаясь на keep, который у List() всегда true,
-// а у ListReady/ListExpired может срезать часть страницы.
+// прошло проверку раннера. Возвращает вдобавок pageInfo — так searchAllProject
+// узнаёт, была страница полной или последней, не полагаясь на keep, который
+// у List() всегда true, а у ListReady/ListExpired может срезать часть страницы.
 //
 // Единственная страница по умолчанию — предел для ListReady/ListExpired/
 // CheckWorkflow/FindByMarker, вызывающих через searchProject, и он им не
@@ -867,13 +905,15 @@ func (t *Tracker) transitions(key string) ([]transitionOption, error) {
 // разберёт остаток следующим заходом. List() же нужен полный список — см.
 // searchAllProject, которая крутит эту же search() по startAt, как comments()
 // крутит страницы переписки (fix round 1, Finding 1).
-func (t *Tracker) search(jql string, startAt, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, int, error) {
+func (t *Tracker) search(jql string, startAt, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, pageInfo, error) {
 	var result struct {
-		Issues []issue `json:"issues"`
+		Issues     []issue `json:"issues"`
+		Total      int     `json:"total"`
+		MaxResults int     `json:"maxResults"`
 	}
 	body := map[string]any{"jql": jql, "startAt": startAt, "maxResults": limit, "fields": t.searchFields()}
 	if err := t.call(http.MethodPost, "/search", body, &result); err != nil {
-		return nil, 0, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
+		return nil, pageInfo{}, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
 	}
 
 	var refs []tracker.TaskRef
@@ -890,7 +930,7 @@ func (t *Tracker) search(jql string, startAt, limit int, keep func(tracker.Task)
 		}
 		refs = append(refs, ref)
 	}
-	return refs, len(result.Issues), nil
+	return refs, pageInfo{got: len(result.Issues), total: result.Total, maxResults: result.MaxResults}, nil
 }
 
 func (t *Tracker) searchFields() []string {
