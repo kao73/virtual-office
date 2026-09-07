@@ -991,6 +991,24 @@ func TestGetStopsWhenServerLiesAboutTotal(t *testing.T) {
 // Режим pat конфигурация объявляла, а код не реализовывал: запрос уходил
 // с basic-авторизацией независимо от него. Обещание, которого никто не держит,
 // хуже отсутствия обещания — и Open теперь отказывается его давать.
+// TestOpenRejectsBaseURLWithoutSchemeOrHost — "jira.example.com" (без схемы)
+// разбирается url.Parse без ошибки, но даёт пустой Host: без проверки на
+// открытии всё ломалось бы позже и молча, на каждом download() (внешнее
+// ревью, pr-converge раунд 1).
+func TestOpenRejectsBaseURLWithoutSchemeOrHost(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	_, err := Open(Config{
+		BaseURL:  "jira.example.com",
+		Auth:     Auth{Mode: "basic"},
+		Accounts: Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
+	})
+	if err == nil {
+		t.Fatal("base_url без схемы принят — download() будет молча ломаться на пустом хосте")
+	}
+}
+
 func TestOpenRejectsUnimplementedAuthMode(t *testing.T) {
 	t.Setenv("JIRA_USER", "office")
 	t.Setenv("JIRA_PASSWORD", "секрет")
@@ -1204,6 +1222,25 @@ func TestCreateTaskDoesNotReconvertDescriptionAppend(t *testing.T) {
 	}
 }
 
+// TestCreateTaskJoinsEmptyDescriptionWithAppendCleanly — TaskInput допускает
+// пустой Description с непустым DescriptionAppend (childDescription сегодня
+// такую пару не производит, но контракт TaskInput её не запрещает), и голая
+// конкатенация через "\n\n" оставляла бы висячий пустой отступ перед текстом.
+func TestCreateTaskJoinsEmptyDescriptionWithAppendCleanly(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.nextKey = "VO-2"
+
+	if _, err := tr.CreateTask("VO", tracker.TaskInput{
+		Summary: "Category CRUD", DescriptionAppend: "исходный текст",
+	}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	desc, _ := fake.created[0].fields["description"].(string)
+	if strings.HasPrefix(desc, "\n") || strings.HasPrefix(desc, " ") {
+		t.Errorf("description начинается с висячего отступа: %q", desc)
+	}
+}
+
 // FindByMarker ищет тем же JQL-поиском, что ListReady/List, но фильтрует
 // по метке, а не по статусу.
 func TestFindByMarkerSearchesByLabel(t *testing.T) {
@@ -1340,6 +1377,39 @@ func TestGetAttachmentDoesNotLeakCredentialsViaUserinfoBypass(t *testing.T) {
 	}
 	if gotAuth {
 		t.Error("креды инстанса ушли на чужой хост через userinfo-обход")
+	}
+}
+
+// TestDownloadRejectsSameHostOutsideContextPath — инстанс за контекстным путём
+// (base_url вида "https://host/jira", поддержано call()/upload() через
+// BaseURL+apiPath+path) не должен доверять ссылке на тот же хост, но вне
+// этого пути: внешнее ревью (pr-converge, раунд 1) нашло, что сведение
+// проверки к голым scheme+host потеряло ограничение по пути, которое раньше
+// давал strings.HasPrefix(url, BaseURL) целиком, и открыло SSRF на соседнее
+// приложение того же хоста.
+func TestDownloadRejectsSameHostOutsideContextPath(t *testing.T) {
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("не должно быть скачано"))
+	}))
+	defer evil.Close()
+
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	tr, err := Open(Config{
+		BaseURL:  evil.URL + "/jira",
+		Auth:     Auth{Mode: "basic"},
+		Accounts: Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
+	})
+	if err != nil {
+		t.Fatalf("трекер не открыт: %v", err)
+	}
+
+	if _, err := tr.download(evil.URL + "/other-app/secure/attachment/1"); err == nil {
+		t.Error("ссылка на тот же хост вне контекстного пути инстанса должна быть отвергнута")
+	}
+	// Ссылка внутри контекстного пути — по-прежнему легальна.
+	if _, err := tr.download(evil.URL + "/jira/secure/attachment/1"); err != nil {
+		t.Errorf("ссылка внутри контекстного пути отвергнута напрасно: %v", err)
 	}
 }
 

@@ -106,6 +106,26 @@ func TestMarkerCarriesAttachment(t *testing.T) {
 	}
 }
 
+// TestParseMarkerRejectsAttachmentPathTraversal — attachment: не проверяет
+// алфавит своего значения нигде дальше, а mock.GetAttachment (и jira.
+// GetAttachment для своего REST-пути) строит из него путь/URL напрямую.
+// Комментарий никем не подписывается по праву владения (маркеры разбираются
+// по тексту, не по автору — pr-converge, принятый риск), так что значение
+// вроде "../../OTHER-1/attachments/0" должно быть отвергнуто на разборе,
+// а не дойти до чтения файла.
+func TestParseMarkerRejectsAttachmentPathTraversal(t *testing.T) {
+	lines := []string{
+		"[office run:488e8d8f role:analyst outcome:split attachment:../../OTHER-1/attachments/0 config:5bc6a3b0]",
+		"[office run:488e8d8f role:analyst outcome:split attachment:/etc/passwd config:5bc6a3b0]",
+		"[office run:488e8d8f role:analyst outcome:split attachment:.. config:5bc6a3b0]",
+	}
+	for _, line := range lines {
+		if _, ok := ParseMarker(line); ok {
+			t.Errorf("вложение с разделителями пути принято за маркер: %q", line)
+		}
+	}
+}
+
 func TestParseMarkerRejectsForeignLines(t *testing.T) {
 	lines := []string{
 		"",

@@ -769,6 +769,26 @@ func TestGetToleratesTaskDirectoryWithoutAttachmentsSubdir(t *testing.T) {
 	}
 }
 
+// TestCreateTaskJoinsEmptyDescriptionWithAppendCleanly — тот же случай, что
+// и на jira: TaskInput допускает пустой Description с непустым
+// DescriptionAppend, и голая конкатенация оставляла бы висячий отступ.
+func TestCreateTaskJoinsEmptyDescriptionWithAppendCleanly(t *testing.T) {
+	tr := fixture(t)
+	ref, err := tr.CreateTask("OFF", tracker.TaskInput{
+		Summary: "Category CRUD", DescriptionAppend: "исходный текст",
+	})
+	if err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	task, err := tr.Get(ref.Key)
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if strings.HasPrefix(task.Description, "\n") || strings.HasPrefix(task.Description, " ") {
+		t.Errorf("description начинается с висячего отступа: %q", task.Description)
+	}
+}
+
 func TestGetAttachmentUnknownIDFails(t *testing.T) {
 	tr := fixture(t)
 	if _, err := tr.GetAttachment("OFF-1", "9999"); !errors.Is(err, tracker.ErrNotFound) {

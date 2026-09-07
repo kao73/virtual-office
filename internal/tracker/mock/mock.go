@@ -428,7 +428,11 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 
 	description := input.Description
 	if input.DescriptionAppend != "" {
-		description += "\n\n" + input.DescriptionAppend
+		if description == "" {
+			description = input.DescriptionAppend
+		} else {
+			description += "\n\n" + input.DescriptionAppend
+		}
 	}
 	task := tracker.Task{
 		Key: key, Project: project, Summary: input.Summary, Description: description,

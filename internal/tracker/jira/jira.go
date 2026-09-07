@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -181,6 +182,13 @@ func OpenAs(cfg Config, role string) (*Tracker, error) {
 	base, err := url.Parse(cfg.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("base_url не разобран: %w", err)
+	}
+	// "jira.example.com" (без схемы) url.Parse разбирает без ошибки, но
+	// с пустым Host — весь текст уходит в Path. Без проверки здесь download()
+	// на каждой ссылке молча отвергал бы её как чужую (пустой Host никогда
+	// не совпадёт с настоящим), и причина не была бы видна до первого вложения.
+	if base.Scheme == "" || base.Host == "" {
+		return nil, fmt.Errorf("base_url=%q: нет схемы или хоста (пример: https://jira.example.com)", cfg.BaseURL)
 	}
 	// Режим один, и это не упущение. Персональные токены появились в Jira Server
 	// с 8.14, а целевая версия — 8.13: проверить их не на чем, а необъявленное
@@ -528,7 +536,13 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 	if input.DescriptionAppend != "" {
 		// Без wiki(): DescriptionAppend уже в чужой разметке (см. доккомент
 		// TaskInput.DescriptionAppend), повторный прогон исказил бы её.
-		description += "\n\n" + input.DescriptionAppend
+		// Разделитель — только когда есть что разделять: пустой Description
+		// с непустым DescriptionAppend не должен оставлять висячий отступ.
+		if description == "" {
+			description = input.DescriptionAppend
+		} else {
+			description += "\n\n" + input.DescriptionAppend
+		}
 	}
 	fields := map[string]any{
 		"project":     map[string]any{"key": project},
@@ -610,14 +624,29 @@ func (t *Tracker) upload(path, filename string, data []byte) ([]byte, error) {
 // а userinfo) или "<BaseURL>.чужой-хост/…" (другой домен с тем же началом) —
 // в обоих случаях итоговый хост запроса не совпадает с инстансом, хотя
 // строка с ним совпадает.
+//
+// Путь сверяется отдельно, когда у BaseURL он не пустой и не корень: инстанс
+// за контекстным путём (base_url вида "https://host/jira" — call()/upload()
+// уже строят из него BaseURL+apiPath+path) делит хост с чем угодно ещё на
+// этом же сервере, и голого совпадения scheme+host было бы мало — оно
+// пропустило бы "https://host/другое-приложение" как "свой" адрес. Обе части
+// сравниваются через path.Clean, чтобы ".." в ссылке не обошёл проверку.
 func (t *Tracker) download(dl string) ([]byte, error) {
 	u, err := url.Parse(dl)
 	if err != nil {
 		return nil, fmt.Errorf("вложение по ссылке %s: не разобрано: %w", dl, err)
 	}
+	foreign := fmt.Errorf("вложение по ссылке %s: сервер назвал адрес не своего инстанса (%s), запрос не отправлен",
+		dl, t.cfg.BaseURL)
 	if u.Scheme != t.baseURL.Scheme || u.Host != t.baseURL.Host {
-		return nil, fmt.Errorf("вложение по ссылке %s: сервер назвал адрес не своего инстанса (%s), запрос не отправлен",
-			dl, t.cfg.BaseURL)
+		return nil, foreign
+	}
+	if t.baseURL.Path != "" && t.baseURL.Path != "/" {
+		base := path.Clean(t.baseURL.Path)
+		got := path.Clean(u.Path)
+		if got != base && !strings.HasPrefix(got, base+"/") {
+			return nil, foreign
+		}
 	}
 
 	req, err := http.NewRequest(http.MethodGet, dl, nil)

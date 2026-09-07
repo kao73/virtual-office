@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
@@ -9,6 +10,17 @@ import (
 
 // Prefix — с чего начинается любая запись офиса в трекере.
 const Prefix = "[office "
+
+// attachmentIDPattern — форма значения attachment:. И mock, и jira строят
+// из этого значения путь/URL к вложению напрямую (mock.GetAttachment:
+// filepath.Join, jira.GetAttachment: часть REST-пути) — а маркер разбирается
+// по тексту комментария, не по праву владения его автора (pr-converge,
+// принятый риск «подлинность маркера не проверяется»). Без ограничения
+// алфавита значение вроде "../../OTHER-1/attachments/0" увело бы mock-чтение
+// за пределы каталога задачи. Реальные id (`nextExclusive` у mock, числовые
+// у jira) укладываются в куда более узкий алфавит — этот не режет ничего,
+// что тракеры сами когда-либо порождают.
+var attachmentIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // События записей раннера — тех, что делает не агент, а обвязка вокруг него.
 //
@@ -176,6 +188,9 @@ func ParseMarker(line string) (Marker, bool) {
 		case "next":
 			m.Next = value
 		case "attachment":
+			if !attachmentIDPattern.MatchString(value) {
+				return Marker{}, false
+			}
 			m.Attachment = value
 		case "config":
 			m.ConfigSHA = value
@@ -384,6 +399,21 @@ func HasEvent(comments []Comment, event string) bool {
 		}
 	}
 	return false
+}
+
+// LastEventText — текст последней записи с данным событием, без строки
+// маркера (NoticeBody кладёт маркер первой строкой, текст — дальше).
+// Нужен там, где дедупликация обязана сравнивать причину, а не только факт
+// события: HasEvent сказал бы «уже сообщено» и для тикета, который свежая,
+// другая по сути беда постигла уже после первой (splitFailed).
+func LastEventText(comments []Comment, event string) (text string, found bool) {
+	for _, c := range comments {
+		if m, ok := MarkerOf(c.Body); ok && m.Event == event {
+			_, rest, _ := strings.Cut(c.Body, "\n")
+			text, found = strings.TrimSpace(rest), true
+		}
+	}
+	return text, found
 }
 
 // SplitConfirmed решает, подтверждён ли split этой роли: считает все
