@@ -1013,6 +1013,69 @@ func TestCompleteSplitsDoesNotDuplicateCloseNoticeOnRetry(t *testing.T) {
 	}
 }
 
+// countingLinksFlakyClose комбинирует подсчёт вызовов LinkDependsOn (для
+// проверки того, что повтор не шлёт уже записанную связь заново) с
+// персистентным сбоем закрытия родителя (Transition) — тем же приёмом,
+// что flakyClose выше, — чтобы CompleteSplits вызывался дважды на одном
+// и том же застрявшем тикете, не полагаясь на реальный успех закрытия.
+type countingLinksFlakyClose struct {
+	*mock.Tracker
+	failCloseOn string
+	linkCalls   int
+}
+
+func (c *countingLinksFlakyClose) LinkDependsOn(key, dependsOnKey string, by tracker.Actor) error {
+	c.linkCalls++
+	return c.Tracker.LinkDependsOn(key, dependsOnKey, by)
+}
+
+func (c *countingLinksFlakyClose) Transition(key string, by tracker.Actor, toStatus string) error {
+	if key == c.failCloseOn {
+		return errors.New("сеть недоступна")
+	}
+	return c.Tracker.Transition(key, by, toStatus)
+}
+
+// TestLinkChildrenSkipsAlreadyLinkedPairOnRetry доказывает, что застрявший
+// на закрытии тикет не шлёт POST /issueLink заново на каждый цикл Loop
+// для пары, уже связанной прошлым проходом.
+func TestLinkChildrenSkipsAlreadyLinkedPairOnRetry(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+	wrap := &countingLinksFlakyClose{Tracker: o.tasks, failCloseOn: "OFF-1"}
+	o.useTracker(wrap)
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("первый проход не должен падать целиком: %v", err)
+	}
+	if wrap.linkCalls != 1 {
+		t.Fatalf("после первого прохода ожидался 1 вызов LinkDependsOn, получено %d", wrap.linkCalls)
+	}
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("второй проход не должен падать целиком: %v", err)
+	}
+	if wrap.linkCalls != 1 {
+		t.Errorf("повторный проход снова отправил уже записанную связь: всего вызовов %d, ожидался 1", wrap.linkCalls)
+	}
+
+	transaction, err := o.tasks.FindByMarker("OFF", splitChildMarker("OFF-1", "transaction-crud"))
+	if err != nil || len(transaction) != 1 {
+		t.Fatalf("операции не найдены: %+v, %v", transaction, err)
+	}
+	category, err := o.tasks.FindByMarker("OFF", splitChildMarker("OFF-1", "category-crud"))
+	if err != nil || len(category) != 1 {
+		t.Fatalf("категория не найдена: %+v, %v", category, err)
+	}
+	linked, err := o.tasks.Get(transaction[0].Key)
+	if err != nil {
+		t.Fatalf("операции не прочитаны: %v", err)
+	}
+	if !slices.Contains(linked.DependsOn, category[0].Key) {
+		t.Errorf("связь потерялась после повторного прохода: %v", linked.DependsOn)
+	}
+}
+
 // flakyComment роняет Comment для данного ключа: так выглядит сбой самой
 // записи о неудаче — splitFailed пишет комментарий через o.record, и если
 // падает уже эта запись (не шаг, который она описывает), ошибка раньше
