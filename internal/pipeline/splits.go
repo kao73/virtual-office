@@ -3,7 +3,9 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/kao73/virtual-office/internal/runner"
@@ -46,11 +48,15 @@ func (o *Office) CompleteSplits(ctx context.Context) error {
 		// тикета, и раньше каждый цикл Loop создавал детей, копировал
 		// вложения и связывал их заново, чтобы только на последнем шаге
 		// узнать, что закрывать родителя всё равно некуда (config.go,
-		// checkPR — граф без блока pr легален).
+		// checkPR — граф без блока pr легален). Только в лог, не записью
+		// в тикет: свойство офиса целиком, тикетов, за которые можно было
+		// бы зацепиться, здесь ещё нет — тем же приёмом молчаливого, но
+		// повторяющегося предупреждения, что уже применяет skipProject.
 		o.logf("complete-splits: в workflow.yaml нет блока pr — закрывать разбитые задачи некуда, пропускаю")
 		return nil
 	}
 
+	var failures []error
 	for _, project := range o.projects() {
 		refs, err := o.Tracker.List(project, []string{flow.Blocked()})
 		if o.skipProject(project, err) {
@@ -66,6 +72,7 @@ func (o *Office) CompleteSplits(ctx context.Context) error {
 				// беда с одним тикетом не должна глушить обход остальных.
 				// Следующий цикл Loop попробует эту задачу снова.
 				o.logf("%s: не прочитана, пропускаю: %v", ref.Key, err)
+				failures = append(failures, fmt.Errorf("%s: не прочитана: %w", ref.Key, err))
 				continue
 			}
 			confirmed, attachmentID := tracker.SplitConfirmed(task.Comments, splitAnalystRole)
@@ -79,13 +86,20 @@ func (o *Office) CompleteSplits(ctx context.Context) error {
 				// о сбое). Доккомент completeSplit обещает не прерывать
 				// обход остальных задач; без этой развилки любая такая
 				// ошибка обрывала бы CompleteSplits целиком, по всем
-				// оставшимся тикетам и проектам.
+				// оставшимся тикетам и проектам. Копится, а не молчит:
+				// Loop эту ошибку просто залогирует, как и раньше
+				// (o.logf уже сказал то же самое строкой выше), но ручная
+				// runner complete-splits обязана вернуть код возврата,
+				// отражающий реальный сбой, а не «всё в порядке» только
+				// потому, что цикл дошёл до конца (внешнее ревью,
+				// pr-converge раунд 2).
 				o.logf("%s: проход не завершён, пробую снова в следующем цикле: %v", task.Key, err)
+				failures = append(failures, fmt.Errorf("%s: %w", task.Key, err))
 				continue
 			}
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 // completeSplit достраивает одно подтверждённое split-предложение: читает
@@ -98,18 +112,18 @@ func (o *Office) CompleteSplits(ctx context.Context) error {
 func (o *Office) completeSplit(task tracker.Task, attachmentID string) error {
 	children, err := o.splitChildren(task, attachmentID)
 	if err != nil {
-		return o.splitFailed(task, fmt.Sprintf("вложение %s не прочитано: %v", attachmentID, err))
+		return o.splitFailed(task, fmt.Sprintf("вложение %s не прочитано", attachmentID), err)
 	}
 
 	byID, err := o.ensureChildren(task, children)
 	if err != nil {
-		return o.splitFailed(task, fmt.Sprintf("тикеты-дети не досозданы: %v", err))
+		return o.splitFailed(task, "тикеты-дети не досозданы", err)
 	}
 	if err := o.ensureChildAttachments(task, byID); err != nil {
-		return o.splitFailed(task, fmt.Sprintf("вложения родителя не скопированы: %v", err))
+		return o.splitFailed(task, "вложения родителя не скопированы", err)
 	}
 	if err := o.linkChildren(children, byID); err != nil {
-		return o.splitFailed(task, fmt.Sprintf("связи depends_on не записаны: %v", err))
+		return o.splitFailed(task, "связи depends_on не записаны", err)
 	}
 
 	keys := make([]string, len(children))
@@ -117,7 +131,7 @@ func (o *Office) completeSplit(task tracker.Task, attachmentID string) error {
 		keys[i] = byID[child.ID]
 	}
 	if err := o.closeSplitParent(task, keys); err != nil {
-		return o.splitFailed(task, fmt.Sprintf("родитель не закрыт: %v", err))
+		return o.splitFailed(task, "родитель не закрыт", err)
 	}
 	return nil
 }
@@ -247,15 +261,27 @@ func childDescription(task tracker.Task, child runner.SplitChild) (description, 
 // уже прошёл) подбирается каждым циклом Loop заново, и без этой развилки
 // каждый такой цикл заново качал бы с родителя всё вложения ради самой
 // сверки, которая в итоге ничего не докатывает.
+//
+// Обход детей — по отсортированным ключам, не по map: без этого порядок
+// менялся бы между вызовами, и текст сбоя (splitFailed), назвав ошибку
+// от случайного ребёнка на каждом проходе, никогда не совпадал бы сам
+// с собой — даже когда причина ровно та же (внешнее ревью, pr-converge
+// раунд 2).
 func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]string) error {
 	parentAttachments := humanAttachments(task)
 	if len(parentAttachments) == 0 {
 		return nil
 	}
 
-	children := make(map[string]tracker.Task, len(keys))
-	needed := make(map[string]bool, len(parentAttachments)) // имя вложения → не хватает хотя бы одному ребёнку
+	childKeys := make([]string, 0, len(keys))
 	for _, childKey := range keys {
+		childKeys = append(childKeys, childKey)
+	}
+	slices.Sort(childKeys)
+
+	children := make(map[string]tracker.Task, len(childKeys))
+	needed := make(map[string]bool, len(parentAttachments)) // имя вложения → не хватает хотя бы одному ребёнку
+	for _, childKey := range childKeys {
 		child, err := o.Tracker.Get(childKey)
 		if err != nil {
 			return err
@@ -275,13 +301,17 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 		return nil
 	}
 
-	// Байты родителя скачиваются один раз на нужное вложение, не на
-	// каждого ребёнка: на JIRA GetAttachment — два HTTP-запроса
-	// (метаданные + содержимое), и без кеша разбиение на 5 детей
-	// с 3 вложениями стоило бы 30 запросов ради трёх файлов.
+	// Байты родителя скачиваются один раз на нужное имя, не на каждого
+	// ребёнка и не на каждое вложение с этим именем: на JIRA GetAttachment
+	// — два HTTP-запроса (метаданные + содержимое), и без кеша разбиение
+	// на 5 детей с 3 вложениями стоило бы 30 запросов ради трёх файлов.
+	// Одноимённых вложений родителя с разными id всё равно докатится
+	// только одно (has ниже сверяется по имени) — скачивать второе было
+	// бы запросом впустую.
 	data := make(map[string][]byte, len(needed))
+	downloaded := make(map[string]bool, len(needed))
 	for _, parentAttachment := range parentAttachments {
-		if !needed[parentAttachment.Name] {
+		if !needed[parentAttachment.Name] || downloaded[parentAttachment.Name] {
 			continue
 		}
 		bytes, err := o.Tracker.GetAttachment(task.Key, parentAttachment.ID)
@@ -289,10 +319,12 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 			return err
 		}
 		data[parentAttachment.ID] = bytes
+		downloaded[parentAttachment.Name] = true
 	}
 
 	by := tracker.BySystem()
-	for childKey, child := range children {
+	for _, childKey := range childKeys {
+		child := children[childKey]
 		has := make(map[string]bool, len(child.Attachments))
 		for _, a := range child.Attachments {
 			has[a.Name] = true
@@ -314,6 +346,15 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 // подпроходом после того, как **все** дети существуют: ребёнок может
 // зависеть от того, кто в split.children[] идёт позже него, и связывать
 // раньше, чем существуют оба конца, нечем.
+//
+// Не ленивый, в отличие от ensureChildAttachments (pr-converge раунд 2
+// заметил асимметрию): застрявший тикет каждый цикл шлёт все POST
+// /issueLink заново, полагаясь на серверную дедупликацию JIRA — она
+// проверена эмпирически, не гарантирована контрактом (доккомент
+// jira.LinkDependsOn). Ленивость здесь потребовала бы надёжно читать уже
+// записанные связи через Get(key).DependsOn — а это не гарантировано на
+// JIRA (доккомент Task.DependsOn, tracker.go): решается вместе с тем же
+// вопросом, что и Change 2.
 func (o *Office) linkChildren(children []runner.SplitChild, keys map[string]string) error {
 	by := tracker.BySystem()
 	for _, child := range children {
@@ -373,21 +414,33 @@ func (o *Office) closeSplitParent(task tracker.Task, keys []string) error {
 // у Archive/открытия PR). Следующий цикл Loop (или ручной
 // runner complete-splits) попробует снова.
 //
-// Запись — только если причина новая: Loop зовёт CompleteSplits каждый
-// цикл (по умолчанию раз в две минуты), а застрявший тикет остаётся
-// в Blocked и подбирается им снова и снова. Дедупликация — по тексту
-// последней такой записи (LastEventText), не по самому факту события
-// (HasEvent): человек мог починить первую беду, а проход — упасть уже
-// на другой, и об этом стоит сказать, а не решить, что раз
-// EventSplitCreateFailed уже был, значит и сейчас то же самое (внешнее
-// ревью, pr-converge раунд 1). Design.md decision #7 (без счётчика
-// попыток и эскалации) этим не затрагивается — считается не число сбоев,
-// а сам факт «об этой причине уже сказано».
-func (o *Office) splitFailed(task tracker.Task, text string) error {
-	text = strings.TrimSpace(text)
-	if last, found := tracker.LastEventText(task.Comments, tracker.EventSplitCreateFailed); found && last == text {
-		o.logf("%s: %s (та же причина уже сообщена, повторно не пишу)", task.Key, text)
-		return nil
+// category — стабильный, детерминированный на повторе одной и той же
+// причины ярлык шага (вызывающие в completeSplit дают ровно пять таких
+// ярлыков); err — свободный текст вокруг него, для человека. Запись —
+// только если причина новая: Loop зовёт CompleteSplits каждый цикл (по
+// умолчанию раз в две минуты), а застрявший тикет остаётся в Blocked
+// и подбирается им снова и снова. Дедупликация — по category, первой
+// строке записи (LastEventText + strings.Cut), а не по всему тексту
+// целиком (внешнее ревью, pr-converge раунд 1 предложило это, раунд 2
+// нашёл, почему полный текст ненадёжен): на JIRA он приезжает через
+// wiki() без обратного перевода, и свободный текст ошибки, несущий тело
+// ответа сервера, легко получает то, что wiki() экранирует (квадратную
+// скобку) — тогда «та же» причина после каждого круга через трекер
+// читалась бы другой. category — простая проза без wiki-разметки и не
+// участвует в этой судьбе; err — участвует, поэтому в сравнение не идёт.
+// Design.md decision #7 (без счётчика попыток и эскалации) этим не
+// затрагивается — считается не число сбоев, а сам факт «об этой причине
+// уже сказано».
+func (o *Office) splitFailed(task tracker.Task, category string, cause error) error {
+	text := category
+	if cause != nil {
+		text += "\n" + cause.Error()
+	}
+	if last, found := tracker.LastEventText(task.Comments, tracker.EventSplitCreateFailed); found {
+		if lastCategory, _, _ := strings.Cut(last, "\n"); lastCategory == category {
+			o.logf("%s: %s (та же причина уже сообщена, повторно не пишу)", task.Key, category)
+			return nil
+		}
 	}
 
 	runID, err := runner.NewRunID()

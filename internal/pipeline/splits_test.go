@@ -208,6 +208,55 @@ func TestCompleteSplitsCopiesOnlyOneOfSameNamedParentAttachments(t *testing.T) {
 	}
 }
 
+// countingGetAttachment считает вызовы GetAttachment на чужие id (не
+// вложение самого split.json — его читает splitChildren отдельно, и это
+// не тот вызов, что здесь считается).
+type countingGetAttachment struct {
+	*mock.Tracker
+	skip  string
+	calls int
+}
+
+func (f *countingGetAttachment) GetAttachment(key, id string) ([]byte, error) {
+	if id != f.skip {
+		f.calls++
+	}
+	return f.Tracker.GetAttachment(key, id)
+}
+
+// TestEnsureChildAttachmentsDownloadsSameNamedParentAttachmentOnlyOnce —
+// раз докатится только одно из двух одноимённых вложений родителя (см.
+// TestCompleteSplitsCopiesOnlyOneOfSameNamedParentAttachments), скачивать
+// оба ради этого незачем — needed сверяется по имени, а data по id, и без
+// отдельной отметки "уже скачано" оба одноимённых вложения всё равно
+// уходили бы отдельным запросом (внешнее ревью, pr-converge раунд 2).
+func TestEnsureChildAttachmentsDownloadsSameNamedParentAttachmentOnlyOnce(t *testing.T) {
+	o := newOffice(t)
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("первая версия")); err != nil {
+		t.Fatalf("первое вложение не добавлено: %v", err)
+	}
+	if _, err := o.tasks.AddAttachment("OFF-1", tracker.BySystem(), "schema.png", []byte("вторая версия")); err != nil {
+		t.Fatalf("второе вложение не добавлено: %v", err)
+	}
+	confirmSplit(t, o)
+
+	parent := o.get(t, "OFF-1")
+	splitMarker, ok := tracker.MarkerOf(lastComment(t, parent).Body)
+	if !ok || splitMarker.Attachment == "" {
+		t.Fatalf("вложение с разбивкой не найдено в маркере отчёта")
+	}
+
+	counter := &countingGetAttachment{Tracker: o.tasks, skip: splitMarker.Attachment}
+	o.useTracker(counter)
+
+	if err := o.CompleteSplits(context.Background()); err != nil {
+		t.Fatalf("проход не прошёл: %v", err)
+	}
+	if counter.calls != 1 {
+		t.Errorf("GetAttachment вызван %d раз(а), ожидался 1 — второе одноимённое вложение всё равно не докатится ни к кому", counter.calls)
+	}
+}
+
 // noGetAttachment роняет тест, если вложение родителя вообще скачивается —
 // сверка "нужно ли докатывать" обязана справляться по одним лишь именам
 // уже имеющихся у детей вложений, не читая содержимое заново.
@@ -773,6 +822,54 @@ func TestSplitFailedReportsANewReasonEvenAfterAnOldOne(t *testing.T) {
 	}
 }
 
+// TestSplitFailedDedupsByStableCategoryNotFreeformText — дедупликация
+// splitFailed сравнивала полный текст записи, прочитанный из трекера. На
+// JIRA этот текст мог уехать и вернуться другим (wiki() экранирует
+// квадратные скобки в теле ответа сервера, которое несёт свободный текст
+// причины), а сам текст ещё и недетерминирован независимо от трекера —
+// ensureChildAttachments раньше обходила детей картой, и первым в тексте
+// сбоя называлось то, что попадётся (внешнее ревью, pr-converge раунд 2).
+// Дедупликация обязана сравнивать только стабильную категорию шага,
+// не обёрнутую ошибку целиком.
+func TestSplitFailedDedupsByStableCategoryNotFreeformText(t *testing.T) {
+	o := newOffice(t)
+	confirmSplit(t, o)
+	task := o.get(t, "OFF-1")
+
+	if err := o.splitFailed(task, "вложения родителя не скопированы", errors.New("первая попытка: сеть недоступна")); err != nil {
+		t.Fatalf("запись не удалась: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+	if err := o.splitFailed(task, "вложения родителя не скопированы", errors.New("вторая попытка: другой текст ошибки")); err != nil {
+		t.Fatalf("запись не удалась: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+
+	failures := 0
+	for _, c := range task.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Event == tracker.EventSplitCreateFailed {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Errorf("записей о сбое %d, ожидалась ровно одна — категория та же, текст ошибки менялся", failures)
+	}
+
+	if err := o.splitFailed(task, "родитель не закрыт", errors.New("третья попытка")); err != nil {
+		t.Fatalf("запись не удалась: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+	failures = 0
+	for _, c := range task.Comments {
+		if m, ok := tracker.MarkerOf(c.Body); ok && m.Event == tracker.EventSplitCreateFailed {
+			failures++
+		}
+	}
+	if failures != 2 {
+		t.Errorf("записей о сбое %d, ожидалось 2 — новая категория обязана быть записана", failures)
+	}
+}
+
 // flakyClose роняет Transition для ключа задачи-родителя: так выглядит сбой
 // самого последнего шага completeSplit — закрытия родителя в
 // closeSplitParent, — уже после того как дети созданы, связаны и отчёт
@@ -940,8 +1037,16 @@ func TestCompleteSplitsContinuesPastTaskWhoseFailureNoticeCannotBeWritten(t *tes
 
 	o.useTracker(&flakyComment{Tracker: o.tasks, failOn: "OFF-1"})
 
-	if err := o.CompleteSplits(context.Background()); err != nil {
-		t.Fatalf("сбой записи о неудаче на OFF-1 не должен ронять весь проход: %v", err)
+	// Проход по остальным задачам не должен обрываться беды ради, но сама
+	// беда — не молчать: ручная runner complete-splits обязана вернуть
+	// код возврата, отражающий реальный сбой, а не "всё в порядке" только
+	// потому, что цикл дошёл до конца.
+	err = o.CompleteSplits(context.Background())
+	if err == nil {
+		t.Fatal("проход должен вернуть беду с OFF-1, а не тихо её проглотить")
+	}
+	if !strings.Contains(err.Error(), "OFF-1") {
+		t.Errorf("в возвращённой ошибке нет ключа сбойной задачи: %v", err)
 	}
 
 	other := o.get(t, "OFF-9")
