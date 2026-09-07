@@ -266,15 +266,19 @@ func (r Result) Validate() error {
 		errs = append(errs, fmt.Errorf("blocker заполнен при outcome=%q: блокер только для blocked", r.Outcome))
 	}
 
-	if r.Outcome == OutcomeSplit {
-		if r.Split == nil || len(r.Split.Children) == 0 {
-			errs = append(errs, errors.New("outcome=split, но split.children пуст"))
+	// Проверка графа детей — одна, в Split.Validate(), а не повторена
+	// здесь же: та же проверка нужна и второму читателю (splits.go,
+	// CompleteSplits, читает вложение заново из трекера) — разъехавшись,
+	// эти две копии однажды проверяли бы не одно и то же.
+	switch {
+	case r.Outcome == OutcomeSplit && r.Split == nil:
+		errs = append(errs, errors.New("outcome=split, но split.children пуст"))
+	case r.Outcome == OutcomeSplit:
+		if err := r.Split.Validate(); err != nil {
+			errs = append(errs, err)
 		}
-	} else if r.Split != nil {
+	case r.Split != nil:
 		errs = append(errs, fmt.Errorf("split заполнен при outcome=%q: split только для outcome=split", r.Outcome))
-	}
-	if r.Split != nil {
-		errs = append(errs, validateSplitChildren(r.Split.Children)...)
 	}
 
 	return errors.Join(errs...)
