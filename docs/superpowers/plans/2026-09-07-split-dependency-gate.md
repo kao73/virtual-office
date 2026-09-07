@@ -1433,7 +1433,7 @@ time is short.
 - Produces: `linkChildren` unchanged in signature, changed in behavior
   (skips a pair already present in `Get(key).DependsOn`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
   In `internal/pipeline/splits_test.go`:
 
@@ -1502,13 +1502,13 @@ time is short.
   }
   ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
   Run: `go test ./internal/pipeline/... -run TestLinkChildrenSkipsAlreadyLinkedPairOnRetry -v`
   Expected: FAIL — `wrap.linkCalls` is `2` after the second pass (current
   `linkChildren` re-sends every pair every retry).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   In `internal/pipeline/splits.go`, replace the doc comment and body of
   `linkChildren`:
@@ -1548,19 +1548,19 @@ time is short.
   }
   ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
   Run: `go test ./internal/pipeline/... -run TestLinkChildrenSkipsAlreadyLinkedPairOnRetry -v`
   Expected: PASS.
 
-- [ ] **Step 5: Full package run — existing split tests still pass**
+- [x] **Step 5: Full package run — existing split tests still pass**
 
   Run: `go build ./... && go vet ./... && go test ./internal/pipeline/...`
   Pay particular attention to `TestCompleteSplitsResumesInterruptedBatch`
   and `TestCompleteSplitsCreatesAndLinksChildren`, which exercise the same
   code path from a different angle.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add internal/pipeline/splits.go internal/pipeline/splits_test.go

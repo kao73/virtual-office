@@ -75,7 +75,7 @@
 
 ## 7. Optional cleanup (not blocking)
 
-- [ ] 7.1 Make `linkChildren` (`internal/pipeline/splits.go`) check
+- [x] 7.1 Make `linkChildren` (`internal/pipeline/splits.go`) check
       `Get(key).DependsOn` before calling `LinkDependsOn`, now that the
       read is trustworthy on JIRA too, instead of relying on server-side
       idempotency of `POST /issueLink` every cycle.
