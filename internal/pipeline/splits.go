@@ -355,9 +355,17 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 //
 // Ленивый: перед LinkDependsOn проверяет Get(key).DependsOn — теперь,
 // когда чтение надёжно и на JIRA тоже (split-dependency-gate,
-// internal/tracker/jira/jira.go toTask/searchFields), застрявший тикет
-// больше не шлёт все POST /issueLink заново на каждый цикл Loop, полагаясь
-// только на серверную дедупликацию.
+// internal/tracker/jira/jira.go toTask/searchFields). Дело не в цене
+// (fix round 2, Finding 10): на JIRA сам этот Get() тянет ещё и всю
+// переписку тикета, постранично, и при одной зависимости обходится
+// не дешевле, а то и дороже единственного POST /issueLink, который он
+// иногда позволяет пропустить — округление скорее в минус, чем в плюс.
+// Настоящая причина — не полагаться на недокументированное серверное
+// дедуплицирование одинаковых POST /issueLink: раньше застрявший на
+// закрытии тикет слал их заново на каждый цикл Loop, рассчитывая, что
+// JIRA сама тихо проигнорирует повтор. Выгода этой проверки растёт вместе
+// с числом зависимостей у ребёнка и с числом повторов на застрявшем
+// тикете — а не с количеством сбережённых байт на первом же цикле.
 func (o *Office) linkChildren(children []runner.SplitChild, keys map[string]string) error {
 	by := tracker.BySystem()
 	for _, child := range children {

@@ -214,20 +214,21 @@ reap вернул задачу в `Ready`; зависший прогон всё-
 ## Задача
 
 `Task`: `key`, `project`, `summary`, `description`, `status`, `labels`, `depends_on`
-(ключи задач, от которых зависит эта — пишет `LinkDependsOn`, а читает будущий гейт
-очерёдности, не код этой волны — **не на всех реализациях** `Get()` отражает то, что
-записал `LinkDependsOn`: `mock` хранит и читает поле обратно, `jira` — только шлёт
-`POST /issueLink` и не разбирает `issuelinks` обратно, так что там `depends_on`
-у прочитанной задачи всегда пуст), поля аренды (`owner`, `run_id`, `lease_until`),
-`attempts`, `human_flag`, `comments`, `attachments` (`[]AttachmentRef{id, name}` —
-без данных: то немногое, что нужно решить, скачивать вложение или нет и как назвать
-файл; служебные вложения раннера, вроде `split.json`, в этом списке присутствуют
-наравне с человеческими — фильтрует их вызывающий, не трекер).
+(ключи задач, от которых зависит эта — пишет `LinkDependsOn`, а читает гейт
+очерёдности, `internal/pipeline/pipeline.go`, `Office.claim()` — `Get()`/`List()`/
+`ListReady()` надёжно отражают то, что записал `LinkDependsOn`, на обеих
+реализациях: `mock` хранит и читает поле обратно, `jira` разбирает `issuelinks`
+в `toTask` и явно запрашивает это поле в `searchFields()`), поля аренды
+(`owner`, `run_id`, `lease_until`), `attempts`, `human_flag`, `comments`,
+`attachments` (`[]AttachmentRef{id, name}` — без данных: то немногое, что нужно
+решить, скачивать вложение или нет и как назвать файл; служебные вложения
+раннера, вроде `split.json`, в этом списке присутствуют наравне с
+человеческими — фильтрует их вызывающий, не трекер).
 
 `Comment`: `id`, `author`, `created`, `body`.
 
 `TaskRef` — то, чего хватает для выбора одной задачи из списка: `key`, `project`, `status`,
-`attempts`. Тянуть каждого кандидата целиком незачем.
+`attempts`, `depends_on`. Тянуть каждого кандидата целиком незачем.
 
 `TaskInput` — данные для `CreateTask`: `summary`, `description`, `description_append`
 (текст, дописываемый к `description` без прогона через разметку трекера — для текста,
