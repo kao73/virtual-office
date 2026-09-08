@@ -242,7 +242,7 @@ Corresponds to `tasks.md` §2 (2.1–2.4). Depends on Task 1 (`Project.PRBranch(
 
 `internal/pipeline/pipeline.go`'s `work` function builds the agent's `runner.Input` with `BaseBranch: "origin/" + c.project.DefaultBranch` (around line 483) — this is what appears in the agent's context as "Базовая ветка: ..." (see `internal/runner/input.go` `composeContext`, which is also what Task 5's `roles/implementer/role.md` rewrite will point implementers at).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `internal/workspace/merge_test.go` (it already has `setup(t)`, `commit(t, ...)`, `pushDefault(t, project, name, body)`, `m.Push(ws)`, `m.Repo(...)` helpers used below):
 
@@ -315,12 +315,12 @@ func TestBaseAdvancedMissingRef(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go test ./internal/workspace/... -run TestBaseAdvanced -v`
 Expected: FAIL (compile error — `m.BaseAdvanced` undefined).
 
-- [ ] **Step 3: Implement `BaseAdvanced`**
+- [x] **Step 3: Implement `BaseAdvanced`**
 
 Append to `internal/workspace/merge.go`, after `MergeCheck`:
 
@@ -346,12 +346,12 @@ func (m *Manager) BaseAdvanced(repo, branch, base string) (bool, error) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify `BaseAdvanced` passes**
+- [x] **Step 4: Run tests to verify `BaseAdvanced` passes**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go test ./internal/workspace/... -run TestBaseAdvanced -v`
 Expected: PASS, all three cases.
 
-- [ ] **Step 5: Thread `PRBranch()` into `addWorktree` (`workspace.go`)**
+- [x] **Step 5: Thread `PRBranch()` into `addWorktree` (`workspace.go`)**
 
 In `internal/workspace/workspace.go`, in `addWorktree`, change:
 
@@ -369,7 +369,7 @@ to:
 
 Do **not** touch the bare-clone init path (`git init --bare -b project.DefaultBranch`, around `workspace.go:329`) — that's the literal git default branch of a from-scratch bare clone, unrelated to task routing (per the design doc's explicit note).
 
-- [ ] **Step 6: Thread `PRBranch()` into the agent's `BaseBranch` (`pipeline.go`)**
+- [x] **Step 6: Thread `PRBranch()` into the agent's `BaseBranch` (`pipeline.go`)**
 
 In `internal/pipeline/pipeline.go`, in `work`, change:
 
@@ -393,12 +393,12 @@ to:
 	}
 ```
 
-- [ ] **Step 7: Run the full test suite for both packages**
+- [x] **Step 7: Run the full test suite for both packages**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go test ./internal/workspace/... ./internal/pipeline/... -v 2>&1 | tail -80`
 Expected: PASS. Every existing test builds `tracker.Project` with `DefaultBranch` set and no `AutoMerge`, so `PRBranch()` falls back to `DefaultBranch` and behavior is unchanged — this step is a regression check, not new coverage.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/workspace/merge.go internal/workspace/merge_test.go internal/workspace/workspace.go internal/pipeline/pipeline.go

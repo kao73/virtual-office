@@ -7,10 +7,10 @@
 
 ## 2. Workspace: `BaseAdvanced` and `PRBranch()` threading
 
-- [ ] 2.1 Add `Manager.BaseAdvanced(repo, branch, base string) (bool, error)` to `internal/workspace/merge.go` (`git merge-base --is-ancestor`)
-- [ ] 2.2 Unit tests: base already an ancestor (`false`), base has advanced (`true`), missing ref (error path, mirrors `MergeCheck`'s existing coverage)
-- [ ] 2.3 Replace `project.DefaultBranch` with `project.PRBranch()` at the task-branch fork point (`internal/workspace/workspace.go:402`)
-- [ ] 2.4 Replace `project.DefaultBranch` with `project.PRBranch()` in the agent's `BaseBranch` context (`internal/pipeline/pipeline.go:483`)
+- [x] 2.1 Add `Manager.BaseAdvanced(repo, branch, base string) (bool, error)` to `internal/workspace/merge.go` (`git merge-base --is-ancestor`)
+- [x] 2.2 Unit tests: base already an ancestor (`false`), base has advanced (`true`), missing ref (error path, mirrors `MergeCheck`'s existing coverage)
+- [x] 2.3 Replace `project.DefaultBranch` with `project.PRBranch()` at the task-branch fork point (`internal/workspace/workspace.go:402`)
+- [x] 2.4 Replace `project.DefaultBranch` with `project.PRBranch()` in the agent's `BaseBranch` context (`internal/pipeline/pipeline.go:483`)
 
 ## 3. Forge: `Merge()`
 
