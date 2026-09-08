@@ -14,9 +14,9 @@
 
 ## 3. Forge: `Merge()`
 
-- [ ] 3.1 Add `Merge(url string) error` to the `Forge` interface (`internal/forge/forge.go`), documented as reusing `ErrRefused` for the forge's own final refusal
-- [ ] 3.2 Implement `GitHub.Merge` (`internal/forge/github.go`): `PUT /repos/{owner}/{repo}/pulls/{number}/merge`, hardcoded `merge_method: "merge"`, via the existing `do()` helper
-- [ ] 3.3 Unit tests (`internal/forge/github_test.go`, fake HTTP server pattern already used for `OpenPR`/`PRState`): 200 success, 405/409 → `ErrRefused`, transport failure → plain error
+- [x] 3.1 Add `Merge(url string) error` to the `Forge` interface (`internal/forge/forge.go`), documented as reusing `ErrRefused` for the forge's own final refusal
+- [x] 3.2 Implement `GitHub.Merge` (`internal/forge/github.go`): `PUT /repos/{owner}/{repo}/pulls/{number}/merge`, hardcoded `merge_method: "merge"`, via the existing `do()` helper
+- [x] 3.3 Unit tests (`internal/forge/github_test.go`, fake HTTP server pattern already used for `OpenPR`/`PRState`): 200 success, 405/409 → `ErrRefused`, transport failure → plain error
 
 ## 4. PR pass: gate, widened staleness trigger, merge
 

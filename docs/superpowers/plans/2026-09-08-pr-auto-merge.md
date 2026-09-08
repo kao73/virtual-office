@@ -425,7 +425,7 @@ Corresponds to `tasks.md` §3 (3.1–3.3). Independent of Tasks 1–2 (can be do
 
 The only two implementers of `Forge` in the whole repo are `*GitHub` (production) and `fakeForge` (test-only, in `internal/pipeline/prpass_test.go` — updated in Task 4).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `internal/forge/forge_test.go`. Add `"fmt"` to its import block (`encoding/json`, `errors`, `net/http`, `net/http/httptest`, `strings`, `testing`) for the sub-test names below.
 
@@ -486,12 +486,12 @@ func TestGitHubMergeTransportFailure(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go test ./internal/forge/... -run TestGitHubMerge -v`
 Expected: FAIL (compile error — `g.Merge` undefined).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `internal/forge/forge.go`, update the package doc comment (it currently claims auto-merge doesn't exist and isn't planned, which is now false) and the interface:
 
@@ -557,12 +557,12 @@ func (g *GitHub) Merge(url string) error {
 
 `g.do` already classifies 4xx as `ErrRefused` and network/5xx as a plain error (lines 149–154) — reused unchanged.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go test ./internal/forge/... -v`
 Expected: PASS, including all pre-existing `TestGitHub*`/`TestParse*` tests (unaffected by this change) and `var _ Forge = (*GitHub)(nil)` continuing to compile.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/forge/forge.go internal/forge/github.go internal/forge/forge_test.go
