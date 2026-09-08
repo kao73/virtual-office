@@ -11,6 +11,18 @@ import (
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
+// ByKey индексирует список задач по ключу — сырьё для UnmetDependencies
+// ниже. Общая реализация ради того же decision #3, что у DescribeUnmet:
+// Office.projectByKey и cmd/runner/board.go/printBoard раньше держали по
+// своей копии этого же трёхстрочного цикла (pr-converge cleanup pass).
+func ByKey(refs []tracker.TaskRef) map[string]tracker.TaskRef {
+	byKey := make(map[string]tracker.TaskRef, len(refs))
+	for _, ref := range refs {
+		byKey[ref.Key] = ref
+	}
+	return byKey
+}
+
 // UnmetDependencies — зависимости ref, чей статус ещё не терминален, по
 // данным уже загруженного среза задач проекта (byKey, обычно из
 // List(project, statuses): Office.projectByKey строит его для claim(),

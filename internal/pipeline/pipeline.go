@@ -373,11 +373,7 @@ func (o *Office) projectByKey(project string) (map[string]tracker.TaskRef, error
 	if err != nil {
 		return nil, err
 	}
-	byKey := make(map[string]tracker.TaskRef, len(refs))
-	for _, ref := range refs {
-		byKey[ref.Key] = ref
-	}
-	return byKey, nil
+	return ByKey(refs), nil
 }
 
 // take берёт одного кандидата: сперва рабочую папку, потом задачу.

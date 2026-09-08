@@ -166,6 +166,17 @@ func (f *fakeJira) issue() map[string]any {
 	return map[string]any{"key": "VO-1", "fields": fields}
 }
 
+// pageSize — размер страницы поиска, который сервер применит: то, что
+// запросил клиент (lastLimit), а без этого — 50, как отдаёт настоящий
+// searchPage по умолчанию. Общая для обеих постраничных веток /search
+// (pr-converge cleanup pass, simplification finding 4).
+func (f *fakeJira) pageSize() int {
+	if f.lastLimit <= 0 {
+		return 50
+	}
+	return f.lastLimit
+}
+
 func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.hitPaths = append(f.hitPaths, r.URL.Path)
 	f.lastUser, _, _ = r.BasicAuth()
@@ -211,10 +222,7 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if f.searchNeverEnds {
 			f.searchPages++
-			size := f.lastLimit
-			if size <= 0 {
-				size = 50
-			}
+			size := f.pageSize()
 			page := make([]any, size)
 			for i := range page {
 				page[i] = fakeSearchIssue(fmt.Sprintf("VO-INF-%d-%d", f.lastStartAt, i))
@@ -227,10 +235,7 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// (см. комментарии выше по startAt/maxResults): без этого
 			// тест на пагинацию List() проходил бы и без пагинации.
 			f.searchPages++
-			size := f.lastLimit
-			if size <= 0 {
-				size = 50
-			}
+			size := f.pageSize()
 			if f.searchServerCap > 0 && f.searchServerCap < size {
 				// Свой потолок инстанса — ниже того, что просил клиент.
 				// Честно эхаем применённый размер в "maxResults": ровно
@@ -708,6 +713,31 @@ func TestSearchOmitsIssuelinksFieldWithoutConfiguredType(t *testing.T) {
 	for _, raw := range fake.lastSearchFields {
 		if s, _ := raw.(string); s == "issuelinks" {
 			t.Errorf("запрошенные поля поиска включают issuelinks без настроенного depends_on_link: %v", fake.lastSearchFields)
+		}
+	}
+}
+
+// TestFindByMarkerOmitsIssuelinksFieldEvenWhenConfigured доказывает, что
+// issuelinks просят не любой поиск с настроенным depends_on_link, а
+// только List/ListReady (searchAllProject) — их результат читает гейт
+// зависимостей. FindByMarker (как и ListExpired, CheckWorkflow — общий
+// путь через searchProject) DependsOn у своих задач никогда не смотрит,
+// так что поле было бы лишним весом каждой страницы поиска без единого
+// потребителя, даже на инстансе, где depends_on_link задан (pr-converge
+// cleanup pass, efficiency finding 2 — отдельно от Finding 5/round 3
+// Finding 3 выше, которые закрыли только случай ненастроенного
+// depends_on_link).
+func TestFindByMarkerOmitsIssuelinksFieldEvenWhenConfigured(t *testing.T) {
+	tr, fake := fixture(t) // fixture() задаёт DependsOnLink: "Depends"
+	fake.labels = []string{"split-child:VO-1:category-crud"}
+
+	if _, err := tr.FindByMarker("VO", "split-child:VO-1:category-crud"); err != nil {
+		t.Fatalf("поиск не удался: %v", err)
+	}
+
+	for _, raw := range fake.lastSearchFields {
+		if s, _ := raw.(string); s == "issuelinks" {
+			t.Errorf("FindByMarker просит issuelinks, хотя никогда не читает DependsOn: %v", fake.lastSearchFields)
 		}
 	}
 }

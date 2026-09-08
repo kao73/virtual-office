@@ -366,7 +366,7 @@ func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.Workflow
 // молча. Вместо этого спрашиваем сам проект — и только когда поиск уже упал,
 // так что в счастливом пути лишнего запроса не появляется.
 func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
-	refs, _, err := t.search(jql, 0, limit, keep)
+	refs, _, err := t.search(jql, 0, limit, false, keep)
 	if err == nil {
 		return refs, nil
 	}
@@ -428,7 +428,7 @@ func (t *Tracker) searchAllProject(project, jql string, perPage int, keep func(t
 			return nil, fmt.Errorf("поиск по проекту %s не остановился после %d задач: "+
 				"сервер не подтверждает конец списка (total/короткая страница)", project, startAt)
 		}
-		refs, page, err := t.search(jql, startAt, perPage, keep)
+		refs, page, err := t.search(jql, startAt, perPage, true, keep)
 		if err != nil {
 			return nil, t.wrapSearchErr(project, err)
 		}
@@ -956,13 +956,13 @@ type pageInfo struct {
 // разберёт остаток следующим заходом. List() же нужен полный список — см.
 // searchAllProject, которая крутит эту же search() по startAt, как comments()
 // крутит страницы переписки (fix round 1, Finding 1).
-func (t *Tracker) search(jql string, startAt, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, pageInfo, error) {
+func (t *Tracker) search(jql string, startAt, limit int, needDependsOn bool, keep func(tracker.Task) bool) ([]tracker.TaskRef, pageInfo, error) {
 	var result struct {
 		Issues     []issue `json:"issues"`
 		Total      int     `json:"total"`
 		MaxResults int     `json:"maxResults"`
 	}
-	body := map[string]any{"jql": jql, "startAt": startAt, "maxResults": limit, "fields": t.searchFields()}
+	body := map[string]any{"jql": jql, "startAt": startAt, "maxResults": limit, "fields": t.searchFields(needDependsOn)}
 	if err := t.call(http.MethodPost, "/search", body, &result); err != nil {
 		return nil, pageInfo{}, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
 	}
@@ -984,16 +984,21 @@ func (t *Tracker) search(jql string, startAt, limit int, keep func(tracker.Task)
 	return refs, pageInfo{got: len(result.Issues), total: result.Total, maxResults: result.MaxResults}, nil
 }
 
-func (t *Tracker) searchFields() []string {
+// needDependsOn — просит ли вызывающий issuelinks вовсе: только у
+// List/ListReady (через searchAllProject) кто-то читает DependsOn у
+// результата (гейт зависимостей, UnmetDependencies) — ListExpired,
+// CheckWorkflow, FindByMarker (через searchProject) его не смотрят
+// никогда. Раньше поле просилось у любого поиска, стоило только
+// настроить depends_on_link, — лишний вес каждой страницы поиска для
+// вызывающих, которым он не идёт в дело (pr-converge cleanup pass,
+// efficiency finding 2, отдельно от already-fixed round 2 Finding 5,
+// которая закрыла только случай ненастроенного depends_on_link).
+func (t *Tracker) searchFields(needDependsOn bool) []string {
 	fields := []string{
 		"summary", "description", "status", "project", "labels", "updated",
 		t.cfg.Fields.Owner, t.cfg.Fields.RunID, t.cfg.Fields.LeaseUntil, t.cfg.Fields.Attempts,
 	}
-	// Пусто, если depends_on_link не настроен: toTask всё равно выбросит
-	// issuelinks целиком (см. её доккомент) — просить их у сервера было
-	// бы лишним весом каждой страницы поиска на ровном месте (pr-converge
-	// round 2, Finding 5).
-	if t.cfg.DependsOnLink != "" {
+	if needDependsOn && t.cfg.DependsOnLink != "" {
 		fields = append(fields, "issuelinks")
 	}
 	return fields

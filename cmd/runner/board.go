@@ -54,10 +54,7 @@ func printBoard(tasks tracker.Tracker, projects, statuses []string, terminal fun
 			return err
 		}
 
-		byKey := make(map[string]tracker.TaskRef, len(refs))
-		for _, ref := range refs {
-			byKey[ref.Key] = ref
-		}
+		byKey := pipeline.ByKey(refs)
 
 		for _, ref := range refs {
 			unmet := pipeline.UnmetDependencies(ref, byKey, terminal)
