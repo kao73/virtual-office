@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// Merge — что git думает о слиянии ветки задачи с веткой по умолчанию.
+// Merge — что git думает о слиянии ветки задачи с базовой веткой.
 type Merge struct {
-	// Commits — коммитов ветки, которых нет в ветке по умолчанию. Ноль означает
-	// «сливать нечего»: ветки нет вовсе или её работа уже в основной ветке.
+	// Commits — коммитов ветки, которых нет в базовой. Ноль означает «сливать
+	// нечего»: ветки нет вовсе или её работа уже в базе.
 	Commits int
 	// Conflict — слияние конфликтует.
 	Conflict bool
@@ -41,7 +41,8 @@ func (m *Manager) MergeCheck(repo, branch, base string) (Merge, error) {
 	if exists, err := refExists(repo, "refs/remotes/origin/"+base); err != nil {
 		return Merge{}, err
 	} else if !exists {
-		return Merge{}, fmt.Errorf("в клоне нет ветки по умолчанию origin/%s: не с чем сливать", base)
+		return Merge{}, fmt.Errorf("в клоне нет базовой ветки origin/%s: не с чем сливать — "+
+			"офис её не создаёт (auto_merge.target_branch заводят руками)", base)
 	}
 
 	out, err := git(repo, "rev-list", "--count", "origin/"+base+".."+"origin/"+branch)
@@ -80,13 +81,18 @@ func (m *Manager) BaseAdvanced(repo, branch, base string) (bool, error) {
 	cmd := exec.Command("git", "-C", repo, "merge-base", "--is-ancestor",
 		"origin/"+base, "origin/"+branch)
 	cmd.Env = gitEnv()
-	switch err := cmd.Run(); {
+	// CombinedOutput, а не Run, — как у MergeCheck выше и по более веской
+	// причине: своей проверки «а есть ли такой ref» у BaseAdvanced нет, и
+	// пропавшая или переименованная база приходит прямо сюда. Без вывода git
+	// в ошибке остаётся голое `exit status 128`, по которому не видно даже,
+	// какого ref не хватило.
+	switch out, err := cmd.CombinedOutput(); {
 	case err == nil:
 		return false, nil // база уже целиком в предках ветки задачи
 	case isExitCode(err, 1):
 		return true, nil
 	default:
-		return false, fmt.Errorf("продвижение %s относительно %s не проверено: %w",
-			base, branch, err)
+		return false, fmt.Errorf("продвижение %s относительно %s не проверено: %w\n%s",
+			base, branch, err, out)
 	}
 }

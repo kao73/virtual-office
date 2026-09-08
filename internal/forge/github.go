@@ -67,7 +67,7 @@ func NewGitHub(repoURLs map[string]string) (*GitHub, error) {
 	}, nil
 }
 
-// OpenPR открывает pull request ветки задачи в ветку по умолчанию.
+// OpenPR открывает pull request ветки задачи в названную базовую ветку.
 func (g *GitHub) OpenPR(project, branch, base, title, body string) (string, error) {
 	repo, known := g.repos[project]
 	if !known {

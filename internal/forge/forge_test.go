@@ -195,7 +195,7 @@ func TestGitHubSeparatesRefusalFromFailure(t *testing.T) {
 	}
 }
 
-// Merge sливает pull request через PUT .../pulls/{number}/merge, с зашитым
+// Merge сливает pull request через PUT .../pulls/{number}/merge, с зашитым
 // merge_method: "merge" — сохраняет историю ветки задачи как есть.
 func TestGitHubMerge(t *testing.T) {
 	var gotMethod, gotPath string

@@ -518,10 +518,10 @@ type (
 
 	// machineProject — то, что правят, заводя новую машину или второй инстанс.
 	machineProject struct {
-		RepoURL      string `yaml:"repo_url"`
-		WorktreeRoot string `yaml:"worktree_root"`
-		Tracker      string `yaml:"tracker"`
-		Forge        string `yaml:"forge"`
+		RepoURL      string    `yaml:"repo_url"`
+		WorktreeRoot string    `yaml:"worktree_root"`
+		Tracker      string    `yaml:"tracker"`
+		Forge        string    `yaml:"forge"`
 		AutoMerge    AutoMerge `yaml:"auto_merge"`
 		Rules        `yaml:",inline"`
 	}

@@ -22,7 +22,7 @@ type State string
 const (
 	// Open — PR открыт: человек ещё не решил.
 	Open State = "open"
-	// Merged — PR слит: работа в ветке по умолчанию.
+	// Merged — PR слит: работа в базовой ветке.
 	Merged State = "merged"
 	// Closed — PR закрыт без слияния: работу не взяли.
 	Closed State = "closed"
@@ -42,7 +42,8 @@ var ErrRefused = errors.New("forge отказался открывать pull re
 // выясняет сам — из того же repo_url, которым пользуется раннер. Второго места
 // для этого факта нет намеренно: два места однажды разойдутся.
 type Forge interface {
-	// OpenPR открывает pull request ветки задачи в ветку по умолчанию
+	// OpenPR открывает pull request ветки задачи в базовую ветку (её называет
+	// вызывающий — project.PRBranch(), а это не всегда default_branch)
 	// и возвращает его адрес.
 	OpenPR(project, branch, base, title, body string) (string, error)
 	// PRState отвечает, что стало с pull request по его адресу.
