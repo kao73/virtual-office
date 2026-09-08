@@ -43,6 +43,42 @@ func TestParseRepo(t *testing.T) {
 	}
 }
 
+// Адрес pull request приходит офису не от forge, а из комментария тикета:
+// его могли поправить руками или он пришёл из чужого офиса. Прежде чем слить
+// такой PR, офис сверяет его репозиторий со своим repo_url — во всех трёх
+// формах адреса и с локальным путём полигона заодно.
+func TestSameRepo(t *testing.T) {
+	const pr = "https://github.com/kao73/client/pull/42"
+	same := []string{
+		"https://github.com/kao73/client.git",
+		"https://github.com/kao73/client",
+		"git@github.com:kao73/client.git",
+		"ssh://git@github.com/kao73/client.git",
+		"https://github.com/KAO73/Client.git", // GitHub к регистру не чувствителен
+		"/Users/kao/polygons/kao73/client.git",
+	}
+	for _, repoURL := range same {
+		if !SameRepo(repoURL, pr) {
+			t.Errorf("%q и %q сочтены разными репозиториями", repoURL, pr)
+		}
+	}
+
+	other := []struct{ repoURL, prURL string }{
+		{"https://github.com/kao73/client.git", "https://github.com/чужой/client/pull/42"},
+		{"https://github.com/kao73/client.git", "https://github.com/kao73/другой/pull/42"},
+		{"https://github.com/kao73/client.git", "не адрес"},
+		{"https://github.com/kao73/client.git", ""},
+		{"", pr},
+		// Хвост совпадает буквой, а не сегментом: `my-client` — не `client`.
+		{"https://github.com/kao73/my-client.git", pr},
+	}
+	for _, tc := range other {
+		if SameRepo(tc.repoURL, tc.prURL) {
+			t.Errorf("%q и %q сочтены одним репозиторием", tc.repoURL, tc.prURL)
+		}
+	}
+}
+
 func TestParsePRURL(t *testing.T) {
 	repo, number, err := parsePRURL("https://github.com/kao73/client/pull/42")
 	if err != nil {

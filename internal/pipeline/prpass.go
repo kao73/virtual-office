@@ -160,11 +160,21 @@ func (o *Office) openPR(task tracker.Task) error {
 	if err != nil {
 		return err
 	}
+	// Кто сливает — свойство проекта, а не офиса: обещать человеку его же
+	// работу там, где офис сделает её сам, значит врать в тикете (auto_merge
+	// у проекта включён явно, и человек, читающий запись, вправе знать, ждут
+	// его или нет).
+	fate := fmt.Sprintf("Сливает человек — офис за него этого не делает. "+
+		"Слияние он увидит сам и переведёт задачу в %s; закрытый без слияния PR вернётся разговором.",
+		o.Workflow.PR.Merged)
+	if project.AutoMerge.Enabled {
+		fate = fmt.Sprintf("Сливает офис сам (auto_merge), как только гейт чист: ни конфликта, "+
+			"ни продвинувшейся базы. Ждать от человека нечего — после слияния задача уйдёт в %s; "+
+			"закрытый без слияния PR вернётся разговором.", o.Workflow.PR.Merged)
+	}
 	if err := o.record(task.Key, tracker.BySystem(), tracker.Marker{
 		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPROpened, ConfigSHA: o.ConfigSHA,
-	}, fmt.Sprintf("Pull request открыт: %s\n\nСливает человек — офис за него этого не делает. "+
-		"Слияние он увидит сам и переведёт задачу в %s; закрытый без слияния PR вернётся разговором.",
-		url, o.Workflow.PR.Merged)); err != nil {
+	}, fmt.Sprintf("Pull request открыт: %s\n\n%s", url, fate)); err != nil {
 		return err
 	}
 	o.logf("%s: pull request открыт: %s", task.Key, url)
@@ -346,6 +356,18 @@ func (o *Office) attemptMerge(task tracker.Task, project tracker.Project, url st
 	impl, known := o.Forges[project.Forge]
 	if !known {
 		o.logf("%s: forge %q не собран, задача остаётся на месте", task.Key, project.Forge)
+		return nil
+	}
+	// Адрес взят из комментария тикета, а не получен от forge только что:
+	// комментарий могли поправить руками или он пришёл из чужого офиса (см.
+	// advancePR). Пока проход этим адресом только читал, находка стоила одного
+	// лишнего запроса; слияние по нему — это правка чужого репозитория правами
+	// токена офиса, и её надо не делать вовсе. Не отказ и не конфликт: счётчики
+	// тут ни при чём, задача просто остаётся на месте — как и при несобранном
+	// forge выше.
+	if !forge.SameRepo(project.RepoURL, url) {
+		o.logf("%s: адрес pull request %s называет не репозиторий проекта (%s), слияния не будет",
+			task.Key, url, project.RepoURL)
 		return nil
 	}
 	switch err := impl.Merge(url); {
@@ -564,7 +586,14 @@ func (o *Office) prBody(task tracker.Task, repo string, project tracker.Project)
 		// разметка для раннера.
 		body += "\n\n## Разбор\n\n" + strings.TrimSpace(tracker.WithoutMarker(report))
 	}
-	body += fmt.Sprintf("\n\n---\nЗадача: %s. Pull request открыт офисом; сливает человек.", task.Key)
+	// Подпись говорит правду про этот проект, а не про офис вообще: на проекте
+	// с auto_merge слить PR офис собирается сам, и звать за этим человека
+	// значит звать его зря.
+	merger := "сливает человек"
+	if project.AutoMerge.Enabled {
+		merger = "сливает офис сам, когда гейт чист (auto_merge)"
+	}
+	body += fmt.Sprintf("\n\n---\nЗадача: %s. Pull request открыт офисом; %s.", task.Key, merger)
 	return title, body, nil
 }
 

@@ -87,3 +87,48 @@ func ParseRepo(repoURL string) (Repo, error) {
 
 // String — owner/name, как репозиторий зовут люди и REST API.
 func (r Repo) String() string { return r.Owner + "/" + r.Name }
+
+// SameRepo отвечает, живёт ли pull request по адресу prURL в том же
+// репозитории, который назван в repo_url проекта.
+//
+// Спрашивают её там, где адрес PR приходит не от forge, а из комментария
+// тикета: комментарий могли поправить руками или он пришёл из чужого офиса
+// (advancePR, internal/pipeline/prpass.go). До авто-слияния такая находка
+// стоила бы одного лишнего чтения, а с ним стоит слияния в чужом репозитории
+// правами токена офиса.
+//
+// Сравнивается хвост «владелец/имя», а не адрес целиком: repo_url живёт в трёх
+// формах (https, ssh, локальный путь полигона), и буквально с https-ным адресом
+// PR не совпадает ни одна из них. Хост в сравнение поэтому не входит — у
+// локального пути его нет вовсе, — и подмену одного лишь хоста при совпавших
+// владельце и имени эта проверка не ловит: офис говорит с одним forge, и токен
+// у него один.
+func SameRepo(repoURL, prURL string) bool {
+	repo, ok := prRepo(prURL)
+	if !ok {
+		return false
+	}
+	tail := strings.ToLower(repo.String())
+	path := strings.ToLower(strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(repoURL), "/"), ".git"))
+	// Сегментом, а не буквой: иначе `my-client` сошёл бы за `client`.
+	return path == tail || strings.HasSuffix(path, "/"+tail) || strings.HasSuffix(path, ":"+tail)
+}
+
+// prRepo — владелец и имя репозитория из адреса pull request
+// (https://host/owner/name/pull/12).
+func prRepo(prURL string) (Repo, bool) {
+	parts := urlParts(prURL)
+	if len(parts) < 3 || parts[1] == "" || parts[2] == "" {
+		return Repo{}, false
+	}
+	return Repo{Owner: parts[1], Name: parts[2]}, true
+}
+
+// urlParts — сегменты адреса после схемы: host / owner / name / …
+func urlParts(rawURL string) []string {
+	rest := strings.TrimSpace(rawURL)
+	if scheme := strings.Index(rest, "://"); scheme >= 0 {
+		rest = rest[scheme+len("://"):]
+	}
+	return strings.Split(strings.Trim(rest, "/"), "/")
+}

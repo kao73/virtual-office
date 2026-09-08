@@ -1010,6 +1010,39 @@ func TestPRPassAlternatingConflictAndRefusalEscalates(t *testing.T) {
 	}
 }
 
+// Адрес pull request офис берёт из комментария тикета, а комментарий могли
+// поправить руками или он пришёл из чужого офиса (см. advancePR). До авто-
+// слияния такая находка стоила бы лишнего чтения, а с ним стоила бы слияния
+// в чужом репозитории: перед Merge проход сверяет репозиторий адреса с
+// repo_url проекта.
+func TestPRPassAutoMergeRefusesForeignRepo(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/чужой/repo/pull/1", state: forge.Open})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t) // pull request «открыт» — с адресом чужого репозитория
+	o.pass(t) // followPR: гейт чист, но слить это офис не вправе
+
+	if len(f.merged) != 0 {
+		t.Fatalf("Merge вызван по чужому адресу: %v", f.merged)
+	}
+	task := o.get(t, "OFF-1")
+	if task.Status != "Approved" || task.HumanFlag {
+		t.Errorf("статус %q, human %v — задача должна остаться на месте", task.Status, task.HumanFlag)
+	}
+	// Это не отказ forge и не конфликт: ни один счётчик тратиться не должен.
+	if tracker.HasEvent(task.Comments, tracker.EventMergeRefused) {
+		t.Error("чужой адрес записан как отказ forge — потрачен чужой счётчик")
+	}
+	if tracker.HasEvent(task.Comments, tracker.EventMergeConflict) {
+		t.Error("чужой адрес записан как конфликт")
+	}
+}
+
 // Уборка идёт от папок и трогает только свои проекты: в хозяйстве раннера
 // лежат клоны обоих полигонов.
 func TestSweepLeavesForeignProjects(t *testing.T) {

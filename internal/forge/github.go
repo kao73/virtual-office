@@ -182,11 +182,7 @@ func (g *GitHub) do(method, path string, payload []byte, into any) error {
 
 // parsePRURL разбирает адрес вида https://github.com/owner/name/pull/12.
 func parsePRURL(url string) (Repo, int, error) {
-	rest := url
-	if scheme := strings.Index(rest, "://"); scheme >= 0 {
-		rest = rest[scheme+len("://"):]
-	}
-	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	parts := urlParts(url)
 	// host / owner / name / pull / number
 	if len(parts) < 5 || parts[3] != "pull" {
 		return Repo{}, 0, fmt.Errorf("адрес pull request не разобран: %q", url)

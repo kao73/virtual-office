@@ -249,10 +249,16 @@ func repoRoot(t *testing.T) string {
 }
 
 // originRepo — «удалённый» репозиторий проекта-клиента с одним коммитом.
+//
+// Путь кончается на `kao73/client.git` не для красоты: PR-проход сверяет
+// репозиторий из адреса pull request с repo_url проекта (forge.SameRepo),
+// и адреса поддельного forge в тестах — `…/kao73/client/pull/N` — обязаны
+// называть именно этот репозиторий, иначе офис справедливо откажется
+// с ним что-либо делать.
 func originRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	bare, seed := filepath.Join(root, "origin.git"), filepath.Join(root, "seed")
+	bare, seed := filepath.Join(root, "kao73", "client.git"), filepath.Join(root, "seed")
 
 	if out, err := exec.Command("git", "init", "-q", "--bare", "-b", "master", bare).CombinedOutput(); err != nil {
 		t.Fatalf("origin не создан: %v\n%s", err, out)
