@@ -39,6 +39,34 @@
 - [x] 6.3 Add a commented `auto_merge` example next to the existing `forge` example in `docs/ONBOARDING.md`'s `projects.local.yaml` walkthrough
 - [x] 6.4 Document `event:merge-refused`, `event:merge-refusals-exhausted`, and `limits.max_merge_refusals` in `docs/contracts/tracker-protocol.md`, matching the existing `push-failed`/`push-failures-exhausted`/`max_push_failures` entries (table rows + prose) — gap surfaced during Task 4 implementation and its fix round, this file wasn't in the original Task 6 file list
 
+## Addendum: final whole-branch review + fix wave (after Task 6, before Task 7)
+
+Not a numbered task — Tasks 1-6 were code-complete, so the SDD process's final
+whole-branch review ran before Task 7 (which has no source diff). The review
+found one Critical gap the plan itself never covered: the widened conflict/
+base-advanced return (`prConflict`, deliberately applied to every project) had
+no attempt bound and no path to a human, unlike every sibling counter in this
+codebase — plus an alternation gap where `merge-refused`/`merge-conflict`
+markers could reset each other's counters and defeat `max_merge_refusals`
+forever. Fixed with a new combined `limits.max_pr_returns` counter
+(`tracker.PRReturns`, mirrors `IdleRuns`' "one counter, two event kinds"
+pattern) plus a same-shape dedicated `event:pr-returns-exhausted` marker kept
+outside the `pr-opened`/`pr-closed` routing family. Also fixed in the same
+wave: `attemptMerge` now verifies the PR URL's repo matches the project's own
+before merging (previously trusted whatever repo a ticket-comment URL named);
+several stale "офис не сливает" / "ветка по умолчанию" wording spots left over
+from Task 4's original design; one gofmt regression from Task 1; a missing
+git-stderr detail in `BaseAdvanced`'s error path; one typo.
+
+Commits: `db1b976` (the counter), `c6ae1ac` (repo check + ticket-text fixes),
+`4a5e2b4` (wording/gofmt/stderr/typo), `acf2635` (docs). Reviewed clean by a
+scoped re-review of the whole wave — see `.superpowers/sdd/2026-09-08-pr-auto-merge/progress.md`
+for full findings, verification detail, and two parked (non-blocking)
+residual observations: `followPR` reads foreign PR state before the new repo
+guard (read-only, low severity), and this change's own delta spec
+(`specs/pipeline-pr-auto-merge/spec.md`) doesn't yet mention
+`limits.max_pr_returns` — worth reconciling before archiving.
+
 ## 7. Live verification
 
 - [ ] 7.1 Live smoke run: an `auto_merge.enabled` project on a real GitHub polygon reaches `Done` with no human comment or click, mirroring the existing PR-pass live checks (`docs/notes/stage-5-live-backlog.md`)
