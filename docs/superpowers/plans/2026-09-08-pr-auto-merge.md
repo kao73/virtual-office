@@ -1135,7 +1135,7 @@ Lines 121–133 of `roles/implementer/role.md` today read:
 
 This is wrong on two counts after Tasks 2 and 4: (1) it hardcodes "ветка по умолчанию" as the merge target, but the real base is whatever `internal/runner/input.go`'s `composeContext` printed as `"- Базовая ветка: %s\n"` (from `BaseBranch`, now `"origin/" + project.PRBranch()` per Task 2) — on an auto-merge project with `target_branch` set, that's the integration branch, not the repo's real default branch; (2) it only describes the text-conflict case, but the trigger (Task 4) now also fires when the base simply advanced with no conflict at all.
 
-- [ ] **Step 1: Edit the file**
+- [x] **Step 1: Edit the file**
 
 Replace lines 121–133 with:
 
@@ -1160,12 +1160,12 @@ origin/<базовая ветка>` — она уже принесена в ре
 
 Do not rename the `## Выход` heading or anything after it — only this one subsection changes.
 
-- [ ] **Step 2: Sanity-check the file still reads coherently**
+- [x] **Step 2: Sanity-check the file still reads coherently**
 
 Run: `sed -n '100,135p' /Users/aleksejkolesnikov/IdeaProjects/virtual-office/roles/implementer/role.md`
 Confirm: the preceding "### Если прошлый прогон был усечён" section and the following "## Выход" section are untouched, and the new section flows from them.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add roles/implementer/role.md

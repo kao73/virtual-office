@@ -29,8 +29,8 @@
 
 ## 5. `roles/implementer/role.md`
 
-- [ ] 5.1 Replace the hardcoded "ветка по умолчанию" / `origin/<ветка по умолчанию>` wording in the "Если ветка не сливается" section with a reference to the base actually named in the task's context
-- [ ] 5.2 Broaden that section's trigger description to cover "база продвинулась вперёд, даже без конфликта" alongside the existing conflict case, keeping the same merge → resolve-if-needed → test → `done` procedure
+- [x] 5.1 Replace the hardcoded "ветка по умолчанию" / `origin/<ветка по умолчанию>` wording in the "Если ветка не сливается" section with a reference to the base actually named in the task's context
+- [x] 5.2 Broaden that section's trigger description to cover "база продвинулась вперёд, даже без конфликта" alongside the existing conflict case, keeping the same merge → resolve-if-needed → test → `done` procedure
 
 ## 6. Documentation
 
