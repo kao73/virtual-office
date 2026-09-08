@@ -53,11 +53,12 @@ func TestUnmetDependenciesTreatsMissingKeyAsUnresolved(t *testing.T) {
 
 // TestDescribeUnmetNamesMissingDependencyKey — DescribeUnmet обязан
 // показать ключ отсутствующей зависимости, а не только факт, что
-// что-то пропало: "неизвестная задача ()" не говорит оператору, какую
-// задачу заводить или искать (fix round 1, Finding 2).
+// что-то пропало: "неизвестная задача" не говорит оператору, какую
+// задачу заводить или искать (fix round 1, Finding 2). Пустые скобки для
+// пустого статуса не печатаются (pr-converge round 2, Finding 8).
 func TestDescribeUnmetNamesMissingDependencyKey(t *testing.T) {
 	got := DescribeUnmet([]tracker.TaskRef{{Key: "OFF-404"}})
-	want := "OFF-404 ()"
+	want := "OFF-404"
 	if got != want {
 		t.Errorf("DescribeUnmet = %q, ожидалось %q", got, want)
 	}

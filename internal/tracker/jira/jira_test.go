@@ -86,6 +86,14 @@ type fakeJira struct {
 	// страница», если сервер сам никогда не отдаёт больше своего потолка.
 	searchServerCap int
 
+	// searchNeverEnds — если задано, /search всегда отдаёт ровно
+	// lastLimit свежесгенерированных задач и врёт про total (всегда 0),
+	// независимо от startAt — так выглядит сервер, который никогда не
+	// подтверждает конец списка. Нужен для TestSearchAllProjectStopsAfterPageCap
+	// (pr-converge round 2, Finding 5): без потолка страниц searchAllProject
+	// крутил бы этот цикл вечно.
+	searchNeverEnds bool
+
 	lastUser string // учётка последнего запроса: под кем ходил трекер
 
 	// badSearch заставляет поиск падать, а knownProject — единственный проект,
@@ -199,6 +207,19 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if f.noIssues {
 			write(map[string]any{"issues": []any{}})
+			return
+		}
+		if f.searchNeverEnds {
+			f.searchPages++
+			size := f.lastLimit
+			if size <= 0 {
+				size = 50
+			}
+			page := make([]any, size)
+			for i := range page {
+				page[i] = fakeSearchIssue(fmt.Sprintf("VO-INF-%d-%d", f.lastStartAt, i))
+			}
+			write(map[string]any{"issues": page, "total": 0, "maxResults": size})
 			return
 		}
 		if f.searchIssues != nil {
@@ -451,6 +472,43 @@ func fixture(t *testing.T) (*Tracker, *fakeJira) {
 	return tr, fake
 }
 
+// fixtureWithoutDependsOnLink — тот же трекер, что и fixture(), но с
+// depends_on_link не заданным: валидная, поддерживаемая конфигурация
+// (LoadConfig не требует поля, LinkDependsOn откажет сам при вызове —
+// см. его доккомент), нужная TestGetSkipsIssuelinkWithoutConfiguredType
+// (pr-converge round 2, Finding 1).
+func fixtureWithoutDependsOnLink(t *testing.T) (*Tracker, *fakeJira) {
+	t.Helper()
+	fake := &fakeJira{
+		t: t, status: "Ready",
+		transitionsTo: []string{"In Progress", "Review", "Blocked", "Ready"},
+	}
+	server := httptest.NewServer(fake)
+	t.Cleanup(server.Close)
+	fake.baseURL = server.URL
+
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	tr, err := Open(Config{
+		BaseURL:   server.URL,
+		Auth:      Auth{Mode: "basic"},
+		Accounts:  Accounts{Default: Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}},
+		StatusMap: map[string]string{"Ready": "Ready", "InProgress": "In Progress", "Review": "Review", "Blocked": "Blocked"},
+		Fields: Fields{
+			Owner: "customfield_10001", RunID: "customfield_10002",
+			LeaseUntil: "customfield_10003", Attempts: "customfield_10004",
+		},
+		HumanFlagLabel: "office-waits-human",
+		IssueType:      "Task",
+	})
+	if err != nil {
+		t.Fatalf("трекер не открыт: %v", err)
+	}
+	tr.Now = func() time.Time { return now }
+	return tr, fake
+}
+
 func TestWhoami(t *testing.T) {
 	tr, _ := fixture(t)
 	who, err := tr.Whoami()
@@ -584,6 +642,33 @@ func TestGetSkipsIssuelinkWithMissingOutwardKey(t *testing.T) {
 	want := []string{"VO-6"}
 	if !slices.Equal(task.DependsOn, want) {
 		t.Errorf("DependsOn = %v, ожидалось %v (пустой ключ не должен попасть в список)", task.DependsOn, want)
+	}
+}
+
+// TestGetSkipsIssuelinkWithoutConfiguredType доказывает pr-converge round 2,
+// Finding 1: на инстансе без настроенного depends_on_link (валидная
+// конфигурация — LinkDependsOn откажет сам при вызове, LoadConfig поле не
+// требует) запись issuelinks без объекта "type" не должна становиться
+// зависимостью. text(typ["name"]) на нулевой мапе — пустая строка, и до
+// фикса она совпадала с пустым t.cfg.DependsOnLink, так что запись проходила
+// фильтр типа связи, а её outwardIssue.key утекал в DependsOn — зеркально
+// находке про пустой outwardIssue.key (TestGetSkipsIssuelinkWithMissingOutwardKey),
+// только дыра на соседней стороне условия.
+func TestGetSkipsIssuelinkWithoutConfiguredType(t *testing.T) {
+	tr, fake := fixtureWithoutDependsOnLink(t)
+	fake.remoteIssuelinks = []any{
+		map[string]any{
+			// нет "type" вовсе — typ станет нулевой мапой
+			"outwardIssue": map[string]any{"key": "VO-5"},
+		},
+	}
+
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	if len(task.DependsOn) != 0 {
+		t.Errorf("DependsOn = %v, ожидался пустой список (depends_on_link не настроен)", task.DependsOn)
 	}
 }
 
@@ -1179,6 +1264,29 @@ func TestListReadyPaginatesBeyondFirstPage(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Errorf("не вернулись ключи: %v", want)
+	}
+}
+
+// TestSearchAllProjectStopsAfterPageCap доказывает pr-converge round 2,
+// Finding 5 (bot rebuttal на F11): без потолка страниц searchAllProject
+// крутился бы вечно на сервере, который никогда не подтверждает конец
+// списка (total всегда 0, страница всегда полная) — в отличие от
+// comments(), эта функция теперь ходит по целому проекту (List/ListReady),
+// а не по переписке одного тикета, так что цена такого зависания выше.
+// Потолок временно снижен, чтобы тест не гонял тысячу настоящих запросов.
+func TestSearchAllProjectStopsAfterPageCap(t *testing.T) {
+	tr, fake := fixture(t)
+	orig := searchAllProjectPageCap
+	searchAllProjectPageCap = 5
+	t.Cleanup(func() { searchAllProjectPageCap = orig })
+	fake.searchNeverEnds = true
+
+	_, err := tr.List("VO", []string{"Ready"})
+	if err == nil {
+		t.Fatal("ожидалась ошибка: сервер никогда не подтверждает конец списка")
+	}
+	if fake.searchPages < 5 {
+		t.Errorf("страниц запрошено %d, ожидалось хотя бы 5 (потолок)", fake.searchPages)
 	}
 }
 

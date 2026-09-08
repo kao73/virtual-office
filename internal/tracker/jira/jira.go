@@ -387,7 +387,7 @@ func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracke
 // ответе поиска, а не тому, что мы попросили в maxResults (fix round 2,
 // Finding 8): инстанс со своим потолком страницы (например,
 // jira.search.views.default.max) может честно резать каждую страницу
-// ниже pageSize, и тогда «страница короче ЗАПРОШЕННОГО» была бы истинной
+// ниже perPage, и тогда «страница короче ЗАПРОШЕННОГО» была бы истинной
 // на каждой странице, а не только на последней — старая проверка обрывала
 // бы пагинацию после первой же страницы. total>0 и накопленный (свой,
 // а не сервером эхом возвращённый — не все инстансы обязаны его честно
@@ -395,11 +395,25 @@ func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracke
 // страницы сервер решил применить. Короткая страница остаётся резервным
 // путём для сервера, который total не прислал или прислал 0 при реальных
 // данных — но сравнивается с эффективным maxResults ответа (тем, что
-// сервер применил на самом деле), а не с pageSize, который мы запросили.
-func (t *Tracker) searchAllProject(project, jql string, pageSize int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+// сервер применил на самом деле), а не с perPage, который мы запросили.
+//
+// Потолок страниц (searchAllProjectPageCap) — не ожидаемый предел, а
+// предохранитель (pr-converge round 2, Finding 5, bot rebuttal на F11):
+// comments() тоже крутит цикл без потолка, но она ограничена перепиской
+// одного тикета, а эта функция — целым проектом. Сервер, который врёт про
+// total (шлёт 0 при непустых страницах) и честно эхает startAt, крутил бы
+// этот цикл вечно, без единой строки в лог. Явная ошибка после потолка —
+// диагностируемый отказ вместо молчаливого зависания раннера.
+var searchAllProjectPageCap = 1000
+
+func (t *Tracker) searchAllProject(project, jql string, perPage int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
 	var all []tracker.TaskRef
-	for startAt := 0; ; {
-		refs, page, err := t.search(jql, startAt, pageSize, keep)
+	for startAt, pages := 0, 0; ; pages++ {
+		if pages >= searchAllProjectPageCap {
+			return nil, fmt.Errorf("поиск по проекту %s не остановился после %d страниц: "+
+				"сервер не подтверждает конец списка (total/короткая страница)", project, pages)
+		}
+		refs, page, err := t.search(jql, startAt, perPage, keep)
 		if err != nil {
 			return nil, t.wrapSearchErr(project, err)
 		}
@@ -414,7 +428,7 @@ func (t *Tracker) searchAllProject(project, jql string, pageSize int, keep func(
 		}
 		effective := page.maxResults
 		if effective <= 0 {
-			effective = pageSize
+			effective = perPage
 		}
 		if page.got < effective {
 			return all, nil
@@ -1058,14 +1072,20 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 			})
 		}
 	}
-	if links, ok := fields["issuelinks"].([]any); ok {
+	// Пусто, если depends_on_link не настроен (валидная конфигурация —
+	// LinkDependsOn откажет сам при вызове, LoadConfig поле не требует).
+	// Без этой отсечки text(typ["name"]) на записи без "type" читается
+	// как "", что совпало бы с пустым t.cfg.DependsOnLink ниже и пропустило
+	// бы битую запись как совпадение по типу — зеркально находке про
+	// пустой outwardIssue.key (pr-converge round 2, Finding 1).
+	if links, ok := fields["issuelinks"].([]any); ok && t.cfg.DependsOnLink != "" {
 		for _, raw := range links {
 			link, ok := raw.(map[string]any)
 			if !ok {
 				continue
 			}
 			typ, _ := link["type"].(map[string]any)
-			if text(typ["name"]) != t.cfg.DependsOnLink {
+			if name := text(typ["name"]); name == "" || name != t.cfg.DependsOnLink {
 				continue
 			}
 			// outwardIssue заполнен у той стороны связи, что сама была
