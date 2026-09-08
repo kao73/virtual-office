@@ -1,9 +1,9 @@
 ## 1. Config: `auto_merge` and `PRBranch()`
 
-- [ ] 1.1 Add `AutoMerge` struct (`Enabled`, `TargetBranch`) and `Project.PRBranch()` to `internal/tracker/config.go`
-- [ ] 1.2 Wire `auto_merge` into `machineProject`, `machineKeys`, and the `LoadProjects` assembly (`Project{ ... AutoMerge: local.AutoMerge ... }`)
-- [ ] 1.3 Add validation: `auto_merge.enabled=true` with `Forge == ""` is a load error naming the project
-- [ ] 1.4 Unit tests (`internal/tracker/config_test.go`): `PRBranch()` falls back to `DefaultBranch` when `TargetBranch` is empty and wins when set; `auto_merge` without `forge` fails to load; `auto_merge` key in the office half (`projects.yaml`) is rejected the same way `forge` is today
+- [x] 1.1 Add `AutoMerge` struct (`Enabled`, `TargetBranch`) and `Project.PRBranch()` to `internal/tracker/config.go`
+- [x] 1.2 Wire `auto_merge` into `machineProject`, `machineKeys`, and the `LoadProjects` assembly (`Project{ ... AutoMerge: local.AutoMerge ... }`)
+- [x] 1.3 Add validation: `auto_merge.enabled=true` with `Forge == ""` is a load error naming the project
+- [x] 1.4 Unit tests (`internal/tracker/config_test.go`): `PRBranch()` falls back to `DefaultBranch` when `TargetBranch` is empty and wins when set; `auto_merge` without `forge` fails to load; `auto_merge` key in the office half (`projects.yaml`) is rejected the same way `forge` is today
 
 ## 2. Workspace: `BaseAdvanced` and `PRBranch()` threading
 
