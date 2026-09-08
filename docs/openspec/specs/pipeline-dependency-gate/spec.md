@@ -56,3 +56,19 @@ which task it is waiting on and that task's current status.
 - **WHEN** a listed task has an unresolved `depends_on` dependency
 - **THEN** `runner ls` shows the dependency's key and current status next to
   the task, without a separate command
+
+## Known limitations
+
+**A dependency that itself becomes a split parent unblocks its dependents
+before its real work exists.** The gate treats a dependency's terminal
+status as proof its work is complete. `closeSplitParent` moves a task to
+that terminal status the moment its own split children are created and
+linked — not when their code lands. If task `B` has `depends_on: [A]` and
+`A` is itself later split into `A1`/`A2`, `A` reaches the terminal status
+as soon as `A1`/`A2` exist, and `B` unblocks immediately even though the
+code `B` actually needs now lives in `A1`/`A2`, whose own completion `B`'s
+`depends_on` never names. Nothing today forbids splitting a task that
+something else already depends on (pr-converge round 2, Finding 2). Until
+`completeSplit` is taught to carry a dependent's `depends_on` forward to
+the new children, avoid splitting a task that another task's `depends_on`
+already names — see the analyst-facing criterion in `roles/analyst/role.md`.
