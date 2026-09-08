@@ -3,6 +3,7 @@ package forge
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -155,5 +156,60 @@ func TestGitHubSeparatesRefusalFromFailure(t *testing.T) {
 	// ждать, что он появится, нечего.
 	if _, err := refusing.OpenPR("OFF", "agent/OFF-1", "master", "з", "т"); !errors.Is(err, ErrRefused) {
 		t.Errorf("неизвестный проект не распознан как отказ: %v", err)
+	}
+}
+
+// Merge sливает pull request через PUT .../pulls/{number}/merge, с зашитым
+// merge_method: "merge" — сохраняет историю ветки задачи как есть.
+func TestGitHubMerge(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotPayload map[string]string
+	g := github(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotPayload)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"merged":true}`))
+	})
+
+	if err := g.Merge("https://github.com/kao73/expense-tracker/pull/3"); err != nil {
+		t.Fatalf("слияние не выполнено: %v", err)
+	}
+	if gotMethod != http.MethodPut || gotPath != "/repos/kao73/expense-tracker/pulls/3/merge" {
+		t.Errorf("запрос ушёл не туда: %s %s", gotMethod, gotPath)
+	}
+	if gotPayload["merge_method"] != "merge" {
+		t.Errorf("merge_method = %q, ожидалось merge", gotPayload["merge_method"])
+	}
+}
+
+// 405/409 — GitHub отказывается сливать (не мержится, не прошли required
+// checks и т.п.): это окончательный ответ, а не сбой связи.
+func TestGitHubMergeRefusal(t *testing.T) {
+	for _, code := range []int{http.StatusMethodNotAllowed, http.StatusConflict} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			g := github(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(code)
+				_, _ = w.Write([]byte(`{"message":"отказ"}`))
+			})
+			err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+			if !errors.Is(err, ErrRefused) {
+				t.Errorf("код %d не распознан как отказ: %v", code, err)
+			}
+		})
+	}
+}
+
+// Сбой связи/5xx — задачу за него двигать нельзя, следующий проход
+// попробует снова.
+func TestGitHubMergeTransportFailure(t *testing.T) {
+	g := github(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	})
+	err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+	if err == nil {
+		t.Fatal("сбой сервера прошёл незамеченным")
+	}
+	if errors.Is(err, ErrRefused) {
+		t.Errorf("сбой связи принят за отказ: %v", err)
 	}
 }

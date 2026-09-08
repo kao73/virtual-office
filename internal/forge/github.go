@@ -26,6 +26,11 @@ const TokenEnv = "GITHUB_TOKEN"
 // тесты подставляют свой сервер, а GitHub Enterprise живёт по другому адресу.
 const API = "https://api.github.com"
 
+// mergeMethod — merge commit, не squash и не rebase: сохраняет всю историю
+// ветки задачи как есть, ничего не сжимает. Не вынесено в конфиг — YAGNI,
+// пока не спросили.
+const mergeMethod = "merge"
+
 // GitHub — pull request через REST API v3.
 type GitHub struct {
 	api    string
@@ -114,6 +119,20 @@ func (g *GitHub) PRState(url string) (State, error) {
 	default:
 		return Closed, nil
 	}
+}
+
+// Merge сливает pull request.
+func (g *GitHub) Merge(url string) error {
+	repo, number, err := parsePRURL(url)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]string{"merge_method": mergeMethod})
+	if err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/repos/%s/pulls/%d/merge", repo, number)
+	return g.do(http.MethodPut, path, payload, nil)
 }
 
 // do выполняет запрос и разбирает ответ.
