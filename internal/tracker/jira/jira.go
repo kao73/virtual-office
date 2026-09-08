@@ -984,15 +984,16 @@ func (t *Tracker) search(jql string, startAt, limit int, needDependsOn bool, kee
 	return refs, pageInfo{got: len(result.Issues), total: result.Total, maxResults: result.MaxResults}, nil
 }
 
-// needDependsOn — просит ли вызывающий issuelinks вовсе: только у
-// List/ListReady (через searchAllProject) кто-то читает DependsOn у
-// результата (гейт зависимостей, UnmetDependencies) — ListExpired,
-// CheckWorkflow, FindByMarker (через searchProject) его не смотрят
-// никогда. Раньше поле просилось у любого поиска, стоило только
-// настроить depends_on_link, — лишний вес каждой страницы поиска для
-// вызывающих, которым он не идёт в дело (pr-converge cleanup pass,
-// efficiency finding 2, отдельно от already-fixed round 2 Finding 5,
-// которая закрыла только случай ненастроенного depends_on_link).
+// searchFields — какие поля просить у /search. needDependsOn — просит ли
+// вызывающий issuelinks вовсе: только у List/ListReady (через
+// searchAllProject) кто-то читает DependsOn у результата (гейт
+// зависимостей, UnmetDependencies) — ListExpired, CheckWorkflow,
+// FindByMarker (через searchProject) его не смотрят никогда. Раньше поле
+// просилось у любого поиска, стоило только настроить depends_on_link, —
+// лишний вес каждой страницы поиска для вызывающих, которым он не идёт в
+// дело (pr-converge cleanup pass, efficiency finding 2, отдельно от
+// already-fixed round 2 Finding 5, которая закрыла только случай
+// ненастроенного depends_on_link).
 func (t *Tracker) searchFields(needDependsOn bool) []string {
 	fields := []string{
 		"summary", "description", "status", "project", "labels", "updated",
