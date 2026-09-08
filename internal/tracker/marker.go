@@ -93,6 +93,10 @@ const (
 	// Это работа, а не провал: попытка не тратится. В семейство состояния
 	// не входит — открытый PR конфликт не закрывает.
 	EventMergeConflict = "merge-conflict"
+	// EventMergeRefused — forge отказал в слиянии pull request'а при
+	// локально чистом состоянии (auto_merge.enabled). Это не работа
+	// implementer'а — локально мержить нечего.
+	EventMergeRefused = "merge-refused"
 
 	// EventSplitCreated — CompleteSplits досоздал и связал всех детей
 	// подтверждённого split-предложения, родитель закрыт.
@@ -263,6 +267,14 @@ func LeaseExpiries(comments []Comment, role string) int {
 // бы наказывать агента за сломанный remote и звать человека не с тем разговором.
 func PushFailures(comments []Comment, role string) int {
 	return eventStreak(comments, role, EventPushFailed)
+}
+
+// MergeRefusals — сколько раз подряд forge отказывал в мерже при локально
+// чистом состоянии. Считается тем же правилом, что PushFailures/LeaseExpiries:
+// это беда стороннего сервиса (или его правила, о котором офис не знает),
+// а не провал агента.
+func MergeRefusals(comments []Comment, role string) int {
+	return eventStreak(comments, role, EventMergeRefused)
 }
 
 // IdleRuns — сколько прогонов роли подряд не дошли до результата.

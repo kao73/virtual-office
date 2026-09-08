@@ -28,9 +28,11 @@ type fakeForge struct {
 	state    forge.State // что ответить про открытый PR
 	openErr  error
 	stateErr error
+	mergeErr error // что вернёт Merge; nil — успех
 
 	opened []openedPR
 	asked  []string
+	merged []string // адреса, по которым звали Merge
 }
 
 type openedPR struct {
@@ -48,6 +50,11 @@ func (f *fakeForge) OpenPR(project, branch, base, title, body string) (string, e
 func (f *fakeForge) PRState(url string) (forge.State, error) {
 	f.asked = append(f.asked, url)
 	return f.state, f.stateErr
+}
+
+func (f *fakeForge) Merge(url string) error {
+	f.merged = append(f.merged, url)
+	return f.mergeErr
 }
 
 // withForge подключает офису поддельный forge и объявляет его проекту.
@@ -733,6 +740,113 @@ func TestPRPassRefusalAsksHuman(t *testing.T) {
 	task := o.get(t, "OFF-1")
 	if task.Status != "Blocked" || !task.HumanFlag {
 		t.Errorf("статус %q, ожидание человека %v — ожидался разговор с человеком", task.Status, task.HumanFlag)
+	}
+}
+
+// auto_merge.enabled: гейт чист → офис сам мержит и уводит задачу в Done,
+// без единого касания человека.
+func TestPRPassAutoMergeMergesCleanGate(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/20", state: forge.Open})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t) // pull request открыт
+	o.pass(t) // followPR видит чистый гейт и мержит сам
+
+	if len(f.merged) != 1 {
+		t.Fatalf("Merge вызван %d раз, ожидался один", len(f.merged))
+	}
+	task := o.get(t, "OFF-1")
+	if task.Status != "Done" {
+		t.Fatalf("статус %q, ожидался Done", task.Status)
+	}
+	if task.HumanFlag {
+		t.Error("auto-merge зовёт человека")
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventMerged) {
+		t.Error("в переписке нет записи о слиянии")
+	}
+}
+
+// auto_merge выключен — сегодняшнее поведение не сломано: на чистом гейте
+// задача остаётся на месте, Merge не вызывается.
+func TestPRPassHumanMergeUnaffectedByGate(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/21", state: forge.Open})
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t)
+	o.pass(t)
+
+	if len(f.merged) != 0 {
+		t.Errorf("Merge вызван без auto_merge: %v", f.merged)
+	}
+	if task := o.get(t, "OFF-1"); task.Status != "Approved" {
+		t.Errorf("статус %q, ожидался Approved", task.Status)
+	}
+}
+
+// База продвинулась вперёд без единого текстового конфликта — тот же возврат
+// к разработчику, что и при конфликте, и на human-merge проекте тоже:
+// расширенный триггер действует везде, не только на auto-merge.
+func TestPRPassAdvancedBaseTriggersReturnWithoutConflict(t *testing.T) {
+	o := newOffice(t)
+	o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/22", state: forge.Open})
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	o.pass(t) // pull request открыт
+
+	// Правка в базе, которая НЕ пересекается с рабочим деревом ветки задачи —
+	// без единого маркера конфликта.
+	pushDefault(t, o.origin, "отдельный-файл.txt", "новое в базе\n")
+
+	o.pass(t)
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Ready" {
+		t.Fatalf("статус %q, ожидался Ready", task.Status)
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventMergeConflict) {
+		t.Error("расширенный триггер не сработал")
+	}
+	if body := lastComment(t, task).Body; !strings.Contains(body, "продвинулась вперёд") {
+		t.Errorf("текст не назвал причину — продвижение базы, а не конфликт:\n%s", body)
+	}
+}
+
+// Отказ forge при локально чистом состоянии — не работа implementer'а:
+// счётчик копится по маркерам, эскалация — по достижении предела
+// (max_merge_refusals: 3 в workflow.yaml).
+func TestPRPassMergeRefusalEscalatesAtLimit(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/23", state: forge.Open, mergeErr: forge.ErrRefused})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	o.pass(t) // pull request открыт
+
+	o.pass(t) // отказ 1
+	if task := o.get(t, "OFF-1"); task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после первого отказа: статус %q, human %v — рано звать человека", task.Status, task.HumanFlag)
+	}
+	o.pass(t) // отказ 2
+	if task := o.get(t, "OFF-1"); task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после второго отказа: статус %q, human %v — предел ещё не достигнут", task.Status, task.HumanFlag)
+	}
+	o.pass(t) // отказ 3 — предел
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("после третьего отказа: статус %q, human %v — ожидалась эскалация", task.Status, task.HumanFlag)
+	}
+	if len(f.merged) != 3 {
+		t.Errorf("Merge вызван %d раз, ожидалось три", len(f.merged))
 	}
 }
 

@@ -75,6 +75,7 @@ limits:
   max_lease_expiries: 3
   max_push_failures: 3
   max_idle_runs: 3
+  max_merge_refusals: 3
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -113,6 +114,7 @@ limits:
   max_lease_expiries: 3
   max_push_failures: 3
   max_idle_runs: 3
+  max_merge_refusals: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -391,6 +393,11 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			want: "max_idle_runs",
 		},
 		{
+			name: "предел отказов мержа не задан",
+			yaml: strings.Replace(validWorkflow, "max_merge_refusals: 3", "max_merge_refusals: 0", 1),
+			want: "max_merge_refusals",
+		},
+		{
 			name: "статусы не заданы",
 			yaml: strings.Replace(validWorkflow, "statuses: [Ready, InProgress, Review, Blocked, Done]", "statuses: []", 1),
 			want: "statuses",
@@ -588,6 +595,7 @@ limits:
   max_lease_expiries: 3
   max_push_failures: 3
   max_idle_runs: 3
+  max_merge_refusals: 3
   lease_margin_sec: 300
 human_reply:
   fallback: Ready

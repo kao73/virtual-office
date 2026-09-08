@@ -181,8 +181,13 @@ type Limits struct {
 	// прежде чем задачу отдадут человеку. Считает записи двух видов одним
 	// счётчиком: «не начинал» и «не успел». Общий он потому, что следствие
 	// у них одно, а два раздельных счётчика чередование обошло бы.
-	MaxIdleRuns    int `yaml:"max_idle_runs"`
-	LeaseMarginSec int `yaml:"lease_margin_sec"`
+	MaxIdleRuns int `yaml:"max_idle_runs"`
+	// MaxMergeRefusals — сколько раз подряд forge может отказать в мерже
+	// при локально чистом состоянии (auto_merge.enabled), прежде чем задачу
+	// отдадут человеку. Отдельный предел по той же причине, что у push
+	// failures: это не работа implementer'а — локально мержить нечего.
+	MaxMergeRefusals int `yaml:"max_merge_refusals"`
+	LeaseMarginSec   int `yaml:"lease_margin_sec"`
 }
 
 // HumanReplyRule — что делает раннер, увидев ответ человека на заблокированную задачу.
@@ -362,6 +367,9 @@ func (w Workflow) validate() error {
 	}
 	if w.Limits.MaxIdleRuns <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_idle_runs=%d: ожидается положительное число", w.Limits.MaxIdleRuns))
+	}
+	if w.Limits.MaxMergeRefusals <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_merge_refusals=%d: ожидается положительное число", w.Limits.MaxMergeRefusals))
 	}
 	if w.Limits.LeaseMarginSec < 0 {
 		errs = append(errs, fmt.Errorf("limits.lease_margin_sec=%d: ожидается неотрицательное число", w.Limits.LeaseMarginSec))
