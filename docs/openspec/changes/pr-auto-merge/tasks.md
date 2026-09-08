@@ -69,6 +69,6 @@ guard (read-only, low severity), and this change's own delta spec
 
 ## 7. Live verification
 
-- [ ] 7.1 Live smoke run: an `auto_merge.enabled` project on a real GitHub polygon reaches `Done` with no human comment or click, mirroring the existing PR-pass live checks (`docs/notes/stage-5-live-backlog.md`)
-- [ ] 7.2 Live smoke run: a task with an artificially advanced (non-conflicting) base exercises the widened `BaseAdvanced` trigger end-to-end, not just in the unit test
-- [ ] 7.3 `go build ./... && go vet ./... && go test ./...` clean
+- [x] 7.1 Live smoke run: an `auto_merge.enabled` project on a real GitHub polygon reaches `Done` with no human comment or click, mirroring the existing PR-pass live checks (`docs/notes/stage-5-live-backlog.md`) — `EXP-9` on `kao73/expense-tracker`, PR #17, merged by `event:merged`/`admin` (office account), `human_flag` never set
+- [x] 7.2 Live smoke run: a task with an artificially advanced (non-conflicting) base exercises the widened `BaseAdvanced` trigger end-to-end, not just in the unit test — `EXP-10`, PR #18: `event:merge-conflict` fired with the "база продвинулась вперёд… конфликта нет" wording, task returned to `Ready`, implementer's next run correctly merged the base and continued, office merged on the following clean-gate tick
+- [x] 7.3 `go build ./... && go vet ./... && go test ./...` clean — re-run after the live checks, still clean

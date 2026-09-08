@@ -1309,7 +1309,9 @@ Corresponds to `tasks.md` §7 (7.1–7.3). Depends on Tasks 1–4 being merged a
 
 **Files:** None modified by this task itself, beyond whatever config the live run needs on the runner machine (`${OFFICE_HOME}/projects.local.yaml`, machine-local, not in this repo).
 
-- [ ] **Step 1: Smoke-test auto-merge end to end (`tasks.md` 7.1)**
+- [x] **Step 1: Smoke-test auto-merge end to end (`tasks.md` 7.1)**
+
+**Result (2026-09-09):** ran on `EXP` (`kao73/expense-tracker`) with `office-integration` created from `main` and `auto_merge.enabled: true`/`target_branch: office-integration` set in `~/.office/projects.local.yaml`. Ticket `EXP-9` through `analyst → implementer → reviewer` → PR pass opened PR #17 with `baseRefName: office-integration` (confirmed via `gh pr view`), task branch `agent/EXP-9` confirmed forked from `office-integration` (`git merge-base --is-ancestor` true). Next tick: `EXP-9: pull request слит, задача уходит в Done` — GitHub confirms `state: MERGED`. Ticket comment history shows `event:merged` recorded by `admin` (the office account, role `office`), and the Jira human-flag custom field stayed `null` throughout — no human comment or click at any point.
 
 On a real GitHub-backed polygon project (e.g. the `EXP` project used in prior stage-5 live runs), in that machine's `${OFFICE_HOME}/projects.local.yaml`, set:
 
@@ -1330,14 +1332,18 @@ Run one task through the full pipeline (`analyst → implementer → reviewer �
 - once `Approved`, the PR pass opens a PR targeting `office-integration`;
 - on the next tick, the office calls `Merge()` and the task reaches `Done` **without any human comment or click** — check the tracker comment history for `event:merged` written by the `office` account, and confirm no `human_flag` was ever set on this task.
 
-- [ ] **Step 2: Smoke-test the widened `BaseAdvanced` trigger live (`tasks.md` 7.2)**
+- [x] **Step 2: Smoke-test the widened `BaseAdvanced` trigger live (`tasks.md` 7.2)**
+
+**Result (2026-09-09):** ticket `EXP-10` run through to an open PR (#18, base `office-integration`). Before the next tick, pushed an independent, non-conflicting commit directly to `office-integration` (editing `release-notes.md`, untouched by the task branch). Next tick: `EXP-10: продвижение базы, задача возвращается в Ready` — ticket comment records `event:merge-conflict` with the advanced-base wording ("База office-integration продвинулась вперёд… конфликта нет, но контекст мог устареть"), not the text-conflict wording. The SAME tick's implementer run (task already back in its queue) correctly used the updated `role.md` procedure: merged `origin/office-integration` into `agent/EXP-10` (commit `c7e3a08f`) with no confusion, reported `done`. Reviewer re-approved on the next tick, and the following PR-pass tick merged PR #18 cleanly (`baseRefName: office-integration`, `state: MERGED`) — confirming the office correctly retries the merge once the gate clears again.
 
 With a second task on the same (or a similar) live project: after its PR is open (`Approved`), push a commit directly to the target branch (`office-integration` or the project's default branch, matching whichever this task's project targets) that does **not** textually conflict with the task's branch — e.g. edit an unrelated file. Run the PR pass again and confirm:
 - the task returns to the implementer's queue (`Ready`) even though there is no git merge conflict;
 - the tracker comment names the reason as the base having advanced, not a text conflict (the `mergeRefused`/`prConflict` wording from Task 4, Step 5);
 - the implementer's next run sees the updated "Базовая ветка" context (Task 5's role.md wording) and completes the merge-and-continue procedure without confusion.
 
-- [ ] **Step 3: Final full regression (`tasks.md` 7.3)**
+- [x] **Step 3: Final full regression (`tasks.md` 7.3)**
+
+**Result:** `go build ./... && go vet ./... && go test ./...` clean after both live checks above, same HEAD.
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go build ./... && go vet ./... && go test ./...`
 Expected: clean. This is the same command as Task 4 Step 7, run once more after all documentation and role.md changes have landed, as the final gate before considering the change done.
