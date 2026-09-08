@@ -41,8 +41,13 @@ const apiPath = "/rest/api/2"
 // нужны все: страницы крутятся до конца переписки.
 const pageSize = 100
 
-// searchPage — сколько задач просить у поиска. Из кандидатов берут первого
-// годного, поэтому предел один на все очереди.
+// searchPage — сколько задач просить у поиска за одну страницу. Для
+// ListExpired/CheckWorkflow/FindByMarker (через searchProject) это
+// по-прежнему потолок: из кандидатов берут первого годного, весь список не
+// нужен. Для List()/ListReady (через searchAllProject, pr-converge round 1,
+// Finding 7) это только размер страницы — пагинация по startAt проходит
+// сколько угодно таких страниц, пока сервер не отдаст остаток короче этого
+// числа или не подтвердит через total, что список исчерпан.
 const searchPage = 50
 
 // Config — подключение и раскладка полей. Живёт в ${OFFICE_HOME}/tracker.yaml.
@@ -259,11 +264,22 @@ func (t *Tracker) Whoami() (string, error) {
 //
 // JQL отбирает грубо, а решает раннер: сервер сравнивает время своими часами,
 // и полагаться на совпадение с нашими нельзя.
+//
+// Полный список, не первая страница (pr-converge round 1, Finding 7): до
+// гейта зависимостей пропуск кандидата в claim() всегда был временным
+// (аренда истечёт, попытки исчерпаны — уйдёт к человеку), и с одной
+// страницей ничего не терялось — reap разберёт остаток следующим заходом.
+// Заблокированный зависимостью кандидат так не уходит никуда и держит
+// место на странице сколько угодно долго: при searchPage и более
+// кандидатах в Ready, где заблокированные оказались в начале списка,
+// свободные соседи за первой страницей были бы не видны claim() вовсе —
+// тот же класс бага, что чинили для List() (fix round 1, Finding 1), у
+// другого вызывающего.
 func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 	jql := fmt.Sprintf(`project = %q AND status = %q AND (%s IS EMPTY OR %s <= now()) ORDER BY priority DESC, created ASC`,
 		project, t.jiraStatus(status), t.jqlField(t.cfg.Fields.LeaseUntil), t.jqlField(t.cfg.Fields.LeaseUntil))
 
-	return t.searchProject(project, jql, searchPage, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
+	return t.searchAllProject(project, jql, searchPage, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
 }
 
 // List — задачи проекта в названных статусах, как есть.
@@ -282,7 +298,13 @@ func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, er
 	jql := fmt.Sprintf(`project = %q AND status IN (%s) ORDER BY created ASC`,
 		project, strings.Join(names, ", "))
 
-	return t.searchProject(project, jql, searchPage, func(tracker.Task) bool { return true })
+	// Гейт зависимостей строит ground truth именно отсюда
+	// (Office.projectByKey), и дети сплита, будучи самыми новыми при
+	// сортировке ORDER BY created ASC, обязаны попасть в список наравне со
+	// старыми задачами (fix round 1, Finding 1) — полный список, как и у
+	// ListReady (см. её доккомент, pr-converge round 1, Finding 7), не
+	// первая страница.
+	return t.searchAllProject(project, jql, searchPage, func(tracker.Task) bool { return true })
 }
 
 // ListExpired — задачи с истёкшей арендой: сырьё для reaper.
@@ -329,6 +351,11 @@ func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.Workflow
 }
 
 // searchProject — поиск по проекту, отличающий незнакомый проект от прочих бед.
+// Одна страница: годится там, где решение принимает первый подходящий
+// кандидат, а не весь список (ListExpired, CheckWorkflow, FindByMarker) —
+// см. доккомент search(). ListReady здесь больше нет (pr-converge round 1,
+// Finding 7) — её пропуск кандидата теперь может быть вечным, см. её
+// доккомент и searchAllProject ниже.
 //
 // JQL по несуществующему проекту JIRA отвергает четырёхсоткой, и без разбора
 // такой отказ роняет весь цикл: раннер обходит проекты по порядку и на первом же
@@ -339,14 +366,98 @@ func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.Workflow
 // молча. Вместо этого спрашиваем сам проект — и только когда поиск уже упал,
 // так что в счастливом пути лишнего запроса не появляется.
 func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
-	refs, err := t.search(jql, limit, keep)
+	refs, _, err := t.search(jql, 0, limit, false, keep)
 	if err == nil {
 		return refs, nil
 	}
-	if known, checkErr := t.projectExists(project); checkErr == nil && !known {
-		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	return nil, t.wrapSearchErr(project, err)
+}
+
+// searchAllProject — тот же поиск, но без потолка в searchPage: цикл по
+// startAt, как в comments() для переписки. Нужен вызывающим, которым важен
+// весь список, а не первый подходящий кандидат: List() (fix round 1,
+// Finding 1) — на нём строится ground truth гейта зависимостей
+// (Office.projectByKey → UnmetDependencies), и неполный список делает
+// настоящую зависимость неотличимой от удалённой задачи; ListReady
+// (pr-converge round 1, Finding 7) — по той же причине с другой стороны:
+// гейт впервые сделал пропуск кандидата потенциально вечным, и неполная
+// страница молча прятала бы свободных кандидатов за первой.
+//
+// Останов цикла отдаёт предпочтение total, который JIRA присылает в самом
+// ответе поиска, а не тому, что мы попросили в maxResults (fix round 2,
+// Finding 8): инстанс со своим потолком страницы (например,
+// jira.search.views.default.max) может честно резать каждую страницу
+// ниже perPage, и тогда «страница короче ЗАПРОШЕННОГО» была бы истинной
+// на каждой странице, а не только на последней — старая проверка обрывала
+// бы пагинацию после первой же страницы. total>0 и накопленный (свой,
+// а не сервером эхом возвращённый — не все инстансы обязаны его честно
+// эхать) startAt дают точный останов независимо от того, какой размер
+// страницы сервер решил применить. Короткая страница остаётся резервным
+// путём для сервера, который total не прислал или прислал 0 при реальных
+// данных — но сравнивается с эффективным maxResults ответа (тем, что
+// сервер применил на самом деле), а не с perPage, который мы запросили.
+//
+// Потолок накопленных задач (searchAllProjectTaskCap) — не ожидаемый
+// предел, а предохранитель (pr-converge round 1, Finding 5, bot rebuttal
+// на F11): comments() тоже крутит цикл без потолка, но она ограничена
+// перепиской одного тикета, а эта функция — целым проектом. Сервер,
+// который врёт про total (шлёт 0 при непустых страницах) и честно эхает
+// startAt, крутил бы этот цикл вечно, без единой строки в лог. Явная
+// ошибка после потолка — диагностируемый отказ вместо молчаливого
+// зависания раннера.
+//
+// Мерян в накопленных задачах (startAt), не в страницах (pr-converge
+// round 3, Finding 2): счётчик страниц с фиксированным числом означал бы
+// разный настоящий запас в зависимости от того, какой размер страницы
+// решил применить сервер — на инстансе со своим потолком поиска
+// (jira.search.views.default.max, см. выше) страница короче perPage, и
+// тот же счётчик страниц накапливает меньше задач до срабатывания.
+// startAt растёт на server-reported page.got каждую итерацию независимо
+// от того, кто решил размер страницы, так что запас в задачах не плавает.
+//
+// 10000 задач, не 1000 страниц (pr-converge round 2, Finding 2 + round 3,
+// Finding 2): «столько не бывает» в одном статусе проекта — и по числу
+// тикетов, и по времени до отказа при любом размере страницы, который
+// сервер решит применить.
+var searchAllProjectTaskCap = 10000
+
+func (t *Tracker) searchAllProject(project, jql string, perPage int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+	var all []tracker.TaskRef
+	for startAt := 0; ; {
+		if startAt >= searchAllProjectTaskCap {
+			return nil, fmt.Errorf("поиск по проекту %s не остановился после %d задач: "+
+				"сервер не подтверждает конец списка (total/короткая страница)", project, startAt)
+		}
+		refs, page, err := t.search(jql, startAt, perPage, true, keep)
+		if err != nil {
+			return nil, t.wrapSearchErr(project, err)
+		}
+		all = append(all, refs...)
+		startAt += page.got
+
+		if page.got == 0 {
+			return all, nil
+		}
+		if page.total > 0 && startAt >= page.total {
+			return all, nil
+		}
+		effective := page.maxResults
+		if effective <= 0 {
+			effective = perPage
+		}
+		if page.got < effective {
+			return all, nil
+		}
 	}
-	return nil, err
+}
+
+// wrapSearchErr — общая для searchProject/searchAllProject развязка
+// «незнакомый проект» от прочих бед поиска (см. доккомент searchProject).
+func (t *Tracker) wrapSearchErr(project string, err error) error {
+	if known, checkErr := t.projectExists(project); checkErr == nil && !known {
+		return fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	}
+	return err
 }
 
 // projectExists спрашивает у сервера, знает ли он такой проект.
@@ -723,8 +834,9 @@ func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
 // dependsOnKey — исходящая (outward) сторона запроса, key — входящая
 // (inward): эмпирически проверено на живом JIRA Server 8.13
 // (2026-09-06, throwaway-тикеты на полигоне, тип Blocks для независимой
-// сверки, отчёт — docs/notes/analyst-task-splitting.md, «Живой прогон,
-// нашедший разворот direction») — сервер описывает связь через ТУ сторону,
+// сверки, отчёт — docs/notes/analyst-task-splitting.md, «2026-09-06:
+// поправка — направление depends_on в JIRA было развёрнуто») — сервер
+// описывает связь через ТУ сторону,
 // которая передана как inwardIssue, используя outward-текст типа, а не
 // наоборот. Иными словами: результат POST {outwardIssue: O, inwardIssue: I}
 // читается как «I <outward-текст> O», не «O <outward-текст> I». Прежняя
@@ -819,19 +931,40 @@ func (t *Tracker) transitions(key string) ([]transitionOption, error) {
 	return options, nil
 }
 
-// search выполняет JQL и отбирает то, что прошло проверку раннера.
+// pageInfo — то, что ответ JIRA на /search сообщает о самой странице,
+// помимо задач: got — сколько задач сервер прислал (до фильтра keep),
+// total — сколько всего задач подходит под JQL, maxResults — фактический
+// размер страницы, который сервер применил (может быть меньше limit,
+// который мы запросили, если у инстанса свой потолок, например
+// jira.search.views.default.max). searchAllProject использует все три,
+// чтобы не спутать «сервер срезал страницу своим потолком» с «это была
+// последняя страница» (fix round 2, Finding 8).
+type pageInfo struct {
+	got        int
+	total      int
+	maxResults int
+}
+
+// search выполняет JQL на одной странице (startAt/limit) и отбирает то, что
+// прошло проверку раннера. Возвращает вдобавок pageInfo — так searchAllProject
+// узнаёт, была страница полной или последней, не полагаясь на keep, который
+// у List() всегда true, а у ListReady/ListExpired может срезать часть страницы.
 //
-// Страница одна, и это предел на будущее, а не насовсем. ListReady от него не
-// страдает: из кандидатов берут первого годного, а не весь список. Reap разберёт
-// остаток следующим заходом. Когда очередь одного статуса перестанет влезать
-// в пятьдесят, страницы крутятся по startAt — как в comments.
-func (t *Tracker) search(jql string, limit int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+// Единственная страница по умолчанию — предел для ListReady/ListExpired/
+// CheckWorkflow/FindByMarker, вызывающих через searchProject, и он им не
+// вредит: из кандидатов берут первого годного, а не весь список, а reap
+// разберёт остаток следующим заходом. List() же нужен полный список — см.
+// searchAllProject, которая крутит эту же search() по startAt, как comments()
+// крутит страницы переписки (fix round 1, Finding 1).
+func (t *Tracker) search(jql string, startAt, limit int, needDependsOn bool, keep func(tracker.Task) bool) ([]tracker.TaskRef, pageInfo, error) {
 	var result struct {
-		Issues []issue `json:"issues"`
+		Issues     []issue `json:"issues"`
+		Total      int     `json:"total"`
+		MaxResults int     `json:"maxResults"`
 	}
-	body := map[string]any{"jql": jql, "maxResults": limit, "fields": t.searchFields()}
+	body := map[string]any{"jql": jql, "startAt": startAt, "maxResults": limit, "fields": t.searchFields(needDependsOn)}
 	if err := t.call(http.MethodPost, "/search", body, &result); err != nil {
-		return nil, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
+		return nil, pageInfo{}, fmt.Errorf("поиск задач не удался (%s): %w", jql, err)
 	}
 
 	var refs []tracker.TaskRef
@@ -848,14 +981,28 @@ func (t *Tracker) search(jql string, limit int, keep func(tracker.Task) bool) ([
 		}
 		refs = append(refs, ref)
 	}
-	return refs, nil
+	return refs, pageInfo{got: len(result.Issues), total: result.Total, maxResults: result.MaxResults}, nil
 }
 
-func (t *Tracker) searchFields() []string {
-	return []string{
+// searchFields — какие поля просить у /search. needDependsOn — просит ли
+// вызывающий issuelinks вовсе: только у List/ListReady (через
+// searchAllProject) кто-то читает DependsOn у результата (гейт
+// зависимостей, UnmetDependencies) — ListExpired, CheckWorkflow,
+// FindByMarker (через searchProject) его не смотрят никогда. Раньше поле
+// просилось у любого поиска, стоило только настроить depends_on_link, —
+// лишний вес каждой страницы поиска для вызывающих, которым он не идёт в
+// дело (pr-converge cleanup pass, efficiency finding 2, отдельно от
+// already-fixed round 2 Finding 5, которая закрыла только случай
+// ненастроенного depends_on_link).
+func (t *Tracker) searchFields(needDependsOn bool) []string {
+	fields := []string{
 		"summary", "description", "status", "project", "labels", "updated",
 		t.cfg.Fields.Owner, t.cfg.Fields.RunID, t.cfg.Fields.LeaseUntil, t.cfg.Fields.Attempts,
 	}
+	if needDependsOn && t.cfg.DependsOnLink != "" {
+		fields = append(fields, "issuelinks")
+	}
+	return fields
 }
 
 // comments тянет всю переписку страницами: раннер режет её сам по маркеру.
@@ -952,6 +1099,56 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 			task.Attachments = append(task.Attachments, tracker.AttachmentRef{
 				ID: text(meta["id"]), Name: text(meta["filename"]),
 			})
+		}
+	}
+	// Пусто, если depends_on_link не настроен (валидная конфигурация —
+	// LinkDependsOn откажет сам при вызове, LoadConfig поле не требует).
+	// Без этой отсечки text(typ["name"]) на записи без "type" читается
+	// как "", что совпало бы с пустым t.cfg.DependsOnLink ниже и пропустило
+	// бы битую запись как совпадение по типу — зеркально находке про
+	// пустой outwardIssue.key (pr-converge round 2, Finding 1). Эта отсечка
+	// одна несёт защиту: она уже гарантирует t.cfg.DependsOnLink непустым,
+	// так что name == "" ниже и так не прошёл бы сравнение с непустым
+	// значением — отдельная проверка на это была бы недостижимым дублем
+	// (pr-converge round 2, Finding 4).
+	if links, ok := fields["issuelinks"].([]any); ok && t.cfg.DependsOnLink != "" {
+		for _, raw := range links {
+			link, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			typ, _ := link["type"].(map[string]any)
+			if text(typ["name"]) != t.cfg.DependsOnLink {
+				continue
+			}
+			// outwardIssue заполнен у той стороны связи, что сама была
+			// записана как inwardIssue при POST /issueLink — issuelinks
+			// своей же задачи отражает противоположную роль, не свою
+			// собственную (эмпирически проверено, docs/notes/analyst-
+			// task-splitting.md, «живая верификация направления чтения
+			// issuelinks», шаг 1: чистая топология JSON, не зависящая от
+			// типа связи). LinkDependsOn пишет key как inwardIssue,
+			// dependsOnKey — как outwardIssue (см. его доккомент про
+			// развёрнутое направление отображения текста типа — отдельный
+			// факт, не про то, какое поле куда попадает при чтении), так
+			// что Get(key) видит dependsOnKey именно под outwardIssue.
+			// inwardIssue здесь — обратная связь ("кто зависит от меня"),
+			// её не читаем: DependsOn — это "от кого зависит эта задача",
+			// не "кто зависит от неё".
+			//
+			// outwardIssue иногда приходит без строкового "key" —
+			// урезанная заглушка, которую JIRA отдаёт вместо связанной
+			// задачи, если у учётки нет прав её видеть (permission-
+			// restricted issue). Пустой ключ сюда не попадает: он никогда
+			// не найдётся в byKey гейта и печатался бы как «не найдена в
+			// статусах графа» — тот же текст, что у настоящей пропавшей
+			// зависимости, хотя причина другая (pr-converge round 1,
+			// Finding 9).
+			if out, ok := link["outwardIssue"].(map[string]any); ok {
+				if key := text(out["key"]); key != "" {
+					task.DependsOn = append(task.DependsOn, key)
+				}
+			}
 		}
 	}
 	return task

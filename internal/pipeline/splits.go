@@ -353,19 +353,35 @@ func (o *Office) ensureChildAttachments(task tracker.Task, keys map[string]strin
 // зависеть от того, кто в split.children[] идёт позже него, и связывать
 // раньше, чем существуют оба конца, нечем.
 //
-// Не ленивый, в отличие от ensureChildAttachments (pr-converge раунд 2
-// заметил асимметрию): застрявший тикет каждый цикл шлёт все POST
-// /issueLink заново, полагаясь на серверную дедупликацию JIRA — она
-// проверена эмпирически, не гарантирована контрактом (доккомент
-// jira.LinkDependsOn). Ленивость здесь потребовала бы надёжно читать уже
-// записанные связи через Get(key).DependsOn — а это не гарантировано на
-// JIRA (доккомент Task.DependsOn, tracker.go): решается вместе с тем же
-// вопросом, что и Change 2.
+// Ленивый: перед LinkDependsOn проверяет Get(key).DependsOn — теперь,
+// когда чтение надёжно и на JIRA тоже (split-dependency-gate,
+// internal/tracker/jira/jira.go toTask/searchFields). Дело не в цене
+// (fix round 2, Finding 10): на JIRA сам этот Get() тянет ещё и всю
+// переписку тикета, постранично, и при одной зависимости обходится
+// не дешевле, а то и дороже единственного POST /issueLink, который он
+// иногда позволяет пропустить — округление скорее в минус, чем в плюс.
+// Настоящая причина — не полагаться на недокументированное серверное
+// дедуплицирование одинаковых POST /issueLink: раньше застрявший на
+// закрытии тикет слал их заново на каждый цикл Loop, рассчитывая, что
+// JIRA сама тихо проигнорирует повтор. Выгода этой проверки растёт вместе
+// с числом зависимостей у ребёнка и с числом повторов на застрявшем
+// тикете — а не с количеством сбережённых байт на первом же цикле.
 func (o *Office) linkChildren(children []runner.SplitChild, keys map[string]string) error {
 	by := tracker.BySystem()
 	for _, child := range children {
+		if len(child.DependsOn) == 0 {
+			continue
+		}
+		existing, err := o.Tracker.Get(keys[child.ID])
+		if err != nil {
+			return err
+		}
 		for _, dep := range child.DependsOn {
-			if err := o.Tracker.LinkDependsOn(keys[child.ID], keys[dep], by); err != nil {
+			depKey := keys[dep]
+			if slices.Contains(existing.DependsOn, depKey) {
+				continue
+			}
+			if err := o.Tracker.LinkDependsOn(keys[child.ID], depKey, by); err != nil {
 				return err
 			}
 		}

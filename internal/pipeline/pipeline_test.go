@@ -3359,3 +3359,309 @@ func TestOversizedTaskGoesBackToHuman(t *testing.T) {
 		t.Error("метка ожидания пережила перенос")
 	}
 }
+
+// TestClaimSkipsCandidateWithUnresolvedDependency доказывает, что
+// кандидат с незакрытым depends_on не берётся в работу: implementer не
+// должен опереться на код, которого зависимость ещё не смержила.
+func TestClaimSkipsCandidateWithUnresolvedDependency(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	// OFF-1 (заведена newOffice по умолчанию в Ready) не участвует в этом
+	// тесте как кандидат — иначе она будет взята первой (ключи в mock
+	// возвращаются по возрастанию) и гейт для OFF-3 не проверится вовсе.
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Review", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Ready", Summary: "Зависимая часть",
+		DependsOn: []string{"OFF-2"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+
+	if o.tick(t) {
+		t.Fatal("незакрытая зависимость не должна была позволить взять задачу")
+	}
+
+	task := o.get(t, "OFF-3")
+	if task.RunID != "" || task.Status != "Ready" {
+		t.Errorf("заблокированная задача сдвинулась: %+v", task)
+	}
+	if !strings.Contains(log.String(), "OFF-3") || !strings.Contains(log.String(), "OFF-2") {
+		t.Errorf("лог не называет, чего ждёт задача:\n%s", log.String())
+	}
+}
+
+// TestClaimTakesCandidateOnceDependencyIsTerminal — тот же кандидат, что
+// выше, но зависимость уже в терминальном статусе: гейт больше не мешает.
+func TestClaimTakesCandidateOnceDependencyIsTerminal(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Done", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Ready", Summary: "Зависимая часть",
+		DependsOn: []string{"OFF-2"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+
+	if !o.tick(t) {
+		t.Fatal("задача с разрешённой зависимостью должна была уйти в работу")
+	}
+	if o.agent.seen.Passport.TaskKey != "OFF-3" {
+		t.Errorf("в работу ушла %q, ожидалась OFF-3", o.agent.seen.Passport.TaskKey)
+	}
+}
+
+// TestClaimTreatsMissingDependencyAsUnresolved — depends_on называет
+// задачу, которой в трекере нет вовсе: гейт обязан считать её незакрытой,
+// а не свободной (pipeline-dependency-gate/spec.md, "A missing
+// dependency task blocks the candidate"). Лог обязан назвать не только
+// заблокированную задачу, но и пропавший ключ — до fix round 1, Finding
+// 2 в UnmetDependencies попадало нулевое значение TaskRef{}, и
+// describeUnmet печатал «неизвестная задача ()» вместо «OFF-404 ()»
+// (Finding 3: этот тест раньше не проверял лог вовсе).
+func TestClaimTreatsMissingDependencyAsUnresolved(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Ready", Summary: "Зависимая часть",
+		DependsOn: []string{"OFF-404"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+
+	if o.tick(t) {
+		t.Fatal("зависимость на несуществующую задачу не должна считаться разрешённой")
+	}
+	task := o.get(t, "OFF-3")
+	if task.RunID != "" {
+		t.Errorf("задача с зависимостью на несуществующий тикет всё равно захвачена: %+v", task)
+	}
+	if !strings.Contains(log.String(), "OFF-3") || !strings.Contains(log.String(), "OFF-404") {
+		t.Errorf("лог не называет ни заблокированную задачу, ни пропавшую зависимость:\n%s", log.String())
+	}
+}
+
+// TestClaimGatesAnalystCandidateTheSameWay — тот же гейт для analyst'а,
+// не только для implementer'а: единый код без исключений по роли
+// (pipeline-dependency-gate/spec.md, "The gate applies uniformly across
+// workflow roles").
+func TestClaimGatesAnalystCandidateTheSameWay(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Ready", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-5", Project: "OFF", Status: "Analysis", Summary: "Дочерняя постановка",
+		DependsOn: []string{"OFF-2"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+
+	worked, err := o.Tick(context.Background(), "analyst")
+	if err != nil {
+		t.Fatalf("тик не прошёл: %v", err)
+	}
+	if worked {
+		t.Fatal("аналитик не должен был взять задачу с незакрытой зависимостью")
+	}
+	if task := o.get(t, "OFF-5"); task.RunID != "" {
+		t.Errorf("заблокированная постановка всё равно захвачена: %+v", task)
+	}
+	// Fix round 2, Finding 9: та же сила доказательства, что у сиблинга
+	// TestClaimSkipsCandidateWithUnresolvedDependency — лог обязан
+	// называть и заблокированную задачу, и то, чего она ждёт, а не
+	// только факт «аналитик ничего не взял».
+	if !strings.Contains(log.String(), "OFF-5") || !strings.Contains(log.String(), "OFF-2") {
+		t.Errorf("лог не называет ни заблокированную постановку, ни блокирующую задачу:\n%s", log.String())
+	}
+}
+
+// TestClaimTakesFreeCandidateWhileEarlierSiblingBlocked доказывает, что
+// заблокированный кандидат, идущий в списке раньше свободного (mock отдаёт
+// ключи по возрастанию), не обрывает обход остальных — цикл в claim()
+// обязан пропустить его через continue и всё равно дойти до и взять
+// свободного соседа в том же тике (pr-converge round 1, Finding 5:
+// прежние тесты гейта держали в Ready ровно одного кандидата за раз и не
+// проверяли этот смешанный случай — регрессия continue→break здесь
+// заморозила бы весь проект молча).
+func TestClaimTakesFreeCandidateWhileEarlierSiblingBlocked(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Ready", Summary: "Заблокированная часть",
+		DependsOn: []string{"OFF-3"},
+	}); err != nil {
+		t.Fatalf("заблокированный кандидат не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Review", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-4", Project: "OFF", Status: "Ready", Summary: "Свободная часть",
+	}); err != nil {
+		t.Fatalf("свободный кандидат не заведён: %v", err)
+	}
+
+	if !o.tick(t) {
+		t.Fatal("свободный кандидат за заблокированным соседом должен был уйти в работу")
+	}
+	if o.agent.seen.Passport.TaskKey != "OFF-4" {
+		t.Errorf("в работу ушла %q, ожидалась OFF-4", o.agent.seen.Passport.TaskKey)
+	}
+	if task := o.get(t, "OFF-2"); task.RunID != "" || task.Status != "Ready" {
+		t.Errorf("заблокированный сосед сдвинулся: %+v", task)
+	}
+	if !strings.Contains(log.String(), "OFF-2") || !strings.Contains(log.String(), "OFF-3") {
+		t.Errorf("лог не называет ни заблокированного соседа, ни то, чего он ждёт:\n%s", log.String())
+	}
+}
+
+// countingListTracker считает вызовы List — тем же приёмом, что
+// countingLinksFlakyClose (splits_test.go) считает LinkDependsOn.
+// Нужен для проверки того, что claim() не зовёт projectByKey (а через
+// него — полный List() проекта) вхолостую, когда ни у одного кандидата
+// нет depends_on (fix round 2, Finding 2): после того как List() у jira
+// стал полностью постраничным (fix round 1, Finding 1), безобидный
+// «один лишний List на тик» стал полным постраничным сканом проекта на
+// каждом тике каждой роли, даже когда зависимостей ни у кого нет.
+type countingListTracker struct {
+	tracker.Tracker
+	listCalls int
+}
+
+func (c *countingListTracker) List(project string, statuses []string) ([]tracker.TaskRef, error) {
+	c.listCalls++
+	return c.Tracker.List(project, statuses)
+}
+
+// TestClaimSkipsListWhenNoCandidateHasDependency доказывает, что тик без
+// единого кандидата с depends_on не читает список задач проекта заново —
+// ListReady уже сказал всё, что нужно гейту, если зависимостей нет ни у
+// кого.
+func TestClaimSkipsListWhenNoCandidateHasDependency(t *testing.T) {
+	o := newOffice(t)
+	wrap := &countingListTracker{Tracker: o.tasks}
+	o.useTracker(wrap)
+
+	if !o.tick(t) {
+		t.Fatal("задача без зависимостей должна была уйти в работу")
+	}
+	if wrap.listCalls != 0 {
+		t.Errorf("List вызван %d раз(а) при отсутствии кандидатов с depends_on, ожидалось 0", wrap.listCalls)
+	}
+}
+
+// TestClaimCallsListWhenCandidateHasDependency — зеркало предыдущего
+// теста: как только среди кандидатов есть хоть один с depends_on, гейту
+// снова есть на чём строить byKey, и List() обязан быть вызван.
+func TestClaimCallsListWhenCandidateHasDependency(t *testing.T) {
+	o := newOffice(t)
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Done", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Ready", Summary: "Зависимая часть",
+		DependsOn: []string{"OFF-2"},
+	}); err != nil {
+		t.Fatalf("зависимая задача не заведена: %v", err)
+	}
+	wrap := &countingListTracker{Tracker: o.tasks}
+	o.useTracker(wrap)
+
+	if !o.tick(t) {
+		t.Fatal("задача с разрешённой зависимостью должна была уйти в работу")
+	}
+	if wrap.listCalls == 0 {
+		t.Error("List ни разу не вызван, хотя среди кандидатов есть depends_on")
+	}
+}
+
+// failingListForProject — трекер, у которого ListReady работает как
+// обычно, а List (тот, что дёргает projectByKey под капотом claim())
+// не знает один из проектов. Нужен для Finding 5: единственный вызывающий
+// projectByKey — claim(), и её ошибка должна получать то же самое
+// обхождение unknown-project через skipProject, что уже применяет
+// ListReady чуть выше по тому же циклу — иначе один плохо
+// сконфигурированный проект прерывает обход остальных, тем же багом,
+// что unknownProject/TestTickSkipsProjectUnknownToTracker уже ловил
+// для ListReady/ListExpired.
+type failingListForProject struct {
+	tracker.Tracker
+	missing string
+}
+
+func (f failingListForProject) List(project string, statuses []string) ([]tracker.TaskRef, error) {
+	if project == f.missing {
+		return nil, fmt.Errorf("%w: %s", tracker.ErrNoProject, project)
+	}
+	return f.Tracker.List(project, statuses)
+}
+
+// TestClaimSkipsProjectWhenProjectByKeyFailsUnknown доказывает, что
+// ошибка ErrNoProject из projectByKey не бросает весь тик — ровно как
+// уже не бросает такая же ошибка из ListReady. Проект AAA (раньше OFF
+// по алфавиту, обход дойдёт до него первым) даёт кандидата с
+// depends_on, чтобы claim() вообще позвал projectByKey; List() для AAA
+// отказывает — тик обязан пропустить AAA и всё равно дойти до OFF-1.
+func TestClaimSkipsProjectWhenProjectByKeyFailsUnknown(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	o.Office.Projects["AAA"] = tracker.Project{
+		RepoURL: o.origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "mock",
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "AAA-1", Project: "AAA", Status: "Ready", Summary: "Есть зависимость",
+		DependsOn: []string{"AAA-2"},
+	}); err != nil {
+		t.Fatalf("кандидат AAA не заведён: %v", err)
+	}
+	o.useTracker(failingListForProject{Tracker: o.tasks, missing: "AAA"})
+
+	if !o.tick(t) {
+		t.Fatal("тик не должен был провалиться целиком из-за одного незнакомого трекеру проекта")
+	}
+	if task := o.get(t, "OFF-1"); task.Status == "Ready" {
+		t.Errorf("годный проект не обслужен после сбоя на AAA: %+v", task)
+	}
+	if !strings.Contains(log.String(), "AAA") {
+		t.Errorf("пропуск проекта AAA не объяснён в логе:\n%s", log.String())
+	}
+}

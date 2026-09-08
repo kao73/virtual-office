@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -94,5 +95,26 @@ func TestLeaseAlive(t *testing.T) {
 				t.Errorf("LeaseAlive = %v, ожидалось %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestTaskRefCopiesDependsOn доказывает, что Ref() отдаёт зависимости
+// так же, как Task: гейт очерёдности (internal/pipeline.claim()) и
+// видимость в runner ls читают DependsOn из TaskRef, полученного через
+// ListReady/List, а не через Get() — без этого поля в Ref() оба пути
+// видели бы кандидата без единой зависимости, даже когда Task.DependsOn
+// на нём заполнен.
+func TestTaskRefCopiesDependsOn(t *testing.T) {
+	task := Task{Key: "OFF-2", DependsOn: []string{"OFF-1", "OFF-0"}}
+	ref := task.Ref()
+	if !slices.Equal(ref.DependsOn, []string{"OFF-1", "OFF-0"}) {
+		t.Errorf("TaskRef.DependsOn = %v, ожидалось [OFF-1 OFF-0]", ref.DependsOn)
+	}
+}
+
+func TestTaskRefDependsOnEmptyWhenTaskHasNone(t *testing.T) {
+	ref := Task{Key: "OFF-1"}.Ref()
+	if len(ref.DependsOn) != 0 {
+		t.Errorf("TaskRef.DependsOn = %v, ожидался пустой список", ref.DependsOn)
 	}
 }

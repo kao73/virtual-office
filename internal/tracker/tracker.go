@@ -70,16 +70,14 @@ type Task struct {
 	Description string
 	Status      string
 	Labels      []string
-	// DependsOn — ключи задач, от которых зависит эта (LinkDependsOn).
-	// Пишется этой волной, не читается никаким кодом Change 1 — гейт
-	// очерёдности по этому полю добавит Change 2.
-	//
-	// Get() гарантированно отражает связь, записанную LinkDependsOn, не на
-	// всех реализациях: mock — да (хранит и читает то же поле), jira — нет
-	// (LinkDependsOn там только шлёт POST /issueLink, toTask не разбирает
-	// issuelinks обратно). Сейчас безвредно — поле никто не читает, но
-	// Change 2 обязан спроектировать гейт с учётом этой асимметрии, а не
-	// понадеяться на неё молча.
+	// DependsOn — ключи задач, от которых зависит эта. Пишется
+	// LinkDependsOn, читается обратно через Get/List/ListReady на обеих
+	// реализациях: mock хранит и читает то же поле, jira разбирает
+	// issuelinks в toTask (см. его доккомент про направление
+	// outward/inward) и запрашивает это поле явно в searchFields() —
+	// без него List/ListReady отдавали бы пустой DependsOn даже при
+	// верном Get(). Гейт очерёдности по этому полю —
+	// internal/pipeline/deps.go, Office.claim().
 	DependsOn []string
 
 	// Поля аренды. Owner — человекочитаемый владелец (имя роли), RunID — то,
@@ -129,6 +127,13 @@ type TaskRef struct {
 	// Updated — когда задачу трогали в последний раз. Нужен `ls`, чтобы показать
 	// возраст: задача, висящая в статусе неделю, — то, что человек ищет глазами.
 	Updated time.Time
+
+	// DependsOn — ключи задач, от которых зависит эта. То же поле, что
+	// Task.DependsOn (см. его доккомент) — Ref() копирует его наравне
+	// с остальными: гейт очерёдности (internal/pipeline) и runner ls
+	// читают именно TaskRef, полученный через ListReady/List, не Task
+	// через Get().
+	DependsOn []string
 }
 
 // Ref — та же задача без переписки.
@@ -136,7 +141,7 @@ func (t Task) Ref() TaskRef {
 	return TaskRef{
 		Key: t.Key, Project: t.Project, Summary: t.Summary, Status: t.Status,
 		Owner: t.Owner, RunID: t.RunID, LeaseUntil: t.LeaseUntil,
-		Attempts: t.Attempts, HumanFlag: t.HumanFlag,
+		Attempts: t.Attempts, HumanFlag: t.HumanFlag, DependsOn: t.DependsOn,
 	}
 }
 
@@ -333,8 +338,16 @@ type Tracker interface {
 	// что reap и разбор ответа человека используют для мутаций вне аренды
 	// какой-либо роли.
 	//
-	// Не гарантирует, что последующий Get(key).DependsOn увидит эту связь
-	// на всех реализациях — см. доккомент Task.DependsOn.
+	// Записанную связь последующий Get(key).DependsOn возвращает на обеих
+	// реализациях: mock хранит то же поле, jira разбирает issuelinks
+	// в toTask — см. доккомент Task.DependsOn.
+	//
+	// А вот идемпотентность повторной записи реализациями не одинакова:
+	// mock сверяется с уже записанным сам, jira полагается на серверную
+	// дедупликацию POST /issueLink (проверено эмпирически, не обещано
+	// контрактом REST API). Вызывающему, которому цена повтора важна,
+	// стоит сверяться с Get(key).DependsOn до вызова — так делает
+	// pipeline.linkChildren.
 	LinkDependsOn(key, dependsOnKey string, by Actor) error
 }
 
