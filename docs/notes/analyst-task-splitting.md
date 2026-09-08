@@ -1030,3 +1030,66 @@ throwaway-тикетах, а на реальной, уже существующ�
 Тикеты `EXP-26/27` не откачены — переходы, которые я выполнил вручную,
 совпадают с тем, что дальше сделал бы человек/раннер сам; это не
 throwaway-данные, а реальный прогресс существующей цепочки разбиения.
+
+## 2026-09-08: повтор Task 12 после pr-converge — лицензия истекла, инстанс пересобран
+
+`pr-converge` над Change 2 (PR #8, ветка `comet/split-dependency-gate`) прошёл
+после исходной живой проверки (Task 12 выше) и заметно тронул код на тех же
+путях: `ListReady` стала постраничной (раньше — одна страница), `searchFields`
+теперь по нужде исключает `issuelinks` из части запросов, `roles/analyst/role.md`
+переписан ещё раз. Сам гейт (`claim()`/`UnmetDependencies`) не менялся. Владелец
+попросил не доверять этому мысленно, а повторить Task 12 целиком на актуальной
+ветке.
+
+**Лицензия полигона оказалась просрочена** (`expiryDateString: 08/Sep/26` — день
+самой проверки; `GET /rest/api/2/serverInfo` и `GET /rest/api/2/project/EXP`
+при этом продолжали отвечать `200` как ни в чём не бывало — тихое истечение,
+без единого сигнала на обычных API-путях). Проверяется только глубже:
+`GET /rest/plugins/applications/1.0/installed/jira-software/license` (basic auth
+подходит) — поле `"expired"`, либо HTML-страница
+`/jira/plugins/servlet/applications/versions-licenses` (нужна сессионная кука,
+не basic auth) с текстом «expired».
+
+Пересборка — по рецепту `bootstrap/jira/README.md`: `docker compose -p
+office-jira down -v` (сносит `maven-repo` и `jira-target`, оба тома),
+`docker compose -p office-jira up -d --build` (~15 минут), затем заново по
+`docs/ONBOARDING.md` Б2 — POST `/rest/api/2/project` с шаблоном
+`gh-kanban-template` (ключ `EXP`, до всех скриптов), `jira-setup.sh` →
+`jira-workflow.sh` → `jira-boards.sh --project EXP`, POST `/rest/api/2/issueLinkType`
+для `Depends` (`outward: "depends on"`, `inward: "is depended on by"` — то же,
+что и раньше на этом инстансе). Новые ID полей аренды (`jira-setup.sh` печатает
+их в конце) переехали в `~/.office/tracker.yaml`:
+`customfield_10007..10010` (были `customfield_10101..10104`) —
+поле `depends_on_link: Depends` без изменений.
+
+Направление `issuelinks` на новом инстансе не перепроверялось отдельно
+(это Tasks 4/5, не Task 12, и они не менялись этим циклом) — тот же образ,
+та же версия `8.13.19`, и создание throwaway-связи ниже само подтвердило
+прежнюю топологию (`outwardIssue` на стороне зависимого тикета несёт ключ
+цели, как и ожидает `toTask`).
+
+**Сам сценарий:** `EXP-1` (родитель, throwaway) в `Backlog`, `EXP-2`
+(ребёнок, throwaway) переведена в `Ready`, связаны `Depends`
+(`outwardIssue: EXP-1, inwardIssue: EXP-2`). Свежая сборка `runner` с
+ветки `comet/split-dependency-gate` (`go build ./cmd/runner`, не
+предыдущий бинарник):
+
+- `runner tick --role implementer --tracker jira` — `EXP-2: ждёт EXP-1
+  (Backlog), пропускаю`, `implementer: работы нет`. Та же формулировка,
+  что и в исходном Task 12.
+- `runner ls --project EXP --tracker jira` — `EXP-2` с хвостом `| ждёт:
+  EXP-1 (Backlog)`.
+- `EXP-1` переведена в `Done` (`POST /transitions`, id `41`). Повторный
+  `ls`: колонка `ждёт:` у `EXP-2` исчезла.
+- Повторный `tick` намеренно не запускался — та же причина, что в Task 12:
+  реальный захват означал бы настоящий прогон агента на живом
+  `kao73/expense-tracker`, а гейт и видимость доказанно делят один код
+  (`pipeline.UnmetDependencies`).
+
+`EXP-1`/`EXP-2` — throwaway, удалены сразу после проверки (`DELETE
+/rest/api/2/issue/{key}`, оба `204`).
+
+**Итог:** гейт и видимость воспроизвели ровно то же поведение, что и до
+`pr-converge`, на актуальном коде ветки. Изменения `pr-converge`
+(пагинация `ListReady`, field-scoping `issuelinks`, текст `role.md`) не
+трогали код самого гейта и не сломали его на живом JIRA.
