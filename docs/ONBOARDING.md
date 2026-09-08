@@ -418,6 +418,10 @@ OFF:
   repo_url: /tmp/client.git
   tracker: jira          # чей проект: mock или jira
   # forge: github        # если PR нужны
+  # auto_merge:          # опционально: сливать PR самим, без человека
+  #   enabled: true
+  #   target_branch: office-integration   # пусто — значит default_branch;
+  #                                       # эту ветку заводит человек заранее
   # worktree_root — не задан, значит ${OFFICE_HOME}/worktrees/<проект>
 ```
 
