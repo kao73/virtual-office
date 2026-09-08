@@ -21,7 +21,7 @@ created_at: 2026-09-08
 verified_at: null
 archive_confirmation: null
 archived: false
-bound_branch: master
+bound_branch: comet/pr-auto-merge
 direct_override: null
 handoff_context: docs/openspec/changes/pr-auto-merge/.comet/handoff/design-context.json
 handoff_hash: dd8c12076693c4804013a6b0d410a4ba15fb1ea5d2151a554ce50c37f9096a8a
