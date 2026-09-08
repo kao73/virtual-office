@@ -456,6 +456,13 @@ type Rules struct {
 	Tools   runner.Tools `yaml:"tools"`
 }
 
+// AutoMerge — доверие конкретного инстанса конкретному проекту: мержить ли
+// самим и куда. Решение машины, не офиса — тот же класс, что Forge.
+type AutoMerge struct {
+	Enabled      bool   `yaml:"enabled"`
+	TargetBranch string `yaml:"target_branch"`
+}
+
 // Project — проект-клиент: где его репозиторий, как раннер зовёт ветки задач,
 // в каком трекере лежат его задачи и куда офис открывает pull request.
 type Project struct {
@@ -471,6 +478,9 @@ type Project struct {
 	// Forge — куда открывать pull request. Пусто — forge у проекта нет:
 	// PR-проход вырождается, но маршрут остаётся тем же (см. workflow.yaml: pr).
 	Forge string `yaml:"forge"`
+	// AutoMerge — сливает ли офис pull request сам, и в какую ветку. Пусто
+	// (Enabled: false) — сегодняшнее поведение: сливает человек.
+	AutoMerge AutoMerge `yaml:"auto_merge"`
 	// Network — уровни 1–3 слоистой модели (repo-wide + проект + машина),
 	// уже объединённые LoadProjects. Уровень 4 (роль) сюда не входит —
 	// его добавляет MergeProjectRules ближе к месту запуска.
@@ -496,6 +506,7 @@ type (
 		WorktreeRoot string `yaml:"worktree_root"`
 		Tracker      string `yaml:"tracker"`
 		Forge        string `yaml:"forge"`
+		AutoMerge    AutoMerge `yaml:"auto_merge"`
 		Rules        `yaml:",inline"`
 	}
 )
@@ -503,13 +514,25 @@ type (
 // machineKeys — ключи, описывающие машину. Список нужен ради сообщения об ошибке:
 // строгий разбор и без него отвергнет их в файле офиса, но скажет «неизвестное
 // поле», а человеку нужно знать, куда ключ переехал и почему.
-var machineKeys = []string{"repo_url", "worktree_root", "tracker", "forge"}
+var machineKeys = []string{"repo_url", "worktree_root", "tracker", "forge", "auto_merge"}
 
 // Projects — проекты по ключу трекера.
 type Projects map[string]Project
 
 // Branch — ветка задачи.
 func (p Project) Branch(key string) string { return p.BranchPrefix + key }
+
+// PRBranch — ветка, от которой форкаются задачи, и цель PR-прохода:
+// target_branch авто-мержа, а без него — default_branch. Не default_branch
+// впрямую: иначе задача B (depends_on A) форкалась бы от main и не видела бы
+// уже влитую в интеграционную ветку работу A — гейт зависимостей
+// (claim(), internal/pipeline/deps.go) молча переставал бы что-либо значить.
+func (p Project) PRBranch() string {
+	if p.AutoMerge.TargetBranch != "" {
+		return p.AutoMerge.TargetBranch
+	}
+	return p.DefaultBranch
+}
 
 // Keys — ключи проектов по порядку. Порядок устойчивый: обход проектов не должен
 // зависеть от того, как в этот раз лёг хеш.
@@ -679,6 +702,7 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 			WorktreeRoot:  local.WorktreeRoot,
 			Tracker:       local.Tracker,
 			Forge:         local.Forge,
+			AutoMerge:     local.AutoMerge,
 			Network:       unionStrings(officeDefaults.Network, half.Network, machineDefaults.Network, local.Network),
 			Tools: runner.Tools{
 				Allow: unionStrings(officeDefaults.Tools.Allow, half.Tools.Allow, machineDefaults.Tools.Allow, local.Tools.Allow),
@@ -703,6 +727,11 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 		if !slices.Contains(trackers, project.Tracker) {
 			errs = append(errs, fmt.Errorf("%s: tracker=%q, ожидается один из %v (%s)",
 				key, project.Tracker, trackers, machinePath))
+		}
+		if project.AutoMerge.Enabled && project.Forge == "" {
+			errs = append(errs, fmt.Errorf(
+				"%s: auto_merge.enabled=true, но forge не задан — мержить через API "+
+					"некуда (%s)", key, machinePath))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {

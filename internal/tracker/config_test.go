@@ -491,6 +491,7 @@ func TestLoadProjectsRejectsIncomplete(t *testing.T) {
 		{"относительный worktree_root", validOffice, validMachine + "  worktree_root: ../рядом\n", "worktree_root"},
 		{"нет трекера", validOffice, strings.Replace(validMachine, "  tracker: mock\n", "", 1), "tracker"},
 		{"чужой трекер", validOffice, strings.Replace(validMachine, "tracker: mock", "tracker: youtrack", 1), "youtrack"},
+		{"auto_merge без forge", validOffice, validMachine + "  auto_merge:\n    enabled: true\n", "forge"},
 	}
 
 	for _, tc := range cases {
@@ -840,6 +841,39 @@ func TestUnionStringsDedupsAndSorts(t *testing.T) {
 	}
 	if got := unionStrings(); got != nil {
 		t.Errorf("unionStrings() без слоёв = %v, ожидался nil", got)
+	}
+}
+
+// PRBranch — ветка, от которой форкаются задачи и куда метит PR-проход:
+// target_branch авто-мержа, если задан, иначе default_branch.
+func TestPRBranch(t *testing.T) {
+	p := Project{DefaultBranch: "master"}
+	if got := p.PRBranch(); got != "master" {
+		t.Errorf("PRBranch() = %q без target_branch, ожидался default_branch %q", got, "master")
+	}
+	p.AutoMerge.TargetBranch = "office-integration"
+	if got := p.PRBranch(); got != "office-integration" {
+		t.Errorf("PRBranch() = %q, ожидался target_branch %q", got, "office-integration")
+	}
+}
+
+// auto_merge доезжает из машинной половины и склеивается в Project так же,
+// как forge — тем же путём LoadProjects.
+func TestLoadProjectsCarriesAutoMerge(t *testing.T) {
+	machine := validMachine + "  forge: github\n  auto_merge:\n    enabled: true\n    target_branch: office-integration\n"
+	projects, err := loadHalves(t, validOffice, machine)
+	if err != nil {
+		t.Fatalf("проекты не загружены: %v", err)
+	}
+	p, err := projects.Get("OFF")
+	if err != nil {
+		t.Fatalf("проект OFF не найден: %v", err)
+	}
+	if !p.AutoMerge.Enabled {
+		t.Error("auto_merge.enabled не доехал из машинной половины")
+	}
+	if got := p.PRBranch(); got != "office-integration" {
+		t.Errorf("PRBranch() = %q, ожидался office-integration", got)
 	}
 }
 
