@@ -848,6 +848,47 @@ func TestPRPassMergeRefusalEscalatesAtLimit(t *testing.T) {
 	if len(f.merged) != 3 {
 		t.Errorf("Merge вызван %d раз, ожидалось три", len(f.merged))
 	}
+	if !tracker.HasEvent(task.Comments, tracker.EventMergeRefusalsExhausted) {
+		t.Error("в переписке нет записи о достигнутом пределе отказов")
+	}
+	// Эскалация не вправе трогать семейство состояния PR: pull request остался
+	// открытым. Запись pr-closed (её писала прежняя, prAnomaly'ная эскалация)
+	// увела бы вернувшуюся из Blocked задачу в openPR — на попытку открыть
+	// второй PR поверх уже открытого, отказ forge и новый Blocked без единой
+	// попытки слияния.
+	event, url, found := tracker.PRState(task.Comments, o.Workflow.PR.Role)
+	if !found || event != tracker.EventPROpened {
+		t.Fatalf("состояние PR после эскалации: event %q, found %v — ожидалось %q",
+			event, found, tracker.EventPROpened)
+	}
+	if url != "https://github.test/kao73/client/pull/23" {
+		t.Errorf("адрес PR после эскалации %q — потерян или подменён", url)
+	}
+}
+
+// Гейт безопасности: даже с auto_merge.enabled офис не сливает PR, чья база
+// продвинулась вперёд — Merge не должен звонить, пока гейт не чист.
+func TestPRPassAutoMergeSkipsWhenBaseAdvanced(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/24", state: forge.Open})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	o.pass(t) // pull request открыт
+
+	pushDefault(t, o.origin, "отдельный-файл.txt", "новое в базе\n")
+
+	o.pass(t)
+
+	if len(f.merged) != 0 {
+		t.Errorf("Merge вызван при продвинувшейся базе: %v", f.merged)
+	}
+	task := o.get(t, "OFF-1")
+	if task.Status != "Ready" {
+		t.Fatalf("статус %q, ожидался Ready", task.Status)
+	}
 }
 
 // Уборка идёт от папок и трогает только свои проекты: в хозяйстве раннера

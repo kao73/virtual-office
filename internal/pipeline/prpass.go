@@ -349,9 +349,26 @@ func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url st
 
 	if refusals >= o.Workflow.Limits.MaxMergeRefusals {
 		o.logf("%s: forge отказывает в мерже подряд %d раз, задача уходит к человеку", task.Key, refusals)
-		return o.prAnomaly(task, fmt.Sprintf(
-			"Forge отказывает в слиянии %d раз подряд (limits.max_merge_refusals) при локально чистом "+
-				"состоянии. Pull request: %s", refusals, url))
+		// Не prAnomaly: PR не закрыт, он по-прежнему открыт и просто не мержится.
+		// prAnomaly пишет event:pr-closed — а это ложь семейству pr-opened/pr-closed
+		// (prEvents, marker.go), по которому advancePR решает, звать openPR или
+		// followPR. Соврав, что PR закрыт, следующий возврат из Blocked повёл бы
+		// через openPR — попытку открыть второй PR на уже открытую ветку, отказ
+		// GitHub-а (422/ErrRefused) и новый уход в Blocked без единой попытки
+		// слияния. Эскалация здесь — по образцу pushFailed: отдельная запись-предел,
+		// без вмешательства в семейство состояния PR.
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeRefusalsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Forge отказывает в слиянии %d раз подряд (limits.max_merge_refusals) при локально "+
+			"чистом состоянии. Pull request %s остаётся открытым — разбираться с правилом forge (например, "+
+			"branch protection) нужно человеку; после исправления ответьте здесь, и офис попробует слияние снова.",
+			refusals, url)); err != nil {
+			return err
+		}
+		if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
+			return err
+		}
+		return o.Tracker.SetHumanFlag(task.Key, by, true)
 	}
 	o.logf("%s: forge отказал в слиянии, задача остаётся в очереди прохода: %v", task.Key, mergeErr)
 	return nil

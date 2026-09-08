@@ -97,6 +97,15 @@ const (
 	// локально чистом состоянии (auto_merge.enabled). Это не работа
 	// implementer'а — локально мержить нечего.
 	EventMergeRefused = "merge-refused"
+	// EventMergeRefusalsExhausted — forge отказывает в слиянии подряд
+	// limits.max_merge_refusals раз при локально чистом состоянии. Задача уходит
+	// к человеку, но pull request не закрыт — этот маркер НЕ входит в семейство
+	// pr-opened/pr-closed (prEvents): в отличие от prAnomaly, он не лжёт
+	// advancePR о состоянии PR. После того как человек уберёт причину отказа
+	// (например, branch protection) и ответит, задача вернётся в followPR
+	// (не в openPR — второй PR на уже открытую ветку не откроется) и слияние
+	// попробуют снова.
+	EventMergeRefusalsExhausted = "merge-refusals-exhausted"
 
 	// EventSplitCreated — CompleteSplits досоздал и связал всех детей
 	// подтверждённого split-предложения, родитель закрыт.
