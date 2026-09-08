@@ -20,12 +20,12 @@
 
 ## 4. PR pass: gate, widened staleness trigger, merge
 
-- [ ] 4.1 Replace `project.DefaultBranch` with `project.PRBranch()` at the `MergeCheck`/`OpenPR` call sites in `internal/pipeline/prpass.go`
-- [ ] 4.2 Change `prConflict`'s signature to take a `textConflict bool` and word the recorded comment accordingly (real conflict vs. "base advanced, no conflict")
-- [ ] 4.3 Call `BaseAdvanced` alongside `MergeCheck` in both `openPR` and `followPR`; route to `prConflict` when either condition holds, for every project regardless of `auto_merge`
-- [ ] 4.4 Add the merge-attempt path in `followPR`: when the gate holds and `project.AutoMerge.Enabled`, call `Forge.Merge`; on success behave like today's human-detected `Merged` state; on `ErrRefused` route to the new refusal counter; on any other error, leave the task in place for the next tick (unchanged existing pattern)
-- [ ] 4.5 Add `tracker.EventMergeRefused = "merge-refused"` (`internal/tracker/marker.go`, next to `EventPushFailed`/`EventLeaseExpired`) and `limits.max_merge_refusals` in `workflow.yaml`; escalate via the existing `prAnomaly` path once the marker count reaches the limit
-- [ ] 4.6 Pipeline tests (`internal/pipeline`): clean gate + `auto_merge.enabled` → `Merge` called, task reaches `pr.merged`; conflict or `BaseAdvanced`-true (both with and without `auto_merge.enabled`) → `prConflict` with the matching wording, attempts unchanged; clean gate + `auto_merge` disabled → task stays put (today's human-wait behavior unaffected); repeated `ErrRefused` → escalates once `max_merge_refusals` is reached, not before
+- [x] 4.1 Replace `project.DefaultBranch` with `project.PRBranch()` at the `MergeCheck`/`OpenPR` call sites in `internal/pipeline/prpass.go`
+- [x] 4.2 Change `prConflict`'s signature to take a `textConflict bool` and word the recorded comment accordingly (real conflict vs. "base advanced, no conflict")
+- [x] 4.3 Call `BaseAdvanced` alongside `MergeCheck` in both `openPR` and `followPR`; route to `prConflict` when either condition holds, for every project regardless of `auto_merge`
+- [x] 4.4 Add the merge-attempt path in `followPR`: when the gate holds and `project.AutoMerge.Enabled`, call `Forge.Merge`; on success behave like today's human-detected `Merged` state; on `ErrRefused` route to the new refusal counter; on any other error, leave the task in place for the next tick (unchanged existing pattern)
+- [x] 4.5 Add `tracker.EventMergeRefused = "merge-refused"` (`internal/tracker/marker.go`, next to `EventPushFailed`/`EventLeaseExpired`) and `limits.max_merge_refusals` in `workflow.yaml`; escalate via a dedicated `EventMergeRefusalsExhausted` marker (mirrors `EventPushFailuresExhausted`) once the count reaches the limit — **not** via `prAnomaly`/`EventPRClosed` as originally planned: task-review round 1 found that reusing `EventPRClosed` corrupts the `pr-opened`/`pr-closed` state family `advancePR` routes on (the PR isn't actually closed, only refused), stranding a human's fix in a reopen loop; fixed by keeping the escalation marker outside that family, per `docs/superpowers/plans/2026-09-08-pr-auto-merge.md` Task 4 (implementation note added there too)
+- [x] 4.6 Pipeline tests (`internal/pipeline`): clean gate + `auto_merge.enabled` → `Merge` called, task reaches `pr.merged`; conflict or `BaseAdvanced`-true (both with and without `auto_merge.enabled`) → `prConflict` with the matching wording, attempts unchanged; clean gate + `auto_merge` disabled → task stays put (today's human-wait behavior unaffected); repeated `ErrRefused` → escalates once `max_merge_refusals` is reached, not before; auto-merge-enabled + dirty gate → `Merge` never called (safety-gate negative test, added in the fix round)
 
 ## 5. `roles/implementer/role.md`
 
@@ -37,7 +37,7 @@
 - [ ] 6.1 Rewrite `docs/DESIGN.md` §2.8 per this change's decisions (human merges by default; office merges on an explicit per-project opt-in, by mechanical gate, no new role)
 - [ ] 6.2 Update `README.md`'s PR-pass section (the "Сливает человек. Офис за него этого не делает и на этом этапе делать не будет" passage and the graph description) to describe the opt-in instead of stating it as an absolute
 - [ ] 6.3 Add a commented `auto_merge` example next to the existing `forge` example in `docs/ONBOARDING.md`'s `projects.local.yaml` walkthrough
-- [ ] 6.4 Document `event:merge-refused` and `limits.max_merge_refusals` in `docs/contracts/tracker-protocol.md`, matching the existing `push-failed`/`max_push_failures` entries (table row + prose) — gap surfaced during Task 4 implementation, this file wasn't in the original Task 6 file list
+- [ ] 6.4 Document `event:merge-refused`, `event:merge-refusals-exhausted`, and `limits.max_merge_refusals` in `docs/contracts/tracker-protocol.md`, matching the existing `push-failed`/`push-failures-exhausted`/`max_push_failures` entries (table rows + prose) — gap surfaced during Task 4 implementation and its fix round, this file wasn't in the original Task 6 file list
 
 ## 7. Live verification
 

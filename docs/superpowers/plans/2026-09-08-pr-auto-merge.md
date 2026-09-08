@@ -631,7 +631,7 @@ Today's `prConflict` (lines 214–239) takes `(task, project, url)` and always s
 
 Today's `prMerged` (lines 265–280) takes `(task, url)` — no `project`, so it can't name the merge branch.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 The existing `fakeForge` in `internal/pipeline/prpass_test.go` (around line 25) implements only `OpenPR`/`PRState`. It must implement `Merge` too, or the package won't compile once `forge.Forge` grows a third method. Update it:
 
@@ -777,7 +777,7 @@ Also add a config-level test case to `internal/tracker/config_test.go`'s `TestLo
 		},
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go build ./... 2>&1 | head -40`
 Expected: compile failures — `fakeForge` doesn't implement `forge.Forge` (missing `Merge`) is fixed by the test file edit above, but `tracker.AutoMerge`/`o.Workspaces.BaseAdvanced`/`impl.Merge` referenced by the new prpass_test.go tests should already compile after Tasks 1–3; what won't compile/pass yet is `tracker.MergeRefusals`, `o.Workflow.Limits.MaxMergeRefusals`, `o.attemptMerge`, `prConflict`'s new 4th argument, and `prMerged`'s new `project` argument — all added in Step 3.
@@ -785,7 +785,7 @@ Expected: compile failures — `fakeForge` doesn't implement `forge.Forge` (miss
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go test ./internal/tracker/... -run TestLoadWorkflowRejectsBrokenGraph -v`
 Expected: FAIL — `max_merge_refusals` isn't in `validWorkflow` yet.
 
-- [ ] **Step 3: Implement — `Limits.MaxMergeRefusals` and `EventMergeRefused`**
+- [x] **Step 3: Implement — `Limits.MaxMergeRefusals` and `EventMergeRefused`**
 
 In `internal/tracker/config.go`, add the field to `Limits` (after `MaxIdleRuns`, before `LeaseMarginSec`):
 
@@ -881,12 +881,14 @@ limits:
 ```
 (insert the `max_merge_refusals` block and its comment after the existing `max_idle_runs` block; leave the surrounding comments on `max_lease_expiries`/`max_push_failures`/`max_idle_runs` as they already are — only the new block and the `pr:` header comment change).
 
-- [ ] **Step 4: Run the config-layer tests**
+- [x] **Step 4: Run the config-layer tests**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go test ./internal/tracker/... -v 2>&1 | tail -60`
 Expected: PASS, including `TestShippedConfigIsValid` (which loads the real `workflow.yaml`) and the new `"предел отказов мержа не задан"` case.
 
-- [ ] **Step 5: Implement — `prpass.go`**
+- [x] **Step 5: Implement — `prpass.go`**
+
+**Implementation note (task review round 1 finding, fixed):** the plan's `mergeRefused` snippet below escalates via `return o.prAnomaly(...)`, which records `Event: tracker.EventPRClosed`. This was found to be a defect during task review: the PR isn't actually closed at that point (only refused-to-merge), and `EventPRClosed` is one of exactly two members of `prEvents` that `advancePR` routes on — writing it there corrupts routing (a human's later fix would route through `openPR` instead of `followPR`, opening a second PR on an already-open branch, dead-ending in a permanent Blocked loop). **What was actually built instead:** the escalation branch records a new, dedicated `tracker.EventMergeRefusalsExhausted` marker (kept outside `prEvents`, mirroring how `pushFailed` escalates via `EventPushFailuresExhausted` rather than reusing an unrelated state-family event), then moves the task to `o.Workflow.PR.Closed` and sets the human flag directly — without ever calling `prAnomaly` from this path. See `internal/pipeline/prpass.go`'s actual `mergeRefused` and `internal/tracker/marker.go`'s `EventMergeRefusalsExhausted` for the shipped code; the snippet below is the plan's original (superseded) version, kept for historical context.
 
 Replace `openPR`'s merge-check block (the `merge, err := ...` through the `switch { case merge.Empty(): ...; case merge.Conflict: ... }`) with:
 
@@ -1081,22 +1083,24 @@ func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url st
 
 `errors` and `forge` are already imported in `prpass.go` (see its import block: `context`, `errors`, `fmt`, `path/filepath`, `regexp`, `strings`, plus `internal/forge`, `internal/runner`, `internal/tracker`, `internal/workspace`) — no new imports needed.
 
-- [ ] **Step 6: Run the pipeline tests**
+- [x] **Step 6: Run the pipeline tests**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go test ./internal/pipeline/... -v 2>&1 | tail -150`
 Expected: PASS for every test — the four new ones from Step 1, and every pre-existing `TestPRPass*` (they all use human-merge projects with `AutoMerge` zero-valued, so `attemptMerge` is never reached and behavior is identical to before). Pay particular attention to `TestPRPassConflictReturnsWork` and `TestPRPassReusesPullRequestAfterConflict` — they must still pass with `prConflict`'s new 4th argument (`merge.Conflict` is `true` in both, so `textConflict` is `true` and the wording matches the old text closely enough that the existing substring assertions (`tracker.HasEvent(..., EventMergeConflict)`, `strings.Contains(body, f.url)`) still hold.
 
-- [ ] **Step 7: Full regression across the whole module**
+- [x] **Step 7: Full regression across the whole module**
 
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go build ./... && go vet ./... && go test ./...`
 Expected: clean. This is the first point where the whole feature compiles together end-to-end.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/pipeline/prpass.go internal/pipeline/prpass_test.go internal/tracker/config.go internal/tracker/config_test.go internal/tracker/marker.go workflow.yaml
 git commit -m "feat(pipeline): wire auto-merge gate, widened staleness trigger, and merge-refusal escalation into the PR pass"
 ```
+
+Follow-up fix commit (task review round 1): `b84d19c` — "fix(pipeline): stop lying pr-closed on merge-refusal escalation; add safety-gate negative test" (see Step 5's implementation note above).
 
 ---
 
