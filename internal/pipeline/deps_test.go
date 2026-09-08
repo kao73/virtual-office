@@ -51,15 +51,15 @@ func TestUnmetDependenciesTreatsMissingKeyAsUnresolved(t *testing.T) {
 	}
 }
 
-// TestDescribeUnmetNamesMissingDependencyKey — describeUnmet обязан
+// TestDescribeUnmetNamesMissingDependencyKey — DescribeUnmet обязан
 // показать ключ отсутствующей зависимости, а не только факт, что
 // что-то пропало: "неизвестная задача ()" не говорит оператору, какую
 // задачу заводить или искать (fix round 1, Finding 2).
 func TestDescribeUnmetNamesMissingDependencyKey(t *testing.T) {
-	got := describeUnmet([]tracker.TaskRef{{Key: "OFF-404"}})
+	got := DescribeUnmet([]tracker.TaskRef{{Key: "OFF-404"}})
 	want := "OFF-404 ()"
 	if got != want {
-		t.Errorf("describeUnmet = %q, ожидалось %q", got, want)
+		t.Errorf("DescribeUnmet = %q, ожидалось %q", got, want)
 	}
 }
 
@@ -71,10 +71,10 @@ func TestUnmetDependenciesEmptyWhenNoDependsOn(t *testing.T) {
 }
 
 func TestDescribeUnmetNamesKeyAndStatus(t *testing.T) {
-	got := describeUnmet([]tracker.TaskRef{{Key: "OFF-2", Status: "Review"}, {Key: "OFF-3", Status: "InProgress"}})
+	got := DescribeUnmet([]tracker.TaskRef{{Key: "OFF-2", Status: "Review"}, {Key: "OFF-3", Status: "InProgress"}})
 	want := "OFF-2 (Review), OFF-3 (InProgress)"
 	if got != want {
-		t.Errorf("describeUnmet = %q, ожидалось %q", got, want)
+		t.Errorf("DescribeUnmet = %q, ожидалось %q", got, want)
 	}
 }
 
@@ -88,11 +88,11 @@ func TestDescribeUnmetNamesKeyAndStatus(t *testing.T) {
 // «неизвестная задача» звучала как утверждение о несуществовании, которое
 // код проверить не может).
 func TestDescribeUnmetHandlesMissingDependency(t *testing.T) {
-	got := describeUnmet([]tracker.TaskRef{{}})
+	got := DescribeUnmet([]tracker.TaskRef{{}})
 	if !strings.Contains(got, "не найдена в статусах графа") {
-		t.Errorf("describeUnmet не сообщает о пропавшей зависимости корректной формулировкой: %q", got)
+		t.Errorf("DescribeUnmet не сообщает о пропавшей зависимости корректной формулировкой: %q", got)
 	}
 	if strings.Contains(got, "неизвестная") {
-		t.Errorf("describeUnmet всё ещё утверждает несуществование, которое не может проверить: %q", got)
+		t.Errorf("DescribeUnmet всё ещё утверждает несуществование, которое не может проверить: %q", got)
 	}
 }

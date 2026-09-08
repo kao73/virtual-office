@@ -69,7 +69,11 @@ func printBoard(tasks tracker.Tracker, projects, statuses []string, terminal fun
 			line := fmt.Sprintf("%-10s %-12s %-24s попыток:%d %-16s %-10s %s",
 				ref.Key, ref.Status, lease(ref, now), ref.Attempts, waiting(ref), age(ref.Updated, now), ref.Summary)
 			if depends := dependsColumn(unmet); depends != "" {
-				line += " " + depends
+				// Разделитель — не просто пробел (pr-converge round 1,
+				// Finding 12): summary — свободный текст без своей границы
+				// справа, и «...часть ждёт: OFF-1» читается как продолжение
+				// заголовка, а не отдельная колонка.
+				line += " | " + depends
 			}
 			fmt.Fprintln(out, line)
 			shown++
@@ -91,25 +95,17 @@ func printBoard(tasks tracker.Tracker, projects, statuses []string, terminal fun
 // waiting и age, где она сдвигала весь остаток строки на любой
 // заблокированной задаче. Без собственного обрамляющего пробела — вызывающий
 // (printBoard) сам решает, ставить ли разделитель перед непустым значением.
+//
+// Формат самой находки — pipeline.DescribeUnmet, а не своя копия (pr-converge
+// round 1, Finding 1): раньше здесь было отдельное форматирование,
+// синхронизированное с internal/pipeline/deps.go только парой комментариев
+// «расходиться им нельзя» — вопреки собственному decision #3 этого PR
+// («одна реализация, не две»).
 func dependsColumn(unmet []tracker.TaskRef) string {
 	if len(unmet) == 0 {
 		return ""
 	}
-	parts := make([]string, len(unmet))
-	for i, dep := range unmet {
-		key := dep.Key
-		if key == "" {
-			// Формулировка — та же, что describeUnmet в
-			// internal/pipeline/deps.go, и по той же причине (fix round
-			// 2, Finding 3): отсутствие в byKey не означает
-			// несуществование задачи, только то, что её нет среди
-			// статусов графа этого проекта (статус вне графа или чужой
-			// проект) — а этого утверждать нечем без лишнего Get().
-			key = "не найдена в статусах графа"
-		}
-		parts[i] = fmt.Sprintf("%s (%s)", key, dep.Status)
-	}
-	return fmt.Sprintf("ждёт: %s", strings.Join(parts, ", "))
+	return fmt.Sprintf("ждёт: %s", pipeline.DescribeUnmet(unmet))
 }
 
 // lease — кто держит задачу. Истёкшая аренда показывается отдельно от её

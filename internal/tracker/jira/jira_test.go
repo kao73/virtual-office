@@ -555,6 +555,38 @@ func TestGetParsesDependsOnFromIssuelinks(t *testing.T) {
 	}
 }
 
+// TestGetSkipsIssuelinkWithMissingOutwardKey доказывает, что запись
+// issuelinks с совпадающим типом, но без строкового "key" у outwardIssue
+// (JIRA отдаёт такую урезанную заглушку вместо полной связанной задачи,
+// когда у учётки нет прав видеть её — permission-restricted issue), не
+// превращается в пустую строку в DependsOn. Пустой ключ никогда не
+// найдётся в byKey гейта и печатался бы как "не найдена в статусах
+// графа ()" — тот же текст, что у настоящей пропавшей зависимости,
+// хотя причина другая (сбой разбора, не отсутствие в графе) — pr-converge
+// round 1, Finding 9.
+func TestGetSkipsIssuelinkWithMissingOutwardKey(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.remoteIssuelinks = []any{
+		map[string]any{
+			"type":         map[string]any{"name": "Depends"},
+			"outwardIssue": map[string]any{}, // "key" отсутствует
+		},
+		map[string]any{
+			"type":         map[string]any{"name": "Depends"},
+			"outwardIssue": map[string]any{"key": "VO-6"},
+		},
+	}
+
+	task, err := tr.Get("VO-1")
+	if err != nil {
+		t.Fatalf("задача не прочитана: %v", err)
+	}
+	want := []string{"VO-6"}
+	if !slices.Equal(task.DependsOn, want) {
+		t.Errorf("DependsOn = %v, ожидалось %v (пустой ключ не должен попасть в список)", task.DependsOn, want)
+	}
+}
+
 // TestSearchRequestsIssuelinksField доказывает, что searchFields()
 // просит issuelinks у сервера — без этого поля ListReady/List на живом
 // JIRA отдавали бы пустой DependsOn у каждого кандидата даже при верном
@@ -1098,6 +1130,46 @@ func TestListSurvivesLowerServerSideMaxResultsCap(t *testing.T) {
 	}
 	if len(refs) != total {
 		t.Fatalf("получено %d задач из %d: пагинация приняла серверный потолок страницы за конец списка", len(refs), total)
+	}
+	for _, ref := range refs {
+		if !want[ref.Key] {
+			t.Errorf("неожиданный ключ %s", ref.Key)
+		}
+		delete(want, ref.Key)
+	}
+	if len(want) != 0 {
+		t.Errorf("не вернулись ключи: %v", want)
+	}
+}
+
+// TestListReadyPaginatesBeyondFirstPage доказывает pr-converge round 1,
+// Finding 7: ListReady, в отличие от List() (fix round 1, Finding 1),
+// оставался одностраничным (searchProject, потолок searchPage) даже
+// после того, как эта волна впервые сделала пропуск кандидата
+// потенциально вечным — заблокированная зависимостью задача, в отличие
+// от прежних причин пропуска (истёкшая аренда, исчерпанные попытки),
+// никуда не уходит и занимает место на странице сколько угодно долго.
+// При ≥searchPage задач в Ready и заблокированных в начале списка
+// свободные кандидаты за первой страницей были бы не видны claim()
+// вовсе. Тест даёт фейковому серверу заведомо больше одной страницы
+// кандидатов Ready и проверяет, что ListReady вернул их все.
+func TestListReadyPaginatesBeyondFirstPage(t *testing.T) {
+	tr, fake := fixture(t)
+	const total = searchPage + 7 // заведомо больше одной страницы
+	fake.searchIssues = make([]map[string]any, total)
+	want := make(map[string]bool, total)
+	for i := range total {
+		key := fmt.Sprintf("VO-%d", i+1)
+		fake.searchIssues[i] = fakeSearchIssue(key)
+		want[key] = true
+	}
+
+	refs, err := tr.ListReady("VO", "Ready")
+	if err != nil {
+		t.Fatalf("список не прочитан: %v", err)
+	}
+	if len(refs) != total {
+		t.Fatalf("получено %d задач из %d: ListReady обрублен первой страницей поиска", len(refs), total)
 	}
 	for _, ref := range refs {
 		if !want[ref.Key] {

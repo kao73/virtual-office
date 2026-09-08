@@ -197,7 +197,7 @@ export JIRA_REVIEWER_USER=office-reviewer JIRA_REVIEWER_PASSWORD='...'
 ```
 OFFICE-1  InProgress  implementer до 15:04:05  попыток:0                  12м  Добавить hello.py
 OFFICE-2  Blocked     —                        попыток:3 [ждёт человека]  2д   Спорная постановка
-OFFICE-3  Ready       —                        попыток:0                  5м   Третья часть ждёт: OFFICE-2 (Blocked)
+OFFICE-3  Ready       —                        попыток:0                  5м   Третья часть | ждёт: OFFICE-2 (Blocked)
 ```
 
 Задачи с живой арендой из списка не выбрасываются — наоборот, ради них он и нужен:

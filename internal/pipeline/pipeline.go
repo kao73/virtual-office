@@ -341,7 +341,7 @@ func (o *Office) claim(roleName string, flow tracker.RoleFlow, role runner.Role)
 			// без исключения reviewer — его зависимость уже разрешена
 			// к этому моменту по построению (design.md decision #4).
 			if unmet := UnmetDependencies(ref, byKey, o.Workflow.IsTerminal); len(unmet) > 0 {
-				o.logf("%s: ждёт %s, пропускаю", ref.Key, describeUnmet(unmet))
+				o.logf("%s: ждёт %s, пропускаю", ref.Key, DescribeUnmet(unmet))
 				continue
 			}
 			task, taken, err := o.take(ref, roleName, flow, lease)

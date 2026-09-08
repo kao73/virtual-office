@@ -3502,6 +3502,52 @@ func TestClaimGatesAnalystCandidateTheSameWay(t *testing.T) {
 	}
 }
 
+// TestClaimTakesFreeCandidateWhileEarlierSiblingBlocked доказывает, что
+// заблокированный кандидат, идущий в списке раньше свободного (mock отдаёт
+// ключи по возрастанию), не обрывает обход остальных — цикл в claim()
+// обязан пропустить его через continue и всё равно дойти до и взять
+// свободного соседа в том же тике (pr-converge round 1, Finding 5:
+// прежние тесты гейта держали в Ready ровно одного кандидата за раз и не
+// проверяли этот смешанный случай — регрессия continue→break здесь
+// заморозила бы весь проект молча).
+func TestClaimTakesFreeCandidateWhileEarlierSiblingBlocked(t *testing.T) {
+	var log strings.Builder
+	o := newOffice(t)
+	o.Office.Log = &log
+	if err := o.tasks.Move("OFF-1", "Blocked"); err != nil {
+		t.Fatalf("подготовка не удалась: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-2", Project: "OFF", Status: "Ready", Summary: "Заблокированная часть",
+		DependsOn: []string{"OFF-3"},
+	}); err != nil {
+		t.Fatalf("заблокированный кандидат не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-3", Project: "OFF", Status: "Review", Summary: "Блокирующая часть",
+	}); err != nil {
+		t.Fatalf("блокер не заведён: %v", err)
+	}
+	if err := o.tasks.Add(tracker.Task{
+		Key: "OFF-4", Project: "OFF", Status: "Ready", Summary: "Свободная часть",
+	}); err != nil {
+		t.Fatalf("свободный кандидат не заведён: %v", err)
+	}
+
+	if !o.tick(t) {
+		t.Fatal("свободный кандидат за заблокированным соседом должен был уйти в работу")
+	}
+	if o.agent.seen.Passport.TaskKey != "OFF-4" {
+		t.Errorf("в работу ушла %q, ожидалась OFF-4", o.agent.seen.Passport.TaskKey)
+	}
+	if task := o.get(t, "OFF-2"); task.RunID != "" || task.Status != "Ready" {
+		t.Errorf("заблокированный сосед сдвинулся: %+v", task)
+	}
+	if !strings.Contains(log.String(), "OFF-2") || !strings.Contains(log.String(), "OFF-3") {
+		t.Errorf("лог не называет ни заблокированного соседа, ни то, чего он ждёт:\n%s", log.String())
+	}
+}
+
 // countingListTracker считает вызовы List — тем же приёмом, что
 // countingLinksFlakyClose (splits_test.go) считает LinkDependsOn.
 // Нужен для проверки того, что claim() не зовёт projectByKey (а через

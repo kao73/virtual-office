@@ -41,8 +41,13 @@ const apiPath = "/rest/api/2"
 // нужны все: страницы крутятся до конца переписки.
 const pageSize = 100
 
-// searchPage — сколько задач просить у поиска. Из кандидатов берут первого
-// годного, поэтому предел один на все очереди.
+// searchPage — сколько задач просить у поиска за одну страницу. Для
+// ListExpired/CheckWorkflow/FindByMarker (через searchProject) это
+// по-прежнему потолок: из кандидатов берут первого годного, весь список не
+// нужен. Для List()/ListReady (через searchAllProject, pr-converge round 1,
+// Finding 7) это только размер страницы — пагинация по startAt проходит
+// сколько угодно таких страниц, пока сервер не отдаст остаток короче этого
+// числа или не подтвердит через total, что список исчерпан.
 const searchPage = 50
 
 // Config — подключение и раскладка полей. Живёт в ${OFFICE_HOME}/tracker.yaml.
@@ -259,11 +264,22 @@ func (t *Tracker) Whoami() (string, error) {
 //
 // JQL отбирает грубо, а решает раннер: сервер сравнивает время своими часами,
 // и полагаться на совпадение с нашими нельзя.
+//
+// Полный список, не первая страница (pr-converge round 1, Finding 7): до
+// гейта зависимостей пропуск кандидата в claim() всегда был временным
+// (аренда истечёт, попытки исчерпаны — уйдёт к человеку), и с одной
+// страницей ничего не терялось — reap разберёт остаток следующим заходом.
+// Заблокированный зависимостью кандидат так не уходит никуда и держит
+// место на странице сколько угодно долго: при searchPage и более
+// кандидатах в Ready, где заблокированные оказались в начале списка,
+// свободные соседи за первой страницей были бы не видны claim() вовсе —
+// тот же класс бага, что чинили для List() (fix round 1, Finding 1), у
+// другого вызывающего.
 func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 	jql := fmt.Sprintf(`project = %q AND status = %q AND (%s IS EMPTY OR %s <= now()) ORDER BY priority DESC, created ASC`,
 		project, t.jiraStatus(status), t.jqlField(t.cfg.Fields.LeaseUntil), t.jqlField(t.cfg.Fields.LeaseUntil))
 
-	return t.searchProject(project, jql, searchPage, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
+	return t.searchAllProject(project, jql, searchPage, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
 }
 
 // List — задачи проекта в названных статусах, как есть.
@@ -282,11 +298,12 @@ func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, er
 	jql := fmt.Sprintf(`project = %q AND status IN (%s) ORDER BY created ASC`,
 		project, strings.Join(names, ", "))
 
-	// Единственный вызывающий, которому нужен список целиком, а не первый
-	// годный кандидат: см. searchAllProject — гейт зависимостей строит
-	// ground truth именно отсюда (Office.projectByKey), и дети сплита,
-	// будучи самыми новыми при сортировке ORDER BY created ASC, обязаны
-	// попасть в список наравне со старыми задачами (fix round 1, Finding 1).
+	// Гейт зависимостей строит ground truth именно отсюда
+	// (Office.projectByKey), и дети сплита, будучи самыми новыми при
+	// сортировке ORDER BY created ASC, обязаны попасть в список наравне со
+	// старыми задачами (fix round 1, Finding 1) — полный список, как и у
+	// ListReady (см. её доккомент, pr-converge round 1, Finding 7), не
+	// первая страница.
 	return t.searchAllProject(project, jql, searchPage, func(tracker.Task) bool { return true })
 }
 
@@ -335,8 +352,10 @@ func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.Workflow
 
 // searchProject — поиск по проекту, отличающий незнакомый проект от прочих бед.
 // Одна страница: годится там, где решение принимает первый подходящий
-// кандидат, а не весь список (ListReady, ListExpired, CheckWorkflow,
-// FindByMarker) — см. доккомент search().
+// кандидат, а не весь список (ListExpired, CheckWorkflow, FindByMarker) —
+// см. доккомент search(). ListReady здесь больше нет (pr-converge round 1,
+// Finding 7) — её пропуск кандидата теперь может быть вечным, см. её
+// доккомент и searchAllProject ниже.
 //
 // JQL по несуществующему проекту JIRA отвергает четырёхсоткой, и без разбора
 // такой отказ роняет весь цикл: раннер обходит проекты по порядку и на первом же
@@ -355,12 +374,14 @@ func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracke
 }
 
 // searchAllProject — тот же поиск, но без потолка в searchPage: цикл по
-// startAt, как в comments() для переписки. Нужен только List() (fix
-// round 1, Finding 1): это единственный вызывающий, которому нужен весь
-// список, а не первый подходящий кандидат — на нём строится ground truth
-// гейта зависимостей (Office.projectByKey → UnmetDependencies), и
-// неполный список делает настоящую зависимость неотличимой от удалённой
-// задачи.
+// startAt, как в comments() для переписки. Нужен вызывающим, которым важен
+// весь список, а не первый подходящий кандидат: List() (fix round 1,
+// Finding 1) — на нём строится ground truth гейта зависимостей
+// (Office.projectByKey → UnmetDependencies), и неполный список делает
+// настоящую зависимость неотличимой от удалённой задачи; ListReady
+// (pr-converge round 1, Finding 7) — по той же причине с другой стороны:
+// гейт впервые сделал пропуск кандидата потенциально вечным, и неполная
+// страница молча прятала бы свободных кандидатов за первой.
 //
 // Останов цикла отдаёт предпочтение total, который JIRA присылает в самом
 // ответе поиска, а не тому, что мы попросили в maxResults (fix round 2,
@@ -784,8 +805,9 @@ func (t *Tracker) GetAttachment(_, id string) ([]byte, error) {
 // dependsOnKey — исходящая (outward) сторона запроса, key — входящая
 // (inward): эмпирически проверено на живом JIRA Server 8.13
 // (2026-09-06, throwaway-тикеты на полигоне, тип Blocks для независимой
-// сверки, отчёт — docs/notes/analyst-task-splitting.md, «Живой прогон,
-// нашедший разворот direction») — сервер описывает связь через ТУ сторону,
+// сверки, отчёт — docs/notes/analyst-task-splitting.md, «2026-09-06:
+// поправка — направление depends_on в JIRA было развёрнуто») — сервер
+// описывает связь через ТУ сторону,
 // которая передана как inwardIssue, используя outward-текст типа, а не
 // наоборот. Иными словами: результат POST {outwardIssue: O, inwardIssue: I}
 // читается как «I <outward-текст> O», не «O <outward-текст> I». Прежняя
@@ -1046,15 +1068,33 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 			if text(typ["name"]) != t.cfg.DependsOnLink {
 				continue
 			}
-			// outwardIssue заполнен только у той стороны связи, что была
-			// записана как outwardIssue при POST /issueLink — а
-			// LinkDependsOn пишет туда dependsOnKey (см. его доккомент
-			// про развёрнутое направление). inwardIssue здесь —
-			// обратная связь ("кто зависит от меня"), её не читаем:
-			// DependsOn — это "от кого зависит эта задача", не "кто
-			// зависит от неё".
+			// outwardIssue заполнен у той стороны связи, что сама была
+			// записана как inwardIssue при POST /issueLink — issuelinks
+			// своей же задачи отражает противоположную роль, не свою
+			// собственную (эмпирически проверено, docs/notes/analyst-
+			// task-splitting.md, «живая верификация направления чтения
+			// issuelinks», шаг 1: чистая топология JSON, не зависящая от
+			// типа связи). LinkDependsOn пишет key как inwardIssue,
+			// dependsOnKey — как outwardIssue (см. его доккомент про
+			// развёрнутое направление отображения текста типа — отдельный
+			// факт, не про то, какое поле куда попадает при чтении), так
+			// что Get(key) видит dependsOnKey именно под outwardIssue.
+			// inwardIssue здесь — обратная связь ("кто зависит от меня"),
+			// её не читаем: DependsOn — это "от кого зависит эта задача",
+			// не "кто зависит от неё".
+			//
+			// outwardIssue иногда приходит без строкового "key" —
+			// урезанная заглушка, которую JIRA отдаёт вместо связанной
+			// задачи, если у учётки нет прав её видеть (permission-
+			// restricted issue). Пустой ключ сюда не попадает: он никогда
+			// не найдётся в byKey гейта и печатался бы как «не найдена в
+			// статусах графа» — тот же текст, что у настоящей пропавшей
+			// зависимости, хотя причина другая (pr-converge round 1,
+			// Finding 9).
 			if out, ok := link["outwardIssue"].(map[string]any); ok {
-				task.DependsOn = append(task.DependsOn, text(out["key"]))
+				if key := text(out["key"]); key != "" {
+					task.DependsOn = append(task.DependsOn, key)
+				}
 			}
 		}
 	}
