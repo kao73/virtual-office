@@ -70,3 +70,23 @@ func (m *Manager) MergeCheck(repo, branch, base string) (Merge, error) {
 		return Merge{}, fmt.Errorf("слияние %s с %s не проверено: %w\n%s", branch, base, err, out)
 	}
 }
+
+// BaseAdvanced отвечает, обогнала ли база ветку задачи — есть ли в base
+// коммиты, которых ветка задачи ещё не содержит. Отдельно от MergeCheck:
+// это не про текстовый конфликт, а про то, устарел ли контекст, в котором
+// implementer писал, а reviewer смотрел diff, — база могла уйти вперёд и
+// без единого маркера конфликта.
+func (m *Manager) BaseAdvanced(repo, branch, base string) (bool, error) {
+	cmd := exec.Command("git", "-C", repo, "merge-base", "--is-ancestor",
+		"origin/"+base, "origin/"+branch)
+	cmd.Env = gitEnv()
+	switch err := cmd.Run(); {
+	case err == nil:
+		return false, nil // база уже целиком в предках ветки задачи
+	case isExitCode(err, 1):
+		return true, nil
+	default:
+		return false, fmt.Errorf("продвижение %s относительно %s не проверено: %w",
+			base, branch, err)
+	}
+}

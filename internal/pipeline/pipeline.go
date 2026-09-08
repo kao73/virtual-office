@@ -480,7 +480,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 	input := runner.Input{
 		Task:        taskBody(task),
 		Branch:      ws.Branch,
-		BaseBranch:  "origin/" + c.project.DefaultBranch,
+		BaseBranch:  "origin/" + c.project.PRBranch(),
 		Context:     contextBody(task, roleName, o.Accounts, o.Workflow.Limits.MaxAttempts),
 		Attachments: attachments,
 	}

@@ -399,7 +399,7 @@ func (m *Manager) addWorktree(ws Workspace, project tracker.Project) error {
 	case remote:
 		_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, "origin/"+ws.Branch)
 	default:
-		_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, "origin/"+project.DefaultBranch)
+		_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, "origin/"+project.PRBranch())
 	}
 	return err
 }
