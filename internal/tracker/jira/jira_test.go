@@ -1273,7 +1273,14 @@ func TestListReadyPaginatesBeyondFirstPage(t *testing.T) {
 // списка (total всегда 0, страница всегда полная) — в отличие от
 // comments(), эта функция теперь ходит по целому проекту (List/ListReady),
 // а не по переписке одного тикета, так что цена такого зависания выше.
-// Потолок временно снижен, чтобы тест не гонял тысячу настоящих запросов.
+// Потолок временно снижен, чтобы тест не гонял 200 настоящих запросов —
+// пакетная переменная, не параметр: безопасно постольку, поскольку в
+// пакете нет t.Parallel() (pr-converge round 2, Finding 3).
+//
+// Проверка — точное число страниц, не "хотя бы потолок" (pr-converge
+// round 2, Finding 3): "< 5" прошёл бы и при потолке в 6 запросов —
+// смещении на единицу в pages >= searchAllProjectPageCap, которое тест на
+// границу и должен ловить.
 func TestSearchAllProjectStopsAfterPageCap(t *testing.T) {
 	tr, fake := fixture(t)
 	orig := searchAllProjectPageCap
@@ -1285,8 +1292,8 @@ func TestSearchAllProjectStopsAfterPageCap(t *testing.T) {
 	if err == nil {
 		t.Fatal("ожидалась ошибка: сервер никогда не подтверждает конец списка")
 	}
-	if fake.searchPages < 5 {
-		t.Errorf("страниц запрошено %d, ожидалось хотя бы 5 (потолок)", fake.searchPages)
+	if fake.searchPages != 5 {
+		t.Errorf("страниц запрошено %d, ожидалось ровно 5 (потолок)", fake.searchPages)
 	}
 }
 

@@ -398,13 +398,20 @@ func (t *Tracker) searchProject(project, jql string, limit int, keep func(tracke
 // сервер применил на самом деле), а не с perPage, который мы запросили.
 //
 // Потолок страниц (searchAllProjectPageCap) — не ожидаемый предел, а
-// предохранитель (pr-converge round 2, Finding 5, bot rebuttal на F11):
+// предохранитель (pr-converge round 1, Finding 5, bot rebuttal на F11):
 // comments() тоже крутит цикл без потолка, но она ограничена перепиской
 // одного тикета, а эта функция — целым проектом. Сервер, который врёт про
 // total (шлёт 0 при непустых страницах) и честно эхает startAt, крутил бы
 // этот цикл вечно, без единой строки в лог. Явная ошибка после потолка —
 // диагностируемый отказ вместо молчаливого зависания раннера.
-var searchAllProjectPageCap = 1000
+//
+// 200, не 1000 (pr-converge round 2, Finding 2): по числу тикетов запас
+// один и тот же порядок («столько не бывает» — 10 000 задач в одном
+// статусе проекта), а по времени до отказа разница ощутима — 1000
+// последовательных запросов при --every 2m превращали бы срабатывание
+// потолка в многоминутный висящий тик на каждый вызов, попадающий в лог
+// только после того, как отказ уже случился.
+var searchAllProjectPageCap = 200
 
 func (t *Tracker) searchAllProject(project, jql string, perPage int, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
 	var all []tracker.TaskRef
@@ -970,10 +977,18 @@ func (t *Tracker) search(jql string, startAt, limit int, keep func(tracker.Task)
 }
 
 func (t *Tracker) searchFields() []string {
-	return []string{
-		"summary", "description", "status", "project", "labels", "updated", "issuelinks",
+	fields := []string{
+		"summary", "description", "status", "project", "labels", "updated",
 		t.cfg.Fields.Owner, t.cfg.Fields.RunID, t.cfg.Fields.LeaseUntil, t.cfg.Fields.Attempts,
 	}
+	// Пусто, если depends_on_link не настроен: toTask всё равно выбросит
+	// issuelinks целиком (см. её доккомент) — просить их у сервера было
+	// бы лишним весом каждой страницы поиска на ровном месте (pr-converge
+	// round 2, Finding 5).
+	if t.cfg.DependsOnLink != "" {
+		fields = append(fields, "issuelinks")
+	}
+	return fields
 }
 
 // comments тянет всю переписку страницами: раннер режет её сам по маркеру.
@@ -1077,7 +1092,11 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 	// Без этой отсечки text(typ["name"]) на записи без "type" читается
 	// как "", что совпало бы с пустым t.cfg.DependsOnLink ниже и пропустило
 	// бы битую запись как совпадение по типу — зеркально находке про
-	// пустой outwardIssue.key (pr-converge round 2, Finding 1).
+	// пустой outwardIssue.key (pr-converge round 2, Finding 1). Эта отсечка
+	// одна несёт защиту: она уже гарантирует t.cfg.DependsOnLink непустым,
+	// так что name == "" ниже и так не прошёл бы сравнение с непустым
+	// значением — отдельная проверка на это была бы недостижимым дублем
+	// (pr-converge round 2, Finding 4).
 	if links, ok := fields["issuelinks"].([]any); ok && t.cfg.DependsOnLink != "" {
 		for _, raw := range links {
 			link, ok := raw.(map[string]any)
@@ -1085,7 +1104,7 @@ func (t *Tracker) toTask(raw issue) tracker.Task {
 				continue
 			}
 			typ, _ := link["type"].(map[string]any)
-			if name := text(typ["name"]); name == "" || name != t.cfg.DependsOnLink {
+			if text(typ["name"]) != t.cfg.DependsOnLink {
 				continue
 			}
 			// outwardIssue заполнен у той стороны связи, что сама была
