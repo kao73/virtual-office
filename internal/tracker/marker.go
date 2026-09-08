@@ -106,6 +106,14 @@ const (
 	// (не в openPR — второй PR на уже открытую ветку не откроется) и слияние
 	// попробуют снова.
 	EventMergeRefusalsExhausted = "merge-refusals-exhausted"
+	// EventPRReturnsExhausted — event:merge-conflict и event:merge-refused
+	// суммарно подряд limits.max_pr_returns раз: PR-проход не сходится, а
+	// чередованием одно от другого не отличить — то ли база не даёт ветке
+	// устояться, то ли forge не даёт слить. Задача уходит к человеку, но
+	// pull request не закрыт: этот маркер, как и merge-refusals-exhausted,
+	// НЕ входит в семейство pr-opened/pr-closed (prEvents) и не лжёт
+	// advancePR о состоянии PR.
+	EventPRReturnsExhausted = "pr-returns-exhausted"
 
 	// EventSplitCreated — CompleteSplits досоздал и связал всех детей
 	// подтверждённого split-предложения, родитель закрыт.
@@ -284,6 +292,26 @@ func PushFailures(comments []Comment, role string) int {
 // а не провал агента.
 func MergeRefusals(comments []Comment, role string) int {
 	return eventStreak(comments, role, EventMergeRefused)
+}
+
+// PRReturns — сколько раз подряд PR-проход вернул задачу, не сдвинув её:
+// база продвинулась (event:merge-conflict — оба случая, и текстовый конфликт,
+// и просто уехавшая вперёд база) или forge отказал в слиянии
+// (event:merge-refused).
+//
+// Счётчик на оба вида один — как у IdleRuns и по той же причине: следствие
+// у них одно (pull request не сходится), а два раздельных счётчика чередование
+// обошло бы. Отказ, конфликт, снова отказ — и ни MergeRefusals, ни счёт одних
+// конфликтов не дошли бы до своего предела, пока задача крутится вечно.
+//
+// Обрывает серию любая другая запись **прохода**: открытие pull request
+// (event:pr-opened) и разбор ответа человека (event:human-reply — unblock
+// подписывает его ролью того, кто говорил последним). Отчёты ролей о прогонах
+// её не трогают, и это существенно: возврат в работу тем и кончается, что
+// implementer с reviewer отчитываются, — обрывайся серия на них, счётчик
+// не досчитал бы до предела никогда.
+func PRReturns(comments []Comment, role string) int {
+	return eventStreak(comments, role, EventMergeConflict, EventMergeRefused)
 }
 
 // IdleRuns — сколько прогонов роли подряд не дошли до результата.

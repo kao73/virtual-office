@@ -226,6 +226,11 @@ func (o *Office) followPR(task tracker.Task, url string) error {
 // Попытка не тратится и pull request не закрывается: задача вернётся сюда после
 // разбора, и тот же PR подхватит её — в переписке последней остаётся запись
 // об открытии.
+//
+// Круг этот не бесконечен. Подряд limits.max_pr_returns возвратов — и задача
+// уходит к человеку: если база не даёт ветке устояться (или forge не даёт слить
+// — счёт общий, см. tracker.PRReturns), дело не в задаче, и гонять по ней роли
+// дальше значит жечь прогоны впустую.
 func (o *Office) prConflict(task tracker.Task, project tracker.Project, url string, textConflict bool) error {
 	runID, err := runner.NewRunID()
 	if err != nil {
@@ -233,6 +238,9 @@ func (o *Office) prConflict(task tracker.Task, project tracker.Project, url stri
 	}
 	to := o.Workflow.PR.Conflict
 	by := tracker.BySystem()
+	// Возвраты считаются до записи о нынешнем: он в этот счёт и войдёт.
+	returns := tracker.PRReturns(task.Comments, o.Workflow.PR.Role) + 1
+	exhausted := returns >= o.Workflow.Limits.MaxPRReturns
 
 	kind := "конфликт"
 	reason := fmt.Sprintf("Ветка %s не сливается с %s.", project.Branch(task.Key), project.PRBranch())
@@ -249,14 +257,43 @@ func (o *Office) prConflict(task tracker.Task, project tracker.Project, url stri
 	if url != "" {
 		fate = fmt.Sprintf("Pull request %s остаётся открытым и подхватит задачу, когда она вернётся.", url)
 	}
+	// Возвращение в работу обещается, только если оно и вправду будет:
+	// на пределе задача уходит к человеку, и «возвращается в Ready» соседней
+	// строкой с «дальше разбираться человеку» было бы ложью — тем же счётом
+	// к правде, что и fate выше.
+	tail := fmt.Sprintf("Задача возвращается в %s: слить базу и разрешить, если есть что, — "+
+		"это работа, а не провал, и счётчик попыток не тронут. База уже принесена "+
+		"в клон, сеть для слияния не нужна. %s", to, fate)
+	if exhausted {
+		tail = fmt.Sprintf("В %s задача на этот раз не поедет: это %d-й возврат подряд, и это предел. "+
+			"Попытка, как и прежде, не потрачена. %s", to, returns, fate)
+	}
 	if err := o.record(task.Key, by, tracker.Marker{
 		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeConflict, ConfigSHA: o.ConfigSHA,
-	}, fmt.Sprintf("%s Задача возвращается в %s: слить базу и разрешить, если есть что, — "+
-		"это работа, а не провал, и счётчик попыток не тронут. База уже принесена "+
-		"в клон, сеть для слияния не нужна. %s",
-		reason, to, fate)); err != nil {
+	}, reason+" "+tail); err != nil {
 		return err
 	}
+
+	if exhausted {
+		o.logf("%s: PR-проход не сходится подряд %d раз (последнее — %s), задача уходит к человеку",
+			task.Key, returns, kind)
+		// Не prAnomaly и не event:pr-closed: pull request не закрыт (та же
+		// причина и тот же приём, что у mergeRefused, — см. её). Маркер свой
+		// и вне prEvents: семейству состояния PR он не лжёт.
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRReturnsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("PR-проход не сходится %d раз подряд (limits.max_pr_returns): либо база "+
+			"не даёт ветке устояться, либо forge не даёт слить, — счёт у этих бед общий, потому "+
+			"что чередованием одно от другого не отличить. Дальше разбираться человеку: уберите "+
+			"причину и ответьте здесь, и офис попробует снова.", returns)); err != nil {
+			return err
+		}
+		if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
+			return err
+		}
+		return o.Tracker.SetHumanFlag(task.Key, by, true)
+	}
+
 	o.logf("%s: %s, задача возвращается в %s", task.Key, kind, to)
 	return o.move(task, by, to)
 }
@@ -337,6 +374,10 @@ func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url st
 	}
 	by := tracker.BySystem()
 	refusals := tracker.MergeRefusals(task.Comments, o.Workflow.PR.Role) + 1
+	// Второй счётчик — общий с возвратами по продвинувшейся базе: чередование
+	// «отказ → база уехала → отказ» обрывает серию отказов на каждом шаге,
+	// и один только refusals своего предела не достиг бы никогда (tracker.PRReturns).
+	returns := tracker.PRReturns(task.Comments, o.Workflow.PR.Role) + 1
 
 	if err := o.record(task.Key, by, tracker.Marker{
 		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeRefused, ConfigSHA: o.ConfigSHA,
@@ -347,7 +388,8 @@ func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url st
 		return err
 	}
 
-	if refusals >= o.Workflow.Limits.MaxMergeRefusals {
+	switch {
+	case refusals >= o.Workflow.Limits.MaxMergeRefusals:
 		o.logf("%s: forge отказывает в мерже подряд %d раз, задача уходит к человеку", task.Key, refusals)
 		// Не prAnomaly: PR не закрыт, он по-прежнему открыт и просто не мержится.
 		// prAnomaly пишет event:pr-closed — а это ложь семейству pr-opened/pr-closed
@@ -369,8 +411,26 @@ func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url st
 			return err
 		}
 		return o.Tracker.SetHumanFlag(task.Key, by, true)
+
+	case returns >= o.Workflow.Limits.MaxPRReturns:
+		o.logf("%s: PR-проход не сходится подряд %d раз (чередование отказа и продвижения базы), "+
+			"задача уходит к человеку", task.Key, returns)
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRReturnsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("PR-проход не сходится %d раз подряд (limits.max_pr_returns), чередуя отказ forge "+
+			"и продвижение базы: ни одна из двух серий по отдельности предела не достигает, а задача "+
+			"так и не сдвигается. Pull request %s остаётся открытым — дальше разбираться человеку: "+
+			"уберите причину и ответьте здесь, и офис попробует снова.", returns, url)); err != nil {
+			return err
+		}
+		if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
+			return err
+		}
+		return o.Tracker.SetHumanFlag(task.Key, by, true)
+
+	default:
+		o.logf("%s: forge отказал в слиянии, задача остаётся в очереди прохода: %v", task.Key, mergeErr)
 	}
-	o.logf("%s: forge отказал в слиянии, задача остаётся в очереди прохода: %v", task.Key, mergeErr)
 	return nil
 }
 

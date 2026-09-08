@@ -187,7 +187,12 @@ type Limits struct {
 	// отдадут человеку. Отдельный предел по той же причине, что у push
 	// failures: это не работа implementer'а — локально мержить нечего.
 	MaxMergeRefusals int `yaml:"max_merge_refusals"`
-	LeaseMarginSec   int `yaml:"lease_margin_sec"`
+	// MaxPRReturns — сколько раз подряд PR-проход может вернуть задачу, не
+	// сдвинув её вперёд (продвинувшейся базой или отказом forge в мерже),
+	// прежде чем отдать её человеку. Общий счётчик по обоим видам — см.
+	// tracker.PRReturns: два раздельных предела чередование обошло бы.
+	MaxPRReturns   int `yaml:"max_pr_returns"`
+	LeaseMarginSec int `yaml:"lease_margin_sec"`
 }
 
 // HumanReplyRule — что делает раннер, увидев ответ человека на заблокированную задачу.
@@ -370,6 +375,9 @@ func (w Workflow) validate() error {
 	}
 	if w.Limits.MaxMergeRefusals <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_merge_refusals=%d: ожидается положительное число", w.Limits.MaxMergeRefusals))
+	}
+	if w.Limits.MaxPRReturns <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_pr_returns=%d: ожидается положительное число", w.Limits.MaxPRReturns))
 	}
 	if w.Limits.LeaseMarginSec < 0 {
 		errs = append(errs, fmt.Errorf("limits.lease_margin_sec=%d: ожидается неотрицательное число", w.Limits.LeaseMarginSec))

@@ -891,6 +891,125 @@ func TestPRPassAutoMergeSkipsWhenBaseAdvanced(t *testing.T) {
 	}
 }
 
+// Возвраты PR-прохода тоже не бесконечны. Продвинувшаяся база возвращает
+// задачу в работу без всякого расхода попыток — но если она возвращается так
+// подряд max_pr_returns раз, дело не в задаче: база не даёт ветке устояться,
+// и разбираться с этим человеку.
+func TestPRPassStaleReturnsEscalateAtLimit(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/25", state: forge.Open})
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	// Правка в базе, не задевающая файлов ветки: текстового конфликта нет,
+	// возврат происходит из-за одного лишь продвижения базы.
+	pushDefault(t, o.origin, "отдельный-файл.txt", "новое в базе\n")
+
+	o.pass(t) // возврат 1
+	if task := o.get(t, "OFF-1"); task.Status != "Ready" || task.HumanFlag {
+		t.Fatalf("после первого возврата: статус %q, human %v — рано звать человека", task.Status, task.HumanFlag)
+	}
+	o.approved(t, "OFF-1") // круг ролей: база так и не слита, гейт тот же
+	o.pass(t)              // возврат 2
+	if task := o.get(t, "OFF-1"); task.Status != "Ready" || task.HumanFlag {
+		t.Fatalf("после второго возврата: статус %q, human %v — предел ещё не достигнут", task.Status, task.HumanFlag)
+	}
+	o.approved(t, "OFF-1")
+	o.pass(t) // возврат 3 — предел
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("после третьего возврата: статус %q, human %v — ожидалась эскалация", task.Status, task.HumanFlag)
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventPRReturnsExhausted) {
+		t.Error("в переписке нет записи о достигнутом пределе возвратов")
+	}
+	if len(f.opened) != 0 {
+		t.Errorf("pull request открыт при незачищенном гейте: %+v", f.opened)
+	}
+	// Возврат остаётся возвратом: попытки на него не тратятся и на пределе.
+	if task.Attempts != 0 {
+		t.Errorf("счётчик попыток %d: возврат не провал", task.Attempts)
+	}
+}
+
+// Чередование отказа forge и продвижения базы не должно обходить пределы.
+// Каждый вид по отдельности серии не набирает — merge-conflict обрывает серию
+// отказов, — и с двумя раздельными счётчиками задача крутилась бы вечно.
+// Общий счёт возвратов (max_pr_returns) этот круг закрывает.
+func TestPRPassAlternatingConflictAndRefusalEscalates(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{
+		url: "https://github.test/kao73/client/pull/26", state: forge.Open, mergeErr: forge.ErrRefused,
+	})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t) // pull request открыт
+	if len(f.opened) != 1 {
+		t.Fatalf("pull request не открыт: %+v", f.opened)
+	}
+
+	// Дальше автор сливает базу сам — иначе гейт остался бы грязным навсегда
+	// и чередования не вышло бы.
+	o.agent.act = func(req Request, _ int) runner.Result {
+		if req.Role.Name != "implementer" {
+			return runner.Result{Outcome: runner.OutcomeDone, Summary: "Принято.", NextOwner: "human"}
+		}
+		merge := exec.Command("git", "-C", req.Workdir, "merge", "--no-edit", "origin/master")
+		merge.Env = gitEnv()
+		if out, err := merge.CombinedOutput(); err != nil {
+			t.Errorf("база не слита: %v\n%s", err, out)
+		}
+		return runner.Result{Outcome: runner.OutcomeDone, Summary: "Слил базу.", NextOwner: "reviewer"}
+	}
+
+	o.pass(t) // событие 1: гейт чист, forge отказал
+	if task := o.get(t, "OFF-1"); task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после отказа: статус %q, human %v — рано звать человека", task.Status, task.HumanFlag)
+	}
+
+	// База уезжает вперёд — серия отказов оборвана, задача уходит в работу.
+	pushDefault(t, o.origin, "отдельный-файл.txt", "новое в базе\n")
+	o.pass(t) // событие 2: продвижение базы
+	if task := o.get(t, "OFF-1"); task.Status != "Ready" || task.HumanFlag {
+		t.Fatalf("после продвижения базы: статус %q, human %v — ожидался возврат в работу", task.Status, task.HumanFlag)
+	}
+	o.tickRoleOnce(t, "implementer") // автор слил базу
+	o.tickRoleOnce(t, "reviewer")
+	if task := o.get(t, "OFF-1"); task.Status != "Approved" {
+		t.Fatalf("после доработки статус %q, ожидался Approved", task.Status)
+	}
+
+	o.pass(t) // событие 3: снова отказ — предел общего счёта
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("статус %q, human %v — чередование обошло оба предела, задача крутится вечно",
+			task.Status, task.HumanFlag)
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventPRReturnsExhausted) {
+		t.Error("в переписке нет записи о достигнутом пределе возвратов")
+	}
+	// Ни один из раздельных счётчиков своего предела при этом не достиг —
+	// в том и суть чередования.
+	if tracker.HasEvent(task.Comments, tracker.EventMergeRefusalsExhausted) {
+		t.Error("предел отказов достигнут — чередование получилось не строгим, проверка вырождена")
+	}
+	if len(f.merged) != 2 {
+		t.Errorf("Merge вызван %d раз, ожидалось два: на третьем отказе предел общего счёта", len(f.merged))
+	}
+	// Pull request эскалация не закрывает — по той же причине, что и у
+	// merge-refusals-exhausted: вернувшаяся из Blocked задача должна попасть
+	// в followPR, а не открывать второй PR поверх открытого.
+	event, url, found := tracker.PRState(task.Comments, o.Workflow.PR.Role)
+	if !found || event != tracker.EventPROpened || url != f.url {
+		t.Errorf("состояние PR после эскалации: event %q, url %q, found %v", event, url, found)
+	}
+}
+
 // Уборка идёт от папок и трогает только свои проекты: в хозяйстве раннера
 // лежат клоны обоих полигонов.
 func TestSweepLeavesForeignProjects(t *testing.T) {

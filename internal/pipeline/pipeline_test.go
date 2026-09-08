@@ -2542,6 +2542,7 @@ limits:
   max_push_failures: 3
   max_idle_runs: 3
   max_merge_refusals: 3
+  max_pr_returns: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -2627,6 +2628,7 @@ limits:
   max_push_failures: 3
   max_idle_runs: 3
   max_merge_refusals: 3
+  max_pr_returns: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -2723,6 +2725,7 @@ limits:
   max_push_failures: 3
   max_idle_runs: 3
   max_merge_refusals: 3
+  max_pr_returns: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
