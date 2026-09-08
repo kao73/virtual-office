@@ -693,6 +693,25 @@ func TestSearchRequestsIssuelinksField(t *testing.T) {
 	}
 }
 
+// TestSearchOmitsIssuelinksFieldWithoutConfiguredType — зеркало
+// TestSearchRequestsIssuelinksField: на инстансе без depends_on_link
+// searchFields() не должен просить issuelinks вовсе — toTask их всё
+// равно выбросит целиком (её доккомент), так что поле было бы лишним
+// весом каждой страницы поиска без единого потребителя (pr-converge
+// round 3, Finding 3).
+func TestSearchOmitsIssuelinksFieldWithoutConfiguredType(t *testing.T) {
+	tr, fake := fixtureWithoutDependsOnLink(t)
+	if _, err := tr.ListReady("VO", "Ready"); err != nil {
+		t.Fatalf("список не прочитан: %v", err)
+	}
+
+	for _, raw := range fake.lastSearchFields {
+		if s, _ := raw.(string); s == "issuelinks" {
+			t.Errorf("запрошенные поля поиска включают issuelinks без настроенного depends_on_link: %v", fake.lastSearchFields)
+		}
+	}
+}
+
 // TestListCandidateCarriesDependsOnLikeGet доказывает, что кандидат из
 // List() несёт ту же зависимость, что и Get() той же задачи — не только
 // форма запроса верна, но и итоговое значение совпадает (tasks.md 1.4,
@@ -1267,25 +1286,30 @@ func TestListReadyPaginatesBeyondFirstPage(t *testing.T) {
 	}
 }
 
-// TestSearchAllProjectStopsAfterPageCap доказывает pr-converge round 2,
-// Finding 5 (bot rebuttal на F11): без потолка страниц searchAllProject
-// крутился бы вечно на сервере, который никогда не подтверждает конец
-// списка (total всегда 0, страница всегда полная) — в отличие от
-// comments(), эта функция теперь ходит по целому проекту (List/ListReady),
-// а не по переписке одного тикета, так что цена такого зависания выше.
-// Потолок временно снижен, чтобы тест не гонял 200 настоящих запросов —
-// пакетная переменная, не параметр: безопасно постольку, поскольку в
-// пакете нет t.Parallel() (pr-converge round 2, Finding 3).
+// TestSearchAllProjectStopsAfterTaskCap доказывает pr-converge round 1,
+// Finding 5 (bot rebuttal на F11): без потолка searchAllProject крутился
+// бы вечно на сервере, который никогда не подтверждает конец списка
+// (total всегда 0, страница всегда полная) — в отличие от comments(),
+// эта функция теперь ходит по целому проекту (List/ListReady), а не по
+// переписке одного тикета, так что цена такого зависания выше.
 //
-// Проверка — точное число страниц, не "хотя бы потолок" (pr-converge
-// round 2, Finding 3): "< 5" прошёл бы и при потолке в 6 запросов —
-// смещении на единицу в pages >= searchAllProjectPageCap, которое тест на
-// границу и должен ловить.
-func TestSearchAllProjectStopsAfterPageCap(t *testing.T) {
+// Потолок мерян в задачах (startAt), не в страницах (pr-converge round 3,
+// Finding 2) — тест задаёт его как 5×searchPage, так что фейковый сервер
+// (страница ровно searchPage, ничего не режущий) даёт ровно 5 запросов,
+// но сама проверка срабатывания не зависит от размера страницы. Потолок
+// временно снижен, чтобы тест не гонял 10000 настоящих задач — пакетная
+// переменная, не параметр: безопасно постольку, поскольку в пакете нет
+// t.Parallel().
+//
+// Проверка — точное число запросов, не "хотя бы потолок": "< 5" прошёл
+// бы и при потолке в 6 запросов — смещении на единицу в
+// startAt >= searchAllProjectTaskCap, которое тест на границу и должен
+// ловить.
+func TestSearchAllProjectStopsAfterTaskCap(t *testing.T) {
 	tr, fake := fixture(t)
-	orig := searchAllProjectPageCap
-	searchAllProjectPageCap = 5
-	t.Cleanup(func() { searchAllProjectPageCap = orig })
+	orig := searchAllProjectTaskCap
+	searchAllProjectTaskCap = 5 * searchPage
+	t.Cleanup(func() { searchAllProjectTaskCap = orig })
 	fake.searchNeverEnds = true
 
 	_, err := tr.List("VO", []string{"Ready"})
@@ -1293,7 +1317,7 @@ func TestSearchAllProjectStopsAfterPageCap(t *testing.T) {
 		t.Fatal("ожидалась ошибка: сервер никогда не подтверждает конец списка")
 	}
 	if fake.searchPages != 5 {
-		t.Errorf("страниц запрошено %d, ожидалось ровно 5 (потолок)", fake.searchPages)
+		t.Errorf("запросов сделано %d, ожидалось ровно 5 (потолок 5×searchPage задач)", fake.searchPages)
 	}
 }
 
