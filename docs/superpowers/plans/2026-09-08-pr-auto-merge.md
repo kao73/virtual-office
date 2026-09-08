@@ -1185,7 +1185,7 @@ Corresponds to `tasks.md` §6 (6.1–6.3). Best done after Task 4 lands (so the 
 
 **Interfaces:** None (prose only).
 
-- [ ] **Step 1: `docs/DESIGN.md` §2.8**
+- [x] **Step 1: `docs/DESIGN.md` §2.8**
 
 The section header and three of its bullets need to change. Current header (line 103):
 
@@ -1226,7 +1226,7 @@ becomes:
 
 Leave the other bullets ("Разбор — не конец задачи", "Конфликт слияния считается локально", "Маршрут прохода — в графе", "Состояние pull request выводится из переписки", "Рабочую папку убирает системный проход") untouched.
 
-- [ ] **Step 2: `README.md`**
+- [x] **Step 2: `README.md`**
 
 Replace the block from `Дальше работает системный проход` through the paragraph ending `...потому что слияния не было.` (around lines 285–303) with:
 
@@ -1261,7 +1261,9 @@ Replace the block from `Дальше работает системный про�
 записью `pr-skipped`, потому что слияния не было.
 ```
 
-- [ ] **Step 3: `docs/ONBOARDING.md`**
+- [x] **Step 3: `docs/ONBOARDING.md`**
+
+**Addendum (spec-incremental, found during Task 4 implementation and its fix round):** a fourth file also needed updating — `docs/contracts/tracker-protocol.md` — to document the two new events introduced by Task 4's fix (`event:merge-refused`, `event:merge-refusals-exhausted`) and `limits.max_merge_refusals`. This file wasn't in the plan's original scope for Task 6; see tasks.md item 6.4 and the implementation commit for the added table rows + prose.
 
 In the `projects.local.yaml` walkthrough (around line 414–421), current:
 
@@ -1285,17 +1287,19 @@ OFF:
   # worktree_root — не задан, значит ${OFFICE_HOME}/worktrees/<проект>
 ```
 
-- [ ] **Step 4: Proofread**
+- [x] **Step 4: Proofread**
 
 Run: `grep -n "Сливает человек\|Авто-слияния" /Users/aleksejkolesnikov/IdeaProjects/virtual-office/docs/DESIGN.md /Users/aleksejkolesnikov/IdeaProjects/virtual-office/README.md`
 Expected: no remaining hits that assert human-merge unconditionally (the DESIGN.md/README.md text above should have replaced all of them). If any remain elsewhere in these files describing this same behavior, update them too — but don't touch unrelated occurrences (e.g. archive/historical notes).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/DESIGN.md README.md docs/ONBOARDING.md
 git commit -m "docs: describe auto_merge as an explicit per-project opt-in, not an absolute human-merge rule"
 ```
+
+Shipped commit also included `docs/contracts/tracker-protocol.md` (see Step 3's addendum): `git add docs/DESIGN.md README.md docs/ONBOARDING.md docs/contracts/tracker-protocol.md && git commit -m "docs: describe auto_merge as an explicit per-project opt-in, not an absolute human-merge rule"` — commit `6fcf98a`.
 
 ---
 

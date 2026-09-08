@@ -34,10 +34,10 @@
 
 ## 6. Documentation
 
-- [ ] 6.1 Rewrite `docs/DESIGN.md` §2.8 per this change's decisions (human merges by default; office merges on an explicit per-project opt-in, by mechanical gate, no new role)
-- [ ] 6.2 Update `README.md`'s PR-pass section (the "Сливает человек. Офис за него этого не делает и на этом этапе делать не будет" passage and the graph description) to describe the opt-in instead of stating it as an absolute
-- [ ] 6.3 Add a commented `auto_merge` example next to the existing `forge` example in `docs/ONBOARDING.md`'s `projects.local.yaml` walkthrough
-- [ ] 6.4 Document `event:merge-refused`, `event:merge-refusals-exhausted`, and `limits.max_merge_refusals` in `docs/contracts/tracker-protocol.md`, matching the existing `push-failed`/`push-failures-exhausted`/`max_push_failures` entries (table rows + prose) — gap surfaced during Task 4 implementation and its fix round, this file wasn't in the original Task 6 file list
+- [x] 6.1 Rewrite `docs/DESIGN.md` §2.8 per this change's decisions (human merges by default; office merges on an explicit per-project opt-in, by mechanical gate, no new role)
+- [x] 6.2 Update `README.md`'s PR-pass section (the "Сливает человек. Офис за него этого не делает и на этом этапе делать не будет" passage and the graph description) to describe the opt-in instead of stating it as an absolute
+- [x] 6.3 Add a commented `auto_merge` example next to the existing `forge` example in `docs/ONBOARDING.md`'s `projects.local.yaml` walkthrough
+- [x] 6.4 Document `event:merge-refused`, `event:merge-refusals-exhausted`, and `limits.max_merge_refusals` in `docs/contracts/tracker-protocol.md`, matching the existing `push-failed`/`push-failures-exhausted`/`max_push_failures` entries (table rows + prose) — gap surfaced during Task 4 implementation and its fix round, this file wasn't in the original Task 6 file list
 
 ## 7. Live verification
 
