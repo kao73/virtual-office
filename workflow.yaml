@@ -138,8 +138,8 @@ roles:
 pr:
   role: office
   from: Approved            # разбор прошёл — пора открывать PR
-  merged: Done              # человек слил
-  conflict: Ready           # ветка не сливается: это работа, а не провал
+  merged: Done              # PR слит: человеком или, при auto_merge, офисом
+  conflict: Ready           # ветка отстала от базы или не сливается: это работа, а не провал
   closed: Blocked           # PR закрыли без слияния — это разговор с человеком
 
 limits:
