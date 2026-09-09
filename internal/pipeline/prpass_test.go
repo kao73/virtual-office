@@ -539,6 +539,33 @@ func TestPRPassEmptyBranchAsksHuman(t *testing.T) {
 	}
 }
 
+// Опечатка в auto_merge.target_branch, обнаруженная до открытия pull
+// request (openPR, а не followPR — см. TestPRPassMergeUnavailableRemembers-
+// MultipleCategories для той же причины в followPR), тоже не должна виснуть
+// без следа в тикете.
+func TestPRPassOpenPRRecordsMissingTargetBranch(t *testing.T) {
+	o := newOffice(t)
+	o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/61", state: forge.Open})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1") // implementer форкался ещё от исправного PRBranch()
+
+	project.AutoMerge.TargetBranch = "нет-такой-ветки"
+	o.Projects["OFF"] = project
+	o.pass(t) // openPR: MergeCheck бьётся об опечатку раньше, чем PR открылся
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("статус %q, human %v — задача должна остаться на месте", task.Status, task.HumanFlag)
+	}
+	categories := tracker.EventCategories(task.Comments, tracker.EventMergeUnavailable)
+	if !categories["Базовая ветка auto_merge не существует в репозитории"] {
+		t.Error("опечатка в target_branch не оставила следа в тикете")
+	}
+}
+
 // Слитый pull request заканчивает жизнь задачи.
 func TestPRPassMergedFinishesTask(t *testing.T) {
 	o := newOffice(t)
@@ -1068,6 +1095,190 @@ func TestPRPassRecoversAfterPRReturnsExhausted(t *testing.T) {
 	}
 	if len(f.opened) != 1 {
 		t.Errorf("pull request открыт %d раз(а), ожидался один — второй PR не должен открываться", len(f.opened))
+	}
+}
+
+// GitHub, ещё не решивший, годится ли PR (forge.ErrNotReady) — не отказ:
+// max_merge_refusals/max_pr_returns не трогаются, задача остаётся в Approved
+// сколько угодно тиков подряд, пока не достигнут max_merge_pending — свой,
+// более терпеливый предел. Найдено внешним ревью: первая версия фикса на
+// эту проблему (F10) просто логировала и не считала вовсе — задача могла
+// зависнуть навсегда без счёта и без следа в тикете, если причина не в CI
+// (упавшая обязательная проверка, недостающее обязательное ревью).
+func TestPRPassMergePendingDoesNotEscalateEarly(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{
+		url: "https://github.test/kao73/client/pull/50", state: forge.Open, mergeErr: forge.ErrNotReady,
+	})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	o.pass(t) // pull request открыт
+
+	o.Workflow.Limits.MaxMergePending = 3
+	o.pass(t) // ожидание 1
+	o.pass(t) // ожидание 2
+	task := o.get(t, "OFF-1")
+	if task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после двух ожиданий: статус %q, human %v — рано звать человека", task.Status, task.HumanFlag)
+	}
+	if len(f.merged) != 2 {
+		t.Errorf("Merge вызван %d раз, ожидалось два", len(f.merged))
+	}
+	if tracker.HasEvent(task.Comments, tracker.EventMergeRefused) {
+		t.Error("ожидание записано как отказ — потрачен чужой счётчик")
+	}
+	if tracker.HasEvent(task.Comments, tracker.EventMergeConflict) {
+		t.Error("ожидание записано как конфликт — потрачен чужой счётчик")
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventMergePending) {
+		t.Error("в переписке нет следа ожидания")
+	}
+}
+
+// На пределе (limits.max_merge_pending) задача всё же уходит к человеку —
+// иначе провалившаяся навсегда обязательная проверка (или так и не данное
+// обязательное ревью) держала бы задачу в Approved вечно, ничем не отличаясь
+// от настоящего CI, который просто ещё не закончился.
+func TestPRPassMergePendingEscalatesAtLimit(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{
+		url: "https://github.test/kao73/client/pull/51", state: forge.Open, mergeErr: forge.ErrNotReady,
+	})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	o.pass(t) // pull request открыт
+
+	o.Workflow.Limits.MaxMergePending = 3
+	o.pass(t) // ожидание 1
+	o.pass(t) // ожидание 2
+	o.pass(t) // ожидание 3 — предел
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("статус %q, human %v — ожидалась эскалация merge-pending-exhausted", task.Status, task.HumanFlag)
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventMergePendingExhausted) {
+		t.Error("в переписке нет записи о достигнутом пределе ожидания")
+	}
+	// Та же причина, что у merge-refusals-exhausted: pull request не закрыт,
+	// иначе вернувшаяся из Blocked задача открыла бы второй PR поверх открытого.
+	event, url, found := tracker.PRState(task.Comments, o.Workflow.PR.Role)
+	if !found || event != tracker.EventPROpened || url != f.url {
+		t.Errorf("состояние PR после эскалации: event %q, url %q, found %v", event, url, found)
+	}
+	if len(f.merged) != 3 {
+		t.Errorf("Merge вызван %d раз, ожидалось три", len(f.merged))
+	}
+}
+
+// Восстановление зеркалит merge-refusals-exhausted: ответ человека возвращает
+// задачу в followPR тем же PR, и счётчик ожидания по-настоящему обнулён.
+func TestPRPassRecoversAfterMergePendingExhausted(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{
+		url: "https://github.test/kao73/client/pull/52", state: forge.Open, mergeErr: forge.ErrNotReady,
+	})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	o.pass(t) // pull request открыт
+
+	o.Workflow.Limits.MaxMergePending = 3
+	o.pass(t)
+	o.pass(t)
+	o.pass(t) // предел, эскалация
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("статус %q, human %v — ожидалась эскалация", task.Status, task.HumanFlag)
+	}
+
+	if err := o.tasks.AddComment("OFF-1", "human", "Обязательное ревью дано, пробуйте снова."); err != nil {
+		t.Fatalf("ответ человека не записан: %v", err)
+	}
+	if _, err := o.HumanReplies(context.Background()); err != nil {
+		t.Fatalf("ответы человека не разобраны: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+	if task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после ответа: статус %q, human %v — ожидался Approved без флага", task.Status, task.HumanFlag)
+	}
+
+	// Счётчик обнулён по-настоящему: одно ожидание подряд не эскалирует снова.
+	o.pass(t)
+	task = o.get(t, "OFF-1")
+	if task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после одного ожидания post-recovery: статус %q, human %v — счётчик не обнулился",
+			task.Status, task.HumanFlag)
+	}
+
+	f.mergeErr = nil
+	o.pass(t)
+	task = o.get(t, "OFF-1")
+	if task.Status != "Done" {
+		t.Fatalf("статус %q, ожидался Done", task.Status)
+	}
+	if len(f.opened) != 1 {
+		t.Errorf("pull request открыт %d раз(а), ожидался один — второй PR не должен открываться", len(f.opened))
+	}
+}
+
+// mergeBlocked дедуплицирует по category (tracker.EventCategories), а не по
+// последней записи: две разные структурные причины, случившиеся один за
+// другим, обе должны остаться в переписке, а не потерять друг друга.
+// Регрессия round 2: первая версия сравнивала только с последней записью.
+func TestPRPassMergeUnavailableRemembersMultipleCategories(t *testing.T) {
+	o := newOffice(t)
+	// target_branch пуст на старте: иначе implementer не смог бы даже
+	// форкнуть рабочую папку (worktree add от несуществующей ветки), и до
+	// самого MergeCheck дело не дошло бы вовсе.
+	f := o.withForge(&fakeForge{url: "https://github.test/чужой/repo/pull/1", state: forge.Open})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t) // pull request «открыт» — с адресом чужого репозитория
+	o.pass(t) // followPR: гейт чист (default branch существует), SameRepo отказывает
+	task := o.get(t, "OFF-1")
+	if !tracker.HasEvent(task.Comments, tracker.EventMergeUnavailable) {
+		t.Fatal("чужой репозиторий не оставил следа в тикете")
+	}
+	if len(f.merged) != 0 {
+		t.Fatalf("Merge вызван по чужому адресу: %v", f.merged)
+	}
+
+	// Комментарий поправили на свой репозиторий, но следом обнаружилась
+	// вторая, независимая причина: у target_branch опечатка.
+	f.url = "https://github.test/kao73/client/pull/60"
+	fixRunID, err := runner.NewRunID()
+	if err != nil {
+		t.Fatalf("run_id не создан: %v", err)
+	}
+	marker := tracker.Marker{RunID: fixRunID, Role: "office", Event: tracker.EventPROpened, ConfigSHA: o.ConfigSHA}
+	if err := o.tasks.Comment("OFF-1", tracker.BySystem(),
+		tracker.NoticeBody(marker, "Ручная правка адреса: "+f.url)); err != nil {
+		t.Fatalf("комментарий не записан: %v", err)
+	}
+	project.AutoMerge.TargetBranch = "нет-такой-ветки"
+	o.Projects["OFF"] = project
+
+	o.pass(t) // followPR: MergeCheck теперь бьётся об опечатку в target_branch
+	task = o.get(t, "OFF-1")
+
+	categories := tracker.EventCategories(task.Comments, tracker.EventMergeUnavailable)
+	if !categories["Адрес pull request называет чужой репозиторий"] {
+		t.Error("первая причина (чужой репозиторий) потеряна")
+	}
+	if !categories["Базовая ветка auto_merge не существует в репозитории"] {
+		t.Error("вторая причина (несуществующая ветка) не записана")
 	}
 }
 

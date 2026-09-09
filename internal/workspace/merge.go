@@ -1,11 +1,19 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
 )
+
+// ErrBaseMissing — базовой ветки прохода (auto_merge.target_branch, а без
+// него default_branch) нет в клоне. В отличие от прочих ошибок MergeCheck
+// (сбой git, беда обвязки), это конфигурационная опечатка, которая сама
+// не пройдёт: тикет должен об этом сказать, а не только лог раннера
+// (внешнее ревью, pr-converge round 2).
+var ErrBaseMissing = errors.New("базовой ветки прохода нет в клоне")
 
 // Merge — что git думает о слиянии ветки задачи с базовой веткой.
 type Merge struct {
@@ -41,8 +49,8 @@ func (m *Manager) MergeCheck(repo, branch, base string) (Merge, error) {
 	if exists, err := refExists(repo, "refs/remotes/origin/"+base); err != nil {
 		return Merge{}, err
 	} else if !exists {
-		return Merge{}, fmt.Errorf("в клоне нет базовой ветки origin/%s: не с чем сливать — "+
-			"офис её не создаёт (auto_merge.target_branch заводят руками)", base)
+		return Merge{}, fmt.Errorf("%w: origin/%s — не с чем сливать; офис её не создаёт "+
+			"(auto_merge.target_branch заводят руками)", ErrBaseMissing, base)
 	}
 
 	out, err := git(repo, "rev-list", "--count", "origin/"+base+".."+"origin/"+branch)

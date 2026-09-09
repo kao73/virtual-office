@@ -116,14 +116,32 @@ const (
 	// advancePR о состоянии PR.
 	EventPRReturnsExhausted = "pr-returns-exhausted"
 	// EventMergeUnavailable — слияние сейчас невозможно по причине, которую
-	// самой задаче не решить: forge проекта не собран на этом инстансе, или
-	// адрес pull request в переписке называет не тот репозиторий (комментарий
-	// поправили руками, или он пришёл из чужого офиса). Не отказ forge и не
-	// конфликт: попытки не было вовсе, счётчики (max_merge_refusals,
-	// max_pr_returns) не трогаются, задача остаётся на месте. Пишется один раз
-	// на появление причины (см. tracker.LastEvent), а не на каждый тик, —
-	// иначе тикет затопило бы одинаковыми записями, пока причина не уберётся.
+	// самой задаче не решить: адрес pull request в переписке называет не тот
+	// репозиторий (комментарий поправили руками, или он пришёл из чужого
+	// офиса), или auto_merge.target_branch называет ветку, которой нет в
+	// репозитории. Не отказ forge и не конфликт: попытки не было вовсе,
+	// счётчики (max_merge_refusals, max_pr_returns) не трогаются, задача
+	// остаётся на месте. Пишется по одному разу на причину (см.
+	// tracker.EventCategories), а не на каждый тик — иначе тикет затопило бы
+	// одинаковыми записями, пока причина не уберётся, — и не по последней
+	// записи: так две разные причины, случившиеся один за другим, обе
+	// останутся звучать, а не потеряются друг за другом.
 	EventMergeUnavailable = "merge-unavailable"
+	// EventMergePending — GitHub сам ещё не решил, годится ли pull request
+	// к слиянию (forge.ErrNotReady): обязательные проверки или ревью не
+	// завершены. Может пройти само за несколько тиков (обычный CI), а может
+	// не пройти никогда (упавшая проверка, недостающее ревью) — оба случая
+	// неразличимы на уровне одного ответа GitHub, поэтому пишется каждый тик
+	// и считается отдельным, более терпеливым счётчиком (limits.max_merge_pending,
+	// tracker.MergePending), а не max_merge_refusals: тот исчерпался бы
+	// за 4-6 минут при дефолтном тике, раньше, чем успевает пройти обычный CI.
+	EventMergePending = "merge-pending"
+	// EventMergePendingExhausted — event:merge-pending подряд
+	// limits.max_merge_pending раз: слияние не становится готовым, и это,
+	// скорее всего, не CI, а нечто, что само не пройдёт (упавшая проверка,
+	// недостающее ревью). Задача уходит к человеку, pull request не закрыт —
+	// вне prEvents, тем же приёмом, что merge-refusals-exhausted.
+	EventMergePendingExhausted = "merge-pending-exhausted"
 
 	// EventSplitCreated — CompleteSplits досоздал и связал всех детей
 	// подтверждённого split-предложения, родитель закрыт.
@@ -304,6 +322,18 @@ func MergeRefusals(comments []Comment, role string) int {
 	return eventStreak(comments, role, EventMergeRefused)
 }
 
+// MergePending — сколько раз подряд GitHub отвечал, что сам ещё не решил,
+// годится ли pull request к слиянию (forge.ErrNotReady). Отдельный от
+// MergeRefusals счётчик и с отдельным, более терпеливым пределом
+// (limits.max_merge_pending): большинство таких серий — это просто CI,
+// который ещё не закончился, но не все, и без предела вовсе задача,
+// у которой обязательная проверка сломана навсегда, ждала бы её человека
+// не дозвавшись — тот самый провал, которого max_merge_refusals избегал бы,
+// не будь он для этого случая слишком нетерпеливым.
+func MergePending(comments []Comment, role string) int {
+	return eventStreak(comments, role, EventMergePending)
+}
+
 // PRReturns — сколько раз подряд PR-проход вернул задачу, не сдвинув её:
 // база продвинулась (event:merge-conflict — оба случая, и текстовый конфликт,
 // и просто уехавшая вперёд база) или forge отказал в слиянии
@@ -323,19 +353,6 @@ func MergeRefusals(comments []Comment, role string) int {
 // обрывайся серия на их отчётах, счётчик не досчитал бы до предела никогда.
 func PRReturns(comments []Comment, role string) int {
 	return eventStreak(comments, role, EventMergeConflict, EventMergeRefused)
-}
-
-// LastEvent — событие последней записи роли, какой бы она ни была, и была ли
-// вообще хоть одна. В отличие от eventStreak, не считает серию — годится там,
-// где нужно просто не повторять то же самое сообщение на каждом тике
-// (EventMergeUnavailable), а не решать, исчерпан ли предел.
-func LastEvent(comments []Comment, role string) (event string, found bool) {
-	i := lastOfRole(comments, role, func(Marker) bool { return true })
-	if i < 0 {
-		return "", false
-	}
-	m, _ := MarkerOf(comments[i].Body)
-	return m.Event, true
 }
 
 // IdleRuns — сколько прогонов роли подряд не дошли до результата.

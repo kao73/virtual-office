@@ -73,6 +73,27 @@ func TestMergeCheckEmptyBranch(t *testing.T) {
 	}
 }
 
+// Базовая ветка прохода (auto_merge.target_branch, опечатанная или ещё
+// не заведённая) отсутствует в клоне — это конфигурационная опечатка,
+// а не сбой обвязки: MergeCheck отдаёт ErrBaseMissing, чтобы вызывающий
+// мог отличить её и оставить след в тикете, а не только в логе.
+func TestMergeCheckMissingBaseBranch(t *testing.T) {
+	m, project, task := setup(t)
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	commit(t, ws.Dir, "новое.txt", "работа\n", "работа автора")
+	if _, err := m.Push(ws); err != nil {
+		t.Fatalf("ветка не опубликована: %v", err)
+	}
+
+	_, err = m.MergeCheck(ws.Repo, ws.Branch, "office-integration")
+	if !errors.Is(err, ErrBaseMissing) {
+		t.Errorf("отсутствующая база не распознана как ErrBaseMissing: %v", err)
+	}
+}
+
 // Конфликт считается локально: ни сети, ни forge для этого не нужно.
 func TestMergeCheckFindsConflict(t *testing.T) {
 	m, project, task := setup(t)

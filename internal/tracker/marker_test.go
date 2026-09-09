@@ -767,6 +767,24 @@ func TestMergeRefusalsCountsStreakFromTheEnd(t *testing.T) {
 	}
 }
 
+// MergePending считает отдельно от MergeRefusals — "GitHub ещё не решил"
+// и "GitHub отказал" не смешиваются в одну серию, и настоящий отказ обрывает
+// счёт ожидания, а не продолжает его.
+func TestMergePendingCountsSeparatelyFromRefusals(t *testing.T) {
+	comments := []Comment{
+		notice("office", EventMergePending, 1),
+		notice("office", EventMergePending, 2),
+		notice("office", EventMergeRefused, 3),
+		notice("office", EventMergePending, 4),
+	}
+	if got := MergePending(comments, "office"); got != 1 {
+		t.Errorf("серия %d, ожидалась 1: merge-refused обязан обрывать счёт ожидания", got)
+	}
+	if got := MergeRefusals(comments, "office"); got != 0 {
+		t.Errorf("серия %d, ожидалась 0: merge-pending обязан обрывать счёт отказов", got)
+	}
+}
+
 // Возвраты прохода считаются одним счётчиком на оба события — и это главное:
 // два раздельных счётчика чередование обошло бы. Отказ, продвижение базы,
 // снова отказ — и ни один из двух отдельных счётчиков не дошёл бы до предела,
@@ -816,26 +834,5 @@ func TestPRReturnsCountsBothKindsAsOneStreak(t *testing.T) {
 				t.Errorf("серия %d, ожидалась %d", got, tc.want)
 			}
 		})
-	}
-}
-
-// LastEvent не считает серию — только последнюю запись роли, какой бы она
-// ни была. Используется там, где важно не повторить то же самое сообщение
-// на каждом тике (mergeBlocked, internal/pipeline/prpass.go), а не решать,
-// исчерпан ли предел.
-func TestLastEvent(t *testing.T) {
-	if _, found := LastEvent(nil, "office"); found {
-		t.Error("пустая история не должна давать событие")
-	}
-	comments := []Comment{
-		notice("office", EventMergeRefused, 1),
-		comment("human", "смотрю", 2),
-		notice("office", EventPROpened, 3),
-	}
-	if event, found := LastEvent(comments, "office"); !found || event != EventPROpened {
-		t.Errorf("событие %q (found=%v), ожидалось %q", event, found, EventPROpened)
-	}
-	if _, found := LastEvent(comments, "reviewer"); found {
-		t.Error("у reviewer записей нет, а событие нашлось")
 	}
 }
