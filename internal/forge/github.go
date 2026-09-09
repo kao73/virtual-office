@@ -121,18 +121,71 @@ func (g *GitHub) PRState(url string) (State, error) {
 	}
 }
 
+// pendingMergeStates — mergeable_state, о которых GitHub ещё не решил или
+// которые может снять сам факт, что время прошло: обязательные проверки
+// досчитаются, необязательные тоже, база подтянется. Это не отказ — счётчик
+// limits.max_merge_refusals тратить нельзя.
+var pendingMergeStates = map[string]bool{
+	"unknown":  true, // GitHub ещё считает mergeable — тот же смысл, что null у mergeable
+	"blocked":  true, // обязательные проверки или ревью не завершены
+	"unstable": true, // необязательные проверки ещё идут
+	"behind":   true, // база в понимании GitHub ушла вперёд
+}
+
 // Merge сливает pull request.
+//
+// Перед самим слиянием — отдельный GET за mergeable_state: у merge-эндпоинта
+// нет способа сказать, окончателен 405 или обязательные проверки просто ещё
+// не завершились (REST API этого не документирует), а GitHub считает
+// mergeable_state асинхронно и отдаёт его отдельным полем PR. Не разведя эти
+// два случая, "проверки идут" тратило бы max_merge_refusals наравне
+// с настоящим отказом — а на дефолтном тике в 2 минуты (max_merge_refusals: 3)
+// это исчерпало бы предел за 4-6 минут, раньше, чем успевает пройти обычный CI:
+// заявленная в design.md выгода branch protection не пережила бы собственный
+// предел. Найдено внешним ревью PR, добавившего auto_merge.
 func (g *GitHub) Merge(url string) error {
 	repo, number, err := parsePRURL(url)
 	if err != nil {
 		return err
 	}
+
+	state, err := g.mergeableState(repo, number)
+	if err != nil {
+		return err
+	}
+	if pendingMergeStates[state] {
+		return fmt.Errorf("pull request %s пока не готов к слиянию (mergeable_state=%s): "+
+			"похоже, обязательные проверки или ревью ещё не завершены — проверим на следующем тике",
+			url, state)
+	}
+	if state != "clean" && state != "has_hooks" {
+		// dirty (настоящий конфликт), draft (черновик — GitHub не мержит его
+		// через API) или незнакомое значение: не глотать — раннер обязан
+		// показать человеку то, чего не понимает, а не решать за него
+		// (тот же принцип, что у Limit.State в бюджете, DESIGN.md §2.7).
+		return fmt.Errorf("%w: pull request %s не готов к слиянию (mergeable_state=%s)",
+			ErrRefused, url, state)
+	}
+
 	payload, err := json.Marshal(map[string]string{"merge_method": mergeMethod})
 	if err != nil {
 		return err
 	}
 	path := fmt.Sprintf("/repos/%s/pulls/%d/merge", repo, number)
 	return g.do(http.MethodPut, path, payload, nil)
+}
+
+// mergeableState — что GitHub думает о слиянии PR (значения — см. Merge
+// выше). Отдельный запрос: сам merge-эндпоинт этого не сообщает.
+func (g *GitHub) mergeableState(repo Repo, number int) (string, error) {
+	var answer struct {
+		MergeableState string `json:"mergeable_state"`
+	}
+	path := fmt.Sprintf("/repos/%s/pulls/%d", repo, number)
+	if err := g.do(http.MethodGet, path, nil, &answer); err != nil {
+		return "", err
+	}
+	return answer.MergeableState, nil
 }
 
 // do выполняет запрос и разбирает ответ.
