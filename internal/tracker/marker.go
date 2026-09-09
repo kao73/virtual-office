@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kao73/virtual-office/internal/runner"
 )
@@ -131,13 +132,17 @@ const (
 	// к слиянию (forge.ErrNotReady): обязательные проверки или ревью не
 	// завершены. Может пройти само за несколько тиков (обычный CI), а может
 	// не пройти никогда (упавшая проверка, недостающее ревью) — оба случая
-	// неразличимы на уровне одного ответа GitHub, поэтому пишется каждый тик
-	// и считается отдельным, более терпеливым счётчиком (limits.max_merge_pending,
-	// tracker.MergePending), а не max_merge_refusals: тот исчерпался бы
-	// за 4-6 минут при дефолтном тике, раньше, чем успевает пройти обычный CI.
+	// неразличимы на уровне одного ответа GitHub. Одна запись на весь эпизод
+	// ожидания, не на каждый тик (mergeBlocked-стиль дедупликации в
+	// mergePending, internal/pipeline/prpass.go); предел — отдельный,
+	// заметно более терпеливый, чем max_merge_refusals, и считается временем
+	// от этой записи (limits.max_merge_pending_sec, tracker.MergePendingSince),
+	// а не числом тиков: тот исчерпался бы за 4-6 минут при дефолтном тике,
+	// раньше, чем успевает пройти обычный CI. Нейтрально для PRReturns
+	// и MergeRefusals (см. их) — само по себе ни на что не решилось.
 	EventMergePending = "merge-pending"
-	// EventMergePendingExhausted — event:merge-pending подряд
-	// limits.max_merge_pending раз: слияние не становится готовым, и это,
+	// EventMergePendingExhausted — event:merge-pending стоит дольше
+	// limits.max_merge_pending_sec: слияние не становится готовым, и это,
 	// скорее всего, не CI, а нечто, что само не пройдёт (упавшая проверка,
 	// недостающее ревью). Задача уходит к человеку, pull request не закрыт —
 	// вне prEvents, тем же приёмом, что merge-refusals-exhausted.
@@ -319,19 +324,49 @@ func PushFailures(comments []Comment, role string) int {
 // это беда стороннего сервиса (или его правила, о котором офис не знает),
 // а не провал агента.
 func MergeRefusals(comments []Comment, role string) int {
-	return eventStreak(comments, role, EventMergeRefused)
+	// event:merge-pending — нейтрально: forge просто ещё не ответил на этой
+	// попытке, а не вмешался кто-то или что-то другое. Не будь оно нейтральным,
+	// чередование «отказ → pending → отказ» обрывало бы счёт на каждом pending,
+	// и предел не достигался бы никогда — тот же класс бага, ради которого
+	// вообще завели общий PRReturns, только с третьим событием вместо двух
+	// (внешнее ревью, pr-converge round 2).
+	return neutralEventStreak(comments, role, []string{EventMergeRefused}, []string{EventMergePending})
 }
 
-// MergePending — сколько раз подряд GitHub отвечал, что сам ещё не решил,
-// годится ли pull request к слиянию (forge.ErrNotReady). Отдельный от
-// MergeRefusals счётчик и с отдельным, более терпеливым пределом
-// (limits.max_merge_pending): большинство таких серий — это просто CI,
-// который ещё не закончился, но не все, и без предела вовсе задача,
-// у которой обязательная проверка сломана навсегда, ждала бы её человека
-// не дозвавшись — тот самый провал, которого max_merge_refusals избегал бы,
-// не будь он для этого случая слишком нетерпеливым.
-func MergePending(comments []Comment, role string) int {
-	return eventStreak(comments, role, EventMergePending)
+// MergePendingSince — когда началась текущая серия ожидания (GitHub сам ещё
+// не решил, годится ли pull request к слиянию — forge.ErrNotReady), если она
+// идёт прямо сейчас.
+//
+// Считает не тики, а время: длительность CI не привязана к частоте тика
+// (`--every`), а mergePending (internal/pipeline/prpass.go) пишет одну запись
+// на весь эпизод ожидания, а не одну на тик, — тик посчитать было бы нечем,
+// и час в конфиге (limits.max_merge_pending_sec) остаётся часом при любом
+// `--every`, а не «столько-то тиков» в зависимости от него.
+//
+// found — true, только если самая последняя запись роли и есть
+// event:merge-pending: более поздняя запись любого другого рода (конфликт,
+// отказ, слияние, ответ человека) значит, что тот эпизод ожидания уже кончился.
+func MergePendingSince(comments []Comment, role string) (since time.Time, found bool) {
+	c, ok := lastRoleComment(comments, role)
+	if !ok {
+		return time.Time{}, false
+	}
+	m, _ := MarkerOf(c.Body)
+	if m.Event != EventMergePending {
+		return time.Time{}, false
+	}
+	return c.Created, true
+}
+
+// lastRoleComment — самая последняя (по порядку в истории) запись этой роли,
+// отчёт или системная, если она вообще есть.
+func lastRoleComment(comments []Comment, role string) (Comment, bool) {
+	for i := len(comments) - 1; i >= 0; i-- {
+		if m, ok := MarkerOf(comments[i].Body); ok && m.Role == role {
+			return comments[i], true
+		}
+	}
+	return Comment{}, false
 }
 
 // PRReturns — сколько раз подряд PR-проход вернул задачу, не сдвинув её:
@@ -351,8 +386,15 @@ func MergePending(comments []Comment, role string) int {
 // очередь возвратов. Отчёты implementer'а и reviewer'а серию не трогают,
 // и это существенно: возврат в работу тем и кончается, что они отчитываются, —
 // обрывайся серия на их отчётах, счётчик не досчитал бы до предела никогда.
+//
+// event:merge-pending — тоже не обрывает, но и не считается: он нейтрален
+// (см. MergeRefusals). Не будь он нейтральным, обычный круг «CI идёт → база
+// подъехала → CI снова идёт» рвал бы счёт на каждом pending, и PRReturns
+// не дошёл бы до предела никогда — тот самый вечный круг, ради которого сам
+// PRReturns и заводили, только с третьим событием (внешнее ревью, round 2).
 func PRReturns(comments []Comment, role string) int {
-	return eventStreak(comments, role, EventMergeConflict, EventMergeRefused)
+	return neutralEventStreak(comments, role,
+		[]string{EventMergeConflict, EventMergeRefused}, []string{EventMergePending})
 }
 
 // IdleRuns — сколько прогонов роли подряд не дошли до результата.
@@ -436,12 +478,25 @@ func firstURL(body string) string {
 // ответа — что вмешался человек. Записи чужих ролей и проза без маркера
 // не значат ни того, ни другого и серию не трогают.
 func eventStreak(comments []Comment, role string, events ...string) int {
+	return neutralEventStreak(comments, role, events, nil)
+}
+
+// neutralEventStreak — eventStreak с третьим вердиктом: события из neutral
+// не входят в счёт, но и не обрывают его — они прошли мимо, не сказав ничего
+// ни за, ни против. Обычному eventStreak это не нужно (там уже любое чужое
+// событие — сигнал, что обстоятельства сменились), но событие может само по
+// себе быть «ничего не решилось» — например, merge-pending: forge просто ещё
+// не ответил, и это не то же самое, что implementer отчитался или human
+// вмешался (те по-прежнему обрывают серию через default: stop).
+func neutralEventStreak(comments []Comment, role string, events, neutral []string) int {
 	return streak(comments, func(_ Comment, m Marker, office bool) verdict {
 		switch {
 		case !office || m.Role != role:
 			return passBy
 		case slices.Contains(events, m.Event):
 			return countIn
+		case slices.Contains(neutral, m.Event):
+			return passBy
 		default:
 			return stop
 		}
