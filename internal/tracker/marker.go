@@ -346,13 +346,23 @@ func MergeRefusals(comments []Comment, role string) int {
 // found — true, только если самая последняя запись роли и есть
 // event:merge-pending: более поздняя запись любого другого рода (конфликт,
 // отказ, слияние, ответ человека) значит, что тот эпизод ожидания уже кончился.
+//
+// Нулевое время записи — не «эпизод идёт с начала времён», а «времени нет»:
+// адаптер трекера может тихо проглотить ошибку разбора даты (JIRA — если
+// сервер вернул её в неожиданном формате) и оставить Comment.Created нулевым.
+// До этой функции Created нигде не участвовал в решениях, только в выводе, —
+// с ним это сошло бы с рук; здесь нулевое время означало бы гарантированно
+// истёкший limits.max_merge_pending_sec и эскалацию на первом же тике,
+// то есть ровно ту раннюю эскалацию, ради которой считалось время, а не тики
+// (внешнее ревью, pr-converge round 3). Нулевое время поэтому — found=false:
+// решать нечем, лучше завести эпизод заново, чем соврать о его возрасте.
 func MergePendingSince(comments []Comment, role string) (since time.Time, found bool) {
 	c, ok := lastRoleComment(comments, role)
 	if !ok {
 		return time.Time{}, false
 	}
 	m, _ := MarkerOf(c.Body)
-	if m.Event != EventMergePending {
+	if m.Event != EventMergePending || c.Created.IsZero() {
 		return time.Time{}, false
 	}
 	return c.Created, true

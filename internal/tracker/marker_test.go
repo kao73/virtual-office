@@ -796,6 +796,22 @@ func TestMergePendingSince(t *testing.T) {
 	}
 }
 
+// Нулевое Comment.Created (адаптер трекера тихо проглотил ошибку разбора
+// даты — jira.go) не должно читаться как «эпизод идёт с начала времён»:
+// иначе elapsed переполнился бы и эскалация сработала бы на первом же тике —
+// ровно та ранняя эскалация, ради устранения которой считалось время, а не
+// тики. Найдено внешним ревью, round 3.
+func TestMergePendingSinceRejectsZeroTime(t *testing.T) {
+	comments := []Comment{
+		{ID: "1", Author: "office", Created: time.Time{}, Body: Marker{
+			RunID: runID, Role: "office", Event: EventMergePending, ConfigSHA: "5bc6a3b0",
+		}.String() + "\nОжидание."},
+	}
+	if _, found := MergePendingSince(comments, "office"); found {
+		t.Error("нулевое время записи принято за идущий эпизод")
+	}
+}
+
 // merge-pending нейтрален для MergeRefusals — сам по себе ни на что не
 // решается, forge просто ещё не ответил. Настоящий отказ по-прежнему виден
 // сквозь него. Если бы pending обрывал счёт, чередование «отказ → pending →
