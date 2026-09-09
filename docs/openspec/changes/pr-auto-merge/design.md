@@ -167,3 +167,53 @@ target branches) was a decision made and recorded during brainstorming, not
 a genuinely open unknown; see Non-Goals and
 `docs/superpowers/specs/2026-09-08-pr-auto-merge-design.md` for the
 reasoning behind each.
+
+## Implementation Divergence
+
+Two decisions were made during Build's final whole-branch review — after
+this document and the delta spec were written — that this document didn't
+originally anticipate. Both are additive safety hardening, not scope
+changes to the Goals/Non-Goals above; recorded here per `/comet-verify`'s
+spec-drift handling rather than reopening Design.
+
+**Bounded retry on the widened staleness trigger, not only on merge refusal.**
+The "Bounded, not unbounded, retry on merge refusal" decision above covers
+`max_merge_refusals`, but the *other* new return path — the widened
+`BaseAdvanced` staleness trigger (`prConflict`, applies to every project) —
+shipped with no bound at all: a busy base could in principle return a task
+to the implementer indefinitely, with no counter and no path to a human,
+unlike every other recurring non-agent failure in this codebase. Worse, the
+existing `max_merge_refusals` counter alone could be defeated by alternating
+`merge-refused`/`merge-conflict` markers, each resetting the other's streak.
+
+Fixed with a new `limits.max_pr_returns`, counted by
+`tracker.PRReturns(comments, role)` — one `eventStreak` over **both**
+`event:merge-conflict` and `event:merge-refused` together, mirroring how
+`IdleRuns` already counts two event kinds as one counter for the same
+reason: the consequence is the same (the task isn't making forward
+progress) and two separate counters would let alternation dodge both.
+Escalates via a new `event:pr-returns-exhausted`, kept outside `prEvents`
+for the same reason `event:merge-refusals-exhausted` already is — reusing
+`event:pr-closed` would corrupt `advancePR`'s open-vs-follow routing for a
+PR that isn't actually closed.
+
+**`attemptMerge` verifies the PR URL's repository before merging.**
+Not previously decided at all: `Forge.Merge(url)` trusts whatever
+repository the URL names, and the URL is read from a ticket comment —
+before this change that trust only bought a read (`PRState`); this change
+makes it buy an unattended external write. `attemptMerge` now compares the
+URL's owner/repo against the project's configured `repo_url`
+(`forge.SameRepo`) before calling `Merge`; a mismatch is logged and the
+task is left in place, spending no counter. Host is not part of the
+comparison (only owner/name), which is an accepted, documented limitation
+given this office speaks to a single forge with a single token.
+
+Both are implemented, tested (`TestPRPassStaleReturnsEscalateAtLimit`,
+`TestPRPassAlternatingConflictAndRefusalEscalates`,
+`TestPRPassAutoMergeRefusesForeignRepo`), and live-verified as part of the
+same Task 7 live runs as the rest of this change (they shipped before the
+live runs, in the same branch). The delta spec above was not amended with
+matching requirements — both are implementation-level safety properties of
+the mechanisms the delta spec already describes (the staleness-return
+requirement and the merge-attempt requirement), not new user-observable
+capabilities in their own right, so no new `### Requirement:` was added.
