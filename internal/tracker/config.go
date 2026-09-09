@@ -191,8 +191,15 @@ type Limits struct {
 	// сдвинув её вперёд (продвинувшейся базой или отказом forge в мерже),
 	// прежде чем отдать её человеку. Общий счётчик по обоим видам — см.
 	// tracker.PRReturns: два раздельных предела чередование обошло бы.
-	MaxPRReturns   int `yaml:"max_pr_returns"`
-	LeaseMarginSec int `yaml:"lease_margin_sec"`
+	MaxPRReturns int `yaml:"max_pr_returns"`
+	// MaxMergePending — сколько раз подряд GitHub может ответить, что сам ещё
+	// не решил, годится ли pull request к слиянию (forge.ErrNotReady: не
+	// прошли обязательные проверки, не дано обязательное ревью), прежде чем
+	// задачу отдадут человеку. Отдельный от max_merge_refusals и заметно
+	// терпеливее — тем же тиком (по умолчанию 2 минуты) должен вытерпеть
+	// обычный CI, а не спутать «ещё не закончилось» с окончательным отказом.
+	MaxMergePending int `yaml:"max_merge_pending"`
+	LeaseMarginSec  int `yaml:"lease_margin_sec"`
 }
 
 // HumanReplyRule — что делает раннер, увидев ответ человека на заблокированную задачу.
@@ -383,6 +390,9 @@ func (w Workflow) validate() error {
 	}
 	if w.PR.Set() && w.Limits.MaxPRReturns <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_pr_returns=%d: ожидается положительное число", w.Limits.MaxPRReturns))
+	}
+	if w.PR.Set() && w.Limits.MaxMergePending <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_merge_pending=%d: ожидается положительное число", w.Limits.MaxMergePending))
 	}
 	if w.Limits.LeaseMarginSec < 0 {
 		errs = append(errs, fmt.Errorf("limits.lease_margin_sec=%d: ожидается неотрицательное число", w.Limits.LeaseMarginSec))

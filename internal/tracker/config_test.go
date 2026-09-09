@@ -77,6 +77,7 @@ limits:
   max_idle_runs: 3
   max_merge_refusals: 3
   max_pr_returns: 3
+  max_merge_pending: 30
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -408,6 +409,11 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			want: "max_pr_returns",
 		},
 		{
+			name: "предел ожидания слияния не задан",
+			yaml: strings.Replace(prWorkflow, "max_merge_pending: 30", "max_merge_pending: 0", 1),
+			want: "max_merge_pending",
+		},
+		{
 			name: "статусы не заданы",
 			yaml: strings.Replace(validWorkflow, "statuses: [Ready, InProgress, Review, Blocked, Done]", "statuses: []", 1),
 			want: "statuses",
@@ -607,6 +613,7 @@ limits:
   max_idle_runs: 3
   max_merge_refusals: 3
   max_pr_returns: 3
+  max_merge_pending: 30
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -648,12 +655,14 @@ func TestWorkflowPRPassIsNotARole(t *testing.T) {
 // пределы, которые он никогда не проверит, было бы лишним требованием —
 // вопреки собственному правилу checkPR, что блок необязателен целиком.
 func TestLimitsOptionalWithoutPRPass(t *testing.T) {
-	yaml := strings.Replace(validWorkflow, "  max_merge_refusals: 3\n  max_pr_returns: 3\n", "", 1)
-	if strings.Contains(yaml, "max_merge_refusals") || strings.Contains(yaml, "max_pr_returns") {
-		t.Fatal("фикстура теста не убрала оба предела — проверка вырождена")
+	yaml := strings.Replace(validWorkflow,
+		"  max_merge_refusals: 3\n  max_pr_returns: 3\n  max_merge_pending: 30\n", "", 1)
+	if strings.Contains(yaml, "max_merge_refusals") || strings.Contains(yaml, "max_pr_returns") ||
+		strings.Contains(yaml, "max_merge_pending") {
+		t.Fatal("фикстура теста не убрала все три предела — проверка вырождена")
 	}
 	if _, err := LoadWorkflow(writeTemp(t, WorkflowFile, yaml)); err != nil {
-		t.Errorf("граф без pr не должен требовать max_merge_refusals/max_pr_returns: %v", err)
+		t.Errorf("граф без pr не должен требовать max_merge_refusals/max_pr_returns/max_merge_pending: %v", err)
 	}
 }
 
