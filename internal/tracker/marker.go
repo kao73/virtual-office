@@ -115,6 +115,15 @@ const (
 	// НЕ входит в семейство pr-opened/pr-closed (prEvents) и не лжёт
 	// advancePR о состоянии PR.
 	EventPRReturnsExhausted = "pr-returns-exhausted"
+	// EventMergeUnavailable — слияние сейчас невозможно по причине, которую
+	// самой задаче не решить: forge проекта не собран на этом инстансе, или
+	// адрес pull request в переписке называет не тот репозиторий (комментарий
+	// поправили руками, или он пришёл из чужого офиса). Не отказ forge и не
+	// конфликт: попытки не было вовсе, счётчики (max_merge_refusals,
+	// max_pr_returns) не трогаются, задача остаётся на месте. Пишется один раз
+	// на появление причины (см. tracker.LastEvent), а не на каждый тик, —
+	// иначе тикет затопило бы одинаковыми записями, пока причина не уберётся.
+	EventMergeUnavailable = "merge-unavailable"
 
 	// EventSplitCreated — CompleteSplits досоздал и связал всех детей
 	// подтверждённого split-предложения, родитель закрыт.
@@ -305,14 +314,28 @@ func MergeRefusals(comments []Comment, role string) int {
 // обошло бы. Отказ, конфликт, снова отказ — и ни MergeRefusals, ни счёт одних
 // конфликтов не дошли бы до своего предела, пока задача крутится вечно.
 //
-// Обрывает серию любая другая запись **прохода**: открытие pull request
-// (event:pr-opened) и разбор ответа человека (event:human-reply — unblock
-// подписывает его ролью того, кто говорил последним). Отчёты ролей о прогонах
-// её не трогают, и это существенно: возврат в работу тем и кончается, что
-// implementer с reviewer отчитываются, — обрывайся серия на них, счётчик
-// не досчитал бы до предела никогда.
+// Обрывает серию любая другая запись **прохода** — не только открытие pull
+// request (event:pr-opened) и разбор ответа человека (event:human-reply —
+// unblock подписывает его ролью того, кто говорил последним), но и слияние,
+// закрытие PR, оба вида эскалации: любое из них означает, что задача покинула
+// очередь возвратов. Отчёты implementer'а и reviewer'а серию не трогают,
+// и это существенно: возврат в работу тем и кончается, что они отчитываются, —
+// обрывайся серия на их отчётах, счётчик не досчитал бы до предела никогда.
 func PRReturns(comments []Comment, role string) int {
 	return eventStreak(comments, role, EventMergeConflict, EventMergeRefused)
+}
+
+// LastEvent — событие последней записи роли, какой бы она ни была, и была ли
+// вообще хоть одна. В отличие от eventStreak, не считает серию — годится там,
+// где нужно просто не повторять то же самое сообщение на каждом тике
+// (EventMergeUnavailable), а не решать, исчерпан ли предел.
+func LastEvent(comments []Comment, role string) (event string, found bool) {
+	i := lastOfRole(comments, role, func(Marker) bool { return true })
+	if i < 0 {
+		return "", false
+	}
+	m, _ := MarkerOf(comments[i].Body)
+	return m.Event, true
 }
 
 // IdleRuns — сколько прогонов роли подряд не дошли до результата.

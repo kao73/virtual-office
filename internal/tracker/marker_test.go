@@ -751,3 +751,91 @@ func TestSplitConfirmedWithoutAttachmentTag(t *testing.T) {
 		t.Errorf("вложение %q, ожидалось пустое", attachment)
 	}
 }
+
+// forge отказывает в мерже — беда стороннего сервиса (или его правила, о
+// котором офис не знает), не вина implementer'а. Считается тем же правилом,
+// что PushFailures/LeaseExpiries.
+func TestMergeRefusalsCountsStreakFromTheEnd(t *testing.T) {
+	comments := []Comment{
+		notice("office", EventMergeRefused, 1),
+		notice("office", EventPROpened, 2),
+		notice("office", EventMergeRefused, 3),
+		notice("office", EventMergeRefused, 4),
+	}
+	if got := MergeRefusals(comments, "office"); got != 2 {
+		t.Errorf("серия %d, ожидалась 2: pr-opened обязан обрывать счёт", got)
+	}
+}
+
+// Возвраты прохода считаются одним счётчиком на оба события — и это главное:
+// два раздельных счётчика чередование обошло бы. Отказ, продвижение базы,
+// снова отказ — и ни один из двух отдельных счётчиков не дошёл бы до предела,
+// пока задача крутится вечно. Тот самый баг, найденный и исправленный один раз
+// при разработке auto_merge.
+func TestPRReturnsCountsBothKindsAsOneStreak(t *testing.T) {
+	cases := []struct {
+		name     string
+		comments []Comment
+		want     int
+	}{
+		{"чередование считается одной серией", []Comment{
+			notice("office", EventMergeRefused, 1),
+			notice("office", EventMergeConflict, 2),
+			notice("office", EventMergeRefused, 3),
+		}, 3},
+		{"открытие pull request обрывает счёт", []Comment{
+			notice("office", EventMergeConflict, 1),
+			notice("office", EventMergeRefused, 2),
+			notice("office", EventPROpened, 3),
+		}, 0},
+		{"разбор ответа человека обрывает счёт", []Comment{
+			notice("office", EventMergeRefused, 1),
+			notice("office", EventHumanReply, 2),
+		}, 0},
+		{"отчёты implementer/reviewer серию не обрывают", []Comment{
+			notice("office", EventMergeConflict, 1),
+			report("implementer", "done", 2),
+			report("reviewer", "done", 3),
+			notice("office", EventMergeRefused, 4),
+		}, 2},
+		{"считается с конца, а не за всю жизнь", []Comment{
+			notice("office", EventMergeRefused, 1),
+			notice("office", EventPROpened, 2),
+			notice("office", EventMergeConflict, 3),
+			notice("office", EventMergeRefused, 4),
+		}, 2},
+		{"записи чужой роли не в счёт", []Comment{
+			notice("office", EventMergeConflict, 1),
+			notice("implementer", EventPushFailed, 2),
+			notice("office", EventMergeRefused, 3),
+		}, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PRReturns(tc.comments, "office"); got != tc.want {
+				t.Errorf("серия %d, ожидалась %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// LastEvent не считает серию — только последнюю запись роли, какой бы она
+// ни была. Используется там, где важно не повторить то же самое сообщение
+// на каждом тике (mergeBlocked, internal/pipeline/prpass.go), а не решать,
+// исчерпан ли предел.
+func TestLastEvent(t *testing.T) {
+	if _, found := LastEvent(nil, "office"); found {
+		t.Error("пустая история не должна давать событие")
+	}
+	comments := []Comment{
+		notice("office", EventMergeRefused, 1),
+		comment("human", "смотрю", 2),
+		notice("office", EventPROpened, 3),
+	}
+	if event, found := LastEvent(comments, "office"); !found || event != EventPROpened {
+		t.Errorf("событие %q (found=%v), ожидалось %q", event, found, EventPROpened)
+	}
+	if _, found := LastEvent(comments, "reviewer"); found {
+		t.Error("у reviewer записей нет, а событие нашлось")
+	}
+}

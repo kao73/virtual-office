@@ -227,7 +227,7 @@ func (o *Office) followPR(task tracker.Task, url string) error {
 	if !project.AutoMerge.Enabled {
 		return nil // как сегодня: гейт чист, ждём человека
 	}
-	return o.attemptMerge(task, project, url)
+	return o.attemptMerge(task, project, impl, url)
 }
 
 // prConflict возвращает задачу в работу: и текстовый конфликт, и продвинувшаяся
@@ -352,23 +352,24 @@ func (o *Office) prMerged(task tracker.Task, project tracker.Project, url string
 // attemptMerge сливает pull request сам, когда гейт чист и проект явно
 // доверил офису слияние (auto_merge.enabled). Никакого окна ожидания сверх
 // гейта нет: как только он пройден, попытка идёт на этом же тике.
-func (o *Office) attemptMerge(task tracker.Task, project tracker.Project, url string) error {
-	impl, known := o.Forges[project.Forge]
-	if !known {
-		o.logf("%s: forge %q не собран, задача остаётся на месте", task.Key, project.Forge)
-		return nil
-	}
+//
+// impl приходит от followPR, а не резолвится здесь заново: тот уже сходил
+// в o.Forges[project.Forge] и вернулся бы раньше, найдя его несобранным
+// (тот же ключ, то же условие) — второй такой же lookup здесь был бы не
+// дополнительной защитой, а мёртвым кодом с недостижимой веткой.
+func (o *Office) attemptMerge(task tracker.Task, project tracker.Project, impl forge.Forge, url string) error {
 	// Адрес взят из комментария тикета, а не получен от forge только что:
 	// комментарий могли поправить руками или он пришёл из чужого офиса (см.
 	// advancePR). Пока проход этим адресом только читал, находка стоила одного
 	// лишнего запроса; слияние по нему — это правка чужого репозитория правами
 	// токена офиса, и её надо не делать вовсе. Не отказ и не конфликт: счётчики
-	// тут ни при чём, задача просто остаётся на месте — как и при несобранном
-	// forge выше.
+	// тут ни при чём, задача просто остаётся на месте.
 	if !forge.SameRepo(project.RepoURL, url) {
-		o.logf("%s: адрес pull request %s называет не репозиторий проекта (%s), слияния не будет",
-			task.Key, url, project.RepoURL)
-		return nil
+		return o.mergeBlocked(task, fmt.Sprintf(
+			"Адрес pull request %s называет не репозиторий проекта (%s) — слияния не будет. "+
+				"Комментарий с event:pr-opened могли поправить руками или он пришёл из чужого "+
+				"офиса: проверьте адрес и, если он неверный, поправьте комментарий.",
+			url, project.RepoURL))
 	}
 	switch err := impl.Merge(url); {
 	case err == nil:
@@ -376,10 +377,40 @@ func (o *Office) attemptMerge(task tracker.Task, project tracker.Project, url st
 	case errors.Is(err, forge.ErrRefused):
 		return o.mergeRefused(task, project, url, err)
 	default:
-		// Сбой связи. Локально всё ещё чисто — следующий тик попробует снова.
+		// Сбой связи или mergeable_state ещё не готов (см. forge.GitHub.Merge).
+		// Локально всё ещё чисто — следующий тик попробует снова.
 		o.logf("%s: слияние не выполнено, задача остаётся на месте: %v", task.Key, err)
 		return nil
 	}
+}
+
+// mergeBlocked отмечает, что слияние сейчас невозможно по причине, которую
+// самой задаче не решить (сегодня единственная — адрес PR называет чужой
+// репозиторий). Задача остаётся на месте, счётчики (max_merge_refusals,
+// max_pr_returns) не трогаются: это не работа implementer'а и не отказ forge,
+// а структурная проблема переписки.
+//
+// Запись пишется только при первом обнаружении причины: attemptMerge повторяет
+// её на каждом тике, пока причина не уберётся, а без этой защиты тикет
+// затопило бы одинаковыми записями каждые несколько минут. Найдено внешним
+// ревью PR: раньше это молча оседало только в логе раннера, который человек
+// не читает, — задача могла зависнуть навсегда без единого следа в тикете.
+func (o *Office) mergeBlocked(task tracker.Task, text string) error {
+	if last, found := tracker.LastEvent(task.Comments, o.Workflow.PR.Role); found && last == tracker.EventMergeUnavailable {
+		o.logf("%s: %s (уже отмечено, повторно не пишу)", task.Key, text)
+		return nil
+	}
+	runID, err := runner.NewRunID()
+	if err != nil {
+		return err
+	}
+	if err := o.record(task.Key, tracker.BySystem(), tracker.Marker{
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeUnavailable, ConfigSHA: o.ConfigSHA,
+	}, text); err != nil {
+		return err
+	}
+	o.logf("%s: %s", task.Key, text)
+	return nil
 }
 
 // mergeRefused разбирается с окончательным отказом forge мержить pull

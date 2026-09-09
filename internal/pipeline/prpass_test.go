@@ -108,6 +108,24 @@ func pushDefault(t *testing.T, origin, name, body string) {
 	gitIn(work, "push", "-q", "origin", "master")
 }
 
+// pushBranch заводит в origin новую ветку от текущего master с одним
+// коммитом, которого на master нет, — так проверяется, что auto_merge форкает
+// и мержит именно её, а не ветку по умолчанию (Project.PRBranch).
+func pushBranch(t *testing.T, origin, branch, name, body string) {
+	t.Helper()
+	work := t.TempDir()
+	gitIn(work, "init", "-q", "-b", branch)
+	gitIn(work, "remote", "add", "origin", origin)
+	gitIn(work, "fetch", "-q", "origin", "master")
+	gitIn(work, "checkout", "-q", "-B", branch, "origin/master")
+	if err := os.WriteFile(filepath.Join(work, name), []byte(body), 0o644); err != nil {
+		t.Fatalf("файл не записан: %v", err)
+	}
+	gitIn(work, "add", name)
+	gitIn(work, "commit", "-q", "-m", "коммит только в "+branch)
+	gitIn(work, "push", "-q", "origin", branch)
+}
+
 // writes — агент, который правит файл, а не делает пустой коммит: конфликт
 // на пустых коммитах не воспроизвести.
 func writes(name, body string) func(Request) {
@@ -772,6 +790,58 @@ func TestPRPassAutoMergeMergesCleanGate(t *testing.T) {
 	}
 }
 
+// auto_merge.target_branch — не декоративный псевдоним default_branch: задача
+// обязана форкаться, открывать PR и мержиться именно в него, а не в ветку
+// репозитория по умолчанию. Ровно это Project.PRBranch() и обещает (гейт
+// зависимостей claim() иначе молча переставал бы что-то значить на проекте
+// с изолированной интеграционной веткой) — но ни один из существующих
+// auto-merge тестов TargetBranch не задавал, и с пустым значением PRBranch()
+// вырождается в DefaultBranch, оставляя все 4 места, переключённые
+// на PRBranch() этим PR, непроверенными от регрессии обратно на DefaultBranch.
+func TestPRPassAutoMergeUsesTargetBranchNotDefault(t *testing.T) {
+	o := newOffice(t)
+	const integration = "office-integration"
+	pushBranch(t, o.origin, integration, "интеграционный-маркер.txt", "виден только в office-integration\n")
+
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/40", state: forge.Open})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true, TargetBranch: integration}
+	o.Projects["OFF"] = project
+
+	o.agent.work = func(req Request) {
+		if req.Role.Name != "implementer" {
+			return
+		}
+		if _, err := os.Stat(filepath.Join(req.Workdir, "интеграционный-маркер.txt")); err != nil {
+			t.Errorf("рабочая папка не форкнута от %s: маркерного файла нет: %v", integration, err)
+		}
+		gitIn(req.Workdir, "commit", "-q", "--allow-empty", "-m", "работа автора")
+	}
+	o.approved(t, "OFF-1")
+
+	wantBase := "Базовая ветка: origin/" + integration
+	if ctx := o.agent.context["implementer"]; !strings.Contains(ctx, wantBase) {
+		t.Errorf("контекст implementer'а не называет базой %s:\n%s", integration, ctx)
+	}
+
+	o.pass(t) // pull request открыт — в target_branch, а не в default_branch
+	if len(f.opened) != 1 || f.opened[0].base != integration {
+		t.Fatalf("PR открыт в базу %q, ожидалось %q", f.opened[0].base, integration)
+	}
+
+	o.pass(t) // followPR: гейт чист, мержит сам
+	task := o.get(t, "OFF-1")
+	if task.Status != "Done" {
+		t.Fatalf("статус %q, ожидался Done", task.Status)
+	}
+	if len(f.merged) != 1 {
+		t.Fatalf("Merge вызван %d раз, ожидался один", len(f.merged))
+	}
+	if body := lastComment(t, task).Body; !strings.Contains(body, integration) {
+		t.Errorf("запись о слиянии не называет %s:\n%s", integration, body)
+	}
+}
+
 // auto_merge выключен — сегодняшнее поведение не сломано: на чистом гейте
 // задача остаётся на месте, Merge не вызывается.
 func TestPRPassHumanMergeUnaffectedByGate(t *testing.T) {
@@ -863,6 +933,141 @@ func TestPRPassMergeRefusalEscalatesAtLimit(t *testing.T) {
 	}
 	if url != "https://github.test/kao73/client/pull/23" {
 		t.Errorf("адрес PR после эскалации %q — потерян или подменён", url)
+	}
+}
+
+// Эскалация merge-refusals-exhausted обязана быть обратимой: человек убирает
+// причину отказа (например, чинит branch protection) и отвечает — задача
+// возвращается не в openPR (второй PR на уже открытую ветку не откроется бы),
+// а в followPR тем же PR, и счётчик отказов действительно обнулён, а не просто
+// "разморожен" на прежнем значении. Ни advancePR-маршрутизация, ни сброс
+// eventStreak'а раньше не были пройдены ни одним тестом — только описаны
+// в комментариях кода.
+func TestPRPassRecoversAfterMergeRefusalsExhausted(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{url: "https://github.test/kao73/client/pull/30", state: forge.Open, mergeErr: forge.ErrRefused})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	o.pass(t) // pull request открыт
+
+	o.pass(t) // отказ 1
+	o.pass(t) // отказ 2
+	o.pass(t) // отказ 3 — предел, эскалация
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("статус %q, human %v — ожидалась эскалация", task.Status, task.HumanFlag)
+	}
+
+	if err := o.tasks.AddComment("OFF-1", "human", "Поправил branch protection, пробуйте снова."); err != nil {
+		t.Fatalf("ответ человека не записан: %v", err)
+	}
+	if _, err := o.HumanReplies(context.Background()); err != nil {
+		t.Fatalf("ответы человека не разобраны: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+	if task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после ответа: статус %q, human %v — ожидался Approved без флага", task.Status, task.HumanFlag)
+	}
+
+	// Ещё один отказ подряд не должен немедленно снова эскалировать: если
+	// счётчик не обнулился, а просто "разморозился" на 3, один отказ уже
+	// был бы новым пределом.
+	o.pass(t)
+	task = o.get(t, "OFF-1")
+	if task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после одного отказа post-recovery: статус %q, human %v — счётчик не обнулился",
+			task.Status, task.HumanFlag)
+	}
+	if len(f.opened) != 1 {
+		t.Fatalf("pull request открыт %d раз(а), ожидался один — второй PR не должен открываться", len(f.opened))
+	}
+
+	// Причину отказа устранили по-настоящему — слияние проходит тем же PR.
+	f.mergeErr = nil
+	o.pass(t)
+	task = o.get(t, "OFF-1")
+	if task.Status != "Done" {
+		t.Fatalf("статус %q, ожидался Done", task.Status)
+	}
+	if len(f.opened) != 1 {
+		t.Errorf("pull request открыт %d раз(а), ожидался один", len(f.opened))
+	}
+}
+
+// Тот же сценарий восстановления, но для pr-returns-exhausted: чередование
+// отказа forge и продвинувшейся базы, продолженное за точку эскалации из
+// TestPRPassAlternatingConflictAndRefusalEscalates, — человек отвечает,
+// и задача обязана дойти до Done тем же PR, а не застрять или открыть второй.
+func TestPRPassRecoversAfterPRReturnsExhausted(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{
+		url: "https://github.test/kao73/client/pull/31", state: forge.Open, mergeErr: forge.ErrRefused,
+	})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+	o.pass(t) // pull request открыт
+
+	// Дальше автор сливает базу сам — иначе гейт остался бы грязным навсегда.
+	o.agent.act = func(req Request, _ int) runner.Result {
+		if req.Role.Name != "implementer" {
+			return runner.Result{Outcome: runner.OutcomeDone, Summary: "Принято.", NextOwner: "human"}
+		}
+		merge := exec.Command("git", "-C", req.Workdir, "merge", "--no-edit", "origin/master")
+		merge.Env = gitEnv()
+		if out, err := merge.CombinedOutput(); err != nil {
+			t.Errorf("база не слита: %v\n%s", err, out)
+		}
+		return runner.Result{Outcome: runner.OutcomeDone, Summary: "Слил базу.", NextOwner: "reviewer"}
+	}
+
+	o.pass(t) // возврат 1: отказ forge
+	pushDefault(t, o.origin, "unrelated.txt", "продвинулась\n")
+	o.pass(t) // возврат 2: продвижение базы — задача уходит в Ready
+	if task := o.get(t, "OFF-1"); task.Status != "Ready" {
+		t.Fatalf("статус %q, ожидался Ready", task.Status)
+	}
+	o.tickRoleOnce(t, "implementer") // автор слил базу
+	o.tickRoleOnce(t, "reviewer")
+	if task := o.get(t, "OFF-1"); task.Status != "Approved" {
+		t.Fatalf("после доработки статус %q, ожидался Approved", task.Status)
+	}
+	o.pass(t) // возврат 3: снова отказ forge — предел общего счёта
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("статус %q, human %v — ожидалась эскалация pr-returns-exhausted", task.Status, task.HumanFlag)
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventPRReturnsExhausted) {
+		t.Fatal("в переписке нет записи о достигнутом пределе возвратов")
+	}
+
+	if err := o.tasks.AddComment("OFF-1", "human", "Разобрался, пробуйте снова."); err != nil {
+		t.Fatalf("ответ человека не записан: %v", err)
+	}
+	if _, err := o.HumanReplies(context.Background()); err != nil {
+		t.Fatalf("ответы человека не разобраны: %v", err)
+	}
+	task = o.get(t, "OFF-1")
+	if task.Status != "Approved" || task.HumanFlag {
+		t.Fatalf("после ответа: статус %q, human %v — ожидался Approved без флага", task.Status, task.HumanFlag)
+	}
+
+	// Причину устранили по-настоящему — слияние проходит тем же PR, без
+	// повторного открытия.
+	f.mergeErr = nil
+	o.pass(t)
+	task = o.get(t, "OFF-1")
+	if task.Status != "Done" {
+		t.Fatalf("статус %q, ожидался Done", task.Status)
+	}
+	if len(f.opened) != 1 {
+		t.Errorf("pull request открыт %d раз(а), ожидался один — второй PR не должен открываться", len(f.opened))
 	}
 }
 
@@ -1040,6 +1245,17 @@ func TestPRPassAutoMergeRefusesForeignRepo(t *testing.T) {
 	}
 	if tracker.HasEvent(task.Comments, tracker.EventMergeConflict) {
 		t.Error("чужой адрес записан как конфликт")
+	}
+	// Находка тем не менее видна в тикете — не только в логе раннера,
+	// который человек не читает.
+	if !tracker.HasEvent(task.Comments, tracker.EventMergeUnavailable) {
+		t.Error("чужой репозиторий не оставил следа в тикете")
+	}
+
+	before := len(task.Comments)
+	o.pass(t) // причина не убрана — третий тик не должен повторить запись
+	if got := len(o.get(t, "OFF-1").Comments); got != before {
+		t.Errorf("повторный тик дописал %d записей вместо нуля", got-before)
 	}
 }
 
