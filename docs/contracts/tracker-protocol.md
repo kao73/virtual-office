@@ -824,6 +824,16 @@ pull request остаётся открытым и ждёт; если PR ещё �
 `tracker.MergeRefusals`, тем же `eventStreak`, что `PushFailures` и `LeaseExpiries`, —
 по маркерам `event:merge-refused`.
 
+GitHub у merge-эндпоинта не различает «не сливается никогда» и «обязательные
+проверки ещё не завершились» — оба случая REST API отдаёт голым 405. `GitHub.Merge`
+поэтому сперва спрашивает `mergeable_state` отдельным GET: `blocked`/`unstable`/
+`behind`/`unknown` не окончательны и не пишутся как `event:merge-refused` — счётчик
+не тратится, слияние просто пробуют на следующем тике. Не разведя эти два случая,
+задача с обязательными проверками уходила бы к человеку за 4-6 минут при дефолтном
+тике в 2 минуты и `max_merge_refusals: 3` — раньше, чем успевает пройти обычный CI,
+и заявленная выгода branch protection не пережила бы собственный предел (найдено
+внешним ревью при сведении PR).
+
 Предел — `limits.max_merge_refusals`. Достигнув его, офис пишет
 `event:merge-refusals-exhausted` и отдаёт задачу человеку — но **не** через
 `event:pr-closed`. `pr-closed` входит в семейство {`pr-opened`, `pr-closed`}, по
