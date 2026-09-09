@@ -54,7 +54,12 @@ hooks:
 # счётчик (limits.max_idle_runs в workflow.yaml); подробности — в контракте
 # docs/contracts/tracker-protocol.md.
 limits:
-  max_turns: 50
-  timeout_sec: 1800
+  # 50 не хватило живому разбору EXP-12 (2026-09-09, full-stack диф от
+  # implementer'а на неурезанной постановке) — усёкся на 51-м шаге при 546 с
+  # из 1800 разрешённых: снова упёрлись в шаги, не в таймаут. Тот же случай,
+  # что увеличил implementer'а (roles/implementer/role.yaml) — диф крупнее
+  # обычного, поднято тем же порядком, вслепую, с запасом.
+  max_turns: 100
+  timeout_sec: 2700
 
 result_file: .agent/result.json
