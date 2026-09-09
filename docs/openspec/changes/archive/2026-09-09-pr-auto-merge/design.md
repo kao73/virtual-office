@@ -217,3 +217,55 @@ matching requirements — both are implementation-level safety properties of
 the mechanisms the delta spec already describes (the staleness-return
 requirement and the merge-attempt requirement), not new user-observable
 capabilities in their own right, so no new `### Requirement:` was added.
+
+## pr-converge Findings (PR #9, Round 2)
+
+Found by external review after the branch was already open as PR #9, on top
+of everything above. Recorded here for the same reason as the section
+above — additive hardening or an explicit accept-and-document decision, not
+a scope change.
+
+**GitHub's merge-refusal response doesn't distinguish "not yet" from
+"never."** `GitHub.Merge` reads `mergeable_state` before attempting a
+merge (a fix already covered by the "Bounded, not unbounded, retry on merge
+refusal" decision's *intent*, but not its original *implementation*): the
+REST API answers a required-check-still-running PR with the same bare 405 it
+gives a permanently blocked one, and the first implementation of this read
+counted `blocked`/`unstable`/`behind`/`unknown` as "not a refusal, don't
+count it" without any bound at all — trading the original problem (false
+escalation before CI finishes) for a new one (a permanently failed required
+check, or a review that's never given, hangs forever with no counter and no
+path to a human). Fixed with a second, separate, more patient limit,
+`limits.max_merge_pending` (`tracker.MergePending`, `event:merge-pending` /
+`event:merge-pending-exhausted`) — same shape as `max_merge_refusals`, just
+tolerant enough to outlast ordinary CI.
+
+**`SameRepo` verifies repository identity, not PR identity — accepted, not
+hardened.** The paragraph above already documents that `attemptMerge`
+checks the PR URL's owner/repo before merging, and that this rides on the
+same "marker authenticity isn't checked" trust the whole tracker protocol
+already accepts. External review sharpened the point: with `auto_merge`,
+that acceptance stops being about internal task-state effects (a spoofed
+`pr-opened` marker could already mislead `followPR`'s read of `PRState`) and
+starts being about an actual privileged GitHub write — the office's token
+merging a different, already-mergeable PR in the same repository, if a
+ticket comment names one. Owner's call: document it as an explicitly
+accepted gap next to `SameRepo` itself (`internal/forge/forge.go`), not
+close it in this cycle. Closing it for real would mean verifying the PR's
+head ref against `project.Branch(task.Key)` via the forge, which needs a
+new `Forge` method — a bigger change than this review round's scope.
+
+**The widened `BaseAdvanced` trigger's cost, quantified against
+`max_pr_returns`.** The "Widened staleness trigger" decision above already
+accepts the cost of extra return-to-implementer cycles on every project.
+What it didn't spell out: on a human-merge project, "PR open, waiting for a
+human" is an expected, possibly hours-long state, not a stuck one — and
+`max_pr_returns` counts `BaseAdvanced` returns the same way whether
+`auto_merge` is on or not. A busy base can rack up three such returns well
+within a human's normal response time, escalating to `Blocked` with
+"PR-проход не сходится" wording that reads as a malfunction when nothing
+actually is one. Owner's call: document as accepted (README.md,
+`docs/contracts/tracker-protocol.md`), not special-case the counting by
+`auto_merge.enabled` — keeping the one-code-path decision this section
+already made, at the cost this section already named, just now with the
+specific failure mode spelled out.
