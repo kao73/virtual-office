@@ -395,13 +395,16 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			want: "max_idle_runs",
 		},
 		{
+			// Требуется только там, где вообще есть PR-проход (pr: в графе) —
+			// prWorkflow, не validWorkflow, см. TestLimitsOptionalWithoutPRPass
+			// для обратного случая.
 			name: "предел отказов мержа не задан",
-			yaml: strings.Replace(validWorkflow, "max_merge_refusals: 3", "max_merge_refusals: 0", 1),
+			yaml: strings.Replace(prWorkflow, "max_merge_refusals: 3", "max_merge_refusals: 0", 1),
 			want: "max_merge_refusals",
 		},
 		{
 			name: "предел возвратов PR не задан",
-			yaml: strings.Replace(validWorkflow, "max_pr_returns: 3", "max_pr_returns: 0", 1),
+			yaml: strings.Replace(prWorkflow, "max_pr_returns: 3", "max_pr_returns: 0", 1),
 			want: "max_pr_returns",
 		},
 		{
@@ -636,6 +639,21 @@ func TestWorkflowPRPassIsNotARole(t *testing.T) {
 	}
 	if got := w.HumanStatuses(); !slices.Contains(got, "Blocked") {
 		t.Errorf("статус ожидания прохода не попал в разбор ответов: %v", got)
+	}
+}
+
+// max_merge_refusals и max_pr_returns нужны только там, где вообще есть
+// PR-проход: граф без блока pr — законная конфигурация (forge.go, checkPR),
+// офис просто не открывает pull request, и заставлять такой граф объявлять
+// пределы, которые он никогда не проверит, было бы лишним требованием —
+// вопреки собственному правилу checkPR, что блок необязателен целиком.
+func TestLimitsOptionalWithoutPRPass(t *testing.T) {
+	yaml := strings.Replace(validWorkflow, "  max_merge_refusals: 3\n  max_pr_returns: 3\n", "", 1)
+	if strings.Contains(yaml, "max_merge_refusals") || strings.Contains(yaml, "max_pr_returns") {
+		t.Fatal("фикстура теста не убрала оба предела — проверка вырождена")
+	}
+	if _, err := LoadWorkflow(writeTemp(t, WorkflowFile, yaml)); err != nil {
+		t.Errorf("граф без pr не должен требовать max_merge_refusals/max_pr_returns: %v", err)
 	}
 }
 

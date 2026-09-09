@@ -373,10 +373,15 @@ func (w Workflow) validate() error {
 	if w.Limits.MaxIdleRuns <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_idle_runs=%d: ожидается положительное число", w.Limits.MaxIdleRuns))
 	}
-	if w.Limits.MaxMergeRefusals <= 0 {
+	// Оба предела нужны только там, где вообще есть PR-проход: граф без блока
+	// pr — это офис, который PR не открывает (forge.go), и заставлять такой
+	// граф объявлять пределы, которые он никогда не проверит, значило бы
+	// требовать от него лишнего вопреки собственному правилу checkPR — блок
+	// необязателен целиком.
+	if w.PR.Set() && w.Limits.MaxMergeRefusals <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_merge_refusals=%d: ожидается положительное число", w.Limits.MaxMergeRefusals))
 	}
-	if w.Limits.MaxPRReturns <= 0 {
+	if w.PR.Set() && w.Limits.MaxPRReturns <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_pr_returns=%d: ожидается положительное число", w.Limits.MaxPRReturns))
 	}
 	if w.Limits.LeaseMarginSec < 0 {
@@ -474,6 +479,12 @@ type Rules struct {
 
 // AutoMerge — доверие конкретного инстанса конкретному проекту: мержить ли
 // самим и куда. Решение машины, не офиса — тот же класс, что Forge.
+//
+// Enabled и TargetBranch — независимые решения, не одна опция с двумя полями:
+// TargetBranch действует и без Enabled (см. Project.PRBranch) — так проект
+// с изолированной интеграционной веткой заводит её базой прохода уже сегодня,
+// сливая по-прежнему сам, а включает auto_merge отдельным шагом, когда будет
+// готов.
 type AutoMerge struct {
 	Enabled      bool   `yaml:"enabled"`
 	TargetBranch string `yaml:"target_branch"`
