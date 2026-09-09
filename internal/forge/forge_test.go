@@ -245,25 +245,50 @@ func TestGitHubMergeHasHooksIsReady(t *testing.T) {
 	}
 }
 
-// 405/409 при чистом mergeable_state — GitHub отказывается сливать по
-// причине, которую сам гейт не видит (например, право доступа или гонка):
-// это окончательный ответ, а не сбой связи.
+// 405 при чистом mergeable_state — GitHub отказывается сливать по причине,
+// которую сам гейт не видит (например, право доступа): это окончательный
+// ответ, а не сбой связи. 409 — отдельный случай, см.
+// TestGitHubMergeRaceOnPutIsNotRefusal ниже.
 func TestGitHubMergeRefusal(t *testing.T) {
-	for _, code := range []int{http.StatusMethodNotAllowed, http.StatusConflict} {
-		t.Run(fmt.Sprint(code), func(t *testing.T) {
-			g := github(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == http.MethodGet {
-					_, _ = w.Write([]byte(`{"mergeable_state":"clean"}`))
-					return
-				}
-				w.WriteHeader(code)
-				_, _ = w.Write([]byte(`{"message":"отказ"}`))
-			})
-			err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
-			if !errors.Is(err, ErrRefused) {
-				t.Errorf("код %d не распознан как отказ: %v", code, err)
-			}
-		})
+	g := github(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"mergeable_state":"clean"}`))
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = w.Write([]byte(`{"message":"отказ"}`))
+	})
+	err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+	if !errors.Is(err, ErrRefused) {
+		t.Errorf("405 не распознан как отказ: %v", err)
+	}
+}
+
+// 409 на самом PUT — GitHub его отдаёт как "Head branch was modified":
+// голова или база уехали в окне между нашим GET-гейтом и этим PUT, а не
+// окончательное решение forge. Считать его отказом значило бы тратить
+// max_merge_refusals на гонку миллисекунд, которую следующий тик разрешит
+// сам. Найдено внешним ревью, round 2.
+func TestGitHubMergeRaceOnPutIsNotRefusal(t *testing.T) {
+	putCalled := false
+	g := github(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"mergeable_state":"clean"}`))
+			return
+		}
+		putCalled = true
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"message":"Head branch was modified"}`))
+	})
+	err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+	if err == nil {
+		t.Fatal("гонка на PUT прошла незамеченной")
+	}
+	if errors.Is(err, ErrRefused) {
+		t.Errorf("409 на PUT принят за окончательный отказ: %v", err)
+	}
+	if !putCalled {
+		t.Error("PUT не вызван — гейт не должен был отказать раньше")
 	}
 }
 
@@ -294,8 +319,10 @@ func TestGitHubMergeTransportFailure(t *testing.T) {
 // не пробуем: на дефолтном тике в 2 минуты 3 отказа исчерпали бы предел
 // за 4-6 минут, раньше, чем успеет пройти обычный CI.
 func TestGitHubMergeWaitsForPendingChecks(t *testing.T) {
-	for _, state := range []string{"blocked", "unstable", "behind", "unknown"} {
-		t.Run(state, func(t *testing.T) {
+	// "" — поле не пришло вовсе (старый GHE, урезанный прокси): неотличимо
+	// от «ещё не посчитано», не отказ.
+	for _, state := range []string{"blocked", "unstable", "behind", "unknown", ""} {
+		t.Run(fmt.Sprintf("%q", state), func(t *testing.T) {
 			putCalled := false
 			g := github(t, func(w http.ResponseWriter, r *http.Request) {
 				switch r.Method {
@@ -307,11 +334,11 @@ func TestGitHubMergeWaitsForPendingChecks(t *testing.T) {
 				}
 			})
 			err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
-			if err == nil {
-				t.Fatal("незавершённое состояние принято за готовность к слиянию")
+			if !errors.Is(err, ErrNotReady) {
+				t.Errorf("mergeable_state=%q не распознан как ErrNotReady: %v", state, err)
 			}
 			if errors.Is(err, ErrRefused) {
-				t.Errorf("mergeable_state=%s принят за окончательный отказ: %v", state, err)
+				t.Errorf("mergeable_state=%q принят за окончательный отказ: %v", state, err)
 			}
 			if putCalled {
 				t.Error("слияние вызвано, не дождавшись готовности")

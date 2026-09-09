@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -130,6 +131,8 @@ var pendingMergeStates = map[string]bool{
 	"blocked":  true, // обязательные проверки или ревью не завершены
 	"unstable": true, // необязательные проверки ещё идут
 	"behind":   true, // база в понимании GitHub ушла вперёд
+	"":         true, // поле не пришло вовсе (старый GitHub Enterprise, урезанный прокси)
+	// — не считать это отказом: пустое неотличимо от «ещё не посчитано».
 }
 
 // Merge сливает pull request.
@@ -154,9 +157,15 @@ func (g *GitHub) Merge(url string) error {
 		return err
 	}
 	if pendingMergeStates[state] {
-		return fmt.Errorf("pull request %s пока не готов к слиянию (mergeable_state=%s): "+
+		// ErrNotReady, не голая ошибка: значение неотличимо от «застряло
+		// навсегда» (упавшая обязательная проверка, недостающее обязательное
+		// ревью) — задача не должна виснуть без счёта и без следа в тикете,
+		// просто терпимее, чем к настоящему отказу (limits.max_merge_pending,
+		// internal/pipeline/prpass.go). Найдено внешним ревью, round 2:
+		// первая версия этой ветки просто логировала и не считала вовсе.
+		return fmt.Errorf("%w: pull request %s пока не готов к слиянию (mergeable_state=%q): "+
 			"похоже, обязательные проверки или ревью ещё не завершены — проверим на следующем тике",
-			url, state)
+			ErrNotReady, url, state)
 	}
 	if state != "clean" && state != "has_hooks" {
 		// dirty (настоящий конфликт), draft (черновик — GitHub не мержит его
@@ -172,7 +181,13 @@ func (g *GitHub) Merge(url string) error {
 		return err
 	}
 	path := fmt.Sprintf("/repos/%s/pulls/%d/merge", repo, number)
-	return g.do(http.MethodPut, path, payload, nil)
+	// 409 здесь — "Head branch was modified": гонка между GET-проверкой выше
+	// и этим PUT (кто-то успел передвинуть голову или базу за миллисекунды
+	// между ними), а не окончательный отказ — retryable отдаёт его как сбой
+	// связи, а не ErrRefused. 405 остаётся отказом: он же придёт, если
+	// mergeable_state успел стать dirty/blocked за то же окно, и это тот же
+	// смысл, что и выше.
+	return g.do(http.MethodPut, path, payload, nil, http.StatusConflict)
 }
 
 // mergeableState — что GitHub думает о слиянии PR (значения — см. Merge
@@ -192,7 +207,12 @@ func (g *GitHub) mergeableState(repo Repo, number int) (string, error) {
 //
 // Отказ сервера (4xx) отделяется от сбоя связи: первый — окончательный ответ
 // о задаче, второй — беда обвязки, и задачу за него двигать нельзя.
-func (g *GitHub) do(method, path string, payload []byte, into any) error {
+//
+// retryable называет коды из тех же 4xx, которые здесь всё равно не отказ:
+// у Merge 409 значит гонку между собственной GET-проверкой и этим же
+// запросом, а не решение forge. Список пуст у OpenPR/PRState/mergeableState —
+// им это не грозило ни разу, и раздувать их отказы не для чего.
+func (g *GitHub) do(method, path string, payload []byte, into any, retryable ...int) error {
 	var reader io.Reader
 	if payload != nil {
 		reader = bytes.NewReader(payload)
@@ -219,6 +239,9 @@ func (g *GitHub) do(method, path string, payload []byte, into any) error {
 		return fmt.Errorf("GitHub %s %s: ответ не прочитан: %w", method, path, err)
 	}
 	switch {
+	case slices.Contains(retryable, resp.StatusCode):
+		return fmt.Errorf("GitHub %s %s → %d (переходное состояние, не отказ): %s",
+			method, path, resp.StatusCode, snippet(body))
 	case resp.StatusCode >= 400 && resp.StatusCode < 500:
 		return fmt.Errorf("%w: GitHub %s %s → %d: %s", ErrRefused, method, path, resp.StatusCode, snippet(body))
 	case resp.StatusCode >= 300:
