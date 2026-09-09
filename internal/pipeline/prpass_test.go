@@ -1148,6 +1148,25 @@ func TestPRPassMergePendingDoesNotEscalateEarly(t *testing.T) {
 	}
 }
 
+// Текст тикета — русская проза, а не Go-шный вывод time.Duration ("1h0m0s"),
+// который выбивался бы из остальных записей.
+func TestHumanDuration(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want string
+	}{
+		{time.Hour, "1 ч"},
+		{90 * time.Minute, "1 ч 30 мин"},
+		{45 * time.Minute, "45 мин"},
+		{3601 * time.Second, "1 ч"},
+	}
+	for _, tc := range cases {
+		if got := humanDuration(tc.d); got != tc.want {
+			t.Errorf("humanDuration(%v) = %q, ожидалось %q", tc.d, got, tc.want)
+		}
+	}
+}
+
 // На пределе (limits.max_merge_pending_sec) задача всё же уходит к человеку —
 // иначе провалившаяся навсегда обязательная проверка (или так и не данное
 // обязательное ревью) держала бы задачу в Approved вечно, ничем не отличаясь

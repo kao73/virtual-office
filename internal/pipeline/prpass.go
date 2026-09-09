@@ -479,7 +479,7 @@ func (o *Office) mergePending(task tracker.Task, project tracker.Project, url st
 		}, fmt.Sprintf("%v Гейт (нет конфликта, база %s не продвинулась) чист — офис попробует "+
 			"слияние снова на следующем тике; если причина не в CI, а в чём-то, что само не пройдёт "+
 			"(упавшая проверка, недостающее ревью), не раньше чем через %s подряд такого ожидания "+
-			"офис позовёт человека.", pendingErr, project.PRBranch(), limit)); err != nil {
+			"офис позовёт человека.", pendingErr, project.PRBranch(), humanDuration(limit))); err != nil {
 			return err
 		}
 		o.logf("%s: слияние пока не готово, задача остаётся в очереди прохода: %v", task.Key, pendingErr)
@@ -503,13 +503,30 @@ func (o *Office) mergePending(task tracker.Task, project tracker.Project, url st
 	}, fmt.Sprintf("Слияние не становится готовым %s (limits.max_merge_pending_sec). "+
 		"Pull request %s остаётся открытым — похоже, дело не в CI: разберитесь (упавшая "+
 		"обязательная проверка, недостающее обязательное ревью) и ответьте здесь, и офис "+
-		"попробует слияние снова.", elapsed.Round(time.Second), url)); err != nil {
+		"попробует слияние снова.", humanDuration(elapsed), url)); err != nil {
 		return err
 	}
 	if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
 		return err
 	}
 	return o.Tracker.SetHumanFlag(task.Key, by, true)
+}
+
+// humanDuration — грубая длительность для текста тикета: часы и минуты,
+// без Go-шного вывода вида "1h0m0s" — до минуты человеку хватает, а формат
+// иначе выбивался бы из остальной русской прозы записей (внешнее ревью,
+// pr-converge round 3).
+func humanDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	hours, minutes := int(d.Hours()), int(d.Minutes())%60
+	switch {
+	case hours > 0 && minutes > 0:
+		return fmt.Sprintf("%d ч %d мин", hours, minutes)
+	case hours > 0:
+		return fmt.Sprintf("%d ч", hours)
+	default:
+		return fmt.Sprintf("%d мин", minutes)
+	}
 }
 
 // mergeRefused разбирается с окончательным отказом forge мержить pull
