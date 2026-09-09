@@ -2,6 +2,8 @@
 comet_change: pr-auto-merge
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-09-pr-auto-merge
+status: final
 ---
 
 # pr-auto-merge — технический дизайн

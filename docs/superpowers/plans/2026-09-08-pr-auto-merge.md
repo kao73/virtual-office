@@ -2,6 +2,7 @@
 change: pr-auto-merge
 design-doc: docs/superpowers/specs/2026-09-08-pr-auto-merge-design.md
 base-ref: 3e3f9ec7766d38698d0ab210c82843c57658a809
+archived-with: 2026-09-09-pr-auto-merge
 ---
 
 # pr-auto-merge Implementation Plan
