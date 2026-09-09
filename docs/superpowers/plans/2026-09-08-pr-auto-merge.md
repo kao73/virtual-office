@@ -1348,6 +1348,8 @@ With a second task on the same (or a similar) live project: after its PR is open
 Run: `cd /Users/aleksejkolesnikov/IdeaProjects/virtual-office && go build ./... && go vet ./... && go test ./...`
 Expected: clean. This is the same command as Task 4 Step 7, run once more after all documentation and role.md changes have landed, as the final gate before considering the change done.
 
-- [ ] **Step 4: Close out**
+- [x] **Step 4: Close out**
+
+**Resolution (2026-09-09):** asked the project owner where the live-run outcome record belongs, per this step's instruction not to create a file speculatively. Decision: no separate `docs/notes/` file — Build phase's tasks.md is now fully checked, so the record proceeds through `/comet-verify`'s own verification report rather than a bespoke note.
 
 Report the two live-run outcomes (Steps 1 and 2) back to the project owner in whatever form this project's practice uses for closing an OpenSpec change (see `docs/openspec/changes/pr-auto-merge/` for the change's own artifacts, and follow the `openspec-verify-change` / `comet-verify` workflow already established in this repo rather than improvising a new one here).
