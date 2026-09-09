@@ -3,11 +3,13 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kao73/virtual-office/internal/forge"
 	"github.com/kao73/virtual-office/internal/runner"
@@ -1100,11 +1102,14 @@ func TestPRPassRecoversAfterPRReturnsExhausted(t *testing.T) {
 
 // GitHub, ещё не решивший, годится ли PR (forge.ErrNotReady) — не отказ:
 // max_merge_refusals/max_pr_returns не трогаются, задача остаётся в Approved
-// сколько угодно тиков подряд, пока не достигнут max_merge_pending — свой,
-// более терпеливый предел. Найдено внешним ревью: первая версия фикса на
-// эту проблему (F10) просто логировала и не считала вовсе — задача могла
+// сколько угодно тиков подряд, пока не истечёт limits.max_merge_pending_sec —
+// свой, более терпеливый предел. Найдено внешним ревью: первая версия фикса
+// на эту проблему (F10) просто логировала и не считала вовсе — задача могла
 // зависнуть навсегда без счёта и без следа в тикете, если причина не в CI
 // (упавшая обязательная проверка, недостающее обязательное ревью).
+//
+// Тик — не единица времени ожидания (round 2: первая версия считала тиками,
+// а не временем), поэтому тест двигает o.Now, а не гоняет o.pass в цикле.
 func TestPRPassMergePendingDoesNotEscalateEarly(t *testing.T) {
 	o := newOffice(t)
 	f := o.withForge(&fakeForge{
@@ -1113,16 +1118,21 @@ func TestPRPassMergePendingDoesNotEscalateEarly(t *testing.T) {
 	project := o.Projects["OFF"]
 	project.AutoMerge = tracker.AutoMerge{Enabled: true}
 	o.Projects["OFF"] = project
+	o.Workflow.Limits.MaxMergePendingSec = 3600
 	o.agent.commit = "работа автора"
 	o.approved(t, "OFF-1")
 	o.pass(t) // pull request открыт
 
-	o.Workflow.Limits.MaxMergePending = 3
-	o.pass(t) // ожидание 1
-	o.pass(t) // ожидание 2
+	o.pass(t) // ожидание началось
+	before := len(o.get(t, "OFF-1").Comments)
+	o.Now = func() time.Time { return now.Add(30 * time.Minute) }
+	o.pass(t) // всё ещё в пределах часа — не эскалирует и не пишет заново
 	task := o.get(t, "OFF-1")
 	if task.Status != "Approved" || task.HumanFlag {
-		t.Fatalf("после двух ожиданий: статус %q, human %v — рано звать человека", task.Status, task.HumanFlag)
+		t.Fatalf("через 30 минут ожидания: статус %q, human %v — рано звать человека", task.Status, task.HumanFlag)
+	}
+	if got := len(task.Comments); got != before {
+		t.Errorf("повторный тик дописал %d записей вместо нуля — эпизод должен дедуплицироваться", got-before)
 	}
 	if len(f.merged) != 2 {
 		t.Errorf("Merge вызван %d раз, ожидалось два", len(f.merged))
@@ -1138,7 +1148,7 @@ func TestPRPassMergePendingDoesNotEscalateEarly(t *testing.T) {
 	}
 }
 
-// На пределе (limits.max_merge_pending) задача всё же уходит к человеку —
+// На пределе (limits.max_merge_pending_sec) задача всё же уходит к человеку —
 // иначе провалившаяся навсегда обязательная проверка (или так и не данное
 // обязательное ревью) держала бы задачу в Approved вечно, ничем не отличаясь
 // от настоящего CI, который просто ещё не закончился.
@@ -1150,14 +1160,15 @@ func TestPRPassMergePendingEscalatesAtLimit(t *testing.T) {
 	project := o.Projects["OFF"]
 	project.AutoMerge = tracker.AutoMerge{Enabled: true}
 	o.Projects["OFF"] = project
+	o.Workflow.Limits.MaxMergePendingSec = 3600
 	o.agent.commit = "работа автора"
 	o.approved(t, "OFF-1")
 	o.pass(t) // pull request открыт
 
-	o.Workflow.Limits.MaxMergePending = 3
-	o.pass(t) // ожидание 1
-	o.pass(t) // ожидание 2
-	o.pass(t) // ожидание 3 — предел
+	o.pass(t) // ожидание началось (записано в момент now)
+	o.Now = func() time.Time { return now.Add(3601 * time.Second) }
+	o.pass(t) // предел истёк
+
 	task := o.get(t, "OFF-1")
 	if task.Status != "Blocked" || !task.HumanFlag {
 		t.Fatalf("статус %q, human %v — ожидалась эскалация merge-pending-exhausted", task.Status, task.HumanFlag)
@@ -1171,13 +1182,16 @@ func TestPRPassMergePendingEscalatesAtLimit(t *testing.T) {
 	if !found || event != tracker.EventPROpened || url != f.url {
 		t.Errorf("состояние PR после эскалации: event %q, url %q, found %v", event, url, found)
 	}
-	if len(f.merged) != 3 {
-		t.Errorf("Merge вызван %d раз, ожидалось три", len(f.merged))
+	// Один вызов на начало эпизода, один — на его истечение: время между ними
+	// не требует новых попыток Merge (см. дедупликацию в mergePending).
+	if len(f.merged) != 2 {
+		t.Errorf("Merge вызван %d раз, ожидалось два", len(f.merged))
 	}
 }
 
 // Восстановление зеркалит merge-refusals-exhausted: ответ человека возвращает
-// задачу в followPR тем же PR, и счётчик ожидания по-настоящему обнулён.
+// задачу в followPR тем же PR, и счётчик ожидания по-настоящему обнулён
+// (новый эпизод начинается с текущего момента, а не наследует истёкшее время).
 func TestPRPassRecoversAfterMergePendingExhausted(t *testing.T) {
 	o := newOffice(t)
 	f := o.withForge(&fakeForge{
@@ -1186,14 +1200,14 @@ func TestPRPassRecoversAfterMergePendingExhausted(t *testing.T) {
 	project := o.Projects["OFF"]
 	project.AutoMerge = tracker.AutoMerge{Enabled: true}
 	o.Projects["OFF"] = project
+	o.Workflow.Limits.MaxMergePendingSec = 3600
 	o.agent.commit = "работа автора"
 	o.approved(t, "OFF-1")
 	o.pass(t) // pull request открыт
 
-	o.Workflow.Limits.MaxMergePending = 3
-	o.pass(t)
-	o.pass(t)
-	o.pass(t) // предел, эскалация
+	o.pass(t) // ожидание началось
+	o.Now = func() time.Time { return now.Add(3601 * time.Second) }
+	o.pass(t) // предел истёк, эскалация
 	task := o.get(t, "OFF-1")
 	if task.Status != "Blocked" || !task.HumanFlag {
 		t.Fatalf("статус %q, human %v — ожидалась эскалация", task.Status, task.HumanFlag)
@@ -1210,12 +1224,12 @@ func TestPRPassRecoversAfterMergePendingExhausted(t *testing.T) {
 		t.Fatalf("после ответа: статус %q, human %v — ожидался Approved без флага", task.Status, task.HumanFlag)
 	}
 
-	// Счётчик обнулён по-настоящему: одно ожидание подряд не эскалирует снова.
+	// Счётчик обнулён по-настоящему: сразу после ответа тот же (истёкший)
+	// момент не должен снова эскалировать — новый эпизод начался с нуля.
 	o.pass(t)
 	task = o.get(t, "OFF-1")
 	if task.Status != "Approved" || task.HumanFlag {
-		t.Fatalf("после одного ожидания post-recovery: статус %q, human %v — счётчик не обнулился",
-			task.Status, task.HumanFlag)
+		t.Fatalf("сразу после ответа: статус %q, human %v — счётчик не обнулился", task.Status, task.HumanFlag)
 	}
 
 	f.mergeErr = nil
@@ -1420,6 +1434,79 @@ func TestPRPassAlternatingConflictAndRefusalEscalates(t *testing.T) {
 	// Pull request эскалация не закрывает — по той же причине, что и у
 	// merge-refusals-exhausted: вернувшаяся из Blocked задача должна попасть
 	// в followPR, а не открывать второй PR поверх открытого.
+	event, url, found := tracker.PRState(task.Comments, o.Workflow.PR.Role)
+	if !found || event != tracker.EventPROpened || url != f.url {
+		t.Errorf("состояние PR после эскалации: event %q, url %q, found %v", event, url, found)
+	}
+}
+
+// Тот же круг, что у чередования конфликта с отказом выше, но с event:merge-
+// pending третьим участником: обычный "CI ещё идёт → база подъехала → CI
+// снова идёт" не должен обходить max_pr_returns точно так же, как чередование
+// конфликта с отказом не обходило его раньше. Регрессия round 2: первая
+// версия merge-pending обрывала (не пропускала мимо) серию PRReturns, и этот
+// самый круг крутился бы вечно — по два прогона ролей на виток, — молча
+// обходя единственный предел, который для него и существует.
+func TestPRPassPendingAlternatingWithConflictEscalates(t *testing.T) {
+	o := newOffice(t)
+	f := o.withForge(&fakeForge{
+		url: "https://github.test/kao73/client/pull/70", state: forge.Open, mergeErr: forge.ErrNotReady,
+	})
+	project := o.Projects["OFF"]
+	project.AutoMerge = tracker.AutoMerge{Enabled: true}
+	o.Projects["OFF"] = project
+	o.agent.commit = "работа автора"
+	o.approved(t, "OFF-1")
+
+	o.pass(t) // pull request открыт
+	if len(f.opened) != 1 {
+		t.Fatalf("pull request не открыт: %+v", f.opened)
+	}
+
+	o.agent.act = func(req Request, _ int) runner.Result {
+		if req.Role.Name != "implementer" {
+			return runner.Result{Outcome: runner.OutcomeDone, Summary: "Принято.", NextOwner: "human"}
+		}
+		merge := exec.Command("git", "-C", req.Workdir, "merge", "--no-edit", "origin/master")
+		merge.Env = gitEnv()
+		if out, err := merge.CombinedOutput(); err != nil {
+			t.Errorf("база не слита: %v\n%s", err, out)
+		}
+		return runner.Result{Outcome: runner.OutcomeDone, Summary: "Слил базу.", NextOwner: "reviewer"}
+	}
+
+	for round := 1; round <= 3; round++ {
+		o.pass(t) // CI ещё идёт: merge-pending, не возврат
+		if task := o.get(t, "OFF-1"); task.Status != "Approved" || task.HumanFlag {
+			t.Fatalf("круг %d, после pending: статус %q, human %v — pending не должен трогать задачу",
+				round, task.Status, task.HumanFlag)
+		}
+
+		pushDefault(t, o.origin, fmt.Sprintf("файл-%d.txt", round), "новое в базе\n")
+		o.pass(t) // база подъехала: настоящий возврат
+
+		if round < 3 {
+			task := o.get(t, "OFF-1")
+			if task.Status != "Ready" || task.HumanFlag {
+				t.Fatalf("круг %d, после продвижения базы: статус %q, human %v — ожидался возврат в работу",
+					round, task.Status, task.HumanFlag)
+			}
+			o.tickRoleOnce(t, "implementer")
+			o.tickRoleOnce(t, "reviewer")
+			if task := o.get(t, "OFF-1"); task.Status != "Approved" {
+				t.Fatalf("круг %d: статус после доработки %q, ожидался Approved", round, task.Status)
+			}
+		}
+	}
+
+	task := o.get(t, "OFF-1")
+	if task.Status != "Blocked" || !task.HumanFlag {
+		t.Fatalf("статус %q, human %v — merge-pending обошёл max_pr_returns, круг вечен",
+			task.Status, task.HumanFlag)
+	}
+	if !tracker.HasEvent(task.Comments, tracker.EventPRReturnsExhausted) {
+		t.Error("в переписке нет записи о достигнутом пределе возвратов")
+	}
 	event, url, found := tracker.PRState(task.Comments, o.Workflow.PR.Role)
 	if !found || event != tracker.EventPROpened || url != f.url {
 		t.Errorf("состояние PR после эскалации: event %q, url %q, found %v", event, url, found)

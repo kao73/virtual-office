@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/kao73/virtual-office/internal/forge"
 	"github.com/kao73/virtual-office/internal/runner"
@@ -452,43 +453,63 @@ func (o *Office) mergeBlocked(task tracker.Task, category, detail string) error 
 // несколько тиков (обычный CI), но не все: упавшая обязательная проверка
 // или недостающее обязательное ревью выглядят для GitHub так же и сами
 // не пройдут никогда. Предел терпеливее, чем у mergeRefused
-// (limits.max_merge_pending, а не max_merge_refusals) ровно за счёт того,
+// (limits.max_merge_pending_sec, а не max_merge_refusals) ровно за счёт того,
 // что оба случая неразличимы заранее.
+//
+// Пишет одну запись на весь эпизод ожидания, а не на каждый тик, — в отличие
+// от mergeRefused, у которого каждый отказ содержателен сам по себе. Этот
+// эпизод при branch protection наступает у каждой задачи с auto_merge
+// и обычно длится не один тик: запись на каждый тик затопила бы тикет
+// (тем же приёмом, что mergeBlocked, — tracker.MergePendingSince ищет не
+// счёт записей, а время последней). Найдено внешним ревью: первая версия
+// считала тиками и писала на каждый, что при дефолтном --every превращало
+// «час терпения» в «столько-то тиков», верное только для этого --every.
 func (o *Office) mergePending(task tracker.Task, project tracker.Project, url string, pendingErr error) error {
+	by := tracker.BySystem()
+	limit := time.Duration(o.Workflow.Limits.MaxMergePendingSec) * time.Second
+
+	since, ongoing := tracker.MergePendingSince(task.Comments, o.Workflow.PR.Role)
+	if !ongoing {
+		runID, err := runner.NewRunID()
+		if err != nil {
+			return err
+		}
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePending, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("%v Гейт (нет конфликта, база %s не продвинулась) чист — офис попробует "+
+			"слияние снова на следующем тике; если причина не в CI, а в чём-то, что само не пройдёт "+
+			"(упавшая проверка, недостающее ревью), не раньше чем через %s подряд такого ожидания "+
+			"офис позовёт человека.", pendingErr, project.PRBranch(), limit)); err != nil {
+			return err
+		}
+		o.logf("%s: слияние пока не готово, задача остаётся в очереди прохода: %v", task.Key, pendingErr)
+		return nil
+	}
+
+	elapsed := o.Now().Sub(since)
+	if elapsed < limit {
+		o.logf("%s: слияние всё ещё не готово (%s из %s), задача остаётся в очереди прохода: %v",
+			task.Key, elapsed.Round(time.Second), limit, pendingErr)
+		return nil
+	}
+
+	o.logf("%s: слияние не готово %s подряд, задача уходит к человеку", task.Key, elapsed.Round(time.Second))
 	runID, err := runner.NewRunID()
 	if err != nil {
 		return err
 	}
-	by := tracker.BySystem()
-	pending := tracker.MergePending(task.Comments, o.Workflow.PR.Role) + 1
-
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePending, ConfigSHA: o.ConfigSHA,
-	}, fmt.Sprintf("%v Гейт (нет конфликта, база %s не продвинулась) чист — офис попробует слияние "+
-		"снова на следующем тике; если причина не в CI, а в чём-то, что само не пройдёт "+
-		"(упавшая проверка, недостающее ревью), после %d таких попыток подряд офис позовёт человека.",
-		pendingErr, project.PRBranch(), o.Workflow.Limits.MaxMergePending)); err != nil {
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePendingExhausted, ConfigSHA: o.ConfigSHA,
+	}, fmt.Sprintf("Слияние не становится готовым %s (limits.max_merge_pending_sec). "+
+		"Pull request %s остаётся открытым — похоже, дело не в CI: разберитесь (упавшая "+
+		"обязательная проверка, недостающее обязательное ревью) и ответьте здесь, и офис "+
+		"попробует слияние снова.", elapsed.Round(time.Second), url)); err != nil {
 		return err
 	}
-
-	if pending >= o.Workflow.Limits.MaxMergePending {
-		o.logf("%s: слияние не готово подряд %d раз, задача уходит к человеку", task.Key, pending)
-		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePendingExhausted, ConfigSHA: o.ConfigSHA,
-		}, fmt.Sprintf("Слияние не становится готовым %d тиков подряд (limits.max_merge_pending). "+
-			"Pull request %s остаётся открытым — похоже, дело не в CI: разберитесь (упавшая "+
-			"обязательная проверка, недостающее обязательное ревью) и ответьте здесь, и офис "+
-			"попробует слияние снова.", pending, url)); err != nil {
-			return err
-		}
-		if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
-			return err
-		}
-		return o.Tracker.SetHumanFlag(task.Key, by, true)
+	if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
+		return err
 	}
-
-	o.logf("%s: слияние пока не готово, задача остаётся в очереди прохода: %v", task.Key, pendingErr)
-	return nil
+	return o.Tracker.SetHumanFlag(task.Key, by, true)
 }
 
 // mergeRefused разбирается с окончательным отказом forge мержить pull
