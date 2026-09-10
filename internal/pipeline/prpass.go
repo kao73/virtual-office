@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/kao73/virtual-office/internal/forge"
 	"github.com/kao73/virtual-office/internal/runner"
@@ -80,22 +81,32 @@ func (o *Office) openPR(task tracker.Task) error {
 		return err
 	}
 
-	merge, err := o.Workspaces.MergeCheck(repo, project.Branch(task.Key), project.DefaultBranch)
-	if err != nil {
+	merge, err := o.Workspaces.MergeCheck(repo, project.Branch(task.Key), project.PRBranch())
+	switch {
+	case errors.Is(err, workspace.ErrBaseMissing):
+		// Опечатка в auto_merge.target_branch (или ветку ещё не завели) —
+		// не пройдёт сама, в отличие от прочих ошибок MergeCheck ниже.
+		return o.mergeBlocked(task, categoryMissingBranch, err.Error())
+	case err != nil:
 		// Слияемость не посчитана — это беда обвязки, а не ответ о задаче.
 		// Двигать задачу нельзя: следующий проход попробует снова.
 		o.logf("%s: слияние не проверено, задача остаётся на месте: %v", task.Key, err)
 		return nil
 	}
-	switch {
-	case merge.Empty():
+	if merge.Empty() {
 		return o.prAnomaly(task, fmt.Sprintf(
 			"Сливать нечего: в ветке %s нет коммитов, которых не было бы в %s. "+
 				"Открывать pull request не из чего. Работа либо не дошла до ветки, либо уже в основной. "+
 				"Это аномалия, а не провал прогона: попытка не потрачена.",
-			project.Branch(task.Key), project.DefaultBranch))
-	case merge.Conflict:
-		return o.prConflict(task, project, "")
+			project.Branch(task.Key), project.PRBranch()))
+	}
+	advanced, err := o.Workspaces.BaseAdvanced(repo, project.Branch(task.Key), project.PRBranch())
+	if err != nil {
+		o.logf("%s: продвижение базы не проверено, задача остаётся на месте: %v", task.Key, err)
+		return nil
+	}
+	if merge.Conflict || advanced {
+		return o.prConflict(task, project, "", merge.Conflict)
 	}
 
 	// Архивирование — свойство изменения, а не forge: без него он не собран
@@ -140,7 +151,7 @@ func (o *Office) openPR(task tracker.Task) error {
 		return nil
 	}
 
-	url, err := impl.OpenPR(task.Project, project.Branch(task.Key), project.DefaultBranch, title, body)
+	url, err := impl.OpenPR(task.Project, project.Branch(task.Key), project.PRBranch(), title, body)
 	switch {
 	case errors.Is(err, forge.ErrRefused):
 		// Окончательный ответ forge о самой задаче — разговор с человеком.
@@ -155,11 +166,21 @@ func (o *Office) openPR(task tracker.Task) error {
 	if err != nil {
 		return err
 	}
+	// Кто сливает — свойство проекта, а не офиса: обещать человеку его же
+	// работу там, где офис сделает её сам, значит врать в тикете (auto_merge
+	// у проекта включён явно, и человек, читающий запись, вправе знать, ждут
+	// его или нет).
+	fate := fmt.Sprintf("Сливает человек — офис за него этого не делает. "+
+		"Слияние он увидит сам и переведёт задачу в %s; закрытый без слияния PR вернётся разговором.",
+		o.Workflow.PR.Merged)
+	if project.AutoMerge.Enabled {
+		fate = fmt.Sprintf("Сливает офис сам (auto_merge), как только гейт чист: ни конфликта, "+
+			"ни продвинувшейся базы. Ждать от человека нечего — после слияния задача уйдёт в %s; "+
+			"закрытый без слияния PR вернётся разговором.", o.Workflow.PR.Merged)
+	}
 	if err := o.record(task.Key, tracker.BySystem(), tracker.Marker{
 		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPROpened, ConfigSHA: o.ConfigSHA,
-	}, fmt.Sprintf("Pull request открыт: %s\n\nСливает человек — офис за него этого не делает. "+
-		"Слияние он увидит сам и переведёт задачу в %s; закрытый без слияния PR вернётся разговором.",
-		url, o.Workflow.PR.Merged)); err != nil {
+	}, fmt.Sprintf("Pull request открыт: %s\n\n%s", url, fate)); err != nil {
 		return err
 	}
 	o.logf("%s: pull request открыт: %s", task.Key, url)
@@ -178,6 +199,10 @@ func (o *Office) followPR(task tracker.Task, url string) error {
 		return nil
 	}
 
+	// Без SameRepo намеренно: url тот же непроверенный адрес из переписки,
+	// что и перед Merge ниже, но здесь только читают. Тот же принятый риск,
+	// что у неё (forge.SameRepo, internal/forge/forge.go) — распространяется
+	// и на этот вызов, не только на сам Merge.
 	state, err := impl.PRState(url)
 	if err != nil {
 		o.logf("%s: состояние pull request не выяснено, задача остаётся на месте: %v", task.Key, err)
@@ -186,7 +211,7 @@ func (o *Office) followPR(task tracker.Task, url string) error {
 
 	switch state {
 	case forge.Merged:
-		return o.prMerged(task, url)
+		return o.prMerged(task, project, url)
 	case forge.Closed:
 		return o.prAnomaly(task, fmt.Sprintf(
 			"Pull request %s закрыт без слияния. Работу не взяли — дальше решать человеку: "+
@@ -194,47 +219,105 @@ func (o *Office) followPR(task tracker.Task, url string) error {
 				"переведите задачу в очередь разработчика руками.", url))
 	}
 
-	// PR открыт. Ветка по умолчанию с тех пор могла уехать вперёд.
-	merge, err := o.Workspaces.MergeCheck(repo, project.Branch(task.Key), project.DefaultBranch)
-	if err != nil {
+	// PR открыт. База с тех пор могла уехать вперёд — текстовым конфликтом
+	// или без него.
+	merge, err := o.Workspaces.MergeCheck(repo, project.Branch(task.Key), project.PRBranch())
+	switch {
+	case errors.Is(err, workspace.ErrBaseMissing):
+		return o.mergeBlocked(task, categoryMissingBranch, err.Error())
+	case err != nil:
 		o.logf("%s: слияние не проверено, задача остаётся на месте: %v", task.Key, err)
 		return nil
 	}
-	if merge.Conflict {
-		return o.prConflict(task, project, url)
+	advanced, err := o.Workspaces.BaseAdvanced(repo, project.Branch(task.Key), project.PRBranch())
+	if err != nil {
+		o.logf("%s: продвижение базы не проверено, задача остаётся на месте: %v", task.Key, err)
+		return nil
 	}
-	return nil
+	if merge.Conflict || advanced {
+		return o.prConflict(task, project, url, merge.Conflict)
+	}
+	if !project.AutoMerge.Enabled {
+		return nil // как сегодня: гейт чист, ждём человека
+	}
+	return o.attemptMerge(task, project, impl, url)
 }
 
-// prConflict возвращает задачу в работу: конфликт — это работа, а не провал.
+// prConflict возвращает задачу в работу: и текстовый конфликт, и продвинувшаяся
+// без конфликта база — это работа, а не провал.
 //
 // Попытка не тратится и pull request не закрывается: задача вернётся сюда после
 // разбора, и тот же PR подхватит её — в переписке последней остаётся запись
 // об открытии.
-func (o *Office) prConflict(task tracker.Task, project tracker.Project, url string) error {
+//
+// Круг этот не бесконечен. Подряд limits.max_pr_returns возвратов — и задача
+// уходит к человеку: если база не даёт ветке устояться (или forge не даёт слить
+// — счёт общий, см. tracker.PRReturns), дело не в задаче, и гонять по ней роли
+// дальше значит жечь прогоны впустую.
+func (o *Office) prConflict(task tracker.Task, project tracker.Project, url string, textConflict bool) error {
 	runID, err := runner.NewRunID()
 	if err != nil {
 		return err
 	}
 	to := o.Workflow.PR.Conflict
 	by := tracker.BySystem()
+	// Возвраты считаются до записи о нынешнем: он в этот счёт и войдёт.
+	returns := tracker.PRReturns(task.Comments, o.Workflow.PR.Role) + 1
+	exhausted := returns >= o.Workflow.Limits.MaxPRReturns
 
-	// Про открытый pull request говорится, только если он есть. Конфликт бывает
-	// найден и до открытия — тогда обещать, что «PR подхватит задачу», значит
+	kind := "конфликт"
+	reason := fmt.Sprintf("Ветка %s не сливается с %s.", project.Branch(task.Key), project.PRBranch())
+	if !textConflict {
+		kind = "продвижение базы"
+		reason = fmt.Sprintf("База %s продвинулась вперёд с тех пор, как ветка %s была создана — "+
+			"конфликта нет, но контекст мог устареть.", project.PRBranch(), project.Branch(task.Key))
+	}
+
+	// Про открытый pull request говорится, только если он есть. Проблема бывает
+	// найдена и до открытия — тогда обещать, что «PR подхватит задачу», значит
 	// врать: подхватывать нечему. Поймано живой проверкой на GitHub.
 	fate := "Pull request откроется, когда работа вернётся сюда."
 	if url != "" {
 		fate = fmt.Sprintf("Pull request %s остаётся открытым и подхватит задачу, когда она вернётся.", url)
 	}
+	// Возвращение в работу обещается, только если оно и вправду будет:
+	// на пределе задача уходит к человеку, и «возвращается в Ready» соседней
+	// строкой с «дальше разбираться человеку» было бы ложью — тем же счётом
+	// к правде, что и fate выше.
+	tail := fmt.Sprintf("Задача возвращается в %s: слить базу и разрешить, если есть что, — "+
+		"это работа, а не провал, и счётчик попыток не тронут. База уже принесена "+
+		"в клон, сеть для слияния не нужна. %s", to, fate)
+	if exhausted {
+		tail = fmt.Sprintf("В %s задача на этот раз не поедет: это %d-й возврат подряд, и это предел. "+
+			"Попытка, как и прежде, не потрачена. %s", to, returns, fate)
+	}
 	if err := o.record(task.Key, by, tracker.Marker{
 		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeConflict, ConfigSHA: o.ConfigSHA,
-	}, fmt.Sprintf("Ветка %s не сливается с %s. Задача возвращается в %s: разрешить конфликт — "+
-		"это работа, а не провал, и счётчик попыток не тронут. Ветка по умолчанию уже принесена "+
-		"в клон, сеть для слияния не нужна. %s",
-		project.Branch(task.Key), project.DefaultBranch, to, fate)); err != nil {
+	}, reason+" "+tail); err != nil {
 		return err
 	}
-	o.logf("%s: конфликт слияния, задача возвращается в %s", task.Key, to)
+
+	if exhausted {
+		o.logf("%s: PR-проход не сходится подряд %d раз (последнее — %s), задача уходит к человеку",
+			task.Key, returns, kind)
+		// Не prAnomaly и не event:pr-closed: pull request не закрыт (та же
+		// причина и тот же приём, что у mergeRefused, — см. её). Маркер свой
+		// и вне prEvents: семейству состояния PR он не лжёт.
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRReturnsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("PR-проход не сходится %d раз подряд (limits.max_pr_returns): либо база "+
+			"не даёт ветке устояться, либо forge не даёт слить, — счёт у этих бед общий, потому "+
+			"что чередованием одно от другого не отличить. Дальше разбираться человеку: уберите "+
+			"причину и ответьте здесь, и офис попробует снова.", returns)); err != nil {
+			return err
+		}
+		if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
+			return err
+		}
+		return o.Tracker.SetHumanFlag(task.Key, by, true)
+	}
+
+	o.logf("%s: %s, задача возвращается в %s", task.Key, kind, to)
 	return o.move(task, by, to)
 }
 
@@ -261,8 +344,8 @@ func (o *Office) prSkipped(task tracker.Task, project tracker.Project) error {
 	return o.move(task, by, to)
 }
 
-// prMerged закрывает жизнь задачи: работа в ветке по умолчанию.
-func (o *Office) prMerged(task tracker.Task, url string) error {
+// prMerged закрывает жизнь задачи: работа слита в ветку, куда метил PR-проход.
+func (o *Office) prMerged(task tracker.Task, project tracker.Project, url string) error {
 	runID, err := runner.NewRunID()
 	if err != nil {
 		return err
@@ -271,12 +354,253 @@ func (o *Office) prMerged(task tracker.Task, url string) error {
 	by := tracker.BySystem()
 	if err := o.record(task.Key, by, tracker.Marker{
 		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMerged, ConfigSHA: o.ConfigSHA,
-	}, fmt.Sprintf("Pull request %s слит. Задача уходит в %s, рабочая папка больше не нужна "+
-		"и будет убрана.", url, to)); err != nil {
+	}, fmt.Sprintf("Pull request %s слит в %s. Задача уходит в %s, рабочая папка больше не нужна "+
+		"и будет убрана.", url, project.PRBranch(), to)); err != nil {
 		return err
 	}
 	o.logf("%s: pull request слит, задача уходит в %s", task.Key, to)
 	return o.move(task, by, to)
+}
+
+// attemptMerge сливает pull request сам, когда гейт чист и проект явно
+// доверил офису слияние (auto_merge.enabled). Никакого окна ожидания сверх
+// гейта нет: как только он пройден, попытка идёт на этом же тике.
+//
+// impl приходит от followPR, а не резолвится здесь заново: тот уже сходил
+// в o.Forges[project.Forge] и вернулся бы раньше, найдя его несобранным
+// (тот же ключ, то же условие) — второй такой же lookup здесь был бы не
+// дополнительной защитой, а мёртвым кодом с недостижимой веткой.
+func (o *Office) attemptMerge(task tracker.Task, project tracker.Project, impl forge.Forge, url string) error {
+	// Адрес взят из комментария тикета, а не получен от forge только что:
+	// комментарий могли поправить руками или он пришёл из чужого офиса (см.
+	// advancePR). Пока проход этим адресом только читал, находка стоила одного
+	// лишнего запроса; слияние по нему — это правка чужого репозитория правами
+	// токена офиса, и её надо не делать вовсе. Не отказ и не конфликт: счётчики
+	// тут ни при чём, задача просто остаётся на месте.
+	if !forge.SameRepo(project.RepoURL, url) {
+		return o.mergeBlocked(task, categoryForeignRepo, fmt.Sprintf(
+			"Адрес pull request %s называет не репозиторий проекта (%s) — слияния не будет. "+
+				"Комментарий с event:pr-opened могли поправить руками или он пришёл из чужого "+
+				"офиса: проверьте адрес и, если он неверный, поправьте комментарий.",
+			url, project.RepoURL))
+	}
+	switch err := impl.Merge(url); {
+	case err == nil:
+		return o.prMerged(task, project, url)
+	case errors.Is(err, forge.ErrRefused):
+		return o.mergeRefused(task, project, url, err)
+	case errors.Is(err, forge.ErrNotReady):
+		return o.mergePending(task, project, url, err)
+	default:
+		// Сбой связи (сеть, 5xx, гонка 409 на самом PUT — см. forge.GitHub.Merge).
+		// Локально всё ещё чисто — следующий тик попробует снова, без счёта:
+		// это беда обвязки или мимолётная гонка, не про саму задачу.
+		o.logf("%s: слияние не выполнено, задача остаётся на месте: %v", task.Key, err)
+		return nil
+	}
+}
+
+// Категории EventMergeUnavailable — стабильные ярлыки первой строки записи,
+// без динамических деталей (адреса, имени ветки): tracker.EventCategories
+// сравнивает их дословно по всей истории, а детали (какой адрес, какая
+// ветка) остаются в тексте после ярлыка и в сравнение не идут — тем же
+// приёмом, что categoryFooBar в internal/pipeline/splits.go.
+const (
+	categoryForeignRepo   = "Адрес pull request называет чужой репозиторий"
+	categoryMissingBranch = "Базовая ветка auto_merge не существует в репозитории"
+)
+
+// mergeBlocked отмечает, что слияние сейчас невозможно по причине, которую
+// самой задаче не решить (адрес PR называет чужой репозиторий, или
+// auto_merge.target_branch называет несуществующую ветку). Задача остаётся
+// на месте, счётчики (max_merge_refusals, max_pr_returns, max_merge_pending)
+// не трогаются: это не работа implementer'а и не отказ forge, а структурная
+// проблема конфигурации или переписки.
+//
+// Запись пишется по одному разу на category, не на каждый тик: attemptMerge
+// повторяет причину на каждом проходе, пока её не уберут, а без дедупликации
+// тикет затопило бы одинаковыми записями каждые несколько минут. По
+// category, а не по последней записи (tracker.EventCategories, не
+// самодельное сравнение с последней) — иначе две разные причины, случившиеся
+// один за другим, потеряли бы друг друга: вторая переписала бы собой первую,
+// а третья, которая на самом деле повторяет первую, снова показалась бы
+// новой. Найдено внешним ревью PR: раньше это молча оседало только в логе
+// раннера, который человек не читает, — задача могла зависнуть навсегда без
+// единого следа в тикете (round 1), а первая версия дедупликации сравнивала
+// только с последней записью, теряя вторую причину при чередовании (round 2).
+func (o *Office) mergeBlocked(task tracker.Task, category, detail string) error {
+	if tracker.EventCategories(task.Comments, tracker.EventMergeUnavailable)[category] {
+		o.logf("%s: %s (эта причина уже звучала, повторно не пишу)", task.Key, category)
+		return nil
+	}
+	runID, err := runner.NewRunID()
+	if err != nil {
+		return err
+	}
+	text := category + "\n" + detail
+	if err := o.record(task.Key, tracker.BySystem(), tracker.Marker{
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeUnavailable, ConfigSHA: o.ConfigSHA,
+	}, text); err != nil {
+		return err
+	}
+	o.logf("%s: %s", task.Key, text)
+	return nil
+}
+
+// mergePending разбирается с тем, что GitHub сам ещё не решил, годится ли
+// pull request к слиянию (forge.ErrNotReady) — обязательные проверки или
+// ревью не завершены. Большинство таких серий сами собой кончаются за
+// несколько тиков (обычный CI), но не все: упавшая обязательная проверка
+// или недостающее обязательное ревью выглядят для GitHub так же и сами
+// не пройдут никогда. Предел терпеливее, чем у mergeRefused
+// (limits.max_merge_pending_sec, а не max_merge_refusals) ровно за счёт того,
+// что оба случая неразличимы заранее.
+//
+// Пишет одну запись на весь эпизод ожидания, а не на каждый тик, — в отличие
+// от mergeRefused, у которого каждый отказ содержателен сам по себе. Этот
+// эпизод при branch protection наступает у каждой задачи с auto_merge
+// и обычно длится не один тик: запись на каждый тик затопила бы тикет
+// (тем же приёмом, что mergeBlocked, — tracker.MergePendingSince ищет не
+// счёт записей, а время последней). Найдено внешним ревью: первая версия
+// считала тиками и писала на каждый, что при дефолтном --every превращало
+// «час терпения» в «столько-то тиков», верное только для этого --every.
+func (o *Office) mergePending(task tracker.Task, project tracker.Project, url string, pendingErr error) error {
+	by := tracker.BySystem()
+	limit := time.Duration(o.Workflow.Limits.MaxMergePendingSec) * time.Second
+
+	since, ongoing := tracker.MergePendingSince(task.Comments, o.Workflow.PR.Role)
+	if !ongoing {
+		runID, err := runner.NewRunID()
+		if err != nil {
+			return err
+		}
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePending, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("%v Гейт (нет конфликта, база %s не продвинулась) чист — офис попробует "+
+			"слияние снова на следующем тике; если причина не в CI, а в чём-то, что само не пройдёт "+
+			"(упавшая проверка, недостающее ревью), не раньше чем через %s подряд такого ожидания "+
+			"офис позовёт человека.", pendingErr, project.PRBranch(), humanDuration(limit))); err != nil {
+			return err
+		}
+		o.logf("%s: слияние пока не готово, задача остаётся в очереди прохода: %v", task.Key, pendingErr)
+		return nil
+	}
+
+	elapsed := o.Now().Sub(since)
+	if elapsed < limit {
+		o.logf("%s: слияние всё ещё не готово (%s из %s), задача остаётся в очереди прохода: %v",
+			task.Key, elapsed.Round(time.Second), limit, pendingErr)
+		return nil
+	}
+
+	o.logf("%s: слияние не готово %s подряд, задача уходит к человеку", task.Key, elapsed.Round(time.Second))
+	runID, err := runner.NewRunID()
+	if err != nil {
+		return err
+	}
+	if err := o.record(task.Key, by, tracker.Marker{
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePendingExhausted, ConfigSHA: o.ConfigSHA,
+	}, fmt.Sprintf("Слияние не становится готовым %s (limits.max_merge_pending_sec). "+
+		"Pull request %s остаётся открытым — похоже, дело не в CI: разберитесь (упавшая "+
+		"обязательная проверка, недостающее обязательное ревью) и ответьте здесь, и офис "+
+		"попробует слияние снова.", humanDuration(elapsed), url)); err != nil {
+		return err
+	}
+	if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
+		return err
+	}
+	return o.Tracker.SetHumanFlag(task.Key, by, true)
+}
+
+// humanDuration — грубая длительность для текста тикета: часы и минуты,
+// без Go-шного вывода вида "1h0m0s" — до минуты человеку хватает, а формат
+// иначе выбивался бы из остальной русской прозы записей (внешнее ревью,
+// pr-converge round 3).
+func humanDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	hours, minutes := int(d.Hours()), int(d.Minutes())%60
+	switch {
+	case hours > 0 && minutes > 0:
+		return fmt.Sprintf("%d ч %d мин", hours, minutes)
+	case hours > 0:
+		return fmt.Sprintf("%d ч", hours)
+	default:
+		return fmt.Sprintf("%d мин", minutes)
+	}
+}
+
+// mergeRefused разбирается с окончательным отказом forge мержить pull
+// request, который локально выглядит чистым (гейт прошёл MergeCheck и
+// BaseAdvanced).
+//
+// Это не работа implementer'а: локально мержить нечего, он честно отчитается
+// done, и цикл повторится вслепую. Счётчик — по образцу max_push_failures:
+// считается по маркерам в переписке, не полем трекера.
+func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url string, mergeErr error) error {
+	runID, err := runner.NewRunID()
+	if err != nil {
+		return err
+	}
+	by := tracker.BySystem()
+	refusals := tracker.MergeRefusals(task.Comments, o.Workflow.PR.Role) + 1
+	// Второй счётчик — общий с возвратами по продвинувшейся базе: чередование
+	// «отказ → база уехала → отказ» обрывает серию отказов на каждом шаге,
+	// и один только refusals своего предела не достиг бы никогда (tracker.PRReturns).
+	returns := tracker.PRReturns(task.Comments, o.Workflow.PR.Role) + 1
+
+	if err := o.record(task.Key, by, tracker.Marker{
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeRefused, ConfigSHA: o.ConfigSHA,
+	}, fmt.Sprintf("Forge отказал в слиянии pull request %s, хотя локально гейт чист (нет конфликта, "+
+		"база %s не продвинулась): %v. Разбираться с этим — не работа implementer'а: смотреть надо "+
+		"на правило forge, о котором офис не знает (например, branch protection).",
+		url, project.PRBranch(), mergeErr)); err != nil {
+		return err
+	}
+
+	switch {
+	case refusals >= o.Workflow.Limits.MaxMergeRefusals:
+		o.logf("%s: forge отказывает в мерже подряд %d раз, задача уходит к человеку", task.Key, refusals)
+		// Не prAnomaly: PR не закрыт, он по-прежнему открыт и просто не мержится.
+		// prAnomaly пишет event:pr-closed — а это ложь семейству pr-opened/pr-closed
+		// (prEvents, marker.go), по которому advancePR решает, звать openPR или
+		// followPR. Соврав, что PR закрыт, следующий возврат из Blocked повёл бы
+		// через openPR — попытку открыть второй PR на уже открытую ветку, отказ
+		// GitHub-а (422/ErrRefused) и новый уход в Blocked без единой попытки
+		// слияния. Эскалация здесь — по образцу pushFailed: отдельная запись-предел,
+		// без вмешательства в семейство состояния PR.
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeRefusalsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("Forge отказывает в слиянии %d раз подряд (limits.max_merge_refusals) при локально "+
+			"чистом состоянии. Pull request %s остаётся открытым — разбираться с правилом forge (например, "+
+			"branch protection) нужно человеку; после исправления ответьте здесь, и офис попробует слияние снова.",
+			refusals, url)); err != nil {
+			return err
+		}
+		if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
+			return err
+		}
+		return o.Tracker.SetHumanFlag(task.Key, by, true)
+
+	case returns >= o.Workflow.Limits.MaxPRReturns:
+		o.logf("%s: PR-проход не сходится подряд %d раз (чередование отказа и продвижения базы), "+
+			"задача уходит к человеку", task.Key, returns)
+		if err := o.record(task.Key, by, tracker.Marker{
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRReturnsExhausted, ConfigSHA: o.ConfigSHA,
+		}, fmt.Sprintf("PR-проход не сходится %d раз подряд (limits.max_pr_returns), чередуя отказ forge "+
+			"и продвижение базы: ни одна из двух серий по отдельности предела не достигает, а задача "+
+			"так и не сдвигается. Pull request %s остаётся открытым — дальше разбираться человеку: "+
+			"уберите причину и ответьте здесь, и офис попробует снова.", returns, url)); err != nil {
+			return err
+		}
+		if err := o.move(task, by, o.Workflow.PR.Closed); err != nil {
+			return err
+		}
+		return o.Tracker.SetHumanFlag(task.Key, by, true)
+
+	default:
+		o.logf("%s: forge отказал в слиянии, задача остаётся в очереди прохода: %v", task.Key, mergeErr)
+	}
+	return nil
 }
 
 // prAnomaly уводит задачу к человеку: с pull request что-то не так, и решать
@@ -409,7 +733,14 @@ func (o *Office) prBody(task tracker.Task, repo string, project tracker.Project)
 		// разметка для раннера.
 		body += "\n\n## Разбор\n\n" + strings.TrimSpace(tracker.WithoutMarker(report))
 	}
-	body += fmt.Sprintf("\n\n---\nЗадача: %s. Pull request открыт офисом; сливает человек.", task.Key)
+	// Подпись говорит правду про этот проект, а не про офис вообще: на проекте
+	// с auto_merge слить PR офис собирается сам, и звать за этим человека
+	// значит звать его зря.
+	merger := "сливает человек"
+	if project.AutoMerge.Enabled {
+		merger = "сливает офис сам, когда гейт чист (auto_merge)"
+	}
+	body += fmt.Sprintf("\n\n---\nЗадача: %s. Pull request открыт офисом; %s.", task.Key, merger)
 	return title, body, nil
 }
 

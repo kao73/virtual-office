@@ -73,6 +73,27 @@ func TestMergeCheckEmptyBranch(t *testing.T) {
 	}
 }
 
+// Базовая ветка прохода (auto_merge.target_branch, опечатанная или ещё
+// не заведённая) отсутствует в клоне — это конфигурационная опечатка,
+// а не сбой обвязки: MergeCheck отдаёт ErrBaseMissing, чтобы вызывающий
+// мог отличить её и оставить след в тикете, а не только в логе.
+func TestMergeCheckMissingBaseBranch(t *testing.T) {
+	m, project, task := setup(t)
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	commit(t, ws.Dir, "новое.txt", "работа\n", "работа автора")
+	if _, err := m.Push(ws); err != nil {
+		t.Fatalf("ветка не опубликована: %v", err)
+	}
+
+	_, err = m.MergeCheck(ws.Repo, ws.Branch, "office-integration")
+	if !errors.Is(err, ErrBaseMissing) {
+		t.Errorf("отсутствующая база не распознана как ErrBaseMissing: %v", err)
+	}
+}
+
 // Конфликт считается локально: ни сети, ни forge для этого не нужно.
 func TestMergeCheckFindsConflict(t *testing.T) {
 	m, project, task := setup(t)
@@ -200,5 +221,72 @@ func TestTryLockRespectsRunningAgent(t *testing.T) {
 	}
 	if err := locked.Unlock(); err != nil {
 		t.Errorf("замок не снят: %v", err)
+	}
+}
+
+// База не продвинулась — ветка задачи только что срублена и уже содержит все
+// коммиты базы. Обычное дневное состояние: гейту здесь нечего заметить.
+func TestBaseAdvancedFalseWhenBaseIsAncestor(t *testing.T) {
+	m, project, task := setup(t)
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	commit(t, ws.Dir, "новое.txt", "работа\n", "работа автора")
+	if _, err := m.Push(ws); err != nil {
+		t.Fatalf("ветка не опубликована: %v", err)
+	}
+
+	advanced, err := m.BaseAdvanced(ws.Repo, ws.Branch, project.DefaultBranch)
+	if err != nil {
+		t.Fatalf("продвижение не проверено: %v", err)
+	}
+	if advanced {
+		t.Error("свежесрубленная ветка признана отставшей от базы")
+	}
+}
+
+// База продвинулась вперёд с тех пор, как ветка задачи была срублена — даже
+// без единого конфликтного маркера контекст, в котором работали implementer
+// и reviewer, мог устареть по смыслу.
+func TestBaseAdvancedTrueWhenBaseMovedOn(t *testing.T) {
+	m, project, task := setup(t)
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	commit(t, ws.Dir, "своё.txt", "работа\n", "работа автора")
+	if _, err := m.Push(ws); err != nil {
+		t.Fatalf("ветка не опубликована: %v", err)
+	}
+
+	pushDefault(t, project, "чужое.txt", "правка в базе\n")
+	if _, err := m.Repo(task.Project, project); err != nil {
+		t.Fatalf("клон не освежён: %v", err)
+	}
+
+	advanced, err := m.BaseAdvanced(ws.Repo, ws.Branch, project.DefaultBranch)
+	if err != nil {
+		t.Fatalf("продвижение не проверено: %v", err)
+	}
+	if !advanced {
+		t.Error("продвинувшаяся база не замечена")
+	}
+}
+
+// Несуществующая ветка или база — ошибка, как и у MergeCheck: сравнивать
+// нечего, и это беда обвязки, а не ответ о задаче.
+func TestBaseAdvancedMissingRef(t *testing.T) {
+	m, project, task := setup(t)
+	ws, err := m.Ensure(task, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+
+	if _, err := m.BaseAdvanced(ws.Repo, "нет-такой-ветки", project.DefaultBranch); err == nil {
+		t.Error("несуществующая ветка задачи принята без ошибки")
+	}
+	if _, err := m.BaseAdvanced(ws.Repo, ws.Branch, "нет-такой-базы"); err == nil {
+		t.Error("несуществующая база принята без ошибки")
 	}
 }

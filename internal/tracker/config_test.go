@@ -75,6 +75,9 @@ limits:
   max_lease_expiries: 3
   max_push_failures: 3
   max_idle_runs: 3
+  max_merge_refusals: 3
+  max_pr_returns: 3
+  max_merge_pending_sec: 3600
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -113,6 +116,8 @@ limits:
   max_lease_expiries: 3
   max_push_failures: 3
   max_idle_runs: 3
+  max_merge_refusals: 3
+  max_pr_returns: 3
   max_return_rounds: 3
   lease_margin_sec: 300
 human_reply:
@@ -391,6 +396,24 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 			want: "max_idle_runs",
 		},
 		{
+			// Требуется только там, где вообще есть PR-проход (pr: в графе) —
+			// prWorkflow, не validWorkflow, см. TestLimitsOptionalWithoutPRPass
+			// для обратного случая.
+			name: "предел отказов мержа не задан",
+			yaml: strings.Replace(prWorkflow, "max_merge_refusals: 3", "max_merge_refusals: 0", 1),
+			want: "max_merge_refusals",
+		},
+		{
+			name: "предел возвратов PR не задан",
+			yaml: strings.Replace(prWorkflow, "max_pr_returns: 3", "max_pr_returns: 0", 1),
+			want: "max_pr_returns",
+		},
+		{
+			name: "предел ожидания слияния не задан",
+			yaml: strings.Replace(prWorkflow, "max_merge_pending_sec: 3600", "max_merge_pending_sec: 0", 1),
+			want: "max_merge_pending_sec",
+		},
+		{
 			name: "статусы не заданы",
 			yaml: strings.Replace(validWorkflow, "statuses: [Ready, InProgress, Review, Blocked, Done]", "statuses: []", 1),
 			want: "statuses",
@@ -491,6 +514,7 @@ func TestLoadProjectsRejectsIncomplete(t *testing.T) {
 		{"относительный worktree_root", validOffice, validMachine + "  worktree_root: ../рядом\n", "worktree_root"},
 		{"нет трекера", validOffice, strings.Replace(validMachine, "  tracker: mock\n", "", 1), "tracker"},
 		{"чужой трекер", validOffice, strings.Replace(validMachine, "tracker: mock", "tracker: youtrack", 1), "youtrack"},
+		{"auto_merge без forge", validOffice, validMachine + "  auto_merge:\n    enabled: true\n", "forge"},
 	}
 
 	for _, tc := range cases {
@@ -587,6 +611,9 @@ limits:
   max_lease_expiries: 3
   max_push_failures: 3
   max_idle_runs: 3
+  max_merge_refusals: 3
+  max_pr_returns: 3
+  max_merge_pending_sec: 3600
   lease_margin_sec: 300
 human_reply:
   fallback: Ready
@@ -619,6 +646,23 @@ func TestWorkflowPRPassIsNotARole(t *testing.T) {
 	}
 	if got := w.HumanStatuses(); !slices.Contains(got, "Blocked") {
 		t.Errorf("статус ожидания прохода не попал в разбор ответов: %v", got)
+	}
+}
+
+// max_merge_refusals и max_pr_returns нужны только там, где вообще есть
+// PR-проход: граф без блока pr — законная конфигурация (forge.go, checkPR),
+// офис просто не открывает pull request, и заставлять такой граф объявлять
+// пределы, которые он никогда не проверит, было бы лишним требованием —
+// вопреки собственному правилу checkPR, что блок необязателен целиком.
+func TestLimitsOptionalWithoutPRPass(t *testing.T) {
+	yaml := strings.Replace(validWorkflow,
+		"  max_merge_refusals: 3\n  max_pr_returns: 3\n  max_merge_pending_sec: 3600\n", "", 1)
+	if strings.Contains(yaml, "max_merge_refusals") || strings.Contains(yaml, "max_pr_returns") ||
+		strings.Contains(yaml, "max_merge_pending_sec") {
+		t.Fatal("фикстура теста не убрала все три предела — проверка вырождена")
+	}
+	if _, err := LoadWorkflow(writeTemp(t, WorkflowFile, yaml)); err != nil {
+		t.Errorf("граф без pr не должен требовать max_merge_refusals/max_pr_returns/max_merge_pending_sec: %v", err)
 	}
 }
 
@@ -840,6 +884,39 @@ func TestUnionStringsDedupsAndSorts(t *testing.T) {
 	}
 	if got := unionStrings(); got != nil {
 		t.Errorf("unionStrings() без слоёв = %v, ожидался nil", got)
+	}
+}
+
+// PRBranch — ветка, от которой форкаются задачи и куда метит PR-проход:
+// target_branch авто-мержа, если задан, иначе default_branch.
+func TestPRBranch(t *testing.T) {
+	p := Project{DefaultBranch: "master"}
+	if got := p.PRBranch(); got != "master" {
+		t.Errorf("PRBranch() = %q без target_branch, ожидался default_branch %q", got, "master")
+	}
+	p.AutoMerge.TargetBranch = "office-integration"
+	if got := p.PRBranch(); got != "office-integration" {
+		t.Errorf("PRBranch() = %q, ожидался target_branch %q", got, "office-integration")
+	}
+}
+
+// auto_merge доезжает из машинной половины и склеивается в Project так же,
+// как forge — тем же путём LoadProjects.
+func TestLoadProjectsCarriesAutoMerge(t *testing.T) {
+	machine := validMachine + "  forge: github\n  auto_merge:\n    enabled: true\n    target_branch: office-integration\n"
+	projects, err := loadHalves(t, validOffice, machine)
+	if err != nil {
+		t.Fatalf("проекты не загружены: %v", err)
+	}
+	p, err := projects.Get("OFF")
+	if err != nil {
+		t.Fatalf("проект OFF не найден: %v", err)
+	}
+	if !p.AutoMerge.Enabled {
+		t.Error("auto_merge.enabled не доехал из машинной половины")
+	}
+	if got := p.PRBranch(); got != "office-integration" {
+		t.Errorf("PRBranch() = %q, ожидался office-integration", got)
 	}
 }
 

@@ -367,12 +367,14 @@ func (m *Manager) hasWorktree(repo, dir string) (bool, error) {
 // addWorktree заводит рабочую папку на ветке задачи.
 //
 // Ветка ищется в трёх местах, по порядку: локальные ссылки клона,
-// `origin/<ветка задачи>` и — если её нигде нет — `origin/<default>`.
+// `origin/<ветка задачи>` и — если её нигде нет — `origin/<базовая ветка
+// прохода>` (Project.PRBranch — auto_merge.target_branch, если он задан,
+// иначе default_branch).
 //
 // Средний случай не роскошь. Раннер сам публикует ветку задачи после каждого
 // прогона, а локальные ссылки живут в клоне, который сносят: стёртое хозяйство,
 // вторая машина, новый диск. Без взгляда на origin implementer стартовал бы
-// от ветки по умолчанию, не увидев плана аналитика, а его собственный пуш потом
+// от базовой ветки заново, не увидев плана аналитика, а его собственный пуш потом
 // отвергался бы как non-fast-forward — работа целая, но никто не понимает, где.
 func (m *Manager) addWorktree(ws Workspace, project tracker.Project) error {
 	local, err := refExists(ws.Repo, "refs/heads/"+ws.Branch)
@@ -399,7 +401,7 @@ func (m *Manager) addWorktree(ws Workspace, project tracker.Project) error {
 	case remote:
 		_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, "origin/"+ws.Branch)
 	default:
-		_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, "origin/"+project.DefaultBranch)
+		_, err = git(ws.Repo, "worktree", "add", "--quiet", "-b", ws.Branch, ws.Dir, "origin/"+project.PRBranch())
 	}
 	return err
 }

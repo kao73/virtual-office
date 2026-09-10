@@ -751,3 +751,153 @@ func TestSplitConfirmedWithoutAttachmentTag(t *testing.T) {
 		t.Errorf("вложение %q, ожидалось пустое", attachment)
 	}
 }
+
+// forge отказывает в мерже — беда стороннего сервиса (или его правила, о
+// котором офис не знает), не вина implementer'а. Считается тем же правилом,
+// что PushFailures/LeaseExpiries.
+func TestMergeRefusalsCountsStreakFromTheEnd(t *testing.T) {
+	comments := []Comment{
+		notice("office", EventMergeRefused, 1),
+		notice("office", EventPROpened, 2),
+		notice("office", EventMergeRefused, 3),
+		notice("office", EventMergeRefused, 4),
+	}
+	if got := MergeRefusals(comments, "office"); got != 2 {
+		t.Errorf("серия %d, ожидалась 2: pr-opened обязан обрывать счёт", got)
+	}
+}
+
+// MergePending считает отдельно от MergeRefusals — "GitHub ещё не решил"
+// и "GitHub отказал" не смешиваются в одну серию, и настоящий отказ обрывает
+// счёт ожидания, а не продолжает его.
+func TestMergePendingSince(t *testing.T) {
+	if _, found := MergePendingSince(nil, "office"); found {
+		t.Error("пустая история не должна давать эпизод ожидания")
+	}
+
+	comments := []Comment{
+		notice("office", EventMergePending, 1),
+		notice("office", EventMergeRefused, 2),
+	}
+	if _, found := MergePendingSince(comments, "office"); found {
+		t.Error("последняя запись — отказ, эпизода ожидания сейчас нет")
+	}
+
+	comments = []Comment{
+		notice("office", EventMergeRefused, 1),
+		notice("office", EventMergePending, 2),
+	}
+	since, found := MergePendingSince(comments, "office")
+	if !found {
+		t.Fatal("последняя запись — pending, эпизод должен быть найден")
+	}
+	if !since.Equal(comments[1].Created) {
+		t.Errorf("since=%v, ожидалось время последней записи %v", since, comments[1].Created)
+	}
+}
+
+// Нулевое Comment.Created (адаптер трекера тихо проглотил ошибку разбора
+// даты — jira.go) не должно читаться как «эпизод идёт с начала времён»:
+// иначе elapsed переполнился бы и эскалация сработала бы на первом же тике —
+// ровно та ранняя эскалация, ради устранения которой считалось время, а не
+// тики. Найдено внешним ревью, round 3.
+func TestMergePendingSinceRejectsZeroTime(t *testing.T) {
+	comments := []Comment{
+		{ID: "1", Author: "office", Created: time.Time{}, Body: Marker{
+			RunID: runID, Role: "office", Event: EventMergePending, ConfigSHA: "5bc6a3b0",
+		}.String() + "\nОжидание."},
+	}
+	if _, found := MergePendingSince(comments, "office"); found {
+		t.Error("нулевое время записи принято за идущий эпизод")
+	}
+}
+
+// merge-pending нейтрален для MergeRefusals — сам по себе ни на что не
+// решается, forge просто ещё не ответил. Настоящий отказ по-прежнему виден
+// сквозь него. Если бы pending обрывал счёт, чередование «отказ → pending →
+// отказ» никогда не дошло бы до предела — баг, найденный внешним ревью
+// в round 2.
+func TestMergePendingDoesNotBreakRefusalStreak(t *testing.T) {
+	comments := []Comment{
+		notice("office", EventMergeRefused, 1),
+		notice("office", EventMergePending, 2),
+		notice("office", EventMergeRefused, 3),
+	}
+	if got := MergeRefusals(comments, "office"); got != 2 {
+		t.Errorf("серия %d, ожидалась 2: merge-pending не должен обрывать счёт отказов", got)
+	}
+}
+
+// Без нейтральности pending у PRReturns/MergeRefusals чередование
+// merge-pending с настоящим возвратом обходило бы оба предела точно так же,
+// как раньше их обходило чередование merge-conflict/merge-refused между
+// собой, — только с третьим событием вместо двух.
+func TestMergePendingIsNeutralForReturnsAndRefusals(t *testing.T) {
+	comments := []Comment{
+		notice("office", EventMergeRefused, 1),
+		notice("office", EventMergePending, 2),
+		notice("office", EventMergeConflict, 3),
+		notice("office", EventMergePending, 4),
+		notice("office", EventMergeRefused, 5),
+	}
+	if got := PRReturns(comments, "office"); got != 3 {
+		t.Errorf("PRReturns=%d, ожидалось 3: pending между возвратами не должен рвать серию", got)
+	}
+	if got := MergeRefusals(comments, "office"); got != 1 {
+		t.Errorf("MergeRefusals=%d, ожидалось 1: последняя запись — отказ, но между "+
+			"предыдущим отказом и этим был конфликт, который для MergeRefusals серию обрывает "+
+			"по-прежнему (это её собственная, отдельная от PRReturns семантика)", got)
+	}
+}
+
+// Возвраты прохода считаются одним счётчиком на оба события — и это главное:
+// два раздельных счётчика чередование обошло бы. Отказ, продвижение базы,
+// снова отказ — и ни один из двух отдельных счётчиков не дошёл бы до предела,
+// пока задача крутится вечно. Тот самый баг, найденный и исправленный один раз
+// при разработке auto_merge.
+func TestPRReturnsCountsBothKindsAsOneStreak(t *testing.T) {
+	cases := []struct {
+		name     string
+		comments []Comment
+		want     int
+	}{
+		{"чередование считается одной серией", []Comment{
+			notice("office", EventMergeRefused, 1),
+			notice("office", EventMergeConflict, 2),
+			notice("office", EventMergeRefused, 3),
+		}, 3},
+		{"открытие pull request обрывает счёт", []Comment{
+			notice("office", EventMergeConflict, 1),
+			notice("office", EventMergeRefused, 2),
+			notice("office", EventPROpened, 3),
+		}, 0},
+		{"разбор ответа человека обрывает счёт", []Comment{
+			notice("office", EventMergeRefused, 1),
+			notice("office", EventHumanReply, 2),
+		}, 0},
+		{"отчёты implementer/reviewer серию не обрывают", []Comment{
+			notice("office", EventMergeConflict, 1),
+			report("implementer", "done", 2),
+			report("reviewer", "done", 3),
+			notice("office", EventMergeRefused, 4),
+		}, 2},
+		{"считается с конца, а не за всю жизнь", []Comment{
+			notice("office", EventMergeRefused, 1),
+			notice("office", EventPROpened, 2),
+			notice("office", EventMergeConflict, 3),
+			notice("office", EventMergeRefused, 4),
+		}, 2},
+		{"записи чужой роли не в счёт", []Comment{
+			notice("office", EventMergeConflict, 1),
+			notice("implementer", EventPushFailed, 2),
+			notice("office", EventMergeRefused, 3),
+		}, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PRReturns(tc.comments, "office"); got != tc.want {
+				t.Errorf("серия %d, ожидалась %d", got, tc.want)
+			}
+		})
+	}
+}

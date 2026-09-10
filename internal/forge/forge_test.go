@@ -3,6 +3,7 @@ package forge
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -38,6 +39,42 @@ func TestParseRepo(t *testing.T) {
 	for _, bad := range []string{"/Users/kao/polygons/client.git", "", "https://github.com/"} {
 		if repo, err := ParseRepo(bad); err == nil {
 			t.Errorf("из %q выведен репозиторий %q", bad, repo)
+		}
+	}
+}
+
+// Адрес pull request приходит офису не от forge, а из комментария тикета:
+// его могли поправить руками или он пришёл из чужого офиса. Прежде чем слить
+// такой PR, офис сверяет его репозиторий со своим repo_url — во всех трёх
+// формах адреса и с локальным путём полигона заодно.
+func TestSameRepo(t *testing.T) {
+	const pr = "https://github.com/kao73/client/pull/42"
+	same := []string{
+		"https://github.com/kao73/client.git",
+		"https://github.com/kao73/client",
+		"git@github.com:kao73/client.git",
+		"ssh://git@github.com/kao73/client.git",
+		"https://github.com/KAO73/Client.git", // GitHub к регистру не чувствителен
+		"/Users/kao/polygons/kao73/client.git",
+	}
+	for _, repoURL := range same {
+		if !SameRepo(repoURL, pr) {
+			t.Errorf("%q и %q сочтены разными репозиториями", repoURL, pr)
+		}
+	}
+
+	other := []struct{ repoURL, prURL string }{
+		{"https://github.com/kao73/client.git", "https://github.com/чужой/client/pull/42"},
+		{"https://github.com/kao73/client.git", "https://github.com/kao73/другой/pull/42"},
+		{"https://github.com/kao73/client.git", "не адрес"},
+		{"https://github.com/kao73/client.git", ""},
+		{"", pr},
+		// Хвост совпадает буквой, а не сегментом: `my-client` — не `client`.
+		{"https://github.com/kao73/my-client.git", pr},
+	}
+	for _, tc := range other {
+		if SameRepo(tc.repoURL, tc.prURL) {
+			t.Errorf("%q и %q сочтены одним репозиторием", tc.repoURL, tc.prURL)
 		}
 	}
 }
@@ -155,5 +192,183 @@ func TestGitHubSeparatesRefusalFromFailure(t *testing.T) {
 	// ждать, что он появится, нечего.
 	if _, err := refusing.OpenPR("OFF", "agent/OFF-1", "master", "з", "т"); !errors.Is(err, ErrRefused) {
 		t.Errorf("неизвестный проект не распознан как отказ: %v", err)
+	}
+}
+
+// Merge сначала спрашивает mergeable_state (GET), и только застав его чистым —
+// мержит через PUT .../pulls/{number}/merge, с зашитым merge_method: "merge" —
+// сохраняет историю ветки задачи как есть.
+func TestGitHubMerge(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotPayload map[string]string
+	g := github(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"mergeable_state":"clean"}`))
+			return
+		}
+		gotMethod, gotPath = r.Method, r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotPayload)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"merged":true}`))
+	})
+
+	if err := g.Merge("https://github.com/kao73/expense-tracker/pull/3"); err != nil {
+		t.Fatalf("слияние не выполнено: %v", err)
+	}
+	if gotMethod != http.MethodPut || gotPath != "/repos/kao73/expense-tracker/pulls/3/merge" {
+		t.Errorf("запрос ушёл не туда: %s %s", gotMethod, gotPath)
+	}
+	if gotPayload["merge_method"] != "merge" {
+		t.Errorf("merge_method = %q, ожидалось merge", gotPayload["merge_method"])
+	}
+}
+
+// has_hooks — тоже готовое к слиянию состояние (информационное: у репозитория
+// есть pre-receive hook), не входит в pendingMergeStates и не должно уйти
+// в отказ.
+func TestGitHubMergeHasHooksIsReady(t *testing.T) {
+	putCalled := false
+	g := github(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"mergeable_state":"has_hooks"}`))
+			return
+		}
+		putCalled = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"merged":true}`))
+	})
+	if err := g.Merge("https://github.com/kao73/expense-tracker/pull/3"); err != nil {
+		t.Fatalf("слияние не выполнено: %v", err)
+	}
+	if !putCalled {
+		t.Error("has_hooks сочтён неготовым, слияние не вызвано")
+	}
+}
+
+// 405 при чистом mergeable_state — GitHub отказывается сливать по причине,
+// которую сам гейт не видит (например, право доступа): это окончательный
+// ответ, а не сбой связи. 409 — отдельный случай, см.
+// TestGitHubMergeRaceOnPutIsNotRefusal ниже.
+func TestGitHubMergeRefusal(t *testing.T) {
+	g := github(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"mergeable_state":"clean"}`))
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = w.Write([]byte(`{"message":"отказ"}`))
+	})
+	err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+	if !errors.Is(err, ErrRefused) {
+		t.Errorf("405 не распознан как отказ: %v", err)
+	}
+}
+
+// 409 на самом PUT — GitHub его отдаёт как "Head branch was modified":
+// голова или база уехали в окне между нашим GET-гейтом и этим PUT, а не
+// окончательное решение forge. Считать его отказом значило бы тратить
+// max_merge_refusals на гонку миллисекунд, которую следующий тик разрешит
+// сам. Найдено внешним ревью, round 2.
+func TestGitHubMergeRaceOnPutIsNotRefusal(t *testing.T) {
+	putCalled := false
+	g := github(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"mergeable_state":"clean"}`))
+			return
+		}
+		putCalled = true
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"message":"Head branch was modified"}`))
+	})
+	err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+	if err == nil {
+		t.Fatal("гонка на PUT прошла незамеченной")
+	}
+	if errors.Is(err, ErrRefused) {
+		t.Errorf("409 на PUT принят за окончательный отказ: %v", err)
+	}
+	if !putCalled {
+		t.Error("PUT не вызван — гейт не должен был отказать раньше")
+	}
+}
+
+// Сбой связи/5xx — задачу за него двигать нельзя, следующий проход
+// попробует снова.
+func TestGitHubMergeTransportFailure(t *testing.T) {
+	g := github(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"mergeable_state":"clean"}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadGateway)
+	})
+	err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+	if err == nil {
+		t.Fatal("сбой сервера прошёл незамеченным")
+	}
+	if errors.Is(err, ErrRefused) {
+		t.Errorf("сбой связи принят за отказ: %v", err)
+	}
+}
+
+// GitHub у merge-эндпоинта не сообщает, окончателен ли 405 или это просто
+// не завершились обязательные проверки — REST API этого не документирует.
+// mergeable_state (отдельный GET) отличает их: blocked/unstable/behind/unknown
+// значат «GitHub ещё не решил или ждёт того, что может пройти само», и это
+// не отказ — счётчик max_merge_refusals тратить нельзя, а слияние даже
+// не пробуем: на дефолтном тике в 2 минуты 3 отказа исчерпали бы предел
+// за 4-6 минут, раньше, чем успеет пройти обычный CI.
+func TestGitHubMergeWaitsForPendingChecks(t *testing.T) {
+	// "" — поле не пришло вовсе (старый GHE, урезанный прокси): неотличимо
+	// от «ещё не посчитано», не отказ.
+	for _, state := range []string{"blocked", "unstable", "behind", "unknown", ""} {
+		t.Run(fmt.Sprintf("%q", state), func(t *testing.T) {
+			putCalled := false
+			g := github(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					_, _ = w.Write([]byte(fmt.Sprintf(`{"mergeable_state":%q}`, state)))
+				case http.MethodPut:
+					putCalled = true
+					w.WriteHeader(http.StatusMethodNotAllowed)
+				}
+			})
+			err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+			if !errors.Is(err, ErrNotReady) {
+				t.Errorf("mergeable_state=%q не распознан как ErrNotReady: %v", state, err)
+			}
+			if errors.Is(err, ErrRefused) {
+				t.Errorf("mergeable_state=%q принят за окончательный отказ: %v", state, err)
+			}
+			if putCalled {
+				t.Error("слияние вызвано, не дождавшись готовности")
+			}
+		})
+	}
+}
+
+// dirty (настоящий конфликт) и draft (черновик — GitHub не мержит его через
+// API) — окончательные, решать человеку. Незнакомое значение тоже: раннер
+// обязан показать человеку то, чего не понимает, а не решать за него.
+func TestGitHubMergeRefusesUnready(t *testing.T) {
+	for _, state := range []string{"dirty", "draft", "нечто новое"} {
+		t.Run(state, func(t *testing.T) {
+			putCalled := false
+			g := github(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					_, _ = w.Write([]byte(fmt.Sprintf(`{"mergeable_state":%q}`, state)))
+				case http.MethodPut:
+					putCalled = true
+				}
+			})
+			err := g.Merge("https://github.com/kao73/expense-tracker/pull/3")
+			if !errors.Is(err, ErrRefused) {
+				t.Errorf("mergeable_state=%s не распознан как отказ: %v", state, err)
+			}
+			if putCalled {
+				t.Error("слияние вызвано при mergeable_state, который сам по себе окончателен")
+			}
+		})
 	}
 }

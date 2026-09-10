@@ -181,8 +181,28 @@ type Limits struct {
 	// прежде чем задачу отдадут человеку. Считает записи двух видов одним
 	// счётчиком: «не начинал» и «не успел». Общий он потому, что следствие
 	// у них одно, а два раздельных счётчика чередование обошло бы.
-	MaxIdleRuns    int `yaml:"max_idle_runs"`
-	LeaseMarginSec int `yaml:"lease_margin_sec"`
+	MaxIdleRuns int `yaml:"max_idle_runs"`
+	// MaxMergeRefusals — сколько раз подряд forge может отказать в мерже
+	// при локально чистом состоянии (auto_merge.enabled), прежде чем задачу
+	// отдадут человеку. Отдельный предел по той же причине, что у push
+	// failures: это не работа implementer'а — локально мержить нечего.
+	MaxMergeRefusals int `yaml:"max_merge_refusals"`
+	// MaxPRReturns — сколько раз подряд PR-проход может вернуть задачу, не
+	// сдвинув её вперёд (продвинувшейся базой или отказом forge в мерже),
+	// прежде чем отдать её человеку. Общий счётчик по обоим видам — см.
+	// tracker.PRReturns: два раздельных предела чередование обошло бы.
+	MaxPRReturns int `yaml:"max_pr_returns"`
+	// MaxMergePendingSec — сколько секунд подряд GitHub может отвечать, что сам
+	// ещё не решил, годится ли pull request к слиянию (forge.ErrNotReady: не
+	// прошли обязательные проверки, не дано обязательное ревью), прежде чем
+	// задачу отдадут человеку. В секундах, а не тиках: длительность CI не
+	// привязана к частоте тика (--every), а mergePending
+	// (internal/pipeline/prpass.go) пишет одну запись на весь эпизод, не одну
+	// на тик, — тик посчитать было бы нечем. Отдельный от max_merge_refusals
+	// и заметно терпеливее — должен вытерпеть обычный CI, а не спутать
+	// «ещё не закончилось» с окончательным отказом.
+	MaxMergePendingSec int `yaml:"max_merge_pending_sec"`
+	LeaseMarginSec     int `yaml:"lease_margin_sec"`
 }
 
 // HumanReplyRule — что делает раннер, увидев ответ человека на заблокированную задачу.
@@ -363,6 +383,20 @@ func (w Workflow) validate() error {
 	if w.Limits.MaxIdleRuns <= 0 {
 		errs = append(errs, fmt.Errorf("limits.max_idle_runs=%d: ожидается положительное число", w.Limits.MaxIdleRuns))
 	}
+	// Оба предела нужны только там, где вообще есть PR-проход: граф без блока
+	// pr — это офис, который PR не открывает (forge.go), и заставлять такой
+	// граф объявлять пределы, которые он никогда не проверит, значило бы
+	// требовать от него лишнего вопреки собственному правилу checkPR — блок
+	// необязателен целиком.
+	if w.PR.Set() && w.Limits.MaxMergeRefusals <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_merge_refusals=%d: ожидается положительное число", w.Limits.MaxMergeRefusals))
+	}
+	if w.PR.Set() && w.Limits.MaxPRReturns <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_pr_returns=%d: ожидается положительное число", w.Limits.MaxPRReturns))
+	}
+	if w.PR.Set() && w.Limits.MaxMergePendingSec <= 0 {
+		errs = append(errs, fmt.Errorf("limits.max_merge_pending_sec=%d: ожидается положительное число", w.Limits.MaxMergePendingSec))
+	}
 	if w.Limits.LeaseMarginSec < 0 {
 		errs = append(errs, fmt.Errorf("limits.lease_margin_sec=%d: ожидается неотрицательное число", w.Limits.LeaseMarginSec))
 	}
@@ -456,6 +490,19 @@ type Rules struct {
 	Tools   runner.Tools `yaml:"tools"`
 }
 
+// AutoMerge — доверие конкретного инстанса конкретному проекту: мержить ли
+// самим и куда. Решение машины, не офиса — тот же класс, что Forge.
+//
+// Enabled и TargetBranch — независимые решения, не одна опция с двумя полями:
+// TargetBranch действует и без Enabled (см. Project.PRBranch) — так проект
+// с изолированной интеграционной веткой заводит её базой прохода уже сегодня,
+// сливая по-прежнему сам, а включает auto_merge отдельным шагом, когда будет
+// готов.
+type AutoMerge struct {
+	Enabled      bool   `yaml:"enabled"`
+	TargetBranch string `yaml:"target_branch"`
+}
+
 // Project — проект-клиент: где его репозиторий, как раннер зовёт ветки задач,
 // в каком трекере лежат его задачи и куда офис открывает pull request.
 type Project struct {
@@ -471,6 +518,9 @@ type Project struct {
 	// Forge — куда открывать pull request. Пусто — forge у проекта нет:
 	// PR-проход вырождается, но маршрут остаётся тем же (см. workflow.yaml: pr).
 	Forge string `yaml:"forge"`
+	// AutoMerge — сливает ли офис pull request сам, и в какую ветку. Пусто
+	// (Enabled: false) — сегодняшнее поведение: сливает человек.
+	AutoMerge AutoMerge `yaml:"auto_merge"`
 	// Network — уровни 1–3 слоистой модели (repo-wide + проект + машина),
 	// уже объединённые LoadProjects. Уровень 4 (роль) сюда не входит —
 	// его добавляет MergeProjectRules ближе к месту запуска.
@@ -492,10 +542,11 @@ type (
 
 	// machineProject — то, что правят, заводя новую машину или второй инстанс.
 	machineProject struct {
-		RepoURL      string `yaml:"repo_url"`
-		WorktreeRoot string `yaml:"worktree_root"`
-		Tracker      string `yaml:"tracker"`
-		Forge        string `yaml:"forge"`
+		RepoURL      string    `yaml:"repo_url"`
+		WorktreeRoot string    `yaml:"worktree_root"`
+		Tracker      string    `yaml:"tracker"`
+		Forge        string    `yaml:"forge"`
+		AutoMerge    AutoMerge `yaml:"auto_merge"`
 		Rules        `yaml:",inline"`
 	}
 )
@@ -503,13 +554,25 @@ type (
 // machineKeys — ключи, описывающие машину. Список нужен ради сообщения об ошибке:
 // строгий разбор и без него отвергнет их в файле офиса, но скажет «неизвестное
 // поле», а человеку нужно знать, куда ключ переехал и почему.
-var machineKeys = []string{"repo_url", "worktree_root", "tracker", "forge"}
+var machineKeys = []string{"repo_url", "worktree_root", "tracker", "forge", "auto_merge"}
 
 // Projects — проекты по ключу трекера.
 type Projects map[string]Project
 
 // Branch — ветка задачи.
 func (p Project) Branch(key string) string { return p.BranchPrefix + key }
+
+// PRBranch — ветка, от которой форкаются задачи, и цель PR-прохода:
+// target_branch авто-мержа, а без него — default_branch. Не default_branch
+// впрямую: иначе задача B (depends_on A) форкалась бы от main и не видела бы
+// уже влитую в интеграционную ветку работу A — гейт зависимостей
+// (claim(), internal/pipeline/deps.go) молча переставал бы что-либо значить.
+func (p Project) PRBranch() string {
+	if p.AutoMerge.TargetBranch != "" {
+		return p.AutoMerge.TargetBranch
+	}
+	return p.DefaultBranch
+}
 
 // Keys — ключи проектов по порядку. Порядок устойчивый: обход проектов не должен
 // зависеть от того, как в этот раз лёг хеш.
@@ -679,6 +742,7 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 			WorktreeRoot:  local.WorktreeRoot,
 			Tracker:       local.Tracker,
 			Forge:         local.Forge,
+			AutoMerge:     local.AutoMerge,
 			Network:       unionStrings(officeDefaults.Network, half.Network, machineDefaults.Network, local.Network),
 			Tools: runner.Tools{
 				Allow: unionStrings(officeDefaults.Tools.Allow, half.Tools.Allow, machineDefaults.Tools.Allow, local.Tools.Allow),
@@ -703,6 +767,11 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 		if !slices.Contains(trackers, project.Tracker) {
 			errs = append(errs, fmt.Errorf("%s: tracker=%q, ожидается один из %v (%s)",
 				key, project.Tracker, trackers, machinePath))
+		}
+		if project.AutoMerge.Enabled && project.Forge == "" {
+			errs = append(errs, fmt.Errorf(
+				"%s: auto_merge.enabled=true, но forge не задан — мержить через API "+
+					"некуда (%s)", key, machinePath))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
