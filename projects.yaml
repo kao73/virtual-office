@@ -57,6 +57,46 @@ defaults:
     # *.golang.org в policy log не всплыл, не добавлен.
     - proxy.golang.org
     - sum.golang.org
+    # GitHub Container Registry — проверено эмпирически 2026-09-13, тем же
+    # способом (throwaway sbx-песочница, `docker pull ghcr.io/astral-sh/uv`
+    # голой попыткой упал 403 на ghcr.io, после allow — второй 403 на
+    # blob-CDN pkg-containers.githubusercontent.com; с обоими пулл прошёл
+    # целиком). Найдено при разборе, почему Playwright e2e не проходил
+    # в песочнице (backend-образ EXP собирает `uv` именно отсюда).
+    - ghcr.io
+    - pkg-containers.githubusercontent.com
+    # GitHub Releases — проверено эмпирически 2026-09-13, тем же способом:
+    # `curl https://bun.sh/install | bash` резолвится в редирект на
+    # github.com/.../releases/latest/download/..., а сам бинарник качается
+    # с release-assets.githubusercontent.com — хост новее и не совпадает
+    # с непроверенным списком-догадкой выше (`objects.githubusercontent.com`
+    # так и не понадобился ни разу).
+    - release-assets.githubusercontent.com
+    # Microsoft Container Registry (образ mcr.microsoft.com/playwright) —
+    # проверено эмпирически 2026-09-13, тем же способом. Blob-CDN отдаётся
+    # с регионального поддомена (`westeurope.data.mcr.microsoft.com` на этой
+    # машине) — заведён вайлдкардом по образцу *.cloudfront.docker.com, а не
+    # точным хостом, потому что регион — свойство запроса, не сервиса.
+    - mcr.microsoft.com
+    - "*.data.mcr.microsoft.com"
+    - bun.sh
+    # Playwright browser download (`bunx playwright install chromium`, путь
+    # без Dockerfile.playwright — так фактически проверял reviewer) —
+    # проверено эмпирически 2026-09-13, той же throwaway-песочницей.
+    # `playwright.azureedge.net` (упомянут ревьюером) отдаёт только 307-редирект
+    # и сам файл не раздаёт; реальные хосты, отдающие сам архив с браузером
+    # (обнаружены по сообщению об ошибке загрузки, а не догадкой), —
+    # эти два, попытка идёт по ним по очереди.
+    - cdn.playwright.dev
+    - playwright.download.prss.microsoft.com
+    # apt (Ubuntu-пакеты внутри образа mcr.microsoft.com/playwright, нужен
+    # Dockerfile.playwright для `unzip`) — проверено эмпирически 2026-09-13
+    # на arm64-машине: `apt-get update` резолвился в ports.ubuntu.com
+    # («ports» — архитектурный мирror, не архитектура х86_64/archive.ubuntu.com,
+    # которая здесь не проверялась) и deb.nodesource.com (сторонний источник,
+    # уже прописанный в sources.list самого базового образа).
+    - ports.ubuntu.com
+    - deb.nodesource.com
   tools:
     deny:
       # Общие для всех ролей: работу с origin, переключение веток и
