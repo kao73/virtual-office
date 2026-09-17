@@ -123,8 +123,17 @@ done
 # (internal/tracker/jira, LinkDependsOn), а не имена здесь.
 add_link_type() {
 	local name=$1 outward=$2 inward=$3
-	if api "$url/rest/api/2/issueLinkType" |
-		python3 -c "import json,sys; sys.exit(0 if any(t['name']==sys.argv[1] for t in json.load(sys.stdin)['issueLinkTypes']) else 1)" "$name"; then
+	# Список читается отдельно от проверки: внутри `if … | python3` set -e
+	# не действует, и отказ GET (401, страница входа, обрыв) сошёл бы за
+	# «типа нет» — скрипт пошёл бы заводить его и обвинил бы в отказе
+	# создание, а не чтение.
+	local types
+	types=$(api "$url/rest/api/2/issueLinkType")
+	if ! python3 -c "import json,sys; json.load(sys.stdin)['issueLinkTypes']" <<<"$types" 2>/dev/null; then
+		echo "  список типов связи не прочитан: $types" >&2
+		exit 1
+	fi
+	if python3 -c "import json,sys; sys.exit(0 if any(t['name']==sys.argv[1] for t in json.load(sys.stdin)['issueLinkTypes']) else 1)" "$name" <<<"$types"; then
 		echo "  тип связи $name уже есть"
 		return
 	fi
