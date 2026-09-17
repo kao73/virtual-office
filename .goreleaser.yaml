@@ -1,0 +1,56 @@
+# Релиз: три платформы, два бинарника, архив на платформу, checksums.txt
+# и install.sh отдельным файлом релиза. Проверка без тега —
+# scripts/release-snapshot.sh (тот же файл, --snapshot).
+version: 2
+
+project_name: virtual-office
+
+git:
+  # Теги archive/* — замороженные прежние наработки, не релизы: без этого
+  # снапшот принял бы archive/concept-2026-08 за текущий тег и упал на incpatch.
+  ignore_tags:
+    - "archive/*"
+
+before:
+  hooks:
+    # Ограждения под три платформы — в payload/validators/; их встраивают
+    # validators_<os>_<arch>.go под -tags release.
+    - sh scripts/build-validators.sh
+
+builds:
+  - id: runner
+    main: ./cmd/runner
+    binary: runner
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath, -tags=release]
+    ldflags: ["-s -w -X github.com/kao73/virtual-office.Version=v{{ .Version }}"]
+    targets: [darwin_arm64, linux_amd64, linux_arm64]
+  - id: run-agent
+    main: ./cmd/run-agent
+    binary: run-agent
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath, -tags=release]
+    ldflags: ["-s -w -X github.com/kao73/virtual-office.Version=v{{ .Version }}"]
+    targets: [darwin_arm64, linux_amd64, linux_arm64]
+
+archives:
+  - id: default
+    ids: [runner, run-agent]
+    formats: [tar.gz]
+    # Без версии в имени: releases/latest/download/<имя> разрешается без
+    # запроса к API за тегом.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    # Только бинарники: README по умолчанию GoReleaser кладёт в архив,
+    # а install.sh ждёт ровно runner и run-agent.
+    files: [none*]
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  # Без единого тега: 0.0.1-SNAPSHOT-<sha> → личность v0.0.1-SNAPSHOT-<sha>.
+  version_template: "{{ incpatch .Version }}-SNAPSHOT-{{ .ShortCommit }}"
+
+release:
+  extra_files:
+    - glob: ./install.sh

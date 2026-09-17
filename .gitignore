@@ -17,3 +17,5 @@ docs/openspec/changes/**/.comet/
 # Кросс-собранные ограждения релиза: их кладёт scripts/build-validators.sh
 payload/validators/*
 !payload/validators/README.md
+# Артефакты GoReleaser (scripts/release-snapshot.sh)
+dist/
