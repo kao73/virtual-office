@@ -2,6 +2,8 @@
 comet_change: config-cleanup
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-17-config-cleanup
+status: final
 ---
 
 # config-cleanup — технический дизайн

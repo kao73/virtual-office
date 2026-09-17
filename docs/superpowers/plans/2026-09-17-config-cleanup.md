@@ -2,6 +2,7 @@
 change: config-cleanup
 design-doc: docs/superpowers/specs/2026-09-17-config-cleanup-design.md
 base-ref: 33395e52146750ff3db5cb3a1829db332501a54e
+archived-with: 2026-09-17-config-cleanup
 ---
 
 # config-cleanup Implementation Plan
