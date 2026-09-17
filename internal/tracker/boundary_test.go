@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kao73/virtual-office/internal/budget"
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 // Граница «репозиторий описывает офис, ${OFFICE_HOME} — инстанс» держится двумя
@@ -97,5 +98,21 @@ func TestRepoCarriesNoMachineValues(t *testing.T) {
 					filepath.Base(path), n+1, strings.TrimSpace(line))
 			}
 		}
+	}
+}
+
+// Базовые правила ролей — единственный слой правил, который поставляется
+// репозиторием: он лежит рядом с ролями, к которым относится, а не в файле
+// проектов, которого в репозитории больше нет. Гарантия, что origin
+// принадлежит раннеру, а не агенту, держится одной строкой этого файла,
+// и исчезнуть молча она не должна — ни переименованием файла, ни правкой.
+func TestShippedBaseRulesKeepGitRemoteDeny(t *testing.T) {
+	path := filepath.Join("..", "..", runner.RolesDir, runner.BaseDir, runner.BaseRulesFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("базовые правила ролей не поставлены: %v", err)
+	}
+	if !strings.Contains(string(raw), `"Bash(git *push*)"`) {
+		t.Errorf("%s не запрещает git push: пуш — дело раннера, а не агента", path)
 	}
 }
