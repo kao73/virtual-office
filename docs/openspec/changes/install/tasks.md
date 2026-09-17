@@ -13,7 +13,7 @@
 ## 3. Embedded result checkers
 
 - [x] 3.1 `payload/validators/` with tracked `README.md` and gitignore rule; per-target `//go:build release` files embedding the checkers each platform needs, plus the `!release` empty set (D5)
-- [ ] 3.2 `EnsureValidator`: clone mode → `go build` as today; payload mode → write the embedded checker to `office/<dir>/bin/validate-result-<os>-<arch>` once, or refuse naming the platform and the `release` tag; tests with a fake embedded set
+- [x] 3.2 `EnsureValidator`: clone mode → `go build` as today; payload mode → write the embedded checker to `office/<dir>/bin/validate-result-<os>-<arch>` once, or refuse naming the platform and the `release` tag; tests with a fake embedded set
 
 ## 4. `runner init` and `runner version`
 
