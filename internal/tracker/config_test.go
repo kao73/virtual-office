@@ -3,6 +3,7 @@ package tracker
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -522,6 +523,41 @@ func TestLoadProjectsAcceptsEveryContractKey(t *testing.T) {
 	}
 }
 
+// yamlKeys — теги yaml структуры, включая поля inline-структур: то, что
+// строгий разбор примет как ключ записи.
+func yamlKeys(t *testing.T, typ reflect.Type) []string {
+	t.Helper()
+	var keys []string
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		tag := f.Tag.Get("yaml")
+		if tag == ",inline" {
+			keys = append(keys, yamlKeys(t, f.Type)...)
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		if name == "" {
+			t.Fatalf("поле %s без тега yaml: ключ не назван", f.Name)
+		}
+		keys = append(keys, name)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// Тест выше держит одну сторону — ключ из списка грузится; эта — другую:
+// поле, добавленное в machineProject без правки projectKeys, отвергалось бы
+// как «не описано контрактом», а defaults принимал бы только то, что есть
+// в Rules. Списки выводятся из тегов, и разойтись им не с чем.
+func TestProjectKeysMirrorStructTags(t *testing.T) {
+	if got, want := slices.Sorted(slices.Values(projectKeys)), yamlKeys(t, reflect.TypeFor[machineProject]()); !slices.Equal(got, want) {
+		t.Errorf("projectKeys = %v, теги machineProject = %v", got, want)
+	}
+	if got, want := slices.Sorted(slices.Values(defaultsKeys)), yamlKeys(t, reflect.TypeFor[Rules]()); !slices.Equal(got, want) {
+		t.Errorf("defaultsKeys = %v, теги Rules = %v", got, want)
+	}
+}
+
 // «Завёл файл, ещё не заполнил» — обычное состояние на новой машине; отказ
 // называет файл и причину, а не «не разобран: EOF». Ни одного проекта — тоже
 // отказ: промолчать значило бы крутить пустые тики без объяснений.
@@ -615,6 +651,21 @@ func TestLoadProjectsRejectsBrokenRules(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Файл из одного сломанного defaults без единого проекта называет обе беды
+// разом: починив «ни одного проекта», человек не должен получать «Write
+// под defaults» следующим запуском.
+func TestLoadProjectsReportsBrokenDefaultsEvenWithoutProjects(t *testing.T) {
+	_, err := load(t, "defaults:\n  tools:\n    deny: [Write]\n")
+	if err == nil {
+		t.Fatal("файл без проектов и со сломанным defaults принят")
+	}
+	for _, want := range []string{"ни одного проекта", "Write"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("в ошибке не названо %q: %v", want, err)
+		}
 	}
 }
 

@@ -691,8 +691,11 @@ func LoadProjects(machinePath string) (Projects, error) {
 
 	// Ни одного проекта — отказ, и это не педантизм: прочие беды говорят вслух,
 	// а «ни одного проекта» промолчало бы, и раннер крутил бы пустые тики.
+	// Беды defaults прикладываются: починив одну, узнать о второй следующим
+	// запуском — лишний круг.
 	if len(machine) == 0 {
-		return nil, fmt.Errorf("%s не называет ни одного проекта: офису нечего вести", machinePath)
+		errs = append(errs, fmt.Errorf("%s не называет ни одного проекта: офису нечего вести", machinePath))
+		return nil, errors.Join(errs...)
 	}
 
 	projects := Projects{}
