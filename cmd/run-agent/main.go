@@ -110,6 +110,13 @@ func execute() (int, error) {
 		task = string(raw)
 	}
 
+	// projects.yaml из прежней раскладки не читается — и не пропускается
+	// молча: тот же сторож, что и у runner, и стоит он до роли, а не под
+	// --project: дерево, которое runner отвергает, ручной запуск не должен
+	// принимать ни в одном режиме.
+	if err := tracker.RefuseLeftoverOfficeFile(configRoot); err != nil {
+		return 0, err
+	}
 	role, err := runner.LoadRole(configRoot, *roleName)
 	if err != nil {
 		return 0, err
@@ -122,11 +129,6 @@ func execute() (int, error) {
 	if *projectFlag != "" {
 		home, err := runner.Home()
 		if err != nil {
-			return 0, err
-		}
-		// projects.yaml из прежней раскладки не читается — и не пропускается
-		// молча: тот же сторож, что и у runner.
-		if err := tracker.RefuseLeftoverOfficeFile(configRoot); err != nil {
 			return 0, err
 		}
 		projects, err := tracker.LoadProjects(filepath.Join(home, tracker.ProjectsLocalFile))

@@ -367,14 +367,24 @@ func TestDryRunProjectFlagRefusesLeftoverProjectsYAML(t *testing.T) {
 	}
 	env := []string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
-	code, out := runAgent(t, bin, env, "--role", "test-role", "--workdir", workdir, "--task", taskFile(t), "--project", "OFFICE", "--dry-run")
-	if code != 2 {
-		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
-	}
-	for _, want := range []string{"projects.local.yaml", "roles/_base/base.yaml"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("отказ не назвал %q: %s", want, out)
-		}
+	// Сторож один и тот же с --project и без: дерево, которое runner
+	// отвергает, run-agent не должен принимать молча ни в одном режиме.
+	for name, extra := range map[string][]string{
+		"с --project":   {"--project", "OFFICE"},
+		"без --project": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			args := append([]string{"--role", "test-role", "--workdir", workdir, "--task", taskFile(t)}, extra...)
+			code, out := runAgent(t, bin, env, append(args, "--dry-run")...)
+			if code != 2 {
+				t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+			}
+			for _, want := range []string{"projects.local.yaml", "roles/_base/base.yaml"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("отказ не назвал %q: %s", want, out)
+				}
+			}
+		})
 	}
 }
 
