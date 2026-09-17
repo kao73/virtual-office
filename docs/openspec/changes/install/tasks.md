@@ -1,7 +1,7 @@
 ## 1. Payload: embed, unpack, executable bits
 
-- [ ] 1.1 Add root `package office` (`payload.go`) embedding `all:roles all:skills all:hooks workflow.yaml budgets.yaml tracker.example.yaml all:bootstrap/sbx-kits/comet-cli`; expose the FS and a content hash; add `projects.local.example.yaml` to the tree and to the payload
-- [ ] 1.2 Repository test: every payload file that is executable in git starts with `#!` (D2), and the payload list covers every role directory, `roles/_base/base.yaml`, both hook scripts, and the kit's bake script
+- [x] 1.1 Add root `package office` (`payload.go`) embedding `all:roles all:skills all:hooks workflow.yaml budgets.yaml tracker.example.yaml all:bootstrap/sbx-kits/comet-cli`; expose the FS and a content hash; add `projects.local.example.yaml` to the tree and to the payload
+- [x] 1.2 Repository test: every payload file that is executable in git starts with `#!` (D2), and the payload list covers every role directory, `roles/_base/base.yaml`, both hook scripts, and the kit's bake script
 - [ ] 1.3 `office.Unpack(home, dir)`: temp-then-rename into `${OFFICE_HOME}/office/<dir>/`, `0755` for shebang files, existing target wins, interrupted unpack leaves no target (D3); tests for first unpack, idempotence, side-by-side versions, and the failure path
 
 ## 2. Identity and office resolution
