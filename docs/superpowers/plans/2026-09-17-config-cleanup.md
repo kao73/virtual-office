@@ -2654,7 +2654,7 @@ Corresponds to `tasks.md` §5 (5.1–5.3). One step (5.2) is **outside the repos
 **Interfaces:**
 - Consumes: `tracker.RefuseLeftoverOfficeFile` (Task 2), `offices()` (Task 3).
 
-- [ ] **Step 1: Delete `projects.yaml`, wire the guard into `run-agent`, rename the file in every comment (tasks.md 5.1)**
+- [x] **Step 1: Delete `projects.yaml`, wire the guard into `run-agent`, rename the file in every comment (tasks.md 5.1)**
 
 ```bash
 git rm projects.yaml
@@ -2709,7 +2709,7 @@ MSG
 )"
 ```
 
-- [ ] **Step 2: OPERATOR STEP — migrate `~/.office/projects.local.yaml` (tasks.md 5.2)**
+- [x] **Step 2: OPERATOR STEP — migrate `~/.office/projects.local.yaml` (tasks.md 5.2)**
 
 This file is outside the repository; nothing is committed. Replace its contents with the Design Doc's YAML (section «Миграция этой машины»), verbatim:
 
@@ -2748,7 +2748,7 @@ Keep a copy of the previous file next to it (`cp ~/.office/projects.local.yaml ~
 
 Verification: `./bin/runner ls` in Step 3 loads the file; a typo shows up as the loader's refusal naming key, project and file.
 
-- [ ] **Step 3: Live checks without tokens (tasks.md 5.3) — results go into the verification report**
+- [x] **Step 3: Live checks without tokens (tasks.md 5.3) — results go into the verification report**
 
 With `JIRA_USER`/`JIRA_PASSWORD` exported (the jira office needs them; see the operator's tracker-creds note) and no `--tracker` flag:
 

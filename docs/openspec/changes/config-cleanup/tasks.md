@@ -29,9 +29,9 @@
 
 ## 5. Repository and this machine (design — Migration Plan)
 
-- [ ] 5.1 Delete `projects.yaml`; `git grep projects.yaml` outside `docs/notes/` and the OpenSpec archive shows only the leftover-file refusal and the docs edited in group 6
-- [ ] 5.2 `~/.office/projects.local.yaml`: `default_branch` for `OFFICE`, `VO` (`master`) and `EXP` (`main`); EXP-specific hosts (MCR, bun, Playwright, apt mirrors) into the `EXP` entry's `network`
-- [ ] 5.3 `./bin/runner ls` prints both trackers without a flag; `./bin/run-agent --role analyst --workdir <probe> --task <task> --dry-run` prints a `config_sha` without `-dirty` and lists the git denies among the effective tools rules
+- [x] 5.1 Delete `projects.yaml`; `git grep projects.yaml` outside `docs/notes/` and the OpenSpec archive shows only the leftover-file refusal and the docs edited in group 6
+- [x] 5.2 `~/.office/projects.local.yaml`: `default_branch` for `OFFICE`, `VO` (`master`) and `EXP` (`main`); EXP-specific hosts (MCR, bun, Playwright, apt mirrors) into the `EXP` entry's `network`
+- [x] 5.3 `./bin/runner ls` prints both trackers without a flag; `./bin/run-agent --role analyst --workdir <probe> --task <task> --dry-run` prints a `config_sha` without `-dirty` and lists the git denies among the effective tools rules
 
 ## 6. Documentation that would otherwise be false (design D9)
 
