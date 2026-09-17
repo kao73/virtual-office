@@ -2,16 +2,21 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	payload "github.com/kao73/virtual-office"
+	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
@@ -248,5 +253,134 @@ func TestNewOfficesRefusesLeftoverProjectsYAML(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "workflow.yaml") {
 		t.Errorf("guard сработал после того, как конфигурация уже читалась:\n%s", out.String())
+	}
+}
+
+// releaseVersion подменяет версию, вшитую ldflags: раннер ведёт себя как
+// релиз v…, не будучи им собран.
+func releaseVersion(t *testing.T, v string) {
+	t.Helper()
+	prev := payload.Version
+	payload.Version = v
+	t.Cleanup(func() { payload.Version = prev })
+}
+
+// payloadFixture — хозяйство с одним mock-проектом и без OFFICE_CONFIG_ROOT:
+// офис берётся из поставки бинарника.
+func payloadFixture(t *testing.T, version string) (home string) {
+	t.Helper()
+	home = t.TempDir()
+	t.Setenv("OFFICE_HOME", home)
+	t.Setenv("OFFICE_CONFIG_ROOT", "")
+	releaseVersion(t, version)
+	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte(mockProject), 0o644); err != nil {
+		t.Fatalf("projects.local.yaml не записан: %v", err)
+	}
+	return home
+}
+
+// Без OFFICE_CONFIG_ROOT раннер распаковывает собственную поставку — настоящую,
+// не фикстуру: единственный тест, где embed-директива payload.go и распаковка
+// сходятся на реальном дереве.
+func TestOfficesUnpackPayloadWithoutConfigRoot(t *testing.T) {
+	home := payloadFixture(t, "v0.0.0-test")
+	var out bytes.Buffer
+	all, err := newOffices(flags("tick"), nil, &out)
+	if err != nil {
+		t.Fatalf("офис из поставки не собран: %v", err)
+	}
+	root := filepath.Join(home, runner.OfficeDir, "v0.0.0-test")
+	for _, rel := range []string{
+		"roles/_base/base.yaml", "roles/analyst/role.yaml", "roles/implementer/role.yaml", "roles/reviewer/role.yaml",
+		"skills/comet/SKILL.md", "hooks/require-result.sh", "workflow.yaml", "budgets.yaml",
+		"tracker.example.yaml", "projects.local.example.yaml",
+		"sbx-kits/comet-cli/spec.yaml", "sbx-kits/bake-comet-template.sh",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Errorf("%s не распакован: %v", rel, err)
+		}
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "офис: v0.0.0-test → "+root) {
+		t.Errorf("раскладка не называет офис первой строкой:\n%s", printed)
+	}
+	if !strings.Contains(printed, filepath.Join(root, tracker.WorkflowFile)) {
+		t.Errorf("раскладка не называет файлы под распакованным офисом:\n%s", printed)
+	}
+	if o := all.list[0]; o.ConfigSHA != "v0.0.0-test" || o.Root != root || o.Source != runner.SourcePayload {
+		t.Errorf("офис %+v, ожидались v0.0.0-test, %s, payload", o.Office, root)
+	}
+	// Роль с обоими хуками грузится из распакованного офиса: биты на месте.
+	if _, err := runner.LoadRole(root, "implementer"); err != nil {
+		t.Errorf("роль из распакованного офиса не загружена: %v", err)
+	}
+	// Повторный старт ничего не переписывает.
+	marker := filepath.Join(root, "правка-руками")
+	if err := os.WriteFile(marker, []byte("метка\n"), 0o644); err != nil {
+		t.Fatalf("метка не записана: %v", err)
+	}
+	if _, err := newOffices(flags("tick"), nil, io.Discard); err != nil {
+		t.Fatalf("повторный сбор офиса не удался: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("повторный запуск стёр метку в распакованном офисе: %v", err)
+	}
+}
+
+// Два раннера разных версий на одном хозяйстве — два каталога, каждый
+// читает свой.
+func TestOfficesKeepVersionsSideBySide(t *testing.T) {
+	home := payloadFixture(t, "v0.0.0-a")
+	if _, err := newOffices(flags("tick"), nil, io.Discard); err != nil {
+		t.Fatalf("офис v0.0.0-a не собран: %v", err)
+	}
+
+	releaseVersion(t, "v0.0.0-b")
+	var out bytes.Buffer
+	if _, err := newOffices(flags("tick"), nil, &out); err != nil {
+		t.Fatalf("офис v0.0.0-b не собран: %v", err)
+	}
+
+	for _, v := range []string{"v0.0.0-a", "v0.0.0-b"} {
+		if _, err := os.Stat(filepath.Join(home, runner.OfficeDir, v)); err != nil {
+			t.Errorf("каталог версии %s не сохранён: %v", v, err)
+		}
+	}
+	printed := out.String()
+	if !strings.Contains(printed, filepath.Join(home, runner.OfficeDir, "v0.0.0-b", tracker.WorkflowFile)) {
+		t.Errorf("раскладка не называет вторую версию:\n%s", printed)
+	}
+	if strings.Contains(printed, "v0.0.0-a") {
+		t.Errorf("раскладка второго запуска упоминает первую версию:\n%s", printed)
+	}
+}
+
+// configSHAPattern — вид личности офиса-клона: HEAD (40 hex) и, при
+// незакоммиченных правках, суффикс -dirty. fixtureRunner пишет workflow.yaml
+// в корень до git init — файл остаётся неотслеживаемым, и git status
+// --porcelain видит его как правку: личность выходит грязной (см. Controller
+// ruling R1 в task-5-brief.md — len(ConfigSHA)==40 в исходном наброске
+// не выполняется никогда).
+var configSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}(-dirty)?$`)
+
+// Обёртки bin/* задают OFFICE_CONFIG_ROOT, и тогда поставка не трогается:
+// ${OFFICE_HOME}/office/ не появляется, личность — commit клона.
+func TestOfficesCloneModeUnpacksNothing(t *testing.T) {
+	_, home := fixtureRunner(t, mockProject)
+	releaseVersion(t, "v0.0.0-test") // должна проиграть переменной
+
+	all, err := newOffices(flags("tick"), nil, io.Discard)
+	if err != nil {
+		t.Fatalf("офис в режиме клона не собран: %v", err)
+	}
+	o := all.list[0]
+	if o.Source != runner.SourceClone {
+		t.Errorf("Source = %q, ожидался %q", o.Source, runner.SourceClone)
+	}
+	if !configSHAPattern.MatchString(o.ConfigSHA) {
+		t.Errorf("ConfigSHA = %q, не похож на commit клона (с возможным -dirty)", o.ConfigSHA)
+	}
+	if _, err := os.Stat(filepath.Join(home, runner.OfficeDir)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("поставка распакована при заданном OFFICE_CONFIG_ROOT: %v", err)
 	}
 }

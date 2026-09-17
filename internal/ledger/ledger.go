@@ -51,7 +51,7 @@ type Entry struct {
 	// По этим же значениям подбирается max_turns роли: сколько прогонов резалось
 	// пределом, видно в сводке, а не вслепую.
 	Termination string `json:"termination,omitempty"`
-	ConfigSHA   string `json:"config_sha"`
+	ConfigSHA   string `json:"config_sha"` // личность офиса: версия релиза или commit (с -dirty)
 	// Eval — прогон запущен eval-harness'ом (cmd/eval-roles), не продом.
 	// Отсутствует/false у каждой исторической строки — миграция не нужна.
 	// per_role_daily в internal/pipeline/budget.go исключает такие строки:

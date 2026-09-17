@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -450,6 +451,51 @@ func TestAccountWritesTermination(t *testing.T) {
 	}
 	if line.CostUSD != 1.77 {
 		t.Errorf("cost_usd=%v: прогон без результата всё равно оплачен", line.CostUSD)
+	}
+}
+
+// buildRunAgentRelease собирает CLI как релиз: с версией в ldflags. Без
+// OFFICE_CONFIG_ROOT такой бинарник обязан брать офис из своей поставки.
+func buildRunAgentRelease(t *testing.T, version string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "run-agent")
+	cmd := exec.Command("go", "build", "-ldflags", "-X github.com/kao73/virtual-office.Version="+version, "-o", path, ".")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("run-agent не собран: %v: %s", err, out)
+	}
+	return path
+}
+
+// Бинарник без OFFICE_CONFIG_ROOT читает роли из распакованной поставки, а не
+// из текущего каталога (cwd теста — корень клона, и раньше он и был офисом).
+// Ограждения у сборки без -tags release нет — прогон обязан упереться именно
+// в это, уже после загрузки роли с обоими хуками из распакованного офиса.
+func TestPayloadModeReadsUnpackedOfficeNotCwd(t *testing.T) {
+	bin := buildRunAgentRelease(t, "v0.0.0-test")
+	home := t.TempDir()
+	workdir := gitRepo(t)
+	// --task обязателен (PrepareInput отказывает без него и без .agent/task.md
+	// в рабочей папке) — иначе прогон упёрся бы в отсутствие постановки раньше,
+	// чем в отсутствие ограждения, и тест ловил бы не ту причину.
+	code, out := runAgent(t, bin,
+		[]string{"OFFICE_CONFIG_ROOT=", "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--backend", "local", "--dry-run")
+	if code != 2 {
+		t.Fatalf("код %d, ожидался 2 (встроенного ограждения нет); вывод: %s", code, out)
+	}
+	for _, want := range []string{"без ограждения", runtime.GOOS + "/" + runtime.GOARCH, "-tags release"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("отказ не называет %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "не исполняемый") {
+		t.Errorf("хук из распакованного офиса без бита исполняемости:\n%s", out)
+	}
+	root := filepath.Join(home, "office", "v0.0.0-test")
+	for _, rel := range []string{"roles/implementer/role.yaml", "hooks/require-result.sh", "skills/comet/scripts/comet-hook-router.mjs"} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Errorf("%s не распакован: %v", rel, err)
+		}
 	}
 }
 

@@ -20,11 +20,18 @@ func configRoot(t *testing.T) string {
 	return root
 }
 
+// cloneOffice — офис из этого репозитория в режиме клона: ограждение
+// собирается go build, как у обёрток bin/*.
+func cloneOffice(t *testing.T) Office {
+	t.Helper()
+	return Office{Root: configRoot(t), Source: SourceClone}
+}
+
 func TestEnsureValidatorBuildsExecutableForHost(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(HomeEnv, home)
 
-	path, err := EnsureValidator(configRoot(t), HostPlatform())
+	path, err := EnsureValidator(cloneOffice(t), HostPlatform())
 	if err != nil {
 		t.Fatalf("валидатор не собран: %v", err)
 	}
@@ -50,7 +57,7 @@ func TestEnsureValidatorBuildsExecutableForHost(t *testing.T) {
 func TestEnsureValidatorReplacesStaleBinary(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(HomeEnv, home)
-	root := configRoot(t)
+	root := cloneOffice(t)
 
 	path, err := EnsureValidator(root, HostPlatform())
 	if err != nil {
@@ -77,7 +84,7 @@ func TestEnsureValidatorReplacesStaleBinary(t *testing.T) {
 func TestEnsureValidatorCrossCompilesForSandbox(t *testing.T) {
 	t.Setenv(HomeEnv, t.TempDir())
 
-	path, err := EnsureValidator(configRoot(t), Platform{OS: "linux", Arch: HostPlatform().Arch})
+	path, err := EnsureValidator(cloneOffice(t), Platform{OS: "linux", Arch: HostPlatform().Arch})
 	if err != nil {
 		t.Fatalf("валидатор под песочницу не собран: %v", err)
 	}
@@ -95,7 +102,7 @@ func TestEnsureValidatorCrossCompilesForSandbox(t *testing.T) {
 // уходил с результатом, который раннер потом отвергал, теряя сделанную работу.
 func TestValidatorRejectsWhatRunnerRejects(t *testing.T) {
 	t.Setenv(HomeEnv, t.TempDir())
-	validator, err := EnsureValidator(configRoot(t), HostPlatform())
+	validator, err := EnsureValidator(cloneOffice(t), HostPlatform())
 	if err != nil {
 		t.Fatalf("валидатор не собран: %v", err)
 	}
@@ -149,7 +156,7 @@ func TestValidatorRejectsWhatRunnerRejects(t *testing.T) {
 // код, отличный от 2, Claude Code считает неблокирующей ошибкой и молча идёт дальше.
 func TestValidatorBlocksOnMisuse(t *testing.T) {
 	t.Setenv(HomeEnv, t.TempDir())
-	validator, err := EnsureValidator(configRoot(t), HostPlatform())
+	validator, err := EnsureValidator(cloneOffice(t), HostPlatform())
 	if err != nil {
 		t.Fatalf("валидатор не собран: %v", err)
 	}
@@ -163,5 +170,24 @@ func TestValidatorBlocksOnMisuse(t *testing.T) {
 	}
 	if stderr.Len() == 0 {
 		t.Error("валидатор блокирует молча")
+	}
+}
+
+// Поставка без встроенных ограждений — сборка без -tags release. Отказ
+// называет платформу и оба выхода и не подсовывает ограждение другой платформы.
+func TestEnsureValidatorPayloadRefusesWhenNothingEmbedded(t *testing.T) {
+	root := t.TempDir()
+	o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
+	_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "amd64"})
+	if err == nil {
+		t.Fatal("ограждения нет, а отказа нет")
+	}
+	for _, want := range []string{"linux/amd64", "-tags release", ConfigRootEnv} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не называет %q: %v", want, err)
+		}
+	}
+	if entries, _ := os.ReadDir(filepath.Join(root, BinDir)); len(entries) != 0 {
+		t.Errorf("в bin/ что-то появилось: %v", entries)
 	}
 }

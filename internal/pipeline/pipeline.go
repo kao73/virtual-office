@@ -102,8 +102,12 @@ type Office struct {
 	// это естественное состояние офиса, а не недонастроенное.
 	Budgets budget.Budgets
 
-	ConfigRoot string // корень конфиг-репозитория: оттуда роли
-	ConfigSHA  string // отпечаток конфигурации для маркеров
+	// Office — откуда роли и чем подписаны прогоны (встроено: o.Root, o.Identity).
+	runner.Office
+	// ConfigSHA — личность офиса для маркеров и реестра: то же, что
+	// Office.Identity. Имя историческое — так называется поле config_sha
+	// в реестре и паспорте, и переименовывать два десятка мест незачем.
+	ConfigSHA string
 
 	// Accounts — все учётки офиса: общая, учётки ролей и чужая автоматизация.
 	// Всё, написанное не ими, считается словами человека. Список собирается
@@ -179,7 +183,7 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	role, err := runner.LoadRole(o.ConfigRoot, roleName)
+	role, err := runner.LoadRole(o.Root, roleName)
 	if err != nil {
 		return false, err
 	}

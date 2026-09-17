@@ -14,9 +14,9 @@ import (
 // SandboxAgent — настоящий прогон агента: тот же путь, которым идёт ручной
 // `run-agent`, только рабочую папку и контекст готовит конвейер.
 type SandboxAgent struct {
-	ConfigRoot string
-	Backend    string
-	Log        io.Writer
+	Office  runner.Office
+	Backend string
+	Log     io.Writer
 }
 
 // executeAgent — единственная точка, которой SandboxAgent.Run зовёт
@@ -109,12 +109,12 @@ func (a SandboxAgent) Run(ctx context.Context, req Request) (AgentRun, error) {
 	}()
 
 	opts := runagent.Options{
-		ConfigRoot: a.ConfigRoot,
-		Role:       req.Role,
-		Workdir:    workdir,
-		Backend:    a.Backend,
-		Passport:   req.Passport,
-		Clone:      clone,
+		Office:   a.Office,
+		Role:     req.Role,
+		Workdir:  workdir,
+		Backend:  a.Backend,
+		Passport: req.Passport,
+		Clone:    clone,
 	}
 	// Mounts и Clone несовместимы (runagent.Prepare это проверяет сама) —
 	// бинд-маунт нужен только там, где --clone нет вовсе.

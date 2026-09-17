@@ -40,7 +40,7 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 		return nil, err
 	}
 
-	configRoot, err := configRoot()
+	office, err := runner.ResolveOffice(runner.Resolve{Unpack: true})
 	if err != nil {
 		return nil, err
 	}
@@ -50,13 +50,14 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 	if err != nil {
 		return nil, err
 	}
+	sources := configSources{out: out}
+	sources.root(office)
 	// projects.yaml из прежней раскладки не читается — и не пропускается молча.
-	if err := tracker.RefuseLeftoverOfficeFile(configRoot); err != nil {
+	if err := tracker.RefuseLeftoverOfficeFile(office.Root); err != nil {
 		return nil, err
 	}
-	sources := configSources{out: out}
 
-	workflow, err := tracker.LoadWorkflow(sources.office(configRoot, tracker.WorkflowFile))
+	workflow, err := tracker.LoadWorkflow(sources.office(office.Root, tracker.WorkflowFile))
 	if err != nil {
 		return nil, err
 	}
@@ -107,13 +108,9 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 	// дефолты офиса и накладка машины, — и нет ни одного значит нет лимитов;
 	// учёт от этого не зависит.
 	budgets, err := budget.Load(
-		sources.office(configRoot, budget.File),
+		sources.office(office.Root, budget.File),
 		sources.machine(home, budget.File),
 	)
-	if err != nil {
-		return nil, err
-	}
-	configSHA, err := runner.ConfigSHA(configRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -134,16 +131,16 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 			Workflow:   workflow,
 			// Офис видит только свои проекты: чужие трекер не знает, а уборка
 			// системного прохода снесла бы их рабочие папки.
-			Projects:   projects.For(name),
-			Forges:     forges,
-			Agent:      pipeline.SandboxAgent{ConfigRoot: configRoot, Backend: *backend, Log: out},
-			Sandboxes:  sandboxes,
-			Ledger:     runs,
-			Budgets:    budgets,
-			ConfigRoot: configRoot,
-			ConfigSHA:  configSHA,
-			Accounts:   tr.accounts,
-			Log:        out,
+			Projects:  projects.For(name),
+			Forges:    forges,
+			Agent:     pipeline.SandboxAgent{Office: office, Backend: *backend, Log: out},
+			Sandboxes: sandboxes,
+			Ledger:    runs,
+			Budgets:   budgets,
+			Office:    office,
+			ConfigSHA: office.Identity,
+			Accounts:  tr.accounts,
+			Log:       out,
 		}})
 	}
 	return all, nil
@@ -304,29 +301,28 @@ func loopCommand(args []string, out io.Writer) error {
 	return all.loop(ctx, *every, *role)
 }
 
-// configRoot — корень конфиг-репозитория. Его сообщает обёртка bin/runner;
-// при прямом запуске берётся текущий каталог.
-func configRoot() (string, error) {
-	if root := os.Getenv("OFFICE_CONFIG_ROOT"); root != "" {
-		return root, nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("корень конфигурации не определён: %w", err)
-	}
-	return cwd, nil
-}
-
 // configSources — откуда раннер взял каждый файл конфигурации.
 //
-// Конфигурация лежит в двух местах: репозиторий — фреймворк, ${OFFICE_HOME} —
-// этот инстанс. Без строки о каждом файле разбираться, почему офис ведёт себя
-// не так, приходится догадками о том, какой из двух он открыл. Файлы, которых нет,
-// называются тоже: «нет» — такой же ответ, как путь, и для необязательных
-// бюджетов он законный.
+// Конфигурация лежит в двух местах: репозиторий-фреймворк — либо клон под
+// OFFICE_CONFIG_ROOT, либо распакованная поставка бинарника, — и
+// ${OFFICE_HOME} — этот инстанс. Без строки о каждом файле разбираться, почему
+// офис ведёт себя не так, приходится догадками о том, какой из двух он открыл.
+// Файлы, которых нет, называются тоже: «нет» — такой же ответ, как путь, и для
+// необязательных бюджетов он законный.
 type configSources struct {
 	out    io.Writer
 	header bool
+}
+
+// root — первая строка раскладки: откуда взят сам офис. Идёт до строк
+// о файлах: они называют пути под этим корнем, и без неё
+// «office/v0.7.0/workflow.yaml» читался бы как ребус.
+func (c *configSources) root(o runner.Office) {
+	if c.out == nil {
+		return
+	}
+	c.printHeader()
+	fmt.Fprintf(c.out, "  офис: %s\n", o.Describe())
 }
 
 // office — файл, описывающий офис: он в конфиг-репозитории.
@@ -334,6 +330,13 @@ func (c *configSources) office(root, name string) string { return c.add("офи�
 
 // machine — файл, описывающий инстанс: он в хозяйстве раннера.
 func (c *configSources) machine(root, name string) string { return c.add("машина", root, name) }
+
+func (c *configSources) printHeader() {
+	if !c.header {
+		fmt.Fprintln(c.out, "конфигурация:")
+		c.header = true
+	}
+}
 
 // add печатает строку **сразу**, а не копит её до конца сборки. Это по существу:
 // самый нужный случай — отказ загрузчика, и если печатать в конце, то при отказе
@@ -344,10 +347,7 @@ func (c *configSources) add(kind, root, name string) string {
 	if c.out == nil {
 		return path
 	}
-	if !c.header {
-		fmt.Fprintln(c.out, "конфигурация:")
-		c.header = true
-	}
+	c.printHeader()
 	state := "есть"
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		state = "нет"

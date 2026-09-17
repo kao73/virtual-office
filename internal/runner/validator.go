@@ -33,14 +33,34 @@ func HostPlatform() Platform {
 
 func (p Platform) String() string { return p.OS + "/" + p.Arch }
 
-// EnsureValidator собирает бинарник ограждения под нужную платформу и возвращает
-// путь к нему.
+// EnsureValidator отдаёт путь к бинарнику ограждения под платформу бэкенда.
 //
-// Собирается он каждый раз заново, а не берётся готовым: бинарник — это слепок
-// контракта на момент сборки, и оставленный от прошлой версии проверял бы не то,
-// что проверяет раннер. Ровно эта развилка и стоила этапу 1 потерянного прогона.
-// Повторная сборка почти бесплатна — её кэширует сам go.
-func EnsureValidator(configRoot string, target Platform) (string, error) {
+// Клон: собирается заново каждый раз — бинарник есть слепок контракта на
+// момент сборки, и оставленный от прошлой версии проверял бы не то, что
+// проверяет раннер (этап 1 потерял на этом прогон); повторная сборка почти
+// бесплатна, её кэширует сам go. Поставка: ограждение собрано при релизе
+// и лежит в самом раннере (Task 7); без него — отказ с адресом.
+func EnsureValidator(o Office, target Platform) (string, error) {
+	name := fmt.Sprintf("%s-%s-%s", ValidatorName, target.OS, target.Arch)
+	switch o.Source {
+	case SourceClone:
+		return buildValidator(o.Root, name, target)
+	case SourcePayload:
+		return "", noEmbeddedValidator(target)
+	default:
+		return "", fmt.Errorf("офис без источника: неоткуда взять ограждение под %s", target)
+	}
+}
+
+// noEmbeddedValidator — отказ поставки: раннер собран без ограждения под эту
+// платформу. Подсунуть ограждение другой платформы нельзя — оно не запустится.
+func noEmbeddedValidator(target Platform) error {
+	return fmt.Errorf("раннер собран без ограждения под %s: соберите с `-tags release` или задайте %s", target, ConfigRootEnv)
+}
+
+// buildValidator — сегодняшний код EnsureValidator: ${OFFICE_HOME}/bin/<name>
+// собирается go build из корня клона с GOOS/GOARCH/CGO_ENABLED=0.
+func buildValidator(configRoot, name string, target Platform) (string, error) {
 	home, err := Home()
 	if err != nil {
 		return "", err
@@ -49,7 +69,7 @@ func EnsureValidator(configRoot string, target Platform) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("каталог бинарников не создан: %w", err)
 	}
-	path := filepath.Join(dir, fmt.Sprintf("%s-%s-%s", ValidatorName, target.OS, target.Arch))
+	path := filepath.Join(dir, name)
 
 	// go build отказывается писать поверх файла, который не выглядит бинарником
 	// («already exists and is not an object file»), и мусор на этом пути заклинил бы

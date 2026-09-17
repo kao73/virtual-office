@@ -88,7 +88,7 @@ func execute() (int, error) {
 		return 0, errors.New("нужны --role и --workdir")
 	}
 
-	configRoot, err := officeRoot()
+	office, err := runner.ResolveOffice(runner.Resolve{Unpack: true})
 	if err != nil {
 		return 0, err
 	}
@@ -114,10 +114,10 @@ func execute() (int, error) {
 	// молча: тот же сторож, что и у runner, и стоит он до роли, а не под
 	// --project: дерево, которое runner отвергает, ручной запуск не должен
 	// принимать ни в одном режиме.
-	if err := tracker.RefuseLeftoverOfficeFile(configRoot); err != nil {
+	if err := tracker.RefuseLeftoverOfficeFile(office.Root); err != nil {
 		return 0, err
 	}
-	role, err := runner.LoadRole(configRoot, *roleName)
+	role, err := runner.LoadRole(office.Root, *roleName)
 	if err != nil {
 		return 0, err
 	}
@@ -159,10 +159,6 @@ func execute() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	configSHA, err := runner.ConfigSHA(configRoot)
-	if err != nil {
-		return 0, err
-	}
 	base, err := runner.HeadCommit(workdir)
 	if err != nil {
 		return 0, err
@@ -171,7 +167,7 @@ func execute() (int, error) {
 		RunID:      runID,
 		Role:       role.Name,
 		TaskKey:    *taskKeyFlag,
-		ConfigSHA:  configSHA,
+		ConfigSHA:  office.Identity,
 		StartedAt:  time.Now(),
 		BaseCommit: base,
 	}
@@ -196,11 +192,11 @@ func execute() (int, error) {
 	passport.BaseCommit = base
 
 	opts := runagent.Options{
-		ConfigRoot: configRoot,
-		Role:       role,
-		Workdir:    workdir,
-		Backend:    *backend,
-		Passport:   passport,
+		Office:   office,
+		Role:     role,
+		Workdir:  workdir,
+		Backend:  *backend,
+		Passport: passport,
 	}
 	if *cloneFlag {
 		branch := headBranch(workdir)
@@ -289,19 +285,6 @@ func account(passport runner.Run, out runagent.Outcome, eval bool) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "run-agent: прогон не записан в реестр:", err)
 	}
-}
-
-// officeRoot — корень конфиг-репозитория. Его сообщает обёртка bin/run-agent;
-// при прямом запуске берётся текущий каталог.
-func officeRoot() (string, error) {
-	if root := os.Getenv("OFFICE_CONFIG_ROOT"); root != "" {
-		return root, nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("корень конфигурации не определён: %w", err)
-	}
-	return cwd, nil
 }
 
 // resolve достраивает относительный путь от каталога, из которого позвали обёртку:
