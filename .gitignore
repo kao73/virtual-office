@@ -14,3 +14,6 @@ bootstrap/jira/*.tar.gz
 # portable, same reasoning as the root /.comet/runtime/ exclusion above).
 docs/openspec/changes/**/.comet/
 # <<< Comet managed project state <<<
+# Кросс-собранные ограждения релиза: их кладёт scripts/build-validators.sh
+payload/validators/*
+!payload/validators/README.md
