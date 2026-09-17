@@ -55,9 +55,10 @@ limit of one claimed task per role per tick SHALL hold per office.
 
 #### Scenario: A loop tick covers every office
 - **WHEN** `runner loop` runs on a machine with two trackers in use
-- **THEN** each iteration ticks both offices, and a stop signal received
-  between runs ends the loop after the current run, never in the middle of
-  one
+- **THEN** each iteration ticks both offices; a stop signal starts no
+  further office and no further iteration, and a run in progress is
+  interrupted (the same context reaches the agent process) — its task
+  stays leased until `reap` returns it to the queue
 
 #### Scenario: The board lists tasks per tracker
 - **WHEN** `runner ls` runs on a machine with two trackers in use
