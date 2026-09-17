@@ -178,6 +178,10 @@ func TestValidatorBlocksOnMisuse(t *testing.T) {
 // Поставка без встроенных ограждений — сборка без -tags release. Отказ
 // называет платформу и оба выхода и не подсовывает ограждение другой платформы.
 func TestEnsureValidatorPayloadRefusesWhenNothingEmbedded(t *testing.T) {
+	// Пустой набор внедряется явно: под `-tags release` на linux/amd64 (или
+	// linux/arm64) настоящий payload.Validators уже содержит этот чекер, и
+	// без подмены отказ на таком хосте не воспроизвести.
+	fakeValidators(t)
 	root := t.TempDir()
 	o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
 	_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "amd64"})

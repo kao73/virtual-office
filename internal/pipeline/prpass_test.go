@@ -351,7 +351,7 @@ func TestPRPassBodyCarriesBriefEvenWhenArchivedInSamePass(t *testing.T) {
 }
 
 // Независимое ревью (Важно #2): архивирование — свойство изменения, а не
-// forge — но archiveIfReady стояло после ветки "project.Forge == ''" в
+// forge — но archiveIfReady стояло после ветки "project.Forge == ”" в
 // switch, и на проекте без forge (оба текущих полигона живут именно так)
 // Archive был недостижим целиком. Тест воспроизводит проект без forge
 // (дефолт newOffice, o.withForge здесь нарочно не зовётся) и проверяет,

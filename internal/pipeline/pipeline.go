@@ -102,7 +102,7 @@ type Office struct {
 	// это естественное состояние офиса, а не недонастроенное.
 	Budgets budget.Budgets
 
-	// Office — откуда роли и чем подписаны прогоны (встроено: o.Root, o.Identity).
+	// Office — откуда роли и чем подписаны прогоны (встроено: o.Root, o.Identity, o.Source).
 	runner.Office
 	// ConfigSHA — личность офиса для маркеров и реестра: то же, что
 	// Office.Identity. Имя историческое — так называется поле config_sha

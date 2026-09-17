@@ -31,11 +31,12 @@ func TestVersionPrintsIdentityAndOfficeDirWithoutUnpacking(t *testing.T) {
 	}
 }
 
-// configSHAWithDirtyPattern — личность клона: HEAD (40 hex), с возможным
-// суффиксом -dirty. fixtureRunner оставляет workflow.yaml неотслеживаемым
-// (см. Controller ruling R1 в office_test.go), так что личность выходит
-// грязной — тест не держит более строгий вид без -dirty.
-var configSHAWithDirtyPattern = regexp.MustCompile(`^runner [0-9a-f]{40}(-dirty)?$`)
+// versionLinePattern — вся первая строка вывода: "runner " + личность клона
+// (HEAD, 40 hex, с возможным суффиксом -dirty). Корень фикстуры грязен по
+// построению: fixtureRunner пишет workflow.yaml до git init, файл остаётся
+// неотслеживаемым, и git status --porcelain видит его как правку — тест не
+// держит более строгий вид без -dirty.
+var versionLinePattern = regexp.MustCompile(`^runner [0-9a-f]{40}(-dirty)?$`)
 
 // В режиме клона — commit клона и его путь, с пометкой, откуда он взялся.
 func TestVersionInCloneModeNamesTheClone(t *testing.T) {
@@ -48,7 +49,7 @@ func TestVersionInCloneModeNamesTheClone(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("строк напечатано %d, ожидалось 2:\n%s", len(lines), out.String())
 	}
-	if !configSHAWithDirtyPattern.MatchString(lines[0]) {
+	if !versionLinePattern.MatchString(lines[0]) {
 		t.Errorf("первая строка %q не похожа на identity клона", lines[0])
 	}
 	wantSecond := "офис: " + root + " (клон, OFFICE_CONFIG_ROOT)"

@@ -59,6 +59,8 @@ home="$work/home3"
 if OFFICE_INSTALL_FROM="$bad" OFFICE_HOME="$home" sh "$root/install.sh" > "$work/out3" 2>&1; then fail "битая сумма принята"; fi
 grep -q "контрольная сумма" "$work/out3" || fail "причина не названа: $(cat "$work/out3")"
 [ ! -e "$home/bin/runner" ] || fail "runner установлен несмотря на битую сумму"
+[ ! -e "$home/bin/run-agent" ] || fail "run-agent установлен несмотря на битую сумму"
+[ ! -e "$home/bin" ] || fail "$home/bin создан несмотря на битую сумму"
 echo "ok: битая контрольная сумма"
 
 # 4. Чужая платформа: подменённый uname говорит darwin/amd64.

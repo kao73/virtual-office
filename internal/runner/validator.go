@@ -74,7 +74,7 @@ func EnsureValidator(o Office, target Platform) (string, error) {
 // noEmbeddedValidator — отказ поставки: раннер собран без ограждения под эту
 // платформу. Подсунуть ограждение другой платформы нельзя — оно не запустится.
 func noEmbeddedValidator(target Platform) error {
-	return fmt.Errorf("раннер собран без ограждения под %s: соберите с `-tags release` или задайте %s", target, ConfigRootEnv)
+	return fmt.Errorf("раннер собран без ограждения под %s: соберите с `-tags release` после scripts/build-validators.sh или задайте %s", target, ConfigRootEnv)
 }
 
 // buildValidator — сегодняшний код EnsureValidator: ${OFFICE_HOME}/bin/<name>
