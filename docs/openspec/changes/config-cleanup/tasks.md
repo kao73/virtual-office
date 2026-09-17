@@ -35,6 +35,6 @@
 
 ## 6. Documentation that would otherwise be false (design D9)
 
-- [ ] 6.1 `docs/DESIGN.md` §2.5: repo ↔ `${OFFICE_HOME}` lists rewritten around `roles/_base/base.yaml` and `projects.local.yaml`, "debt not fully closed" removed, no-flag runner named
-- [ ] 6.2 `README.md`: drop quick-start step 3, add `default_branch` to step 4, remove `--tracker jira` from command lines, fix "Где что лежит" (no `projects.yaml`, add `roles/_base/base.yaml`) and the `-dirty` paragraph
-- [ ] 6.3 `docs/ONBOARDING.md`: Б5 snippets (no `projects.yaml` edit, `default_branch` in the machine half, `Depends` created by the script), Б7 command lines without `--tracker`, the `-dirty` symptom paragraph
+- [x] 6.1 `docs/DESIGN.md` §2.5: repo ↔ `${OFFICE_HOME}` lists rewritten around `roles/_base/base.yaml` and `projects.local.yaml`, "debt not fully closed" removed, no-flag runner named
+- [x] 6.2 `README.md`: drop quick-start step 3, add `default_branch` to step 4, remove `--tracker jira` from command lines, fix "Где что лежит" (no `projects.yaml`, add `roles/_base/base.yaml`) and the `-dirty` paragraph
+- [x] 6.3 `docs/ONBOARDING.md`: Б5 snippets (no `projects.yaml` edit, `default_branch` in the machine half, `Depends` created by the script), Б7 command lines without `--tracker`, the `-dirty` symptom paragraph

@@ -2780,7 +2780,7 @@ Corresponds to `tasks.md` §6 (6.1–6.3). Only statements that this change make
 
 There is no automated test for prose; the check is `git grep` (below) plus reading the diff against the Design Doc's sections «`docs/DESIGN.md` §2.5 — правка текста» and «README и ONBOARDING — только то, что стало бы ложью».
 
-- [ ] **Step 1: `docs/DESIGN.md` §2.5 (tasks.md 6.1)**
+- [x] **Step 1: `docs/DESIGN.md` §2.5 (tasks.md 6.1)**
 
 Replace the whole §2.5 section (from `### 2.5 …` up to but excluding `### 2.6 …`) with:
 
@@ -2803,7 +2803,7 @@ Replace the whole §2.5 section (from `### 2.5 …` up to but excluding `### 2.6
 
 In §2.6, the bullet «Слоистая модель разрешений…» names `projects.yaml`; replace `repo-wide умолчания (зарезервированный ключ `defaults` в `projects.yaml`), проект, машина (тот же принцип в `projects.local.yaml`) и роль (`role.yaml`, как и было)` with `базовые правила ролей (`roles/_base/base.yaml`), машинные умолчания (ключ `defaults` в `projects.local.yaml`), проект (его запись там же) и роль (`role.yaml`, как и было)`. (One phrase; it is the same falsehood as §2.5's, in the same document.)
 
-- [ ] **Step 2: `README.md` (tasks.md 6.2)**
+- [x] **Step 2: `README.md` (tasks.md 6.2)**
 
 Quick start (lines 76–90): delete step 3 (`# 3. Назвать проект офису — projects.yaml в репозитории…` through its four YAML comment lines) and turn step 4 into the new step 3:
 
@@ -2853,7 +2853,7 @@ budgets.yaml          перекрытие пределов, необязате�
 уже выведены.
 ```
 
-- [ ] **Step 3: `docs/ONBOARDING.md` (tasks.md 6.3)**
+- [x] **Step 3: `docs/ONBOARDING.md` (tasks.md 6.3)**
 
 Б2 checklist (line 240–241): `Статусы, четыре поля аренды, экраны и учётки заведены. Скрипт печатает в конце идентификаторы полей — **они понадобятся на шаге Б5, сохраните вывод.**` → `Статусы, четыре поля аренды, тип связи `Depends`, экраны и учётки заведены. Скрипт печатает в конце идентификаторы полей и имя типа связи — **они понадобятся на шаге Б5, сохраните вывод.**`
 
@@ -2917,7 +2917,7 @@ Symptom (lines 629–634): replace the paragraph `**В метке прогона
 именно; закоммитьте или уберите — иначе у ваших прогонов эта метка ничего не значит.
 ```
 
-- [ ] **Step 4: Check and commit**
+- [x] **Step 4: Check and commit**
 
 Run:
 
