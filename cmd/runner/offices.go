@@ -31,23 +31,32 @@ type offices struct {
 	out        io.Writer
 }
 
-// each обходит офисы по порядку. Заголовок «== трекер jira ==» печатается
-// только когда офисов больше одного: при одном stdout совпадает с прежним
-// байт в байт, а ошибка и тогда несёт имя трекера в префиксе. Ошибка одного
-// офиса не останавливает остальных — все собираются errors.Join и уходят
-// наверх разом.
+// each обходит офисы по порядку для разовой команды. Заголовок
+// «== трекер jira ==» печатается только когда офисов больше одного: при
+// одном stdout совпадает с прежним байт в байт, а ошибка и тогда несёт имя
+// трекера в префиксе. Ошибка одного офиса не останавливает остальных — все
+// собираются errors.Join и уходят наверх разом.
+func (all *offices) each(ctx context.Context, fn func(namedOffice) error) error {
+	return all.visit(ctx, func(no namedOffice) error {
+		if len(all.list) > 1 {
+			fmt.Fprintf(all.out, "== трекер %s ==\n", no.name)
+		}
+		return fn(no)
+	})
+}
+
+// visit — сам обход, без заголовков: их печатает each для разовой команды,
+// а заход loop (cycle) обходится без них — при --every 2m заголовки дали бы
+// тысячу строк в сутки в журнале планировщика.
 //
 // ctx проверяется перед каждым офисом, а не только между заходами: сигнал,
 // пришедший в офисе jira, не даёт начаться mock. Сам прогон он при этом
 // прерывает (см. loopCommand). Накопленное к этому моменту возвращается.
-func (all *offices) each(ctx context.Context, fn func(namedOffice) error) error {
+func (all *offices) visit(ctx context.Context, fn func(namedOffice) error) error {
 	var errs []error
 	for _, no := range all.list {
 		if ctx.Err() != nil {
 			break
-		}
-		if len(all.list) > 1 {
-			fmt.Fprintf(all.out, "== трекер %s ==\n", no.name)
 		}
 		if err := fn(no); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", no.name, err))
@@ -87,8 +96,9 @@ func (all *offices) loop(ctx context.Context, every time.Duration, role string) 
 
 // cycle — один заход цикла: по каждому офису reap → tick → complete-splits.
 // Ошибка шага — повод сказать о ней и пойти дальше, а не умереть: следующий
-// заход может пройти. Поэтому fn всегда возвращает nil, а each здесь нужен
-// ради порядка обхода и остановки между офисами.
+// заход может пройти. Поэтому fn всегда возвращает nil, а visit здесь нужен
+// ради порядка обхода и остановки между офисами. Чей шаг упал, говорит
+// префикс строки: заголовков заход не печатает.
 //
 // CompleteSplits идёт после tick, а не до него, и порядок не косметика:
 // tick первым делом разбирает ответы человека (HumanReplies), и реплика,
@@ -99,15 +109,15 @@ func (all *offices) loop(ctx context.Context, every time.Duration, role string) 
 // никто ещё не прочитал. Reap перед tick не переставлен: он разбирает
 // задачи с истёкшей арендой, а не задачи в Blocked.
 func (all *offices) cycle(ctx context.Context, role string) {
-	_ = all.each(ctx, func(no namedOffice) error {
+	_ = all.visit(ctx, func(no namedOffice) error {
 		if err := no.Reap(ctx); err != nil {
-			fmt.Fprintf(all.out, "reap: %v\n", err)
+			fmt.Fprintf(all.out, "%s: reap: %v\n", no.name, err)
 		}
 		if _, err := tick(ctx, no, role); err != nil {
-			fmt.Fprintf(all.out, "tick: %v\n", err)
+			fmt.Fprintf(all.out, "%s: tick: %v\n", no.name, err)
 		}
 		if err := no.CompleteSplits(ctx); err != nil {
-			fmt.Fprintf(all.out, "complete-splits: %v\n", err)
+			fmt.Fprintf(all.out, "%s: complete-splits: %v\n", no.name, err)
 		}
 		return nil
 	})

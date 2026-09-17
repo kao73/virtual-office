@@ -339,8 +339,14 @@ func TestCycleLogsStepErrorsAndContinues(t *testing.T) {
 
 	all.cycle(context.Background(), "reviewer")
 
-	if !strings.Contains(out.String(), "reap: ") || !strings.Contains(out.String(), "трекер недоступен") {
-		t.Errorf("об ошибке reap не сказано:\n%s", out.String())
+	// Заход loop не печатает заголовков офисов — при --every 2m это была бы
+	// тысяча строк в сутки в журнале планировщика; чей шаг упал, говорит
+	// префикс самой строки.
+	if !strings.Contains(out.String(), "jira: reap: ") || !strings.Contains(out.String(), "трекер недоступен") {
+		t.Errorf("об ошибке reap не сказано с именем офиса:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "== трекер") {
+		t.Errorf("заход цикла печатает заголовки офисов:\n%s", out.String())
 	}
 	if got := status(t, b, "OFF-1"); got != "Ready" {
 		t.Errorf("OFF-1 в %q, ожидался Ready: второй офис не дождался своего reap", got)
