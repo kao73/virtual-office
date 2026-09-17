@@ -247,15 +247,19 @@ func TestBoardsListTasksPerTracker(t *testing.T) {
 }
 
 // --project — доска только его офиса; чужой проект — отказ с именем файла.
+//
+// Спрашивается OFF — проект второго офиса, не первого: ls, который берёт
+// первый попавшийся офис вместо офиса проекта, напечатал бы VO-1 и провалил
+// тест. Спроси VO — и такой ls прошёл бы его, не найдя ничего.
 func TestBoardsProjectFlagPicksTheOwningOffice(t *testing.T) {
 	var out bytes.Buffer
 	all := boardOffices(t, &out)
 
-	if err := printBoards(all, "VO", boardNow, &out); err != nil {
+	if err := printBoards(all, "OFF", boardNow, &out); err != nil {
 		t.Fatalf("доска проекта не напечатана: %v", err)
 	}
-	if !strings.Contains(out.String(), "VO-1") || strings.Contains(out.String(), "OFF-1") || strings.Contains(out.String(), "== трекер") {
-		t.Errorf("--project VO показал не только VO:\n%s", out.String())
+	if !strings.Contains(out.String(), "OFF-1") || strings.Contains(out.String(), "VO-1") || strings.Contains(out.String(), "== трекер") {
+		t.Errorf("--project OFF показал не только OFF:\n%s", out.String())
 	}
 	if err := printBoards(all, "NOPE", boardNow, &out); err == nil || !strings.Contains(err.Error(), tracker.ProjectsLocalFile) {
 		t.Errorf("неизвестный проект не отвергнут с именем файла: %v", err)

@@ -113,6 +113,11 @@ func bareOrigin(t *testing.T) string {
 // Аренду спрашивают у трекера, в котором задача живёт. В «чужом» офисе та же
 // задача арендована живым прогоном: спроси rm не тот трекер — и получил бы
 // отказ «над VO-1 работает прогон», хотя свой офис знает её свободной.
+//
+// Чужой офис стоит в списке первым, свой — вторым, и это не случайность:
+// rm, который берёт первый попавшийся трекер вместо офиса проекта, упёрся бы
+// в живую аренду и отказал — тест ловит именно эту регрессию. Стой свой офис
+// первым, такой rm прошёл бы тест, не найдя ничего.
 func TestRemoveWorktreeAsksTheOfficeOwningTheProject(t *testing.T) {
 	origin := bareOrigin(t)
 	ws := workspace.New(t.TempDir())
@@ -141,8 +146,8 @@ func TestRemoveWorktreeAsksTheOfficeOwningTheProject(t *testing.T) {
 	var out bytes.Buffer
 	all := &offices{
 		list: []namedOffice{
-			{name: "jira", Office: &pipeline.Office{Tracker: own, Projects: tracker.Projects{"VO": project}}},
 			{name: "mock", Office: &pipeline.Office{Tracker: foreign, Projects: tracker.Projects{"OFF": {Tracker: "mock"}}}},
+			{name: "jira", Office: &pipeline.Office{Tracker: own, Projects: tracker.Projects{"VO": project}}},
 		},
 		workspaces: ws,
 		out:        &out,
