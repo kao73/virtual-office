@@ -18,7 +18,7 @@
 ## 4. `runner init` and `runner version`
 
 - [x] 4.1 `runner init`: create the home, place `projects.local.example.yaml` and `tracker.example.yaml` only when absent, never touch the working files, print created/kept/next step; tests for fresh home and configured home
-- [ ] 4.2 `runner version`: print identity and resolved office directory without unpacking or opening configuration; test that the directory is not created
+- [x] 4.2 `runner version`: print identity and resolved office directory without unpacking or opening configuration; test that the directory is not created
 - [x] 4.3 Loader test: a copy of `projects.local.example.yaml` with only key, `repo_url`, `default_branch`, `tracker` edited loads and lists the project
 
 ## 5. Release tooling
