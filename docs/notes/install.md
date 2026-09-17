@@ -1,5 +1,194 @@
 # Установка: релиз, личность, проверка снапшота
 
+## Что лежит в релизе
+
+Источник истины — `.goreleaser.yaml`, `scripts/build-validators.sh`,
+`.github/workflows/release.yml`, `install.sh`, `payload.go`; решения и их
+причины — `docs/openspec/changes/install/design.md` (D1, D5, D6) и
+Design Doc `docs/superpowers/specs/2026-09-17-install-design.md` §2.1–2.4.
+
+### Три архива, чексуммы, install.sh
+
+Релиз GitHub несёт три архива `virtual-office_<os>_<arch>.tar.gz`
+(`darwin_arm64`, `linux_amd64`, `linux_arm64`), в каждом — ровно два файла,
+`runner` и `run-agent` (`archives.files: [none*]`: дефолтный README
+GoReleaser в архив не идёт, `install.sh` ждёт только эти два имени); один
+общий `checksums.txt` (sha256, строка `<hash>  <файл>`); и `install.sh`,
+приложенный к релизу отдельным файлом (`release.extra_files`), а не
+запакованный внутрь архивов.
+
+Ни в одном имени архива нет версии (`name_template:
+"{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"`) — так
+`releases/latest/download/virtual-office_<os>_<arch>.tar.gz` разрешается
+GitHub напрямую, без обращения к API за именем текущего тега. Какая версия
+внутри — говорит уже сам бинарник (`runner version`), а не имя файла.
+
+### Что несёт каждый раннер
+
+Поставка (`payload.go`, `go:embed`) весит на диске около 13 МБ: `skills/` —
+6,6 МБ, `bootstrap/sbx-kits/` (тарболы кита песочницы) — 6,4 МБ, `roles/` —
+104 КБ, `hooks/` — 8 КБ, плюс `workflow.yaml`, `budgets.yaml` и оба образца.
+Она встроена и в `runner`, и в `run-agent` — второй тоже импортирует корневой
+пакет через `internal/runner`, так что каждый архив несёт эти ~13 МБ дважды.
+Принято осознанно (Design Doc §2.2): сжатая поставка — единицы мегабайт, а
+отдельный код-путь «`run-agent` ждёт, пока `runner` распакует офис» усложнил
+бы устройство сильнее, чем экономит.
+
+Сверх поставки каждый раннер несёт бинарники-чекеры `validate-result-<os>-<arch>`
+(по ~3,6–3,7 МБ штука), собранные `scripts/build-validators.sh` и встроенные
+под тегом `release` файлами `validators_darwin_arm64.go`,
+`validators_linux_amd64.go`, `validators_linux_arm64.go` (D5). Какие именно —
+решает целевая платформа раннера, а не платформа, на которой раннер
+работает во время сборки:
+
+| Раннер собран для | Несёт чекеры |
+|---|---|
+| `darwin/arm64` | `darwin-arm64` (хост) и `linux-arm64` (песочница `sbx` на Apple Silicon — линукс той же архитектуры) |
+| `linux/amd64` | `linux-amd64` (хост и его же `sbx`) |
+| `linux/arm64` | `linux-arm64` (хост и его же `sbx`) |
+
+`validators_dev.go` (без тега `release`) даёт пустой набор — сборка без
+`-tags release` чекеров не несёт вовсе, ими такую сборку и не обязали
+(режим `clone`, ниже).
+
+### Как это собирается
+
+`.goreleaser.yaml` (version 2): хук `before.hooks` зовёт
+`scripts/build-validators.sh` (кросс-сборка трёх чекеров в
+`payload/validators/`, `CGO_ENABLED=0`) раньше сборки самих раннеров; затем
+два билда — `runner` (`./cmd/runner`) и `run-agent` (`./cmd/run-agent`) — на
+три цели (`darwin_arm64`, `linux_amd64`, `linux_arm64`) с
+`flags: [-trimpath, -tags=release]` и `ldflags: -s -w -X
+github.com/kao73/virtual-office.Version=v{{ .Version }}` — этой строкой
+версия релиза попадает в `payload.Version` и делает раннер веткой 2 из
+следующего раздела. `git.ignore_tags: ["archive/*"]` нужен ровно потому, что
+теги `archive/concept-2026-08` и им подобные достижимы из HEAD этого
+репозитория: не отсеки их, GoReleaser принял бы `archive/*` за последний тег
+и вычислял бы номер снапшота от него, а не от отсутствия версионных тегов.
+
+Тег `v*`, запушенный в GitHub, запускает `.github/workflows/release.yml`:
+checkout с `fetch-depth: 0` (GoReleaser читает историю и теги для списка
+коммитов), `go test ./...`, затем `goreleaser/goreleaser-action@v7` с
+`args: release --clean`. Больше в конвейере ничего нет: ни подписи, ни
+Homebrew, ни своего changelog.
+
+GoReleaser закреплён по версии `v2.18.2` в двух местах — в workflow
+(`goreleaser-action@v7` с `version: v2.18.2`) и в
+`scripts/release-snapshot.sh` (`go run
+github.com/goreleaser/goreleaser/v2@v2.18.2 release --snapshot --clean`),
+одной и той же командой без сети GoReleaser не устанавливается — `go run`
+скачивает и собирает его при первом запуске. Пин существует, чтобы два
+разработчика (или разработчик и CI) неизбежно собирали идентичный `dist/`.
+
+## Личность прогона в каждом режиме
+
+Источник истины — `internal/runner/office.go` (`ResolveOffice`,
+`payloadIdentity`, `errNoIdentity`), `internal/runner/validator.go`
+(`EnsureValidator`), `internal/office/unpack.go`, `internal/tracker/marker.go`
+(`commitHash`, `shortenSHA`), `cmd/runner/version.go`, `cmd/runner/init.go`,
+`bin/runner`/`bin/run-agent`; решения — `docs/openspec/changes/install/design.md`
+D3, D4, D7, D9 и Design Doc §1.2–1.6.
+
+### Четыре ветки `ResolveOffice`
+
+Первая подошедшая ветка выигрывает; текущий каталог офисом не считается
+никогда.
+
+| # | Условие | Root | Identity | Source | Чекер даёт |
+|---|---|---|---|---|---|
+| 1 | `OFFICE_CONFIG_ROOT` задан | эта директория (клон) | `git rev-parse HEAD` (+`-dirty`, если `git status --porcelain` не пуст) | `clone` | `go build ./cmd/validate-result` из `Root` под целевую платформу — заново на каждый прогон, в `${OFFICE_HOME}/bin/` (`buildValidator`) |
+| 2 | `payload.Version != ""` (релизная сборка, ldflags `-X …Version=`) | `${OFFICE_HOME}/office/<Version>` | `Version` (например, `v0.7.0` или `v0.0.1-SNAPSHOT-abc1234`) | `payload` | встроенный бинарник поставки, записан один раз в `<Root>/bin/` (`embeddedValidator`) |
+| 3 | build info несёт `vcs.revision` (сборка `go build` из клона без обёртки) | `${OFFICE_HOME}/office/<rev[:12]>`, либо, при незакоммиченных правках, `${OFFICE_HOME}/office/<rev[:12]>-dirty-<hash8>` | `<rev>` (полные 40 hex), либо `<rev>-dirty` | `payload` | тот же встроенный бинарник |
+| 4 | ни версии, ни `vcs.revision` (например, `go build -buildvcs=false` вне git) | — | — | отказ `errNoIdentity` | — |
+
+### Грязная сборка: имя каталога по содержимому
+
+Каталог `<rev[:12]>-dirty-<hash8>` (восемь hex от `office.Hash(Payload)`)
+существует потому, что для «грязной» сборки коммит уже не определяет
+содержимое поставки: две сборки одного и того же незакоммиченного дерева
+могут нести разные роли. Ключевание по содержимому, а не только по commit,
+делает распаковку идемпотентной и никогда не переписывающей уже
+распакованный каталог (D3) — то же правило, что держит «распакованную
+версию не трогают» и для чистых версий.
+
+### Маркер: сокращается только commit
+
+`shortenSHA` режет до восьми символов (сохраняя `-dirty`) только значения,
+подходящие под `^[0-9a-f]{40}(-dirty)?$`; любая другая личность —
+`v0.7.0`, `v0.0.1-SNAPSHOT-abc1234` — пишется в `config:` целиком. Ключ
+`config:` в тикете и `config_sha` в `ledger.jsonl` — исторические имена
+(поле раньше и было хешем коммита), их переименование не входит в этот
+этап.
+
+### `runner version` и `runner init`
+
+`version` зовёт `ResolveOffice(Resolve{Unpack: false})` — ничего не
+распаковывает и не открывает ни одного конфигурационного файла — и печатает
+`runner <identity>` плюс либо `офис: <Root>`, либо, в режиме `clone`,
+`офис: <Root> (клон, OFFICE_CONFIG_ROOT)`. Команда обязана отвечать и там,
+где `${OFFICE_HOME}` ещё не существует: `install.sh` зовёт её сразу после
+установки как доказательство, что бинарник вообще запускается на этой
+машине (виден в шаге 3 проверки ниже).
+
+`init` не разрешает офис вообще (`ResolveOffice` не зовёт) и ничего не
+распаковывает: оба образца (`projects.local.example.yaml`,
+`tracker.example.yaml`) читаются прямо из `payload.Payload` — те же байты
+что и в режиме `clone`, что и в режиме `payload`. Существующий файл не
+трогается (печатает `оставлен`), отсутствующий создаётся (`создан`);
+рабочие файлы (`projects.local.yaml`, `tracker.yaml`, `budgets.yaml`) `init`
+не открывает и не пишет никогда.
+
+### `OFFICE_CONFIG_ROOT` и обёртки `bin/*`
+
+`OFFICE_CONFIG_ROOT` — переключатель разработчика: офис берётся из клона,
+а не из поставки, и оба скрипта `bin/runner`, `bin/run-agent` выставляют
+его сами (`cd .. && pwd` от места, где лежит сама обёртка) перед тем, как
+собрать (`go build -o "${OFFICE_HOME:-$HOME/.office}/bin/<имя>"
+./cmd/<имя>`) и заменить процесс обёртки собранным бинарником (`exec`).
+
+Отсюда — два независимых способа, которыми файл `${OFFICE_HOME}/bin/runner`
+может быть записан: `install.sh` кладёт его из скачанного (или локального,
+`OFFICE_INSTALL_FROM`) архива релиза; обёртка `bin/runner`, вызванная из
+клона, пересобирает его туда же командой `go build` при каждом запуске.
+Если оба способа целятся в один и тот же `${OFFICE_HOME}` — что происходит,
+например, когда разработчик работает из клона на машине, где до этого уже
+стоял установленный релиз, — выигрывает тот, кто писал последним; ничто в
+коде это не предотвращает и не проверяет, это осознанно задокументированное
+поведение, а не гарантия.
+
+### Осиротевшие `.unpack-*`
+
+Если процесс убит посреди распаковки (`office.Unpack`), временный каталог
+`office/.unpack-<name>-<pid>/` остаётся лежать: убирать его некому — соседний
+`tick` мог в этот момент вести свою собственную распаковку, и слепая чистка
+удалила бы чужой ещё живой временный каталог. Такой осиротевший каталог
+безвреден и убирается вручную (`rm -r`).
+
+### Что не входит в объём этого этапа
+
+Чистка старых `office/<dir>/` (их сама поставка не убирает никогда — чужой
+работающий раннер мог быть собран из любой из них), `runner doctor`,
+самообновление раннера, платформа `darwin/amd64`, установка через Homebrew.
+См. Non-Goals в `docs/openspec/changes/install/design.md` и §6 Design Doc.
+
+### Две находки со сборки
+
+- `go run ./cmd/runner version` из клона с не заданным `OFFICE_CONFIG_ROOT`
+  отказывает с текстом «без личности» (`errNoIdentity`): `go run` не
+  проставляет VCS-информацию сборки, и `readBuildInfo()` не находит
+  `vcs.revision` — ветка 4. `go run -buildvcs=true ./cmd/runner version`
+  или обычный `go build` дают ожидаемую ветку 3 (`<commit>-dirty`, каталог
+  `<rev[:12]>-dirty-<hash8>`, если дерево не чистое). Обёртки `bin/*` этой
+  ловушки не знают: они всегда собирают `go build`, а не `go run`, и всегда
+  задают `OFFICE_CONFIG_ROOT` — путь разработчика через них не задет.
+- `run-agent --dry-run` требует заданной `ANTHROPIC_API_KEY` или
+  `CLAUDE_CODE_OAUTH_TOKEN` (значение может быть любым — так поступают и
+  тесты) даже притом что `--dry-run` ничего не тратит и самого агента не
+  запускает: проверка креда (`internal/adapters/claude/adapter.go:credential`)
+  стоит внутри `claude.Build` и срабатывает раньше, чем запуск вообще
+  материализуется — до того, как что-либо, включая печать личности прогона,
+  становится доступно вызывающему.
+
 ## Проверка снапшота 2026-09-18
 
 Ручная проверка, ничего не автоматизировано: команды прогнаны по очереди из корня
