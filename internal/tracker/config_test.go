@@ -910,3 +910,42 @@ func TestPRBranch(t *testing.T) {
 		t.Errorf("PRBranch() = %q, ожидался target_branch %q", got, "office-integration")
 	}
 }
+
+// Образец проектов копируется в ${OFFICE_HOME} командой runner init и правится
+// в четырёх значениях: ключ, repo_url, default_branch, tracker. Всё остальное
+// в нём закомментировано, и после четырёх правок он обязан загрузиться —
+// иначе первый запуск у нового пользователя упрётся в контракт, который
+// образец сам же нарушает.
+func TestShippedProjectsExampleLoadsAfterFourEdits(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", ProjectsLocalExampleFile))
+	if err != nil {
+		t.Fatalf("%s не прочитан: %v", ProjectsLocalExampleFile, err)
+	}
+	edited := string(raw)
+	for _, r := range []struct{ old, new string }{
+		{"\nPROJ:\n", "\nVO:\n"},
+		{"repo_url: https://github.com/you/your-project.git", "repo_url: https://example.test/vo.git"},
+		{"default_branch: main", "default_branch: master"},
+		{"tracker: jira", "tracker: mock"},
+	} {
+		if n := strings.Count(edited, r.old); n != 1 {
+			t.Fatalf("%q встречается в образце %d раз, ожидался ровно один", r.old, n)
+		}
+		edited = strings.Replace(edited, r.old, r.new, 1)
+	}
+	path := filepath.Join(t.TempDir(), ProjectsLocalFile)
+	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := LoadProjects(path)
+	if err != nil {
+		t.Fatalf("образец после четырёх правок не загружен: %v", err)
+	}
+	if keys := projects.Keys(); len(keys) != 1 || keys[0] != "VO" {
+		t.Fatalf("проекты %v, ожидался один VO", keys)
+	}
+	p := projects["VO"]
+	if p.RepoURL != "https://example.test/vo.git" || p.DefaultBranch != "master" || p.Tracker != "mock" || p.BranchPrefix != DefaultBranchPrefix {
+		t.Errorf("проект разобран как %+v", p)
+	}
+}

@@ -61,6 +61,8 @@ func execute(args []string) error {
 		return ledgerCommand(args[1:], os.Stdout)
 	case "worktree":
 		return worktreeCommand(args[1:], os.Stdout)
+	case "init":
+		return initCommand(args[1:], os.Stdout)
 	case "mock":
 		tasks, err := mock.Default()
 		if err != nil {
