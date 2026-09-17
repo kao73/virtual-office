@@ -41,6 +41,9 @@ func fixtureOffice(t *testing.T, roleYAML string) string {
 	}
 
 	write(filepath.Join(RolesDir, "_base", "base.md"), "# Базовые правила\n\nБудь честен.\n")
+	// Базовых правил у фикстуры нет, но файл обязан быть: каталог _base без
+	// base.yaml — сломанная поставка, а не пустой слой (LoadRole).
+	write(filepath.Join(RolesDir, BaseDir, BaseRulesFile), "# слой есть, но пуст\n")
 	write(filepath.Join(RolesDir, "tester", "role.md"), "# Роль: tester\n\nДелай, что сказано.\n")
 	write(filepath.Join(RolesDir, "tester", RoleFile), roleYAML)
 	write(filepath.Join("hooks", "require-result.sh"), "#!/bin/sh\nexit 0\n")
@@ -63,7 +66,9 @@ func TestLoadRole(t *testing.T) {
 	if role.Limits.MaxTurns != 5 || role.Limits.TimeoutSec != 60 {
 		t.Errorf("лимиты разобраны неверно: %+v", role.Limits)
 	}
-	if len(role.Tools.Allow) != 2 || role.Tools.Allow[1] != "Bash(git *)" {
+	// Порядок после слияния с базой алфавитный; здесь важно, что правило
+	// доехало как написано — со звёздочкой и пробелом.
+	if len(role.Tools.Allow) != 2 || !slices.Contains(role.Tools.Allow, "Bash(git *)") {
 		t.Errorf("правило инструмента искажено при разборе: %q", role.Tools.Allow)
 	}
 	if got := len(role.PromptFiles()); got != 2 {
@@ -193,7 +198,9 @@ func TestRoleKeepsNetworkAllowAsWritten(t *testing.T) {
 	if err != nil {
 		t.Fatalf("роль не загружена: %v", err)
 	}
-	want := []string{"pypi.org", "*.pythonhosted.org", "registry.npmjs.org:443"}
+	// Слияние с базой сортирует список; «как есть» здесь про текст записей,
+	// а не про их порядок.
+	want := []string{"*.pythonhosted.org", "pypi.org", "registry.npmjs.org:443"}
 	if !slices.Equal(role.Network.Allow, want) {
 		t.Errorf("домены роли %v, ожидались %v", role.Network.Allow, want)
 	}
@@ -423,5 +430,121 @@ func TestUnionDedupsAndSorts(t *testing.T) {
 	}
 	if got := Union(); got != nil {
 		t.Errorf("Union() без слоёв = %v, ожидался nil", got)
+	}
+}
+
+// Роль во временном roles/ без каталога _base загружается без базового
+// слоя: у временных ролей в тестах базы нет, и это законно.
+func TestLoadRoleWithoutBaseDirHasNoBaseLayer(t *testing.T) {
+	yaml := strings.Replace(fixtureRoleYAML, "includes:\n  - ../_base/base.md\n", "includes: []\n", 1)
+	root := fixtureOffice(t, yaml)
+	if err := os.RemoveAll(filepath.Join(root, RolesDir, BaseDir)); err != nil {
+		t.Fatalf("каталог _base не убран: %v", err)
+	}
+
+	role, err := LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль без базы не загружена: %v", err)
+	}
+	if len(role.Tools.Deny) != 0 || len(role.Network.Allow) != 0 {
+		t.Errorf("роль без базы получила правила из ниоткуда: %+v %+v", role.Tools, role.Network)
+	}
+}
+
+// С roles/_base/base.yaml роль получает и базовые строки, и свои; повторы
+// схлопнуты. Проверяется каждый из трёх списков: механизм один, но
+// пропустить один из них при слиянии — самая вероятная ошибка.
+func TestLoadRoleUnionsBaseRules(t *testing.T) {
+	yaml := strings.Replace(fixtureRoleYAML, `deny: []`, `deny: ["Bash(git *push*)", "Bash(git *reset*)"]`, 1)
+	yaml += "network:\n  allow: [example.test]\n"
+	root := fixtureOffice(t, yaml)
+	base := "network:\n  allow: [pypi.org]\ntools:\n  allow: [Grep]\n  deny: [\"Bash(git *push*)\", \"Bash(rm *-r*)\"]\n"
+	if err := os.WriteFile(filepath.Join(root, RolesDir, BaseDir, BaseRulesFile), []byte(base), 0o644); err != nil {
+		t.Fatalf("base.yaml не записан: %v", err)
+	}
+
+	role, err := LoadRole(root, "tester")
+	if err != nil {
+		t.Fatalf("роль с базой не загружена: %v", err)
+	}
+	if want := []string{"Bash(git *push*)", "Bash(git *reset*)", "Bash(rm *-r*)"}; !slices.Equal(role.Tools.Deny, want) {
+		t.Errorf("tools.deny = %v, ожидалось %v", role.Tools.Deny, want)
+	}
+	if want := []string{"Bash(git *)", "Grep", "Read"}; !slices.Equal(role.Tools.Allow, want) {
+		t.Errorf("tools.allow = %v, ожидалось %v", role.Tools.Allow, want)
+	}
+	if want := []string{"example.test", "pypi.org"}; !slices.Equal(role.Network.Allow, want) {
+		t.Errorf("network.allow = %v, ожидалось %v", role.Network.Allow, want)
+	}
+}
+
+// Каталог _base есть, base.yaml нет — отказ с путём, а не пустой слой:
+// половина базы (промпт) без другой половины (правила) — сломанная поставка.
+func TestLoadRoleRefusesBaseDirWithoutRules(t *testing.T) {
+	root := fixtureOffice(t, fixtureRoleYAML)
+	path := filepath.Join(root, RolesDir, BaseDir, BaseRulesFile)
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("base.yaml не убран: %v", err)
+	}
+
+	_, err := LoadRole(root, "tester")
+	if err == nil {
+		t.Fatal("роль загружена без базовых правил при наличии каталога _base")
+	}
+	if !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "каталог есть, файла нет") {
+		t.Errorf("отказ не назвал недостающий файл: %v", err)
+	}
+}
+
+// Разбор базы строгий, как у роли: неизвестное поле — ошибка, а не молча
+// забытая настройка; битый хост в базе ломал бы сеть каждой роли.
+func TestLoadRoleRejectsBrokenBaseRules(t *testing.T) {
+	for name, base := range map[string]string{
+		"неизвестное поле": "limits:\n  max_turns: 5\n",
+		"хост со схемой":   "network:\n  allow: [\"https://pypi.org\"]\n",
+		"запрет Write":     "tools:\n  deny: [Write]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := fixtureOffice(t, fixtureRoleYAML)
+			if err := os.WriteFile(filepath.Join(root, RolesDir, BaseDir, BaseRulesFile), []byte(base), 0o644); err != nil {
+				t.Fatalf("base.yaml не записан: %v", err)
+			}
+			_, err := LoadRole(root, "tester")
+			if err == nil {
+				t.Fatal("битые базовые правила приняты")
+			}
+			if !strings.Contains(err.Error(), BaseRulesFile) {
+				t.Errorf("отказ не назвал файл: %v", err)
+			}
+		})
+	}
+}
+
+// Общие запреты git, переписывания истории и rm -rf раньше ехали к каждому
+// проекту через projects.yaml: defaults; теперь они — базовый слой ролей, и
+// получать их обязана каждая поставляемая роль, с проектом или без.
+func TestShippedRolesInheritBaseRules(t *testing.T) {
+	wantDeny := []string{
+		"Bash(git *branch*)", "Bash(git *checkout*)", "Bash(git *config*)",
+		"Bash(git *push*)", "Bash(git *remote*)", "Bash(git *switch*)", "Bash(git *worktree*)",
+		"Bash(git *filter-branch*)", "Bash(git *filter-repo*)",
+		"Bash(rm *-r*)", "Bash(rm *-f*)", "Bash(rm *--recursive*)", "Bash(rm *--force*)",
+	}
+	wantNet := []string{"registry-1.docker.io", "github.com", "pypi.org", "proxy.golang.org", "ghcr.io"}
+	for _, name := range shippedRoles(t) {
+		role, err := LoadRole(filepath.Join("..", ".."), name)
+		if err != nil {
+			t.Fatalf("roles/%s не загружена: %v", name, err)
+		}
+		for _, rule := range wantDeny {
+			if !slices.Contains(role.Tools.Deny, rule) {
+				t.Errorf("roles/%s: tools.deny не содержит %q (база не доехала)", name, rule)
+			}
+		}
+		for _, host := range wantNet {
+			if !slices.Contains(role.Network.Allow, host) {
+				t.Errorf("roles/%s: network.allow не содержит %q (база не доехала)", name, host)
+			}
+		}
 	}
 }

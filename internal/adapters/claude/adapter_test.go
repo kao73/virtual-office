@@ -61,6 +61,7 @@ func fixtureOffice(t *testing.T, yaml string, skills ...string) string {
 	}
 
 	write(filepath.Join("roles", "_base", "base.md"), "# Базовые правила\n\nБудь честен.\n")
+	write(filepath.Join("roles", runner.BaseDir, runner.BaseRulesFile), "# слой есть, но пуст\n")
 	write(filepath.Join("roles", "tester", "role.md"), "# Роль: tester\n\nДелай, что сказано.\n")
 	write(filepath.Join("roles", "tester", "role.yaml"), yaml)
 	write(filepath.Join("hooks", "require-result.sh"), "#!/bin/sh\nexit 0\n")
@@ -215,9 +216,15 @@ func TestBuildCommandLine(t *testing.T) {
 		}
 	}
 	// Роль разрешает три инструмента; без --tools агенту достались бы все встроенные,
-	// включая сетевые и порождающие процессы.
-	if got := argValue(t, launch.Argv, "--tools"); got != "Read,Write,Bash" {
-		t.Errorf("набор инструментов %q, роль разрешает Read, Write, Bash(git *)", got)
+	// включая сетевые и порождающие процессы. Порядок в role.Tools.Allow после
+	// слияния с базовым слоем (LoadRole, Union) алфавитный, а не тот, что в role.yaml —
+	// здесь важен набор, а не порядок токенов Bash/Read/Write.
+	gotTools := strings.Split(argValue(t, launch.Argv, "--tools"), ",")
+	wantTools := []string{"Read", "Write", "Bash"}
+	slices.Sort(gotTools)
+	slices.Sort(wantTools)
+	if !slices.Equal(gotTools, wantTools) {
+		t.Errorf("набор инструментов %v, роль разрешает Read, Write, Bash(git *)", gotTools)
 	}
 	// Стартовое сообщение обязано идти через stdin: вариадические флаги
 	// (--tools, --allowedTools, --add-dir) съедают позиционный аргумент,
