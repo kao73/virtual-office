@@ -27,8 +27,8 @@ func boardCommand(args []string, out io.Writer) error {
 	projects := o.Projects.Keys()
 	if *project != "" {
 		if _, known := o.Projects[*project]; !known {
-			return fmt.Errorf("проект %q не описан в %s и %s либо заведён под другой трекер",
-				*project, tracker.ProjectsFile, tracker.ProjectsLocalFile)
+			return fmt.Errorf("проект %q не описан в %s либо заведён под другой трекер",
+				*project, tracker.ProjectsLocalFile)
 		}
 		projects = []string{*project}
 	}

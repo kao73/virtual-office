@@ -104,10 +104,7 @@ func office(fs *flag.FlagSet, args []string, out io.Writer) (*pipeline.Office, e
 		return nil, fmt.Errorf("неизвестный трекер %q: доступны %s", *trackerName, strings.Join(tracker.Trackers(), ", "))
 	}
 
-	projects, err := tracker.LoadProjects(
-		sources.office(configRoot, tracker.ProjectsFile),
-		sources.machine(home, tracker.ProjectsLocalFile),
-	)
+	projects, err := tracker.LoadProjects(sources.machine(home, tracker.ProjectsLocalFile))
 	if err != nil {
 		return nil, err
 	}

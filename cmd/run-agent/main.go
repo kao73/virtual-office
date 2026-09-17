@@ -66,8 +66,8 @@ func execute() (int, error) {
 	workdirFlag := flag.String("workdir", "", "рабочая папка агента: git-репозиторий")
 	backend := flag.String("backend", runagent.DefaultBackend, "бэкенд запуска: sbx (песочница) или local (без изоляции)")
 	taskFlag := flag.String("task", "", "файл с постановкой; без него берётся уже лежащий .agent/task.md")
-	projectFlag := flag.String("project", "", "проект из projects.yaml/projects.local.yaml: подмешивает "+
-		"repo-wide, project- и machine-слои network/tools поверх роли, как это делает конвейер; "+
+	projectFlag := flag.String("project", "", "проект из ${OFFICE_HOME}/projects.local.yaml: подмешивает "+
+		"машинные и проектные слои network/tools поверх роли (базовый слой роль получает и без флага), как это делает конвейер; "+
 		"без флага роль остаётся в изоляции — только то, что названо в её собственном role.yaml")
 	baseFlag := flag.String("base", "", "базовая ветка: от неё считается разница по задаче (нужна reviewer'у)")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
@@ -124,10 +124,7 @@ func execute() (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		projects, err := tracker.LoadProjects(
-			filepath.Join(configRoot, tracker.ProjectsFile),
-			filepath.Join(home, tracker.ProjectsLocalFile),
-		)
+		projects, err := tracker.LoadProjects(filepath.Join(home, tracker.ProjectsLocalFile))
 		if err != nil {
 			return 0, err
 		}

@@ -286,12 +286,8 @@ func TestDryRunProjectFlagMergesMachineRulesOverBase(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
 	home := t.TempDir()
-	// Машинная половина обязана назвать все три проекта офиса (парность
-	// office/machine, пока projects.yaml жив) — значения репозиториев здесь
-	// не важны, --dry-run ничего не клонирует.
-	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  network: [machine-only.test]\n" +
-		"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n" +
-		"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"
+	// --dry-run ничего не клонирует: значение repo_url здесь не важно.
+	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n  network: [machine-only.test]\n"
 	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(machine), 0o644); err != nil {
 		t.Fatalf("projects.local.yaml не записан: %v", err)
 	}
@@ -326,9 +322,7 @@ func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 	workdir := gitRepo(t)
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(
-		"OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
-			"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n"+
-			"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"), 0o644); err != nil {
+		"OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n"), 0o644); err != nil {
 		t.Fatalf("projects.local.yaml не записан: %v", err)
 	}
 	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
