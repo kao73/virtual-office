@@ -80,12 +80,12 @@ func status(t *testing.T, tr *mock.Tracker, key string) string {
 func TestEachPrintsHeadersOnlyForSeveralOffices(t *testing.T) {
 	var out bytes.Buffer
 	all, _, _ := twoOffices(t, &out)
-	visit := func(no namedOffice) error {
+	note := func(no namedOffice) error {
 		out.WriteString("visited " + no.name + "\n")
 		return nil
 	}
 
-	if err := all.each(context.Background(), visit); err != nil {
+	if err := all.each(context.Background(), note); err != nil {
 		t.Fatalf("обход не прошёл: %v", err)
 	}
 	want := "== трекер jira ==\nvisited jira\n== трекер mock ==\nvisited mock\n"
@@ -95,7 +95,7 @@ func TestEachPrintsHeadersOnlyForSeveralOffices(t *testing.T) {
 
 	out.Reset()
 	all.list = all.list[:1]
-	if err := all.each(context.Background(), visit); err != nil {
+	if err := all.each(context.Background(), note); err != nil {
 		t.Fatalf("обход не прошёл: %v", err)
 	}
 	if strings.Contains(out.String(), "== трекер") {

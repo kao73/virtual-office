@@ -695,7 +695,7 @@ func LoadProjects(machinePath string) (Projects, error) {
 	// запуском — лишний круг.
 	if len(machine) == 0 {
 		errs = append(errs, fmt.Errorf("%s не называет ни одного проекта: офису нечего вести", machinePath))
-		return nil, errors.Join(errs...)
+		return nil, fmt.Errorf("проекты нарушают контракт: %w", errors.Join(errs...))
 	}
 
 	projects := Projects{}
