@@ -98,7 +98,7 @@ func worktreeRemove(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return removeWorktree(all, key, *force, time.Now(), out)
+	return removeWorktree(all, key, *force, time.Now())
 }
 
 // removeWorktree — само удаление, отдельно от сборки офисов ради теста.
@@ -110,7 +110,7 @@ func worktreeRemove(args []string, out io.Writer) error {
 // никак — офиса у неё больше нет. Сборка офисов (newOffices) при этом всё
 // ещё идёт до удаления и открывает все трекеры — недоступная JIRA не даст
 // убрать и папку mock-проекта. Обойти сборку под --force — отдельная задача.
-func removeWorktree(all *offices, key string, force bool, now time.Time, out io.Writer) error {
+func removeWorktree(all *offices, key string, force bool, now time.Time) error {
 	entries, err := all.workspaces.List()
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func removeWorktree(all *offices, key string, force bool, now time.Time, out io.
 		if err := all.workspaces.Remove(entry.Workspace); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "%s: рабочая папка удалена, ветка %s осталась в клоне\n", key, entry.Branch)
+		fmt.Fprintf(all.out, "%s: рабочая папка удалена, ветка %s осталась в клоне\n", key, entry.Branch)
 		return nil
 	}
 	return fmt.Errorf("рабочей папки задачи %s нет; что есть — покажет `runner worktree ls`", key)

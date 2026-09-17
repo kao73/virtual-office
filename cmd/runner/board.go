@@ -25,22 +25,22 @@ func boardCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return printBoards(all, *project, time.Now(), out)
+	return printBoards(all, *project, time.Now())
 }
 
 // printBoards — доска каждого офиса под его именем (заголовок ставит each,
 // и только когда офисов больше одного); с проектом — только его офис.
 // Раскладку конфигурации печатает конструктор, один раз на все офисы.
-func printBoards(all *offices, project string, now time.Time, out io.Writer) error {
+func printBoards(all *offices, project string, now time.Time) error {
 	if project != "" {
 		no, err := all.byProject(project)
 		if err != nil {
 			return err
 		}
-		return printBoard(no.Tracker, []string{project}, no.Workflow.Statuses, no.Workflow.IsTerminal, now, out)
+		return printBoard(no.Tracker, []string{project}, no.Workflow.Statuses, no.Workflow.IsTerminal, now, all.out)
 	}
 	return all.each(context.Background(), func(no namedOffice) error {
-		return printBoard(no.Tracker, no.Projects.Keys(), no.Workflow.Statuses, no.Workflow.IsTerminal, now, out)
+		return printBoard(no.Tracker, no.Projects.Keys(), no.Workflow.Statuses, no.Workflow.IsTerminal, now, all.out)
 	})
 }
 

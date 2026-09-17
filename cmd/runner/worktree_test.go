@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,26 +63,13 @@ func TestRemovableAllowsCleanIdleWorktree(t *testing.T) {
 // --force — осознанный выбор человека, и он снимает обе оговорки разом:
 // грязную папку с живой арендой rm сносит, трекер об аренде не спрашивая.
 func TestRemoveWorktreeForceOverridesBoth(t *testing.T) {
-	origin := bareOrigin(t)
 	ws := workspace.New(t.TempDir())
-	project := tracker.Project{RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "mock"}
-	w, err := ws.Ensure(tracker.TaskRef{Key: "OFF-1", Project: "OFF"}, project)
-	if err != nil {
-		t.Fatalf("рабочая папка не создана: %v", err)
-	}
+	w, project := ensureWorktree(t, ws, "OFF-1", "OFF", "mock")
 	if err := os.WriteFile(filepath.Join(w.Dir, "недоделка.txt"), []byte("грязь"), 0o644); err != nil {
 		t.Fatalf("файл не записан: %v", err)
 	}
 	tr := mock.New(t.TempDir())
-	if err := tr.Add(tracker.Task{Key: "OFF-1", Project: "OFF", Status: "Ready", Summary: "задача"}); err != nil {
-		t.Fatalf("задача не создана: %v", err)
-	}
-	if err := tr.Claim(tracker.ClaimRequest{
-		Key: "OFF-1", RunID: "прогон-1", Owner: "implementer",
-		LeaseUntil: moment.Add(time.Hour), ExpectStatus: "Ready", WorkingStatus: "InProgress",
-	}); err != nil {
-		t.Fatalf("захват не удался: %v", err)
-	}
+	leasedTask(t, tr, "OFF-1", "OFF", moment.Add(time.Hour))
 
 	var out bytes.Buffer
 	all := &offices{
@@ -90,7 +77,7 @@ func TestRemoveWorktreeForceOverridesBoth(t *testing.T) {
 		workspaces: ws,
 		out:        &out,
 	}
-	if err := removeWorktree(all, "OFF-1", true, moment, &out); err != nil {
+	if err := removeWorktree(all, "OFF-1", true, moment); err != nil {
 		t.Fatalf("--force не снял оговорки: %v", err)
 	}
 	if entries, _ := ws.List(); len(entries) != 0 {
@@ -120,22 +107,28 @@ func bareOrigin(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	bare, seed := filepath.Join(root, "client.git"), filepath.Join(root, "seed")
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@local",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@local")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	run("init", "-q", "--bare", "-b", "master", bare)
-	run("init", "-q", "-b", "master", seed)
-	run("-C", seed, "commit", "-q", "--allow-empty", "-m", "начало")
-	run("-C", seed, "remote", "add", "origin", bare)
-	run("-C", seed, "push", "-q", "origin", "master")
+	gitT(t, root, "init", "-q", "--bare", "-b", "master", bare)
+	gitT(t, root, "init", "-q", "-b", "master", seed)
+	gitT(t, seed, "commit", "-q", "--allow-empty", "-m", "начало")
+	gitT(t, seed, "remote", "add", "origin", bare)
+	gitT(t, seed, "push", "-q", "origin", "master")
 	return bare
+}
+
+// ensureWorktree заводит рабочую папку задачи под свежим bare-репозиторием
+// и снимает барьер Ensure: прогон кончился, папка свободна — иначе уборка
+// молча обошла бы её как занятую.
+func ensureWorktree(t *testing.T, ws *workspace.Manager, key, project, trackerName string) (workspace.Workspace, tracker.Project) {
+	t.Helper()
+	p := tracker.Project{RepoURL: bareOrigin(t), DefaultBranch: "master", BranchPrefix: "agent/", Tracker: trackerName}
+	w, err := ws.Ensure(tracker.TaskRef{Key: key, Project: project}, p)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	if err := w.Unlock(); err != nil {
+		t.Fatalf("барьер не снят: %v", err)
+	}
+	return w, p
 }
 
 // Аренду спрашивают у трекера, в котором задача живёт. В «чужом» офисе та же
@@ -147,29 +140,15 @@ func bareOrigin(t *testing.T) string {
 // в живую аренду и отказал — тест ловит именно эту регрессию. Стой свой офис
 // первым, такой rm прошёл бы тест, не найдя ничего.
 func TestRemoveWorktreeAsksTheOfficeOwningTheProject(t *testing.T) {
-	origin := bareOrigin(t)
 	ws := workspace.New(t.TempDir())
-	project := tracker.Project{RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "jira"}
-	if _, err := ws.Ensure(tracker.TaskRef{Key: "VO-1", Project: "VO"}, project); err != nil {
-		t.Fatalf("рабочая папка не создана: %v", err)
-	}
+	_, project := ensureWorktree(t, ws, "VO-1", "VO", "jira")
 
-	add := func(tr *mock.Tracker) {
-		t.Helper()
-		if err := tr.Add(tracker.Task{Key: "VO-1", Project: "VO", Status: "Ready", Summary: "задача"}); err != nil {
-			t.Fatalf("задача не создана: %v", err)
-		}
-	}
 	own := mock.New(t.TempDir())
-	add(own)
-	foreign := mock.New(t.TempDir())
-	add(foreign)
-	if err := foreign.Claim(tracker.ClaimRequest{
-		Key: "VO-1", RunID: "прогон-1", Owner: "implementer",
-		LeaseUntil: moment.Add(time.Hour), ExpectStatus: "Ready", WorkingStatus: "InProgress",
-	}); err != nil {
-		t.Fatalf("захват не удался: %v", err)
+	if err := own.Add(tracker.Task{Key: "VO-1", Project: "VO", Status: "Ready", Summary: "задача"}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
 	}
+	foreign := mock.New(t.TempDir())
+	leasedTask(t, foreign, "VO-1", "VO", moment.Add(time.Hour))
 
 	var out bytes.Buffer
 	all := &offices{
@@ -180,7 +159,7 @@ func TestRemoveWorktreeAsksTheOfficeOwningTheProject(t *testing.T) {
 		workspaces: ws,
 		out:        &out,
 	}
-	if err := removeWorktree(all, "VO-1", false, moment, &out); err != nil {
+	if err := removeWorktree(all, "VO-1", false, moment); err != nil {
 		t.Fatalf("папка не удалена: %v", err)
 	}
 	if entries, _ := ws.List(); len(entries) != 0 {
@@ -197,28 +176,23 @@ func TestRemoveWorktreeAsksTheOfficeOwningTheProject(t *testing.T) {
 // вовсе. Иначе --force был бы обесценен ровно там, где его зовут, —
 // когда на машине что-то уже сломано.
 func TestRemoveWorktreeForProjectGoneFromConfig(t *testing.T) {
-	setup := func(t *testing.T) (*offices, *workspace.Manager, *bytes.Buffer) {
+	setup := func(t *testing.T) (*offices, *workspace.Manager) {
 		t.Helper()
-		origin := bareOrigin(t)
 		ws := workspace.New(t.TempDir())
-		project := tracker.Project{RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "jira"}
-		if _, err := ws.Ensure(tracker.TaskRef{Key: "VO-1", Project: "VO"}, project); err != nil {
-			t.Fatalf("рабочая папка не создана: %v", err)
-		}
-		var out bytes.Buffer
+		ensureWorktree(t, ws, "VO-1", "VO", "jira")
 		all := &offices{
 			list: []namedOffice{
 				{name: "mock", Office: &pipeline.Office{Tracker: mock.New(t.TempDir()), Projects: tracker.Projects{"OFF": {Tracker: "mock"}}}},
 			},
 			workspaces: ws,
-			out:        &out,
+			out:        io.Discard,
 		}
-		return all, ws, &out
+		return all, ws
 	}
 
 	t.Run("без --force отказ называет файл проектов", func(t *testing.T) {
-		all, ws, out := setup(t)
-		err := removeWorktree(all, "VO-1", false, moment, out)
+		all, ws := setup(t)
+		err := removeWorktree(all, "VO-1", false, moment)
 		if err == nil {
 			t.Fatal("папка проекта, пропавшего из конфигурации, удалена без --force")
 		}
@@ -231,8 +205,8 @@ func TestRemoveWorktreeForProjectGoneFromConfig(t *testing.T) {
 	})
 
 	t.Run("с --force сносится без трекера", func(t *testing.T) {
-		all, ws, out := setup(t)
-		if err := removeWorktree(all, "VO-1", true, moment, out); err != nil {
+		all, ws := setup(t)
+		if err := removeWorktree(all, "VO-1", true, moment); err != nil {
 			t.Fatalf("папка не удалена по --force: %v", err)
 		}
 		if entries, _ := ws.List(); len(entries) != 0 {

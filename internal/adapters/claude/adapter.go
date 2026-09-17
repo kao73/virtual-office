@@ -239,9 +239,7 @@ func Build(role runner.Role, workdir string, run runner.Run, validator string) (
 // плюс то, что назвала роль. Повторы убираются: список едет в правило политики
 // как есть, и дубликат в нём — мусор.
 func networkAllow(role runner.Role) []string {
-	hosts := append([]string{AgentAPIHost}, role.Network.Allow...)
-	slices.Sort(hosts)
-	return slices.Compact(hosts)
+	return runner.Union([]string{AgentAPIHost}, role.Network.Allow)
 }
 
 // identityVars задают личность коммитов. Переменные окружения выбраны потому, что

@@ -493,6 +493,17 @@ type Rules struct {
 	Tools   runner.Tools `yaml:"tools"`
 }
 
+// errors — нарушения контракта правил в этом слое, подписанные именем
+// записи (defaults или проект) и файлом: сам контракт общий для всех
+// четырёх слоёв (runner.RulesErrors), контекст — свой у каждого.
+func (r Rules) errors(entry, path string) []error {
+	var errs []error
+	for _, err := range runner.RulesErrors(runner.Network{Allow: r.Network}, r.Tools) {
+		errs = append(errs, fmt.Errorf("%s: %w (%s)", entry, err, path))
+	}
+	return errs
+}
+
 // AutoMerge — доверие конкретного инстанса конкретному проекту: мержить ли
 // самим и куда. Решение машины, не офиса — тот же класс, что Forge.
 //
@@ -681,30 +692,23 @@ func LoadProjects(machinePath string) (Projects, error) {
 	defaults := machine[reservedRulesKey].Rules
 	delete(machine, reservedRulesKey)
 
-	// Машинный слой держит тот же контракт правил, что роль и база: запрет
-	// Write целиком или хост-URL здесь молча ушли бы в каждую роль через
-	// объединение, и убрать их было бы некому.
-	var errs []error
-	for _, err := range runner.RulesErrors(runner.Network{Allow: defaults.Network}, defaults.Tools) {
-		errs = append(errs, fmt.Errorf("%s: %w (%s)", reservedRulesKey, err, machinePath))
-	}
+	// Машинный и проектный слои держат тот же контракт правил, что роль
+	// и база: запрет Write целиком или хост-URL здесь молча ушли бы в каждую
+	// роль через объединение, и убрать их было бы некому.
+	errs := defaults.errors(reservedRulesKey, machinePath)
 
 	// Ни одного проекта — отказ, и это не педантизм: прочие беды говорят вслух,
 	// а «ни одного проекта» промолчало бы, и раннер крутил бы пустые тики.
-	// Беды defaults прикладываются: починив одну, узнать о второй следующим
-	// запуском — лишний круг.
+	// Беды defaults идут в тот же отказ: починив одну, узнать о второй
+	// следующим запуском — лишний круг.
 	if len(machine) == 0 {
 		errs = append(errs, fmt.Errorf("%s не называет ни одного проекта: офису нечего вести", machinePath))
-		return nil, fmt.Errorf("проекты нарушают контракт: %w", errors.Join(errs...))
 	}
 
 	projects := Projects{}
 	for _, key := range slices.Sorted(maps.Keys(machine)) {
 		local := machine[key]
-		// Проектный слой — тот же контракт, что и у defaults выше.
-		for _, err := range runner.RulesErrors(runner.Network{Allow: local.Network}, local.Tools) {
-			errs = append(errs, fmt.Errorf("%s: %w (%s)", key, err, machinePath))
-		}
+		errs = append(errs, local.Rules.errors(key, machinePath)...)
 		if local.RepoURL == "" {
 			errs = append(errs, fmt.Errorf("%s: repo_url не задан (%s)", key, machinePath))
 		}

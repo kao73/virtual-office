@@ -51,19 +51,26 @@ func twoOffices(t *testing.T, out *bytes.Buffer) (*offices, *mock.Tracker, *mock
 	return &offices{list: []namedOffice{jira, local}, workspaces: ws, out: out}, a, b
 }
 
-// expiredTask заводит задачу с истёкшей арендой: единственное, что Reap
-// делает наблюдаемо без агента, — возвращает такую задачу в очередь.
-func expiredTask(t *testing.T, tr *mock.Tracker, key, project string) {
+// leasedTask заводит задачу в Ready и арендует её прогоном implementer'а
+// до указанного момента: с истёкшей арендой она — единственное, что Reap
+// делает наблюдаемо без агента; с живой — то, обо что спотыкается worktree rm.
+func leasedTask(t *testing.T, tr *mock.Tracker, key, project string, until time.Time) {
 	t.Helper()
 	if err := tr.Add(tracker.Task{Key: key, Project: project, Status: "Ready", Summary: "задача"}); err != nil {
 		t.Fatalf("задача не создана: %v", err)
 	}
 	if err := tr.Claim(tracker.ClaimRequest{
 		Key: key, RunID: "прогон-" + key, Owner: "implementer",
-		LeaseUntil: time.Now().Add(-time.Hour), ExpectStatus: "Ready", WorkingStatus: "InProgress",
+		LeaseUntil: until, ExpectStatus: "Ready", WorkingStatus: "InProgress",
 	}); err != nil {
 		t.Fatalf("захват не удался: %v", err)
 	}
+}
+
+// expiredTask — задача с истёкшей арендой.
+func expiredTask(t *testing.T, tr *mock.Tracker, key, project string) {
+	t.Helper()
+	leasedTask(t, tr, key, project, time.Now().Add(-time.Hour))
 }
 
 func status(t *testing.T, tr *mock.Tracker, key string) string {
@@ -277,21 +284,6 @@ func TestCycleOrderIsReapThenTickThenCompleteSplits(t *testing.T) {
 	}
 }
 
-// loop с уже отменённым контекстом не ждёт таймера и говорит, почему встал.
-func TestLoopStopsOnSignalWithoutWaiting(t *testing.T) {
-	var out bytes.Buffer
-	all, _, _ := twoOffices(t, &out)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	if err := all.loop(ctx, time.Hour, "reviewer"); err != nil {
-		t.Fatalf("цикл вернул ошибку: %v", err)
-	}
-	if !strings.Contains(out.String(), "остановка по сигналу") {
-		t.Errorf("о причине остановки не сказано:\n%s", out.String())
-	}
-}
-
 // loop — это cycle по расписанию, и тест обязан увидеть сам cycle: заход
 // с уже отменённым контекстом (тест выше) не посещает ни одного офиса,
 // и loop, забывший позвать cycle, прошёл бы его. Здесь контекст отменяется
@@ -372,16 +364,7 @@ func TestCycleSweepsFolderOnlyInOwningOffice(t *testing.T) {
 	var out bytes.Buffer
 	all, a, b := twoOffices(t, &out)
 	all.list[0], all.list[1] = all.list[1], all.list[0] // mock первым, jira вторым
-	project := tracker.Project{RepoURL: bareOrigin(t), DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "jira"}
-	ws, err := all.workspaces.Ensure(tracker.TaskRef{Key: "VO-1", Project: "VO"}, project)
-	if err != nil {
-		t.Fatalf("рабочая папка не создана: %v", err)
-	}
-	// Ensure держит барьер до конца прогона; прогон кончился — папка свободна,
-	// иначе уборка молча обошла бы её как занятую.
-	if err := ws.Unlock(); err != nil {
-		t.Fatalf("барьер не снят: %v", err)
-	}
+	ensureWorktree(t, all.workspaces, "VO-1", "VO", "jira")
 	if err := a.Add(tracker.Task{Key: "VO-1", Project: "VO", Status: "Done", Summary: "закрыта"}); err != nil {
 		t.Fatalf("задача не создана: %v", err)
 	}

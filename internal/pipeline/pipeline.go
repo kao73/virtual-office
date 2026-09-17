@@ -262,26 +262,30 @@ func (o *Office) checkWorkflow(project string, flow tracker.RoleFlow) {
 	}
 }
 
-// TickAll прогоняет по циклу на каждую роль графа, в порядке имён.
+// TickAll прогоняет по циклу на каждую роль графа, в порядке имён. Отвечает,
+// нашлась ли работа хоть одной роли, — тем же словом, что Tick для одной.
 //
 // Ответы человека разбираются один раз на весь заход, а не перед каждой ролью:
 // проход безролевой, и повторять его — лишние запросы к трекеру ради заведомо
 // пустого результата.
-func (o *Office) TickAll(ctx context.Context) error {
+func (o *Office) TickAll(ctx context.Context) (bool, error) {
 	if _, err := o.HumanReplies(ctx); err != nil {
-		return err
+		return false, err
 	}
 	if err := o.PRPass(ctx); err != nil {
-		return err
+		return false, err
 	}
 	// Порядок обхода задаёт граф: он не выводится ни из имён, ни из порядка
 	// YAML-карты. Сначала разгрузить конвейер, потом брать новое.
+	worked := false
 	for _, role := range o.Workflow.Order() {
-		if _, err := o.as(role).tickRole(ctx, role); err != nil {
-			return err
+		w, err := o.as(role).tickRole(ctx, role)
+		if err != nil {
+			return worked, err
 		}
+		worked = worked || w
 	}
-	return nil
+	return worked, nil
 }
 
 // claimed — взятая в работу задача: рабочая папка и аренда уже наши.

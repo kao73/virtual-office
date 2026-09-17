@@ -216,6 +216,38 @@ func TestCloneWithoutBranchFails(t *testing.T) {
 	}
 }
 
+// syntheticRole — конфиг-репозиторий (git нужен для ConfigSHA) с одной
+// минимальной ролью test-role; extra дописывается в конец role.yaml.
+func syntheticRole(t *testing.T, extra string) (configRoot string) {
+	t.Helper()
+	configRoot = gitRepo(t)
+	roleDir := filepath.Join(configRoot, "roles", "test-role")
+	if err := os.MkdirAll(roleDir, 0o755); err != nil {
+		t.Fatalf("каталог роли не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(roleDir, "role.md"), []byte("# Тестовая роль\n"), 0o644); err != nil {
+		t.Fatalf("промпт не написан: %v", err)
+	}
+	roleYAML := "name: test-role\nprompt: role.md\nincludes: []\nskills: []\ntools:\n  allow: [Read]\n" +
+		"limits: { max_turns: 10, timeout_sec: 300 }\nresult_file: .agent/result.json\n" + extra
+	if err := os.WriteFile(filepath.Join(roleDir, "role.yaml"), []byte(roleYAML), 0o644); err != nil {
+		t.Fatalf("role.yaml не написан: %v", err)
+	}
+	return configRoot
+}
+
+// projectsLocal — хозяйство с одним mock-проектом OFFICE; extra дописывается
+// в его запись. --dry-run ничего не клонирует: значение repo_url не важно.
+func projectsLocal(t *testing.T, extra string) (home string) {
+	t.Helper()
+	home = t.TempDir()
+	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n" + extra
+	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(machine), 0o644); err != nil {
+		t.Fatalf("projects.local.yaml не записан: %v", err)
+	}
+	return home
+}
+
 // Список доменов роли на бэкенде без песочницы не значит ничего. Промолчать
 // об этом — значит дать человеку поверить, что сеть закрыта: он читает role.yaml,
 // а не исходники бэкенда.
@@ -223,41 +255,8 @@ func TestRunAgentWarnsThatLocalIgnoresNetworkPolicy(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
 
-	// Свежий git-репозиторий для конфига (требуется для ConfigSHA) — тот же
-	// рецепт, что и в gitRepo.
-	configRoot := gitRepo(t)
-
-	// Создадим синтетическую роль test-role с минимальным содержимым.
-	// Роль должна иметь сетевую политику для проверки сообщения о её неприменённости.
-	roleDir := filepath.Join(configRoot, "roles", "test-role")
-	if err := os.MkdirAll(roleDir, 0o755); err != nil {
-		t.Fatalf("каталог роли не создан: %v", err)
-	}
-
-	// Пустой промпт-файл (требуется валидацией).
-	if err := os.WriteFile(filepath.Join(roleDir, "role.md"), []byte("# Тестовая роль\n"), 0o644); err != nil {
-		t.Fatalf("промпт не написан: %v", err)
-	}
-
-	// Минимальный role.yaml с сетевой политикой.
-	roleYAML := `name: test-role
-prompt: role.md
-includes: []
-skills: []
-tools:
-  allow:
-    - Read
-limits:
-  max_turns: 10
-  timeout_sec: 300
-network:
-  allow:
-    - example.com
-result_file: .agent/result.json
-`
-	if err := os.WriteFile(filepath.Join(roleDir, "role.yaml"), []byte(roleYAML), 0o644); err != nil {
-		t.Fatalf("role.yaml не написан: %v", err)
-	}
+	// Синтетическая роль с сетевой политикой — ради сообщения о её неприменённости.
+	configRoot := syntheticRole(t, "network:\n  allow:\n    - example.com\n")
 
 	_, out := runAgent(t, bin,
 		[]string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
@@ -285,12 +284,7 @@ result_file: .agent/result.json
 func TestDryRunProjectFlagMergesMachineRulesOverBase(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
-	home := t.TempDir()
-	// --dry-run ничего не клонирует: значение repo_url здесь не важно.
-	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n  network: [machine-only.test]\n"
-	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(machine), 0o644); err != nil {
-		t.Fatalf("projects.local.yaml не записан: %v", err)
-	}
+	home := projectsLocal(t, "  network: [machine-only.test]\n")
 	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
 	_, withoutFlag := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--dry-run")
@@ -320,11 +314,7 @@ func TestDryRunProjectFlagMergesMachineRulesOverBase(t *testing.T) {
 func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(
-		"OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n"), 0o644); err != nil {
-		t.Fatalf("projects.local.yaml не записан: %v", err)
-	}
+	home := projectsLocal(t, "")
 	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
 	code, out := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--project", "НЕТ-ТАКОГО", "--dry-run")
@@ -344,27 +334,11 @@ func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 func TestDryRunProjectFlagRefusesLeftoverProjectsYAML(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
-	configRoot := gitRepo(t)
-	roleDir := filepath.Join(configRoot, "roles", "test-role")
-	if err := os.MkdirAll(roleDir, 0o755); err != nil {
-		t.Fatalf("каталог роли не создан: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(roleDir, "role.md"), []byte("# Тестовая роль\n"), 0o644); err != nil {
-		t.Fatalf("промпт не написан: %v", err)
-	}
-	roleYAML := "name: test-role\nprompt: role.md\nincludes: []\nskills: []\ntools:\n  allow: [Read]\n" +
-		"limits: { max_turns: 10, timeout_sec: 300 }\nresult_file: .agent/result.json\n"
-	if err := os.WriteFile(filepath.Join(roleDir, "role.yaml"), []byte(roleYAML), 0o644); err != nil {
-		t.Fatalf("role.yaml не написан: %v", err)
-	}
+	configRoot := syntheticRole(t, "")
 	if err := os.WriteFile(filepath.Join(configRoot, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
 		t.Fatalf("projects.yaml не записан: %v", err)
 	}
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(
-		"OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n"), 0o644); err != nil {
-		t.Fatalf("projects.local.yaml не записан: %v", err)
-	}
+	home := projectsLocal(t, "")
 	env := []string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
 	// Сторож один и тот же с --project и без: дерево, которое runner

@@ -238,7 +238,7 @@ func (o *office) afterLease(t *testing.T, key string) time.Time {
 // tickAll прогоняет цикл по всем ролям, как это делает `runner tick` без --role.
 func (o *office) tickAll(t *testing.T) {
 	t.Helper()
-	if err := o.TickAll(context.Background()); err != nil {
+	if _, err := o.TickAll(context.Background()); err != nil {
 		t.Fatalf("цикл не прошёл: %v", err)
 	}
 }

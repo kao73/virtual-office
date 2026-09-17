@@ -715,15 +715,18 @@ func TestLoadProjectsLayersDefaultsAndProjectRules(t *testing.T) {
 	}
 }
 
+// twoTrackerProjects — три проекта на двух трекерах: один mock, два jira.
+var twoTrackerProjects = Projects{
+	"OFF": {Tracker: "mock"},
+	"VO":  {Tracker: "jira"},
+	"EXP": {Tracker: "jira"},
+}
+
 // Офис ведёт один трекер и работает только со своими проектами:
 // чужие он не спрашивает (иначе трекер отвечает «нет такого проекта» на каждом
 // проходе) и их рабочие папки не убирает.
 func TestProjectsFor(t *testing.T) {
-	projects := Projects{
-		"OFF": {Tracker: "mock"},
-		"VO":  {Tracker: "jira"},
-		"EXP": {Tracker: "jira"},
-	}
+	projects := twoTrackerProjects
 
 	if got := projects.For("mock").Keys(); !slices.Equal(got, []string{"OFF"}) {
 		t.Errorf("проекты mock: %v, ожидался только OFF", got)
@@ -739,11 +742,7 @@ func TestProjectsFor(t *testing.T) {
 // Трекеры, которые назвали проекты, — по алфавиту и без повторов: по этому
 // списку раннер обходит офисы, и два запуска обязаны обходить их одинаково.
 func TestTrackersInUse(t *testing.T) {
-	projects := Projects{
-		"OFF": {Tracker: "mock"},
-		"VO":  {Tracker: "jira"},
-		"EXP": {Tracker: "jira"},
-	}
+	projects := twoTrackerProjects
 	if got := projects.TrackersInUse(); !slices.Equal(got, []string{"jira", "mock"}) {
 		t.Errorf("TrackersInUse = %v, ожидалось [jira mock]", got)
 	}

@@ -68,57 +68,23 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 	// Трекеров столько, сколько назвали проекты, и у каждого столько учёток,
 	// сколько ролей со своей. Открываются они здесь и разом: узнать о неверном
 	// креде роли в середине цикла, уже захватив задачу, было бы поздно.
-	type opened struct {
-		tasks    tracker.Tracker
-		byRole   map[string]tracker.Tracker
-		accounts []string
-	}
+	names := projects.TrackersInUse()
 	trackers := map[string]opened{}
-	for _, name := range projects.TrackersInUse() {
+	for _, name := range names {
 		var o opened
+		var err error
 		switch name {
 		case "mock":
-			office, err := mock.Default()
-			if err != nil {
-				return nil, err
-			}
-			o.tasks, o.byRole, o.accounts = office, map[string]tracker.Tracker{}, []string{mock.Account}
-			for _, role := range workflow.Order() {
-				o.byRole[role] = office.As(mock.RoleAccount(role))
-				o.accounts = append(o.accounts, mock.RoleAccount(role))
-			}
+			o, err = openMock(workflow)
 		case "jira":
-			cfg, err := jira.LoadConfig(sources.machine(home, jira.TrackerFile))
-			if err != nil {
-				return nil, err
-			}
-			office, err := jira.Open(cfg)
-			if err != nil {
-				return nil, err
-			}
-			// Сверка имени с сервером — здесь, а не в Open: она стоит запроса,
-			// и делать её на каждом открытии трекера незачем.
-			if err := office.CheckAccount(); err != nil {
-				return nil, fmt.Errorf("общая учётка офиса: %w", err)
-			}
-			o.tasks, o.byRole = office, map[string]tracker.Tracker{}
-			for _, role := range workflow.Order() {
-				roleTracker, err := jira.OpenAs(cfg, role)
-				if err != nil {
-					return nil, fmt.Errorf("трекер роли %s не открыт: %w", role, err)
-				}
-				if err := roleTracker.CheckAccount(); err != nil {
-					return nil, fmt.Errorf("учётка роли %s: %w", role, err)
-				}
-				o.byRole[role] = roleTracker
-			}
-			if o.accounts, err = cfg.AgentAccounts(); err != nil {
-				return nil, err
-			}
+			o, err = openJira(sources.machine(home, jira.TrackerFile), workflow)
 		default:
 			// LoadProjects уже отверг чужое имя; ветка на случай, если список
 			// трекеров там и здесь однажды разойдётся.
-			return nil, fmt.Errorf("неизвестный трекер %q: доступны %s", name, strings.Join(tracker.Trackers(), ", "))
+			err = fmt.Errorf("неизвестный трекер %q: доступны %s", name, strings.Join(tracker.Trackers(), ", "))
+		}
+		if err != nil {
+			return nil, err
 		}
 		trackers[name] = o
 	}
@@ -159,7 +125,7 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 	}
 
 	all := &offices{workspaces: workspaces, out: out}
-	for _, name := range projects.TrackersInUse() {
+	for _, name := range names {
 		tr := trackers[name]
 		all.list = append(all.list, namedOffice{name: name, Office: &pipeline.Office{
 			Tracker:    tr.tasks,
@@ -181,6 +147,61 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 		}})
 	}
 	return all, nil
+}
+
+// opened — открытый трекер: общая учётка, по трекеру на роль со своей
+// учёткой и список агентских учёток, чьи комментарии не считаются словами
+// человека.
+type opened struct {
+	tasks    tracker.Tracker
+	byRole   map[string]tracker.Tracker
+	accounts []string
+}
+
+// openMock — файловый трекер: учётки ролей выводятся из графа, кред не нужен.
+func openMock(workflow tracker.Workflow) (opened, error) {
+	office, err := mock.Default()
+	if err != nil {
+		return opened{}, err
+	}
+	o := opened{tasks: office, byRole: map[string]tracker.Tracker{}, accounts: []string{mock.Account}}
+	for _, role := range workflow.Order() {
+		o.byRole[role] = office.As(mock.RoleAccount(role))
+		o.accounts = append(o.accounts, mock.RoleAccount(role))
+	}
+	return o, nil
+}
+
+// openJira — JIRA по tracker.yaml: общая учётка и учётка каждой роли
+// сверяются с сервером здесь, а не в Open: сверка стоит запроса, и делать
+// её на каждом открытии трекера незачем.
+func openJira(trackerFile string, workflow tracker.Workflow) (opened, error) {
+	cfg, err := jira.LoadConfig(trackerFile)
+	if err != nil {
+		return opened{}, err
+	}
+	office, err := jira.Open(cfg)
+	if err != nil {
+		return opened{}, err
+	}
+	if err := office.CheckAccount(); err != nil {
+		return opened{}, fmt.Errorf("общая учётка офиса: %w", err)
+	}
+	o := opened{tasks: office, byRole: map[string]tracker.Tracker{}}
+	for _, role := range workflow.Order() {
+		roleTracker, err := jira.OpenAs(cfg, role)
+		if err != nil {
+			return opened{}, fmt.Errorf("трекер роли %s не открыт: %w", role, err)
+		}
+		if err := roleTracker.CheckAccount(); err != nil {
+			return opened{}, fmt.Errorf("учётка роли %s: %w", role, err)
+		}
+		o.byRole[role] = roleTracker
+	}
+	if o.accounts, err = cfg.AgentAccounts(); err != nil {
+		return opened{}, err
+	}
+	return o, nil
 }
 
 // forgesOf собирает реализации forge, нужные названным проектам.

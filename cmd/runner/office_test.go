@@ -66,21 +66,42 @@ func fixtureRunner(t *testing.T, projectsLocal string) (root, home string) {
 	if err := os.WriteFile(filepath.Join(root, tracker.WorkflowFile), wf, 0o644); err != nil {
 		t.Fatalf("граф не скопирован: %v", err)
 	}
-	for _, args := range [][]string{
-		{"init", "-q", "-b", "master"},
-		{"-c", "user.name=t", "-c", "user.email=t@local", "commit", "-q", "--allow-empty", "-m", "конфигурация"},
-	} {
-		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	gitT(t, root, "init", "-q", "-b", "master")
+	gitT(t, root, "commit", "-q", "--allow-empty", "-m", "конфигурация")
 	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte(projectsLocal), 0o644); err != nil {
 		t.Fatalf("projects.local.yaml не записан: %v", err)
 	}
 	t.Setenv("OFFICE_CONFIG_ROOT", root)
 	t.Setenv("OFFICE_HOME", home)
 	return root, home
+}
+
+// gitT зовёт git в каталоге и роняет тест на отказе; личность коммитов —
+// через окружение, чтобы не зависеть от конфигурации машины.
+func gitT(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@local",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@local")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// jiraFixture — конфигурация с mock- и jira-проектом, где jira смотрит
+// на тестовый сервер с данным обработчиком; учётка — в окружении.
+func jiraFixture(t *testing.T, handler http.HandlerFunc, password string) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	_, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, "tracker.yaml"), []byte(trackerYAML(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", password)
 }
 
 const (
@@ -142,16 +163,9 @@ func TestOfficesJiraProjectWithoutTrackerFileIsRefused(t *testing.T) {
 // Отвергнутый кред jira — отказ всей команды: под планировщиком это обязано
 // быть отказом, а не строкой в логе, и mock-офис при этом не собирается.
 func TestOfficesRejectedJiraCredentialRefusesWholeCommand(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	jiraFixture(t, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"errorMessages":["Login required"]}`, http.StatusUnauthorized)
-	}))
-	defer server.Close()
-	_, home := fixtureRunner(t, mockProject+jiraProject)
-	if err := os.WriteFile(filepath.Join(home, "tracker.yaml"), []byte(trackerYAML(server.URL)), 0o644); err != nil {
-		t.Fatalf("tracker.yaml не записан: %v", err)
-	}
-	t.Setenv("JIRA_USER", "office")
-	t.Setenv("JIRA_PASSWORD", "неверный")
+	}, "неверный")
 
 	all, err := newOffices(flags("tick"), nil, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "учётк") {
@@ -164,20 +178,13 @@ func TestOfficesRejectedJiraCredentialRefusesWholeCommand(t *testing.T) {
 
 // Два трекера — два офиса, по алфавиту, с общими проектами каждому своими.
 func TestOfficesBuildOnePerTracker(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	jiraFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/myself") {
 			fmt.Fprint(w, `{"name":"office"}`)
 			return
 		}
 		http.NotFound(w, r)
-	}))
-	defer server.Close()
-	_, home := fixtureRunner(t, mockProject+jiraProject)
-	if err := os.WriteFile(filepath.Join(home, "tracker.yaml"), []byte(trackerYAML(server.URL)), 0o644); err != nil {
-		t.Fatalf("tracker.yaml не записан: %v", err)
-	}
-	t.Setenv("JIRA_USER", "office")
-	t.Setenv("JIRA_PASSWORD", "секрет")
+	}, "секрет")
 	var out bytes.Buffer
 
 	all, err := newOffices(flags("tick"), nil, &out)
