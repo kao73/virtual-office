@@ -56,9 +56,9 @@ pr:
 и в его логе не упоминаются. Сообщение о неизвестном трекере в
 `projects.local.yaml` называет оба доступных.
 
-Ключи `tracker` и `forge` машинные по природе, и шаг «конфигурация по машинам»
-унёс их в `${OFFICE_HOME}/projects.local.yaml`. В `projects.yaml` конфиг-репозитория
-у проекта остались имя и свойства веток.
+Ключи `tracker` и `forge` машинные по природе и живут в
+`${OFFICE_HOME}/projects.local.yaml` — там же, где с `config-cleanup` лежит
+и всё остальное о проекте: `repo_url`, `default_branch`, `branch_prefix`.
 
 ## Интерфейс forge
 
