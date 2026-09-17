@@ -30,6 +30,6 @@
 
 ## 6. Documentation
 
-- [ ] 6.1 DESIGN §2.5: replace the `git pull` bullet with the version/update model (D9)
-- [ ] 6.2 README: install path first, Go marked as source-build only, `runner init`/`runner version`, wrappers as the developer path; `bootstrap/sbx-kits/README.md`: bake from the unpacked office
+- [x] 6.1 DESIGN §2.5: replace the `git pull` bullet with the version/update model (D9)
+- [x] 6.2 README: install path first, Go marked as source-build only, `runner init`/`runner version`, wrappers as the developer path; `bootstrap/sbx-kits/README.md`: bake from the unpacked office
 - [ ] 6.3 `docs/notes/install.md`: what the release contains, how identity is derived in each mode, and how the snapshot verification in 5.4 was run
