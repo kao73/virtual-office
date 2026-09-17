@@ -681,16 +681,27 @@ func LoadProjects(machinePath string) (Projects, error) {
 	defaults := machine[reservedRulesKey].Rules
 	delete(machine, reservedRulesKey)
 
+	// Машинный слой держит тот же контракт правил, что роль и база: запрет
+	// Write целиком или хост-URL здесь молча ушли бы в каждую роль через
+	// объединение, и убрать их было бы некому.
+	var errs []error
+	for _, err := range runner.RulesErrors(runner.Network{Allow: defaults.Network}, defaults.Tools) {
+		errs = append(errs, fmt.Errorf("%s: %w (%s)", reservedRulesKey, err, machinePath))
+	}
+
 	// Ни одного проекта — отказ, и это не педантизм: прочие беды говорят вслух,
 	// а «ни одного проекта» промолчало бы, и раннер крутил бы пустые тики.
 	if len(machine) == 0 {
 		return nil, fmt.Errorf("%s не называет ни одного проекта: офису нечего вести", machinePath)
 	}
 
-	var errs []error
 	projects := Projects{}
 	for _, key := range slices.Sorted(maps.Keys(machine)) {
 		local := machine[key]
+		// Проектный слой — тот же контракт, что и у defaults выше.
+		for _, err := range runner.RulesErrors(runner.Network{Allow: local.Network}, local.Tools) {
+			errs = append(errs, fmt.Errorf("%s: %w (%s)", key, err, machinePath))
+		}
 		if local.RepoURL == "" {
 			errs = append(errs, fmt.Errorf("%s: repo_url не задан (%s)", key, machinePath))
 		}

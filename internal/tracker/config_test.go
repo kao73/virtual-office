@@ -579,6 +579,43 @@ func TestLoadProjectsRejectsProjectKeysUnderDefaults(t *testing.T) {
 	}
 }
 
+// Машинный и проектный слои держат тот же контракт правил, что роль и база:
+// запрет Write целиком оставил бы каждую роль без результата, а хост,
+// записанный как URL, — без сети, и оба молча. Отказ называет слой, файл
+// и причину, а не «прогон без результата» через час.
+func TestLoadProjectsRejectsBrokenRules(t *testing.T) {
+	for name, tc := range map[string]struct{ body, layer, want string }{
+		"Write под defaults": {
+			body:  "defaults:\n  tools:\n    deny: [Write]\n",
+			layer: "defaults", want: "Write",
+		},
+		"URL-хост под defaults": {
+			body:  "defaults:\n  network: [\"https://pypi.org\"]\n",
+			layer: "defaults", want: "https://pypi.org",
+		},
+		"Write у проекта": {
+			body:  "  tools:\n    deny: [Write]\n",
+			layer: "OFF", want: "Write",
+		},
+		"URL-хост у проекта": {
+			body:  "  network: [\"registry/path\"]\n",
+			layer: "OFF", want: "registry/path",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := load(t, validMachine+tc.body)
+			if err == nil {
+				t.Fatal("битые правила приняты без ошибки")
+			}
+			for _, part := range []string{tc.layer, tc.want, ProjectsLocalFile} {
+				if !strings.Contains(err.Error(), part) {
+					t.Errorf("в ошибке не назван %q: %v", part, err)
+				}
+			}
+		})
+	}
+}
+
 // Пустой defaults законен — слоя нет.
 func TestLoadProjectsAllowsEmptyDefaults(t *testing.T) {
 	for name, body := range map[string]string{"пусто": "defaults:\n", "фигурные": "defaults: {}\n"} {

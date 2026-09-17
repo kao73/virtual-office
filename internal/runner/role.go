@@ -114,13 +114,14 @@ func Union(layers ...[]string) []string {
 	return slices.Compact(all)
 }
 
-// rulesErrors проверяет network.allow и tools.deny — часть контракта, общую
-// для роли (validate) и для базового слоя (loadBaseRules): битый хост
-// оставил бы без сети, а запрет Write целиком — без результата, кто бы из
-// двух его ни объявил. Общий код, а не общие данные: у ошибки роли и ошибки
-// базы разный контекст (имя роли против пути к base.yaml), его добавляет
-// вызывающая сторона.
-func rulesErrors(network Network, tools Tools) []error {
+// RulesErrors проверяет network.allow и tools.deny — часть контракта, общую
+// для всех четырёх слоёв правил: роли (validate), базового (loadBaseRules),
+// машинного и проектного (tracker.LoadProjects). Битый хост оставил бы без
+// сети, а запрет Write целиком — без результата, кто бы из слоёв его ни
+// объявил; слои сливаются объединением, и убрать такое правило ниже некому.
+// Общий код, а не общие данные: контекст ошибки (путь к файлу, имя проекта)
+// у каждого слоя свой, его добавляет вызывающая сторона.
+func RulesErrors(network Network, tools Tools) []error {
 	var errs []error
 
 	// Запись файла результата — часть контракта прогона, и право на неё роли выдаёт
@@ -156,7 +157,7 @@ type baseRules struct {
 // половины (правила) — сломанная поставка, а не пустой слой. Файл обязателен
 // ровно там, где обязателен base.md.
 //
-// Проверки — общий с ролью rulesErrors: битый хост в базе оставил бы без
+// Проверки — общий с ролью RulesErrors: битый хост в базе оставил бы без
 // сети каждую роль, а запрет Write целиком — без результата, теми же
 // правилами, что и у самой роли.
 func loadBaseRules(configRoot string) (baseRules, error) {
@@ -182,7 +183,7 @@ func loadBaseRules(configRoot string) (baseRules, error) {
 		return baseRules{}, fmt.Errorf("%s не разобран: %w", path, err)
 	}
 
-	if err := errors.Join(rulesErrors(base.Network, base.Tools)...); err != nil {
+	if err := errors.Join(RulesErrors(base.Network, base.Tools)...); err != nil {
 		return baseRules{}, fmt.Errorf("%s нарушает контракт базовых правил: %w", path, err)
 	}
 	return base, nil
@@ -248,9 +249,9 @@ func (r Role) validate(dirName string) error {
 	if len(r.Tools.Allow) == 0 {
 		errs = append(errs, errors.New("tools.allow пуст: агенту нечем работать"))
 	}
-	// Запрет Write целиком и битый хост — тот же контракт, что и у базового
-	// слоя (rulesErrors, loadBaseRules): общий код для общей причины отказа.
-	errs = append(errs, rulesErrors(r.Network, r.Tools)...)
+	// Запрет Write целиком и битый хост — тот же контракт, что и у остальных
+	// слоёв (RulesErrors): общий код для общей причины отказа.
+	errs = append(errs, RulesErrors(r.Network, r.Tools)...)
 
 	// Всё, на что роль ссылается, должно существовать. Иначе о пропаже узнаём
 	// в середине прогона, уже потратив токены.
