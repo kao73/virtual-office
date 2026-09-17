@@ -8,7 +8,7 @@
 
 - [x] 2.1 `runner.ResolveOffice()`: clone mode from `OFFICE_CONFIG_ROOT` (git identity as today), payload mode from ldflags version → `vcs.revision`/`vcs.modified` → refusal; directory name per D3 for `-dirty`; tests for each branch with injected build info
 - [x] 2.2 Marker: shorten only 40-hex commit hashes (with optional `-dirty`), write versions whole; round-trip tests for `v0.7.0`, `v10.12.3`, `<sha>-dirty`
-- [ ] 2.3 Wire `cmd/runner/office.go` and `cmd/run-agent/main.go` to `ResolveOffice`; remove the cwd fallback; configuration listing prints the unpacked office paths; boundary test and existing tests still pass under `OFFICE_CONFIG_ROOT`
+- [x] 2.3 Wire `cmd/runner/office.go` and `cmd/run-agent/main.go` to `ResolveOffice`; remove the cwd fallback; configuration listing prints the unpacked office paths; boundary test and existing tests still pass under `OFFICE_CONFIG_ROOT`
 
 ## 3. Embedded result checkers
 
