@@ -25,7 +25,7 @@
 
 - [x] 5.1 `.goreleaser.yaml`: `before` hook cross-building the three checkers, builds for `runner` and `run-agent` on darwin/arm64, linux/amd64, linux/arm64 with `-tags release` and `-X …Version=v{{ .Version }}`, tar.gz archives, sha256 checksums, `install.sh` as extra release file (D6)
 - [x] 5.2 `.github/workflows/release.yml` on `push: tags: ['v*']` running GoReleaser with `GITHUB_TOKEN`
-- [ ] 5.3 `install.sh`: platform detection and refusal by name, version resolution (`latest` default), download or `OFFICE_INSTALL_FROM`, checksum verification before unpack, install into `${OFFICE_HOME}/bin`, closing lines (D7); shell test against a snapshot `dist/` covering install, update-in-place, checksum mismatch, unsupported platform
+- [x] 5.3 `install.sh`: platform detection and refusal by name, version resolution (`latest` default), download or `OFFICE_INSTALL_FROM`, checksum verification before unpack, install into `${OFFICE_HOME}/bin`, closing lines (D7); shell test against a snapshot `dist/` covering install, update-in-place, checksum mismatch, unsupported platform
 - [ ] 5.4 Snapshot verification: `goreleaser release --snapshot --clean`, then `install.sh` from `dist/` on this machine, `runner version`, `runner init`, and a `runner tick` on the mock project showing `config:v…-SNAPSHOT-…` in the ticket
 
 ## 6. Documentation
