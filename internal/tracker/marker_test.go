@@ -901,3 +901,29 @@ func TestPRReturnsCountsBothKindsAsOneStreak(t *testing.T) {
 		})
 	}
 }
+
+// Личность офиса — не всегда SHA: у релиза это версия, и резать её нельзя —
+// «v10.12.» ничего не значит. Сокращается только 40-hex commit, с -dirty
+// или без; всё прочее пишется и читается целиком.
+func TestMarkerShortensOnlyCommitHashes(t *testing.T) {
+	const sha = "5bc6a3b0000000000000000000000000000000ab"
+	cases := map[string]string{
+		"v0.7.0":                  "v0.7.0",
+		"v10.12.3":                "v10.12.3",
+		"v0.0.1-SNAPSHOT-9f2e1c4": "v0.0.1-SNAPSHOT-9f2e1c4",
+		sha:                       "5bc6a3b0",
+		sha + "-dirty":            "5bc6a3b0-dirty",
+		"5bc6a3b0-dirty":          "5bc6a3b0-dirty", // уже короткий — не commit по форме, целиком
+	}
+	for identity, want := range cases {
+		m := Marker{RunID: runID, Role: "implementer", Outcome: "done", ConfigSHA: identity}
+		line := m.String()
+		if !strings.HasSuffix(line, " config:"+want+"]") {
+			t.Errorf("%s → %q, ожидался config:%s", identity, line, want)
+		}
+		parsed, ok := ParseMarker(line)
+		if !ok || parsed.ConfigSHA != want {
+			t.Errorf("%s: разобрано %+v, ожидался config %q", identity, parsed, want)
+		}
+	}
+}
