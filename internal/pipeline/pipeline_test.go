@@ -221,11 +221,42 @@ func (o *office) get(t *testing.T, key string) tracker.Task {
 	return task
 }
 
+// afterLease — момент, когда аренда задачи, записанная трекером, уже истекла:
+// LeaseUntil плюс минута. Считается от факта, а не от константы: «+2 часа»
+// протухли, когда implementer'у подняли timeout_sec (f90fd60) и аренда стала
+// 2ч05м — тесты «истёкшей аренды» заходили с ещё живой. Следующее повышение
+// таймаута или запаса графа эти тесты уже не сломает.
+func (o *office) afterLease(t *testing.T, key string) time.Time {
+	t.Helper()
+	task := o.get(t, key)
+	if task.LeaseUntil.IsZero() {
+		t.Fatalf("%s без аренды: истекать нечему, тест собран неверно", key)
+	}
+	return task.LeaseUntil.Add(time.Minute)
+}
+
 // tickAll прогоняет цикл по всем ролям, как это делает `runner tick` без --role.
 func (o *office) tickAll(t *testing.T) {
 	t.Helper()
-	if err := o.TickAll(context.Background()); err != nil {
+	if _, err := o.TickAll(context.Background()); err != nil {
 		t.Fatalf("цикл не прошёл: %v", err)
+	}
+}
+
+// cycle — один заход цикла в том порядке, в каком его гоняет cmd/runner
+// (offices.cycle): reap → tick роли → complete-splits, ошибки в лог, а не
+// наверх. Сам драйвер живёт там; здесь проверяется, что конвейер под этим
+// порядком ведёт себя как задумано.
+func (o *office) cycle(role string) {
+	ctx := context.Background()
+	if err := o.Reap(ctx); err != nil {
+		o.logf("reap: %v", err)
+	}
+	if _, err := o.Tick(ctx, role); err != nil {
+		o.logf("tick: %v", err)
+	}
+	if err := o.CompleteSplits(ctx); err != nil {
+		o.logf("complete-splits: %v", err)
 	}
 }
 
@@ -854,9 +885,10 @@ func TestTickMaterializesHumanAttachmentsButNotSplitJSON(t *testing.T) {
 	}
 }
 
-// Роль, дошедшая до агента, обязана нести уже смёрженные с проектом
-// network/tools — слияние происходит после claim(), не сразу при загрузке
-// роли, потому что до захвата задачи проект не известен.
+// Роль, дошедшая до агента, обязана нести все слои правил разом: базовый
+// (roles/_base/base.yaml, его кладёт LoadRole) и машинный с проектным —
+// их слияние происходит после claim(), не сразу при загрузке роли, потому
+// что до захвата задачи проект не известен.
 func TestTickMergesProjectRulesBeforeAgentRun(t *testing.T) {
 	o := newOffice(t)
 	proj := o.Office.Projects["OFF"]
@@ -874,6 +906,10 @@ func TestTickMergesProjectRulesBeforeAgentRun(t *testing.T) {
 	got := o.agent.seen.Role
 	if !slices.Contains(got.Network.Allow, "project.test") {
 		t.Errorf("network.allow агента %v не содержит project.test", got.Network.Allow)
+	}
+	// Хост базового слоя поставки: корень конфигурации у офиса — репозиторий.
+	if !slices.Contains(got.Network.Allow, "registry-1.docker.io") {
+		t.Errorf("network.allow агента %v не содержит базовый registry-1.docker.io", got.Network.Allow)
 	}
 	if !slices.Contains(got.Tools.Allow, "Bash(project-tool)") {
 		t.Errorf("tools.allow агента %v не содержит Bash(project-tool)", got.Tools.Allow)
@@ -1484,6 +1520,25 @@ func TestTickAllWalksThreeRoles(t *testing.T) {
 	}
 }
 
+// TickAll отвечает про работу тем же словом, что Tick: пустые очереди — false,
+// задача в очереди хоть одной роли — true. Ответ читает `runner tick --role`;
+// без теста его можно было бы заменить на константу незаметно.
+func TestTickAllReportsWhetherAnyRoleWorked(t *testing.T) {
+	o := newOffice(t)
+	// Backlog — человеческий статус, из него не читает ни одна роль.
+	if err := o.tasks.Transition("OFF-1", tracker.BySystem(), "Backlog"); err != nil {
+		t.Fatalf("задача не переведена: %v", err)
+	}
+	if worked, err := o.TickAll(context.Background()); err != nil || worked {
+		t.Errorf("пустые очереди: worked=%v, err=%v, ожидалось false без ошибки", worked, err)
+	}
+
+	o.add("OFF-2", "Ready")
+	if worked, err := o.TickAll(context.Background()); err != nil || !worked {
+		t.Errorf("задача в Ready: worked=%v, err=%v, ожидалось true без ошибки", worked, err)
+	}
+}
+
 // Одобрение уводит задачу в очередь PR-прохода: разбор пройден, дальше офис
 // откроет pull request, а сливает человек. Терминальным этот статус не является
 // — задача живёт до слияния, и рабочая папка живёт вместе с ней.
@@ -1948,7 +2003,7 @@ func TestHumanReplyFallsBackWhenRoleIsGone(t *testing.T) {
 	}
 }
 
-// Задача проекта, которого нет в projects.yaml, не берётся: раннеру негде взять
+// Задача проекта, которого нет в projects.local.yaml, не берётся: раннеру негде взять
 // репозиторий и некуда пушить.
 func TestTickSkipsUnknownProject(t *testing.T) {
 	o := newOffice(t)
@@ -2020,7 +2075,7 @@ func TestTickWithLostLeaseOnlyWarns(t *testing.T) {
 	stealAgent := o.Office.Agent.(*fakeAgent)
 	o.Office.Agent = agentFunc(func(ctx context.Context, req Request) (AgentRun, error) {
 		run, err := stealAgent.Run(ctx, req)
-		later := now.Add(2 * time.Hour) // аренда истекла, пока агент работал
+		later := o.afterLease(t, "OFF-1") // аренда истекла, пока агент работал
 		o.tasks.Now = func() time.Time { return later }
 		o.Office.Now = func() time.Time { return later }
 		if err := o.Reap(context.Background()); err != nil {
@@ -2075,7 +2130,7 @@ func TestReapReturnsExpiredTask(t *testing.T) {
 	}
 
 	// Аренда истекла, приходит reaper.
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	if err := o.Reap(context.Background()); err != nil {
@@ -2126,7 +2181,7 @@ func TestReapRemovesSandboxOfDeadRun(t *testing.T) {
 		t.Fatal("задача осталась без аренды: убирать станет нечего")
 	}
 
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	if err := o.Reap(context.Background()); err != nil {
@@ -2156,7 +2211,7 @@ func TestReapKeepsSandboxOfReclaimedTask(t *testing.T) {
 		t.Fatal("смерть раннера не замечена")
 	}
 
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 
@@ -2207,7 +2262,7 @@ func TestReapReturnsTaskWhenSandboxSurvives(t *testing.T) {
 		t.Fatal("смерть раннера не замечена")
 	}
 
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	if err := o.Reap(context.Background()); err != nil {
@@ -2275,7 +2330,7 @@ func TestReapCallsHumanAfterStreakOfDeaths(t *testing.T) {
 			t.Fatalf("смерть %d не замечена", death)
 		}
 
-		at = at.Add(2 * time.Hour) // аренда истекла
+		at = o.afterLease(t, "OFF-1") // аренда истекла
 		o.tasks.Now = func() time.Time { return at }
 		o.Office.Now = func() time.Time { return at }
 		if err := o.Reap(context.Background()); err != nil {
@@ -2320,7 +2375,7 @@ func TestReapStreakResetsAfterSuccessfulRun(t *testing.T) {
 		if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 			t.Fatal("смерть не замечена")
 		}
-		at = at.Add(2 * time.Hour)
+		at = o.afterLease(t, "OFF-1")
 		o.tasks.Now = func() time.Time { return at }
 		o.Office.Now = func() time.Time { return at }
 		if err := o.Reap(context.Background()); err != nil {
@@ -2368,7 +2423,7 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("смерть раннера не замечена")
 	}
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	if err := o.Reap(context.Background()); err != nil {
@@ -2383,51 +2438,47 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	}
 }
 
-// Loop зовёт CompleteSplits на каждом заходе: без этого вызова подтверждённый
+// cycle зовёт CompleteSplits на каждом заходе: без этого вызова подтверждённый
 // split так и остался бы висеть в Blocked — достраивать его больше некому,
 // ведь свой собственный unit-тест на CompleteSplits (задачи 11–13) этот путь
 // вызова не проверяет вовсе.
 //
-// Контекст отменяется заранее: Loop проходит ровно один цикл (Reap, tickOnce,
-// CompleteSplits — порядок именно такой, см. TestLoopProcessesHumanReplyBeforeCompletingSplits
-// ниже) и останавливается на ctx.Done(), не дожидаясь таймера. Роль для
-// tickOnce — "reviewer": в этом сценарии для неё нет готовой работы, и цикл
-// роли — no-op, не мешающий проверить именно то, что делает CompleteSplits.
-func TestLoopRunsCompleteSplitsEachCycle(t *testing.T) {
+// cycle делает ровно один заход — reap, tick, CompleteSplits, — тот же порядок,
+// что у драйвера в cmd/runner (см. TestCycleProcessesHumanReplyBeforeCompletingSplits
+// ниже). Роль для tick — "reviewer": в этом сценарии для неё нет готовой
+// работы, и цикл роли — no-op, не мешающий проверить именно то, что делает
+// CompleteSplits.
+func TestCycleRunsCompleteSplitsAfterTick(t *testing.T) {
 	o := newOffice(t)
 	confirmSplit(t, o)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := o.Loop(ctx, time.Minute, "reviewer"); err != nil {
-		t.Fatalf("цикл не прошёл: %v", err)
-	}
+	o.cycle("reviewer")
 
 	parent := o.get(t, "OFF-1")
 	if parent.Status != o.Workflow.PR.Merged {
-		t.Errorf("Loop не вызвал CompleteSplits: статус родителя %q, ожидался %q", parent.Status, o.Workflow.PR.Merged)
+		t.Errorf("cycle не вызвал CompleteSplits: статус родителя %q, ожидался %q", parent.Status, o.Workflow.PR.Merged)
 	}
 	if _, err := o.tasks.Get("OFF-2"); err != nil {
-		t.Errorf("Loop не вызвал CompleteSplits: ребёнок не создан: %v", err)
+		t.Errorf("cycle не вызвал CompleteSplits: ребёнок не создан: %v", err)
 	}
 }
 
-// TestLoopProcessesHumanReplyBeforeCompletingSplits воспроизводит гонку из
+// TestCycleProcessesHumanReplyBeforeCompletingSplits воспроизводит гонку из
 // финального ревью: человек ответил в тикете уже после второго подтверждения
 // split (передумал, добавил новое обстоятельство — неважно, что именно), и
 // его реплика к началу цикла ещё не разобрана. CompleteSplits, окажись он
-// раньше HumanReplies (как было раньше в Loop), увидел бы задачу всё ещё
+// раньше HumanReplies (как было раньше в pipeline.Office.Loop), увидел бы задачу всё ещё
 // в Blocked с двумя подтверждающими маркерами и создал бы тикеты-детей,
 // проигнорировав то, что человек сказал позже, — auto-create в реальном
-// трекере вопреки непрочитанному ответу. Порядок Loop обязан пропускать
-// tickOnce (а с ним и HumanReplies, которого зовёт Tick) вперёд
+// трекере вопреки непрочитанному ответу. Порядок cycle (cmd/runner/offices.go)
+// обязан пропускать tick (а с ним и HumanReplies, которого зовёт Tick) вперёд
 // CompleteSplits: тогда задача успевает уехать из Blocked раньше, чем до
 // неё дойдёт очередь автосоздания.
 //
-// Роль для tickOnce — "reviewer", как и в предыдущем тесте: её собственная
+// Роль для tick — "reviewer", как и в предыдущем тесте: её собственная
 // claim-логика не должна тронуть OFF-1 — после разбора ответа он уезжает
 // в очередь analyst'а (Analysis), а не reviewer'а (Review).
-func TestLoopProcessesHumanReplyBeforeCompletingSplits(t *testing.T) {
+func TestCycleProcessesHumanReplyBeforeCompletingSplits(t *testing.T) {
 	o := newOffice(t)
 	confirmSplit(t, o)
 
@@ -2435,11 +2486,7 @@ func TestLoopProcessesHumanReplyBeforeCompletingSplits(t *testing.T) {
 		t.Fatalf("реплика не записана: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := o.Loop(ctx, time.Minute, "reviewer"); err != nil {
-		t.Fatalf("цикл не прошёл: %v", err)
-	}
+	o.cycle("reviewer")
 
 	if _, err := o.tasks.Get("OFF-2"); err == nil {
 		t.Error("CompleteSplits создал детей, хотя свежая реплика человека ещё не была разобрана")
@@ -2886,7 +2933,7 @@ func TestCheckWorkflowSilentForRoleWithoutWorking(t *testing.T) {
 }
 
 // unknownProject — трекер, не знающий одного из проектов конфигурации.
-// Так выглядит протухшая строка в projects.yaml: проект описан, а в трекере
+// Так выглядит протухшая строка в projects.local.yaml: проект описан, а в трекере
 // его нет и никогда не было.
 type unknownProject struct {
 	tracker.Tracker
@@ -2908,7 +2955,7 @@ func (u unknownProject) ListExpired(project string, now time.Time) ([]tracker.Ta
 }
 
 // Проекты обходятся по порядку, и раньше первый же незнакомый трекеру проект
-// бросал весь цикл — работа по остальным вставала. Заглушка в projects.yaml
+// бросал весь цикл — работа по остальным вставала. Заглушка в projects.local.yaml
 // останавливала reap на полигоне до настоящего проекта; поймано живой проверкой.
 func TestTickSkipsProjectUnknownToTracker(t *testing.T) {
 	var log strings.Builder
@@ -2946,7 +2993,7 @@ func TestReapSkipsProjectUnknownToTracker(t *testing.T) {
 	o.Office.Projects["AAA"] = tracker.Project{
 		RepoURL: o.origin, DefaultBranch: "master", BranchPrefix: "agent/",
 	}
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	o.useTracker(unknownProject{Tracker: o.tasks, missing: "AAA"})

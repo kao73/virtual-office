@@ -1,0 +1,70 @@
+# Правила, общие для всех ролей. Действуют всегда, поверх любой роли:
+# роль может добавить, но не отменить (base.md). Слияние — объединение:
+# LoadRole (internal/runner/role.go) кладёт эти списки в каждую роль при
+# загрузке, с проектом или без — ручной run-agent получает те же запреты,
+# что и конвейер. Форма — та же, что у блоков network/tools в role.yaml,
+# потому что это и есть роль, от которой наследуют все.
+#
+# Хосты, найденные для одного проекта (Playwright, MCR, bun, apt-зеркала),
+# здесь не лежат: они свойство этого проекта на этой машине и живут в его
+# записи в ${OFFICE_HOME}/projects.local.yaml. Свидетельства, откуда взялся
+# каждый хост, остаются в истории: `git log -- projects.yaml`.
+network:
+  allow:
+    # Docker Hub — проверено эмпирически 2026-08-27 (пустая одноразовая
+    # песочница sbx → голая попытка → добавление хостов по факту ошибки),
+    # docs/notes/followup-network-and-permissions.md, «Находка 1».
+    - registry-1.docker.io
+    - auth.docker.io
+    - "*.docker.io"
+    - production.cloudfront.docker.com   # CDN раздачи blob'ов, не cloudflare.docker.com
+    - "*.cloudfront.docker.com"
+    # GitHub — проверено эмпирически 2026-08-27, тем же способом. `git clone`
+    # по HTTPS упёрся только в github.com; api/codeload/raw/objects.*
+    # в `sbx policy log` не всплыли и как непроверенные сюда не добавлены.
+    - github.com
+    # npm — проверено эмпирически 2026-08-27: `npm view left-pad` целиком
+    # уложился в registry.npmjs.org.
+    - registry.npmjs.org
+    # PyPI — проверено эмпирически 2026-08-27: `uv run --with pytest`
+    # потребовал ровно эти два хоста.
+    - pypi.org
+    - files.pythonhosted.org
+    # Go modules — проверено эмпирически 2026-08-27: `go get` потребовал
+    # module-proxy и sumdb порознь.
+    - proxy.golang.org
+    - sum.golang.org
+    # GitHub Container Registry — проверено эмпирически 2026-09-13:
+    # `docker pull ghcr.io/astral-sh/uv` голой попыткой упал 403 на ghcr.io,
+    # после allow — второй 403 на blob-CDN; с обоими пулл прошёл целиком.
+    - ghcr.io
+    - pkg-containers.githubusercontent.com
+    # GitHub Releases — проверено эмпирически 2026-09-13: бинарники релизов
+    # качаются с release-assets.githubusercontent.com, а не с
+    # objects.githubusercontent.com из списка-догадки.
+    - release-assets.githubusercontent.com
+tools:
+  deny:
+    # Общие для всех ролей: работу с origin, переключение веток и подмену
+    # личности коммитов ведёт раннер, а не агент. Форма со звёздочкой МЕЖДУ
+    # "git" и подкомандой (не по краям) — единственная, что ловит и флаговую
+    # форму: проверено эмпирически 2026-08-27,
+    # docs/contracts/role-sandbox-permissions.md.
+    - "Bash(git *push*)"
+    - "Bash(git *remote*)"
+    - "Bash(git *checkout*)"
+    - "Bash(git *switch*)"
+    - "Bash(git *branch*)"
+    - "Bash(git *worktree*)"
+    - "Bash(git *config*)"
+    # Переписывание истории — та же природа: чужая, уже опубликованная
+    # работа не должна переписываться ни одной ролью.
+    - "Bash(git *filter-branch*)"
+    - "Bash(git *filter-repo*)"
+    # Рекурсивное/принудительное удаление — тем же приёмом: звёздочка
+    # вокруг флага, а не по краям, чтобы не зависеть от его формы
+    # (-rf/-fr или --recursive/--force) и места (до или после пути).
+    - "Bash(rm *-r*)"
+    - "Bash(rm *-f*)"
+    - "Bash(rm *--recursive*)"
+    - "Bash(rm *--force*)"

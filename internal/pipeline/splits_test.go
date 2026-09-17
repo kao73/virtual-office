@@ -271,7 +271,7 @@ func (f *noGetAttachment) GetAttachment(key, id string) ([]byte, error) {
 }
 
 // TestEnsureChildAttachmentsSkipsDownloadWhenAllChildrenAlreadyHaveEverything
-// — застрявший тикет подбирается каждым циклом Loop заново (splitFailed,
+// — застрявший тикет подбирается каждым заходом цикла раннера заново (splitFailed,
 // например), и до этой правки ensureChildAttachments каждый раз качала
 // все вложения родителя заново, даже когда всем детям уже всего хватает
 // (внешнее ревью, pr-converge раунд 1).
@@ -597,7 +597,7 @@ func TestCompleteSplitsRejectsCorruptedAttachment(t *testing.T) {
 // скопировать вложения и связать их, и только на последнем шаге узнать,
 // что закрывать родителя некуда (внешнее ревью, pr-converge раунд 1:
 // раньше проверка стояла в closeSplitParent — самом последнем шаге —
-// и каждый цикл Loop повторял всю необратимую работу заново, чтобы
+// и каждый заход цикла раннера повторял всю необратимую работу заново, чтобы
 // упасть в том же месте).
 func TestCompleteSplitsRefusesToCloseWithoutPRBlock(t *testing.T) {
 	o := newOffice(t)
@@ -723,7 +723,7 @@ func TestCompleteSplitsRecordsFailureNoticeAndContinues(t *testing.T) {
 }
 
 // TestSplitFailedDoesNotSpamRepeatedNotices воспроизводит тикет, застрявший
-// в Blocked с постоянно падающим CreateTask: Loop зовёт CompleteSplits
+// в Blocked с постоянно падающим CreateTask: цикл раннера зовёт CompleteSplits
 // каждый цикл (по умолчанию раз в две минуты), и без дедупликации
 // одинаковая запись о сбое копилась бы в переписке без конца.
 func TestSplitFailedDoesNotSpamRepeatedNotices(t *testing.T) {
@@ -874,7 +874,7 @@ func TestSplitFailedDedupsByStableCategoryNotFreeformText(t *testing.T) {
 // со всей перепиской по одной причине; раунд 3 нашёл, что сравнение шло
 // только с ПОСЛЕДНЕЙ записью (tracker.LastEventText), а не со множеством уже
 // сказанных причин. Ранний шаг completeSplit, падающий изредка, и поздний,
-// падающий стабильно, чередуют свои категории между циклами Loop — и каждая
+// падающий стабильно, чередуют свои категории между заходами цикла раннера — и каждая
 // из них "новая" относительно предыдущей, хотя обе уже звучали.
 func TestSplitFailedDedupsAgainstAllPastCategoriesNotJustLast(t *testing.T) {
 	o := newOffice(t)
@@ -987,7 +987,7 @@ func TestCompleteSplitsRecordsCloseFailureNoticeAndContinues(t *testing.T) {
 // подтверждённого родителя (дети и связи уже на месте — не-op) и раньше
 // доходил бы до o.record с "Разбита на: …" заново — без дедупликации,
 // применённой к самой этой записи (в отличие от splitFailed, у которой
-// дедупликация уже была), комментарий копился бы на каждом цикле Loop.
+// дедупликация уже была), комментарий копился бы на каждом заходе цикла раннера.
 func TestCompleteSplitsDoesNotDuplicateCloseNoticeOnRetry(t *testing.T) {
 	o := newOffice(t)
 	confirmSplit(t, o)
@@ -1037,7 +1037,7 @@ func (c *countingLinksFlakyClose) Transition(key string, by tracker.Actor, toSta
 }
 
 // TestLinkChildrenSkipsAlreadyLinkedPairOnRetry доказывает, что застрявший
-// на закрытии тикет не шлёт POST /issueLink заново на каждый цикл Loop
+// на закрытии тикет не шлёт POST /issueLink заново на каждый заход цикла раннера
 // для пары, уже связанной прошлым проходом.
 func TestLinkChildrenSkipsAlreadyLinkedPairOnRetry(t *testing.T) {
 	o := newOffice(t)

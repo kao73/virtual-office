@@ -15,8 +15,8 @@ tools:
   # модель выполняет или нет по собственному суждению, а не по проверке
   # рантайма (измерено 2026-08-27, docs/notes/followup-network-and-permissions.md,
   # «Находка 2»; подробнее — docs/contracts/role-sandbox-permissions.md).
-  # Единственная реальная граница — tools.deny ниже и defaults.tools.deny
-  # в projects.yaml, плюс hooks.pre_tool_use ниже — технический, а не
+  # Единственная реальная граница — tools.deny ниже и базовый слой
+  # roles/_base/base.yaml, плюс hooks.pre_tool_use ниже — технический, а не
   # текстовый барьер записи вне фазы build (design doc "Phase-scoped writes
   # are hook-enforced").
   allow:
@@ -28,7 +28,7 @@ tools:
     - "Bash(*)"
 
   # Общие для всех ролей (запись в origin, переключение веток, личность
-  # коммитов) — в defaults.tools.deny (projects.yaml), не здесь: это
+  # коммитов) — в roles/_base/base.yaml, не здесь: это
   # решение раннера для всех ролей и всех проектов разом, а не аналитика.
   # Здесь остаётся то, что специфично аналитику: `reset` откатывает чужие
   # коммиты (круг implementer → analyst оставляет их в ветке), а аналитику

@@ -8,15 +8,14 @@ import (
 	"testing"
 
 	"github.com/kao73/virtual-office/internal/budget"
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 // Граница «репозиторий описывает офис, ${OFFICE_HOME} — инстанс» держится двумя
 // разными способами, и этот — второй.
 //
-// Первый способ — загрузчик: он отвергает машинный ключ в projects.yaml поимённо.
-// Но ключей у машинного знания больше, чем имён: абсолютный путь может забрести
-// в роль, а customfield_* — в граф, и никакой загрузчик их там не ждёт. Поэтому
-// проверка идёт по самим файлам.
+// Первый способ — загрузчик: он принимает под defaults только network и tools
+// и отвергает projects.yaml из прежней раскладки.
 //
 // Проверяется **причина, а не метка**. Долг, ради которого это заведено, звучал
 // как «config_sha всегда -dirty», но метка — следствие; причина в том, что
@@ -40,7 +39,6 @@ func TestRepoCarriesNoMachineValues(t *testing.T) {
 	// с прочими, ниже.
 	named := []string{
 		filepath.Join(root, WorkflowFile),
-		filepath.Join(root, ProjectsFile),
 	}
 	for _, path := range named {
 		if _, err := os.Stat(path); err != nil {
@@ -97,5 +95,21 @@ func TestRepoCarriesNoMachineValues(t *testing.T) {
 					filepath.Base(path), n+1, strings.TrimSpace(line))
 			}
 		}
+	}
+}
+
+// Базовые правила ролей — единственный слой правил, который поставляется
+// репозиторием: он лежит рядом с ролями, к которым относится, а не в файле
+// проектов, которого в репозитории больше нет. Гарантия, что origin
+// принадлежит раннеру, а не агенту, держится одной строкой этого файла,
+// и исчезнуть молча она не должна — ни переименованием файла, ни правкой.
+func TestShippedBaseRulesKeepGitRemoteDeny(t *testing.T) {
+	path := filepath.Join("..", "..", runner.RolesDir, runner.BaseDir, runner.BaseRulesFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("базовые правила ролей не поставлены: %v", err)
+	}
+	if !strings.Contains(string(raw), `"Bash(git *push*)"`) {
+		t.Errorf("%s не запрещает git push: пуш — дело раннера, а не агента", path)
 	}
 }

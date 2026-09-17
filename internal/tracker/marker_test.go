@@ -737,7 +737,7 @@ func TestSplitConfirmedNoMarkers(t *testing.T) {
 // role.md split-маркеры вообще не несли вложения: тикет, доживший под ней до
 // двух таких маркеров, не должен считаться подтверждённым — иначе
 // CompleteSplits вызовет GetAttachment(key, "") и будет проваливаться на
-// каждом цикле Loop, вечно.
+// каждом заходе цикла раннера, вечно.
 func TestSplitConfirmedWithoutAttachmentTag(t *testing.T) {
 	comments := []Comment{
 		splitReport("analyst", "", 1),

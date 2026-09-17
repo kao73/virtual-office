@@ -93,12 +93,25 @@ func worktreeRemove(args []string, out io.Writer) error {
 
 	// Трекер нужен ровно за одним: узнать, не работает ли сейчас над задачей
 	// агент. Всё остальное команда знает из git и с диска. Флаги разбирает
-	// office — он же их и объявляет, поэтому раньше него парсить нечего.
-	o, err := office(fs, args[1:], out)
+	// newOffices — он же их и объявляет, поэтому раньше него парсить нечего.
+	all, err := newOffices(fs, args[1:], out)
 	if err != nil {
 		return err
 	}
-	entries, err := o.Workspaces.List()
+	return removeWorktree(all, key, *force, time.Now())
+}
+
+// removeWorktree — само удаление, отдельно от сборки офисов ради теста.
+//
+// Папка знает свой проект, проект — трекер, трекер — офис: про аренду
+// спрашивается тот трекер, в котором задача живёт, а не первый попавшийся.
+// Под --force офис проекта не нужен: флаг перекрывает и грязь, и аренду,
+// а папка проекта, пропавшего из projects.local.yaml, иначе не убиралась бы
+// никак — офиса у неё больше нет. Сборка офисов (newOffices) при этом всё
+// ещё идёт до удаления и открывает все трекеры — недоступная JIRA не даст
+// убрать и папку mock-проекта. Обойти сборку под --force — отдельная задача.
+func removeWorktree(all *offices, key string, force bool, now time.Time) error {
+	entries, err := all.workspaces.List()
 	if err != nil {
 		return err
 	}
@@ -108,17 +121,23 @@ func worktreeRemove(args []string, out io.Writer) error {
 			continue
 		}
 
-		task, err := o.Tracker.Get(key)
-		if err != nil && !errors.Is(err, tracker.ErrNotFound) {
+		if !force {
+			no, err := all.byProject(entry.Project)
+			if err != nil {
+				return err
+			}
+			task, err := no.Tracker.Get(key)
+			if err != nil && !errors.Is(err, tracker.ErrNotFound) {
+				return err
+			}
+			if err := removable(entry, task, now); err != nil {
+				return err
+			}
+		}
+		if err := all.workspaces.Remove(entry.Workspace); err != nil {
 			return err
 		}
-		if err := removable(entry, task, time.Now(), *force); err != nil {
-			return err
-		}
-		if err := o.Workspaces.Remove(entry.Workspace); err != nil {
-			return err
-		}
-		fmt.Fprintf(out, "%s: рабочая папка удалена, ветка %s осталась в клоне\n", key, entry.Branch)
+		fmt.Fprintf(all.out, "%s: рабочая папка удалена, ветка %s осталась в клоне\n", key, entry.Branch)
 		return nil
 	}
 	return fmt.Errorf("рабочей папки задачи %s нет; что есть — покажет `runner worktree ls`", key)
@@ -132,10 +151,7 @@ func worktreeRemove(args []string, out io.Writer) error {
 //   - незакоммиченное: другого места у него нет;
 //   - живая аренда: в этой папке прямо сейчас работает агент, она смонтирована
 //     в его песочницу.
-func removable(entry workspace.Entry, task tracker.Task, now time.Time, force bool) error {
-	if force {
-		return nil
-	}
+func removable(entry workspace.Entry, task tracker.Task, now time.Time) error {
 	if entry.Dirty > 0 {
 		return fmt.Errorf("в %s незакоммичено: %d путей. Другого места у этой работы нет — "+
 			"закоммить её или сноси с --force", entry.Key, entry.Dirty)

@@ -216,6 +216,38 @@ func TestCloneWithoutBranchFails(t *testing.T) {
 	}
 }
 
+// syntheticRole — конфиг-репозиторий (git нужен для ConfigSHA) с одной
+// минимальной ролью test-role; extra дописывается в конец role.yaml.
+func syntheticRole(t *testing.T, extra string) (configRoot string) {
+	t.Helper()
+	configRoot = gitRepo(t)
+	roleDir := filepath.Join(configRoot, "roles", "test-role")
+	if err := os.MkdirAll(roleDir, 0o755); err != nil {
+		t.Fatalf("каталог роли не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(roleDir, "role.md"), []byte("# Тестовая роль\n"), 0o644); err != nil {
+		t.Fatalf("промпт не написан: %v", err)
+	}
+	roleYAML := "name: test-role\nprompt: role.md\nincludes: []\nskills: []\ntools:\n  allow: [Read]\n" +
+		"limits: { max_turns: 10, timeout_sec: 300 }\nresult_file: .agent/result.json\n" + extra
+	if err := os.WriteFile(filepath.Join(roleDir, "role.yaml"), []byte(roleYAML), 0o644); err != nil {
+		t.Fatalf("role.yaml не написан: %v", err)
+	}
+	return configRoot
+}
+
+// projectsLocal — хозяйство с одним mock-проектом OFFICE; extra дописывается
+// в его запись. --dry-run ничего не клонирует: значение repo_url не важно.
+func projectsLocal(t *testing.T, extra string) (home string) {
+	t.Helper()
+	home = t.TempDir()
+	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n" + extra
+	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(machine), 0o644); err != nil {
+		t.Fatalf("projects.local.yaml не записан: %v", err)
+	}
+	return home
+}
+
 // Список доменов роли на бэкенде без песочницы не значит ничего. Промолчать
 // об этом — значит дать человеку поверить, что сеть закрыта: он читает role.yaml,
 // а не исходники бэкенда.
@@ -223,41 +255,8 @@ func TestRunAgentWarnsThatLocalIgnoresNetworkPolicy(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
 
-	// Свежий git-репозиторий для конфига (требуется для ConfigSHA) — тот же
-	// рецепт, что и в gitRepo.
-	configRoot := gitRepo(t)
-
-	// Создадим синтетическую роль test-role с минимальным содержимым.
-	// Роль должна иметь сетевую политику для проверки сообщения о её неприменённости.
-	roleDir := filepath.Join(configRoot, "roles", "test-role")
-	if err := os.MkdirAll(roleDir, 0o755); err != nil {
-		t.Fatalf("каталог роли не создан: %v", err)
-	}
-
-	// Пустой промпт-файл (требуется валидацией).
-	if err := os.WriteFile(filepath.Join(roleDir, "role.md"), []byte("# Тестовая роль\n"), 0o644); err != nil {
-		t.Fatalf("промпт не написан: %v", err)
-	}
-
-	// Минимальный role.yaml с сетевой политикой.
-	roleYAML := `name: test-role
-prompt: role.md
-includes: []
-skills: []
-tools:
-  allow:
-    - Read
-limits:
-  max_turns: 10
-  timeout_sec: 300
-network:
-  allow:
-    - example.com
-result_file: .agent/result.json
-`
-	if err := os.WriteFile(filepath.Join(roleDir, "role.yaml"), []byte(roleYAML), 0o644); err != nil {
-		t.Fatalf("role.yaml не написан: %v", err)
-	}
+	// Синтетическая роль с сетевой политикой — ради сообщения о её неприменённости.
+	configRoot := syntheticRole(t, "network:\n  allow:\n    - example.com\n")
 
 	_, out := runAgent(t, bin,
 		[]string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
@@ -277,40 +276,36 @@ result_file: .agent/result.json
 	}
 }
 
-// Без --project роль остаётся в изоляции: implementer лишился собственного
-// network.allow (задача 9 плана) и без флага не просит сети вовсе. С флагом
-// --project OFFICE (реальный projects.yaml с defaults.network из задач 4/5)
-// сеть и tools.deny роли пополняются repo-wide слоем — сравнение двух
-// прогонов и есть тест механизма.
-func TestDryRunProjectFlagMergesRepoWideRules(t *testing.T) {
+// Базовые правила ролей (roles/_base/base.yaml) приходят через LoadRole и
+// потому есть у роли и без --project; с флагом поверх них ложатся слои
+// projects.local.yaml — сравнение двух прогонов и есть тест механизма.
+// Хост machine-only.test существует только в машинном файле: увидеть его
+// без флага значило бы, что слои перепутаны.
+func TestDryRunProjectFlagMergesMachineRulesOverBase(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
-	home := t.TempDir()
-	// Машинная половина обязана назвать все три проекта офиса (парность
-	// office/machine) — значения репозиториев здесь не важны, --dry-run
-	// ничего не клонирует.
-	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n" +
-		"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n" +
-		"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"
-	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(machine), 0o644); err != nil {
-		t.Fatalf("projects.local.yaml не записан: %v", err)
-	}
+	home := projectsLocal(t, "  network: [machine-only.test]\n")
 	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
 	_, withoutFlag := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--dry-run")
-	if strings.Contains(withoutFlag, "registry-1.docker.io") {
-		t.Errorf("без --project роль уже видит repo-wide сеть:\n%s", withoutFlag)
+	for _, want := range []string{"registry-1.docker.io", "Bash(git *push*)"} {
+		if !strings.Contains(withoutFlag, want) {
+			t.Errorf("без --project роль не получила базовое правило %q:\n%s", want, withoutFlag)
+		}
+	}
+	if strings.Contains(withoutFlag, "machine-only.test") {
+		t.Errorf("без --project роль уже видит машинный слой:\n%s", withoutFlag)
 	}
 
 	code, withFlag := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--project", "OFFICE", "--dry-run")
 	if code != 0 {
 		t.Fatalf("код %d, ожидался 0; вывод: %s", code, withFlag)
 	}
-	if !strings.Contains(withFlag, "registry-1.docker.io") {
-		t.Errorf("с --project OFFICE в сети нет repo-wide Docker Hub:\n%s", withFlag)
+	if !strings.Contains(withFlag, "machine-only.test") {
+		t.Errorf("с --project OFFICE в сети нет машинного хоста:\n%s", withFlag)
 	}
-	if !strings.Contains(withFlag, "Bash(git *push*)") {
-		t.Errorf("с --project OFFICE в settings.json нет repo-wide deny:\n%s", withFlag)
+	if !strings.Contains(withFlag, "registry-1.docker.io") {
+		t.Errorf("с --project OFFICE базовый хост потерян при слиянии:\n%s", withFlag)
 	}
 }
 
@@ -319,18 +314,51 @@ func TestDryRunProjectFlagMergesRepoWideRules(t *testing.T) {
 func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(
-		"OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
-			"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n"+
-			"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"), 0o644); err != nil {
-		t.Fatalf("projects.local.yaml не записан: %v", err)
-	}
+	home := projectsLocal(t, "")
 	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
 	code, out := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--project", "НЕТ-ТАКОГО", "--dry-run")
 	if code != 2 {
 		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+	}
+}
+
+// tracker.RefuseLeftoverOfficeFile покрыт собственным юнит-тестом
+// (internal/tracker), но до этого теста ничто не проверяло сам вызов внутри
+// execute() (main.go, под --project) — рефакторинг мог бы его потерять
+// незамеченным. configRoot здесь свой, не repoRoot(t): стрелять
+// projects.yaml в настоящий репозиторий нельзя, а --project требует роль,
+// так что configRoot собран тем же приёмом, что и в
+// TestRunAgentWarnsThatLocalIgnoresNetworkPolicy — синтетическая роль
+// без roles/_base (LoadRole ждёт его как опцию, не как обязанность).
+func TestDryRunProjectFlagRefusesLeftoverProjectsYAML(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	configRoot := syntheticRole(t, "")
+	if err := os.WriteFile(filepath.Join(configRoot, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	home := projectsLocal(t, "")
+	env := []string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
+
+	// Сторож один и тот же с --project и без: дерево, которое runner
+	// отвергает, run-agent не должен принимать молча ни в одном режиме.
+	for name, extra := range map[string][]string{
+		"с --project":   {"--project", "OFFICE"},
+		"без --project": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			args := append([]string{"--role", "test-role", "--workdir", workdir, "--task", taskFile(t)}, extra...)
+			code, out := runAgent(t, bin, env, append(args, "--dry-run")...)
+			if code != 2 {
+				t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+			}
+			for _, want := range []string{"projects.local.yaml", "roles/_base/base.yaml"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("отказ не назвал %q: %s", want, out)
+				}
+			}
+		})
 	}
 }
 

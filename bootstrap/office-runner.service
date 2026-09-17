@@ -13,6 +13,7 @@ WorkingDirectory=%h/IdeaProjects/virtual-office
 Environment=OFFICE_HOME=%h/.office
 EnvironmentFile=%h/.office/env
 ExecStart=%h/IdeaProjects/virtual-office/bin/runner tick --role implementer
-# Остановка сигналом: раннер завершает цикл сам, между прогонами.
+# Остановка сигналом: идущий прогон агента прерывается, задачу вернёт reap
+# (bootstrap/README.md). Дожидаться конца прогона раннер пока не умеет.
 KillSignal=SIGTERM
 TimeoutStopSec=90

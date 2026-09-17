@@ -98,7 +98,7 @@ type fakeJira struct {
 
 	// badSearch заставляет поиск падать, а knownProject — единственный проект,
 	// который сервер признаёт своим. Вместе они изображают заглушку
-	// в projects.yaml: JQL по несуществующему проекту JIRA отвергает.
+	// в projects.local.yaml: JQL по несуществующему проекту JIRA отвергает.
 	badSearch    bool
 	knownProject string
 
@@ -1354,6 +1354,11 @@ func TestSearchAllProjectStopsAfterTaskCap(t *testing.T) {
 // tracker.example.yaml — то, из чего собирают конфигурацию нового инстанса,
 // и битый образец обнаружился бы первым же циклом против JIRA, то есть на живой
 // доске. Сам tracker.yaml проверить нечем: он машинный и в репозитории его нет.
+//
+// Образец копируется дословно и правится в пяти значениях (base_url и четыре
+// поля), поэтому всё необязательное в нём выключено: одна учётка на все роли,
+// ни одного чужого бота, тип задачи по умолчанию. Тип связи, напротив,
+// включён — его заводит scripts/jira-setup.sh.
 func TestShippedTrackerConfigIsValid(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 
@@ -1361,17 +1366,27 @@ func TestShippedTrackerConfigIsValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%s не загружен: %v", ExampleFile, err)
 	}
-
-	// Учётка роли, которой нет в графе, — опечатка: ходить под ней некому,
-	// а в список агентов её имя попадёт и молча ничего не изменит.
-	wf, err := tracker.LoadWorkflow(filepath.Join(root, tracker.WorkflowFile))
-	if err != nil {
-		t.Fatalf("граф не загружен: %v", err)
+	if len(cfg.Accounts.Roles) != 0 {
+		t.Errorf("accounts.roles в образце активен (%v): копия заставила бы заводить учётку роли", cfg.Accounts.Roles)
 	}
-	for role := range cfg.Accounts.Roles {
-		if _, err := wf.Role(role); err != nil {
-			t.Errorf("accounts.roles.%s: такой роли в графе нет", role)
-		}
+	if len(cfg.AlsoAgents) != 0 {
+		t.Errorf("also_agents в образце не пуст: %v", cfg.AlsoAgents)
+	}
+	if cfg.IssueType != "" {
+		t.Errorf("issue_type в образце задан (%q): умолчание кода — Task, поле незачем включать", cfg.IssueType)
+	}
+	if cfg.DependsOnLink != "Depends" {
+		t.Errorf("depends_on_link = %q, ожидался Depends — его заводит jira-setup.sh", cfg.DependsOnLink)
+	}
+
+	// Заголовок написан для рабочего файла: после копии в ${OFFICE_HOME} он
+	// не должен называть себя образцом, который раннер не читает.
+	raw, err := os.ReadFile(filepath.Join(root, ExampleFile))
+	if err != nil {
+		t.Fatalf("%s не прочитан: %v", ExampleFile, err)
+	}
+	if strings.Contains(string(raw), "не читает") {
+		t.Errorf("%s всё ещё описывает себя как образец, который раннер не читает", ExampleFile)
 	}
 }
 
@@ -1540,7 +1555,7 @@ func TestOpenRejectsUnimplementedAuthMode(t *testing.T) {
 	}
 }
 
-// Проект, описанный в projects.yaml, но неизвестный трекеру, роняет весь цикл:
+// Проект, описанный в projects.local.yaml, но неизвестный трекеру, роняет весь цикл:
 // раннер обходит проекты по порядку и на первом же отказе бросает остальные.
 // Поймано живой проверкой — заглушка OFFICE остановила reap до настоящего VO.
 func TestListReadyTellsUnknownProjectApart(t *testing.T) {

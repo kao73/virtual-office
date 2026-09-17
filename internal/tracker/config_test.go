@@ -3,6 +3,7 @@ package tracker
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -27,26 +28,6 @@ func TestShippedConfigIsValid(t *testing.T) {
 	}
 	if wf.Limits.MaxAttempts <= 0 {
 		t.Errorf("max_attempts = %d", wf.Limits.MaxAttempts)
-	}
-
-	// Машинную половину репозиторий не хранит и хранить не должен, поэтому
-	// здесь проверяется только то, что его половина разбирается и границу
-	// не нарушает.
-	if err := checkOfficeHalf(filepath.Join(root, ProjectsFile)); err != nil {
-		t.Error(err)
-	}
-	var office map[string]officeProject
-	if err := decodeStrict(filepath.Join(root, ProjectsFile), &office); err != nil {
-		t.Fatalf("%s не разобран: %v", ProjectsFile, err)
-	}
-	// Ключ defaults в реальном файле обязан пройти те же проверки, что
-	// и синтетический: не содержать default_branch/branch_prefix,
-	// не участвовать в парности office/machine.
-	if _, err := extractDefaultsOffice(office); err != nil {
-		t.Errorf("defaults в %s не проходит проверку: %v", ProjectsFile, err)
-	}
-	if len(office) == 0 {
-		t.Error("список проектов пуст: раннеру нечего брать в работу")
 	}
 }
 
@@ -433,63 +414,323 @@ func TestLoadWorkflowRejectsBrokenGraph(t *testing.T) {
 	}
 }
 
-// Две половины одного проекта: офисная живёт в репозитории, машинная —
-// в ${OFFICE_HOME}.
-const (
-	validOffice = `OFF:
-  default_branch: master
-  branch_prefix: agent/
-`
-	validMachine = `OFF:
+// Проект целиком описан одной записью machine-файла: второй половины нет.
+// Обязательны repo_url, tracker и default_branch; branch_prefix — умолчание.
+const validMachine = `OFF:
   repo_url: https://example.test/office.git
   tracker: mock
+  default_branch: master
 `
-)
 
-// loadHalves — проекты, собранные из двух временных файлов.
-func loadHalves(t *testing.T, office, machine string) (Projects, error) {
+// load — проекты из временного projects.local.yaml.
+func load(t *testing.T, machine string) (Projects, error) {
 	t.Helper()
-	return LoadProjects(writeTemp(t, ProjectsFile, office), writeTemp(t, ProjectsLocalFile, machine))
+	return LoadProjects(writeTemp(t, ProjectsLocalFile, machine))
 }
 
+// Минимальной записи хватает, чтобы вести задачу: ветка — agent/<KEY>,
+// база PR-прохода — default_branch.
 func TestLoadProjects(t *testing.T) {
-	projects, err := loadHalves(t, validOffice, validMachine)
+	projects, err := load(t, validMachine)
 	if err != nil {
 		t.Fatalf("проекты не загружены: %v", err)
 	}
-
 	p, err := projects.Get("OFF")
 	if err != nil {
 		t.Fatalf("проект OFF не найден: %v", err)
 	}
-	// Обе половины доехали: ветка собрана из офисной, репозиторий и трекер —
-	// из машинной. Иначе склейка могла бы терять половину молча.
 	if got := p.Branch("OFF-12"); got != "agent/OFF-12" {
-		t.Errorf("ветка %q, ожидалась agent/OFF-12", got)
+		t.Errorf("ветка %q, ожидалась agent/OFF-12 (branch_prefix по умолчанию)", got)
 	}
-	if p.RepoURL != "https://example.test/office.git" {
-		t.Errorf("repo_url из машинной половины не доехал: %q", p.RepoURL)
+	if got := p.PRBranch(); got != "master" {
+		t.Errorf("база PR-прохода %q, ожидалась master", got)
 	}
-	if p.Tracker != "mock" {
-		t.Errorf("tracker из машинной половины не доехал: %q", p.Tracker)
+	if p.RepoURL != "https://example.test/office.git" || p.Tracker != "mock" {
+		t.Errorf("запись доехала не целиком: %+v", p)
 	}
 
 	// Задачу неизвестного проекта раннер брать не вправе: ему негде взять
-	// репозиторий и некуда пушить.
-	if _, err := projects.Get("НЕТ"); err == nil {
-		t.Error("неизвестный проект найден")
+	// репозиторий и некуда пушить. Отказ называет единственный файл проектов.
+	_, err = projects.Get("НЕТ")
+	if err == nil {
+		t.Fatal("неизвестный проект найден")
+	}
+	if !strings.Contains(err.Error(), ProjectsLocalFile) {
+		t.Errorf("отказ не назвал файл проектов: %v", err)
 	}
 }
 
-// Раннер запускается с одним трекером и работает только со своими проектами:
-// чужие он не спрашивает (иначе трекер отвечает «нет такого проекта» на каждом
-// проходе) и их рабочие папки не убирает.
-func TestProjectsFor(t *testing.T) {
-	projects := Projects{
+// Явный branch_prefix уважается: agent/ — умолчание, а не закон.
+func TestLoadProjectsHonoursBranchPrefix(t *testing.T) {
+	projects, err := load(t, validMachine+"  branch_prefix: office/\n")
+	if err != nil {
+		t.Fatalf("проекты не загружены: %v", err)
+	}
+	p, _ := projects.Get("OFF")
+	if got := p.Branch("OFF-1"); got != "office/OFF-1" {
+		t.Errorf("ветка %q, ожидалась office/OFF-1", got)
+	}
+}
+
+// Каждый отказ называет ключ, проект и файл: чинить надо там, а не гадать.
+func TestLoadProjectsRejectsIncomplete(t *testing.T) {
+	cases := []struct {
+		name, machine, want string
+	}{
+		// Ключ подобран так, чтобы не быть подстрокой перечня известных
+		// в хвосте сообщения: проверяется, что отказ назвал сам ключ.
+		{"неизвестное поле", validMachine + "  colour: red\n", "colour"},
+		{"нет репозитория", strings.Replace(validMachine, "  repo_url: https://example.test/office.git\n", "", 1), "repo_url"},
+		{"нет ветки по умолчанию", strings.Replace(validMachine, "  default_branch: master\n", "", 1), "default_branch"},
+		{"относительный worktree_root", validMachine + "  worktree_root: ../рядом\n", "worktree_root"},
+		{"нет трекера", strings.Replace(validMachine, "  tracker: mock\n", "", 1), "tracker"},
+		{"чужой трекер", strings.Replace(validMachine, "tracker: mock", "tracker: youtrack", 1), "youtrack"},
+		{"auto_merge без forge", validMachine + "  auto_merge:\n    enabled: true\n", "forge"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := load(t, tc.machine)
+			if err == nil {
+				t.Fatal("неполный проект загружен без ошибки")
+			}
+			for _, want := range []string{tc.want, "OFF", ProjectsLocalFile} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("в ошибке не назван %q: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// projectKeys обязан повторять теги machineProject: запись со всеми ключами
+// контракта грузится, иначе забытый в списке ключ отвергал бы годный файл.
+func TestLoadProjectsAcceptsEveryContractKey(t *testing.T) {
+	machine := validMachine +
+		"  branch_prefix: a/\n  worktree_root: /abs/OFF\n  forge: github\n" +
+		"  auto_merge:\n    enabled: true\n    target_branch: office-integration\n" +
+		"  network: [a.test]\n  tools:\n    allow: [Read]\n    deny: [\"Bash(rm*)\"]\n"
+	projects, err := load(t, machine)
+	if err != nil {
+		t.Fatalf("запись со всеми ключами контракта отвергнута: %v", err)
+	}
+	p, _ := projects.Get("OFF")
+	if !p.AutoMerge.Enabled || p.PRBranch() != "office-integration" || p.Forge != "github" {
+		t.Errorf("auto_merge/forge доехали не целиком: %+v", p)
+	}
+	if !slices.Equal(p.Network, []string{"a.test"}) ||
+		!slices.Equal(p.Tools.Allow, []string{"Read"}) || !slices.Equal(p.Tools.Deny, []string{"Bash(rm*)"}) {
+		t.Errorf("network/tools на уровне записи не разобраны: %+v %+v", p.Network, p.Tools)
+	}
+}
+
+// yamlKeys — теги yaml структуры, включая поля inline-структур: то, что
+// строгий разбор примет как ключ записи.
+func yamlKeys(t *testing.T, typ reflect.Type) []string {
+	t.Helper()
+	var keys []string
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		tag := f.Tag.Get("yaml")
+		if tag == ",inline" {
+			keys = append(keys, yamlKeys(t, f.Type)...)
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		if name == "" {
+			t.Fatalf("поле %s без тега yaml: ключ не назван", f.Name)
+		}
+		keys = append(keys, name)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// Тест выше держит одну сторону — ключ из списка грузится; эта — другую:
+// поле, добавленное в machineProject без правки projectKeys, отвергалось бы
+// как «не описано контрактом», а defaults принимал бы только то, что есть
+// в Rules. Списки выводятся из тегов, и разойтись им не с чем.
+func TestProjectKeysMirrorStructTags(t *testing.T) {
+	if got, want := slices.Sorted(slices.Values(projectKeys)), yamlKeys(t, reflect.TypeFor[machineProject]()); !slices.Equal(got, want) {
+		t.Errorf("projectKeys = %v, теги machineProject = %v", got, want)
+	}
+	if got, want := slices.Sorted(slices.Values(defaultsKeys)), yamlKeys(t, reflect.TypeFor[Rules]()); !slices.Equal(got, want) {
+		t.Errorf("defaultsKeys = %v, теги Rules = %v", got, want)
+	}
+}
+
+// «Завёл файл, ещё не заполнил» — обычное состояние на новой машине; отказ
+// называет файл и причину, а не «не разобран: EOF». Ни одного проекта — тоже
+// отказ: промолчать значило бы крутить пустые тики без объяснений.
+func TestLoadProjectsRejectsFileWithoutProjects(t *testing.T) {
+	for name, body := range map[string]string{
+		"пустой":          "",
+		"из комментария":  "# сюда допишу позже\n",
+		"только defaults": "defaults:\n  network: [a.test]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := load(t, body)
+			if err == nil {
+				t.Fatal("файл без проектов принят за годный")
+			}
+			if strings.Contains(err.Error(), "EOF") {
+				t.Errorf("отказ говорит про EOF вместо причины: %v", err)
+			}
+			if !strings.Contains(err.Error(), ProjectsLocalFile) || !strings.Contains(err.Error(), "ни одного проекта") {
+				t.Errorf("отказ не назвал файл или причину: %v", err)
+			}
+		})
+	}
+}
+
+// Файла нет — отказ называет его и обязательные ключи: заводить его
+// человеку, и сказать надо, из чего.
+func TestLoadProjectsRejectsMissingFile(t *testing.T) {
+	_, err := LoadProjects(filepath.Join(t.TempDir(), ProjectsLocalFile))
+	if err == nil {
+		t.Fatal("проекты загружены без файла")
+	}
+	for _, want := range []string{ProjectsLocalFile, "repo_url", "tracker", "default_branch"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не назвал %q: %v", want, err)
+		}
+	}
+}
+
+// defaults — правила, а не проект: любой ключ, кроме network и tools, —
+// отказ по имени. Раньше auto_merge под defaults молча пропадал.
+func TestLoadProjectsRejectsProjectKeysUnderDefaults(t *testing.T) {
+	for key, body := range map[string]string{
+		"auto_merge":     "defaults:\n  auto_merge:\n    enabled: true\n",
+		"default_branch": "defaults:\n  default_branch: main\n",
+		"branch_prefix":  "defaults:\n  branch_prefix: x/\n",
+		"repo_url":       "defaults:\n  repo_url: https://example.test/x.git\n",
+	} {
+		t.Run(key, func(t *testing.T) {
+			_, err := load(t, validMachine+body)
+			if err == nil {
+				t.Fatalf("%s под defaults принят без ошибки", key)
+			}
+			if !strings.Contains(err.Error(), "defaults") || !strings.Contains(err.Error(), key) {
+				t.Errorf("ошибка не называет причину: %v", err)
+			}
+		})
+	}
+}
+
+// Машинный и проектный слои держат тот же контракт правил, что роль и база:
+// запрет Write целиком оставил бы каждую роль без результата, а хост,
+// записанный как URL, — без сети, и оба молча. Отказ называет слой, файл
+// и причину, а не «прогон без результата» через час.
+func TestLoadProjectsRejectsBrokenRules(t *testing.T) {
+	for name, tc := range map[string]struct{ body, layer, want string }{
+		"Write под defaults": {
+			body:  "defaults:\n  tools:\n    deny: [Write]\n",
+			layer: "defaults", want: "Write",
+		},
+		"URL-хост под defaults": {
+			body:  "defaults:\n  network: [\"https://pypi.org\"]\n",
+			layer: "defaults", want: "https://pypi.org",
+		},
+		"Write у проекта": {
+			body:  "  tools:\n    deny: [Write]\n",
+			layer: "OFF", want: "Write",
+		},
+		"URL-хост у проекта": {
+			body:  "  network: [\"registry/path\"]\n",
+			layer: "OFF", want: "registry/path",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := load(t, validMachine+tc.body)
+			if err == nil {
+				t.Fatal("битые правила приняты без ошибки")
+			}
+			for _, part := range []string{tc.layer, tc.want, ProjectsLocalFile} {
+				if !strings.Contains(err.Error(), part) {
+					t.Errorf("в ошибке не назван %q: %v", part, err)
+				}
+			}
+		})
+	}
+}
+
+// Файл из одного сломанного defaults без единого проекта называет обе беды
+// разом: починив «ни одного проекта», человек не должен получать «Write
+// под defaults» следующим запуском.
+func TestLoadProjectsReportsBrokenDefaultsEvenWithoutProjects(t *testing.T) {
+	_, err := load(t, "defaults:\n  tools:\n    deny: [Write]\n")
+	if err == nil {
+		t.Fatal("файл без проектов и со сломанным defaults принят")
+	}
+	for _, want := range []string{"ни одного проекта", "Write"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("в ошибке не названо %q: %v", want, err)
+		}
+	}
+}
+
+// Пустой defaults законен — слоя нет.
+func TestLoadProjectsAllowsEmptyDefaults(t *testing.T) {
+	for name, body := range map[string]string{"пусто": "defaults:\n", "фигурные": "defaults: {}\n"} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := load(t, validMachine+body); err != nil {
+				t.Errorf("пустой defaults отвергнут: %v", err)
+			}
+		})
+	}
+}
+
+// Машинный слой достаётся каждому проекту; специфика одного проекта другому
+// не видна; проект без единого правила остаётся без правил.
+func TestLoadProjectsLayersDefaultsAndProjectRules(t *testing.T) {
+	machine := "defaults:\n  network: [common.test]\n  tools:\n    allow: [\"Bash(common-tool)\"]\n    deny: [\"Bash(git *push*)\"]\n" +
+		validMachine +
+		"VO:\n  repo_url: https://example.test/vo.git\n  tracker: mock\n  default_branch: main\n  network: [vo-only.test]\n"
+	projects, err := load(t, machine)
+	if err != nil {
+		t.Fatalf("проекты не загружены: %v", err)
+	}
+	off, _ := projects.Get("OFF")
+	vo, _ := projects.Get("VO")
+	if !slices.Equal(off.Network, []string{"common.test"}) {
+		t.Errorf("OFF.network = %v, ожидалось [common.test] без утечки VO", off.Network)
+	}
+	if !slices.Equal(vo.Network, []string{"common.test", "vo-only.test"}) {
+		t.Errorf("VO.network = %v, ожидалось [common.test vo-only.test]", vo.Network)
+	}
+	if !slices.Equal(vo.Tools.Deny, []string{"Bash(git *push*)"}) {
+		t.Errorf("VO.tools.deny = %v, defaults не доехал", vo.Tools.Deny)
+	}
+	if !slices.Equal(vo.Tools.Allow, []string{"Bash(common-tool)"}) {
+		t.Errorf("VO.tools.allow = %v, defaults.tools.allow не доехал", vo.Tools.Allow)
+	}
+
+	bare, err := load(t, validMachine)
+	if err != nil {
+		t.Fatalf("проекты не загружены: %v", err)
+	}
+	p, _ := bare.Get("OFF")
+	if len(p.Network) != 0 || len(p.Tools.Allow) != 0 || len(p.Tools.Deny) != 0 {
+		t.Errorf("проект без единого правила получил их из ниоткуда: %+v", p)
+	}
+}
+
+// twoTrackerProjects — три проекта на двух трекерах: один mock, два jira.
+// Функция, а не переменная: карта изменяема, и тест, дописавший в общую,
+// молча изменил бы соседние.
+func twoTrackerProjects() Projects {
+	return Projects{
 		"OFF": {Tracker: "mock"},
 		"VO":  {Tracker: "jira"},
 		"EXP": {Tracker: "jira"},
 	}
+}
+
+// Офис ведёт один трекер и работает только со своими проектами:
+// чужие он не спрашивает (иначе трекер отвечает «нет такого проекта» на каждом
+// проходе) и их рабочие папки не убирает.
+func TestProjectsFor(t *testing.T) {
+	projects := twoTrackerProjects()
 
 	if got := projects.For("mock").Keys(); !slices.Equal(got, []string{"OFF"}) {
 		t.Errorf("проекты mock: %v, ожидался только OFF", got)
@@ -502,88 +743,39 @@ func TestProjectsFor(t *testing.T) {
 	}
 }
 
-func TestLoadProjectsRejectsIncomplete(t *testing.T) {
-	cases := []struct {
-		name, office, machine, want string
-	}{
-		{"неизвестное поле офиса", strings.Replace(validOffice, "default_branch:", "branch:", 1), validMachine, "branch"},
-		{"неизвестное поле машины", validOffice, strings.Replace(validMachine, "repo_url:", "repo:", 1), "repo"},
-		{"нет репозитория", validOffice, strings.Replace(validMachine, "  repo_url: https://example.test/office.git\n", "", 1), "repo_url"},
-		{"нет ветки по умолчанию", strings.Replace(validOffice, "  default_branch: master\n", "", 1), validMachine, "default_branch"},
-		{"нет префикса веток", strings.Replace(validOffice, "  branch_prefix: agent/\n", "", 1), validMachine, "branch_prefix"},
-		{"относительный worktree_root", validOffice, validMachine + "  worktree_root: ../рядом\n", "worktree_root"},
-		{"нет трекера", validOffice, strings.Replace(validMachine, "  tracker: mock\n", "", 1), "tracker"},
-		{"чужой трекер", validOffice, strings.Replace(validMachine, "tracker: mock", "tracker: youtrack", 1), "youtrack"},
-		{"auto_merge без forge", validOffice, validMachine + "  auto_merge:\n    enabled: true\n", "forge"},
+// Трекеры, которые назвали проекты, — по алфавиту и без повторов: по этому
+// списку раннер обходит офисы, и два запуска обязаны обходить их одинаково.
+func TestTrackersInUse(t *testing.T) {
+	projects := twoTrackerProjects()
+	if got := projects.TrackersInUse(); !slices.Equal(got, []string{"jira", "mock"}) {
+		t.Errorf("TrackersInUse = %v, ожидалось [jira mock]", got)
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := loadHalves(t, tc.office, tc.machine)
-			if err == nil {
-				t.Fatal("неполный проект загружен без ошибки")
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("в ошибке не назван %q: %v", tc.want, err)
-			}
-		})
+	if got := (Projects{}).TrackersInUse(); len(got) != 0 {
+		t.Errorf("у пустого списка проектов нашлись трекеры: %v", got)
 	}
 }
 
-// Граница держится кодом, а не памятью того, кто через полгода будет править
-// файл. Машинный ключ в файле офиса — отказ, и отказ называет, куда ключ переехал:
-// строгий разбор сказал бы только «неизвестное поле», и человек пошёл бы искать
-// опечатку.
-func TestLoadProjectsRejectsMachineKeysInOfficeFile(t *testing.T) {
-	for _, key := range machineKeys {
-		t.Run(key, func(t *testing.T) {
-			office := validOffice + "  " + key + ": что-нибудь\n"
-			_, err := loadHalves(t, office, validMachine)
-			if err == nil {
-				t.Fatal("машинный ключ пропущен в файл офиса")
-			}
-			if !strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), ProjectsLocalFile) {
-				t.Errorf("отказ не назвал ключ или файл, куда он переехал: %v", err)
-			}
-		})
+// projects.yaml из прежней раскладки под корнем конфигурации — отказ, а не
+// молча пропущенный файл: он носил и проекты, и общие правила, и оба адреса,
+// куда они переехали, отказ называет.
+func TestRefuseLeftoverOfficeFile(t *testing.T) {
+	root := t.TempDir()
+	if err := RefuseLeftoverOfficeFile(root); err != nil {
+		t.Errorf("без projects.yaml отказ не положен: %v", err)
 	}
-}
 
-// Половины сверяются друг с другом по списку ключей, и обе стороны — отказ.
-// Проект, названный офисом и не заведённый на машине, пропущенный молча,
-// выглядел бы как проект, по которому просто нет задач. Проект, заведённый
-// на машине и не названный офисом, — почти всегда опечатка в имени.
-func TestLoadProjectsRequiresBothHalves(t *testing.T) {
-	t.Run("нет машинной половины", func(t *testing.T) {
-		_, err := loadHalves(t, validOffice+"VO:\n  default_branch: main\n  branch_prefix: a/\n", validMachine)
-		if err == nil {
-			t.Fatal("проект без машинных ключей загружен")
+	if err := os.WriteFile(filepath.Join(root, OfficeProjectsFile), []byte("OFF:\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	err := RefuseLeftoverOfficeFile(root)
+	if err == nil {
+		t.Fatal("оставшийся projects.yaml пропущен молча")
+	}
+	for _, want := range []string{OfficeProjectsFile, ProjectsLocalFile, "roles/_base/base.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не назвал %q: %v", want, err)
 		}
-		if !strings.Contains(err.Error(), "VO") {
-			t.Errorf("отказ не назвал проект: %v", err)
-		}
-	})
-
-	t.Run("нет офисной половины", func(t *testing.T) {
-		_, err := loadHalves(t, validOffice, validMachine+"OFICE:\n  repo_url: https://example.test/x.git\n  tracker: mock\n")
-		if err == nil {
-			t.Fatal("проект, не названный офисом, загружен")
-		}
-		if !strings.Contains(err.Error(), "OFICE") {
-			t.Errorf("отказ не назвал проект: %v", err)
-		}
-	})
-
-	t.Run("машинного файла нет вовсе", func(t *testing.T) {
-		_, err := LoadProjects(writeTemp(t, ProjectsFile, validOffice),
-			filepath.Join(t.TempDir(), ProjectsLocalFile))
-		if err == nil {
-			t.Fatal("проекты загружены без машинной половины")
-		}
-		if !strings.Contains(err.Error(), ProjectsLocalFile) {
-			t.Errorf("отказ не назвал недостающий файл: %v", err)
-		}
-	})
+	}
 }
 
 // Граф с PR-проходом: блок `pr` описывает маршрут pull request, а роли `office`
@@ -706,187 +898,6 @@ func TestWorkflowWithoutPRPass(t *testing.T) {
 	}
 }
 
-// «Завёл файл, ещё не заполнил» — обычное состояние на новой машине, и отказ
-// должен назвать, чего не хватает, а не сказать «не разобран: EOF».
-func TestLoadProjectsExplainsEmptyMachineHalf(t *testing.T) {
-	for name, body := range map[string]string{
-		"пустой":         "",
-		"из комментария": "# сюда допишу позже\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := loadHalves(t, validOffice, body)
-			if err == nil {
-				t.Fatal("пустая машинная половина принята за годную")
-			}
-			if strings.Contains(err.Error(), "EOF") {
-				t.Errorf("отказ говорит про EOF вместо причины: %v", err)
-			}
-			if !strings.Contains(err.Error(), "OFF") {
-				t.Errorf("отказ не назвал проект: %v", err)
-			}
-		})
-	}
-}
-
-// «Ни одного проекта» — тоже отказ. Прочие беды склейки говорят вслух, и промолчать
-// здесь значило бы оставить раннер крутить пустые тики без объяснений.
-func TestLoadProjectsRejectsEmptyOffice(t *testing.T) {
-	_, err := loadHalves(t, "", validMachine)
-	if err == nil {
-		t.Fatal("офис без проектов принят за годный")
-	}
-	if !strings.Contains(err.Error(), ProjectsFile) {
-		t.Errorf("отказ не назвал файл офиса: %v", err)
-	}
-}
-
-// Поля network/tools встраиваются в officeProject через yaml:",inline" —
-// строгий разбор (KnownFields(true)) обязан принимать их на том же уровне
-// вложенности, что и default_branch. Проверено вручную на gopkg.in/yaml.v3
-// v3.0.1 перед тем, как класть embedding в прод; тест фиксирует это как
-// регресс, а не как разовую проверку.
-func TestOfficeProjectAcceptsInlineNetworkAndTools(t *testing.T) {
-	office := validOffice + "  network: [a.test]\n  tools:\n    allow: [Read]\n    deny: [\"Bash(rm*)\"]\n"
-	var m map[string]officeProject
-	if err := decodeStrict(writeTemp(t, ProjectsFile, office), &m); err != nil {
-		t.Fatalf("network/tools на уровне проекта не разобраны: %v", err)
-	}
-	off := m["OFF"]
-	if !slices.Equal(off.Network, []string{"a.test"}) {
-		t.Errorf("network = %v, ожидалось [a.test]", off.Network)
-	}
-	if !slices.Equal(off.Tools.Allow, []string{"Read"}) || !slices.Equal(off.Tools.Deny, []string{"Bash(rm*)"}) {
-		t.Errorf("tools = %+v, ожидалось allow:[Read] deny:[Bash(rm*)]", off.Tools)
-	}
-}
-
-// defaults — не проект: отсутствие в одном из двух файлов не ошибка,
-// а «на этом уровне добавок нет». Наличие в обоих — оба вклада учтены
-// (это проверяет Task 3, здесь — что сам разбор ключа не падает).
-func TestLoadProjectsAllowsDefaultsInEitherOrBothFiles(t *testing.T) {
-	withDefaults := "defaults:\n  network: [a.test]\n"
-
-	cases := []struct {
-		name, office, machine string
-	}{
-		{"только в офисном файле", validOffice + withDefaults, validMachine},
-		{"только в машинном файле", validOffice, validMachine + withDefaults},
-		{"в обоих файлах", validOffice + withDefaults, validMachine + withDefaults},
-		{"ни в одном", validOffice, validMachine},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := loadHalves(t, tc.office, tc.machine); err != nil {
-				t.Fatalf("defaults не должен быть ошибкой: %v", err)
-			}
-		})
-	}
-}
-
-// defaults — зарезервированное имя для repo-wide/машинного слоя, а не
-// проект: default_branch/branch_prefix ему не положены, и загрузчик обязан
-// сказать об этом явно, а не молча принять их как проект по имени "defaults".
-func TestLoadProjectsRejectsDefaultBranchUnderDefaultsKey(t *testing.T) {
-	office := validOffice + "defaults:\n  default_branch: master\n"
-	_, err := loadHalves(t, office, validMachine)
-	if err == nil {
-		t.Fatal("default_branch под defaults принят без ошибки")
-	}
-	if !strings.Contains(err.Error(), "defaults") || !strings.Contains(err.Error(), "default_branch") {
-		t.Errorf("ошибка не называет причину: %v", err)
-	}
-}
-
-// Зеркально — машинные поля под defaults в machine-файле.
-func TestLoadProjectsRejectsRepoURLUnderDefaultsKeyInMachineFile(t *testing.T) {
-	machine := validMachine + "defaults:\n  repo_url: https://example.test/x.git\n"
-	_, err := loadHalves(t, validOffice, machine)
-	if err == nil {
-		t.Fatal("repo_url под defaults принят без ошибки")
-	}
-	if !strings.Contains(err.Error(), "defaults") || !strings.Contains(err.Error(), "repo_url") {
-		t.Errorf("ошибка не называет причину: %v", err)
-	}
-}
-
-// defaults не участвует в проверке парности ключей office/machine: он не
-// проект, и требовать для него пару в другом файле значило бы обязать
-// заводить пустой машинный (или офисный) слой ради синтаксиса.
-func TestLoadProjectsDefaultsSkipsParityCheck(t *testing.T) {
-	office := validOffice + "defaults:\n  network: [a.test]\n"
-	if _, err := loadHalves(t, office, validMachine); err != nil {
-		t.Fatalf("defaults только в офисном файле не должен требовать пары в машинном: %v", err)
-	}
-}
-
-// Проект без собственных network/tools наследует только defaults —
-// не пусто, но и не выдумывает ничего сверх repo-wide слоя.
-func TestLoadProjectsProjectInheritsOnlyDefaults(t *testing.T) {
-	office := validOffice + "defaults:\n  network: [a.test]\n  tools:\n    deny: [\"Bash(git *push*)\"]\n"
-	projects, err := loadHalves(t, office, validMachine)
-	if err != nil {
-		t.Fatalf("проекты не загружены: %v", err)
-	}
-	p, err := projects.Get("OFF")
-	if err != nil {
-		t.Fatalf("проект OFF не найден: %v", err)
-	}
-	if !slices.Equal(p.Network, []string{"a.test"}) {
-		t.Errorf("network = %v, ожидалось [a.test] (только из defaults)", p.Network)
-	}
-	if !slices.Equal(p.Tools.Deny, []string{"Bash(git *push*)"}) {
-		t.Errorf("tools.deny = %v, ожидалось [Bash(git *push*)] (только из defaults)", p.Tools.Deny)
-	}
-}
-
-// Специфика одного проекта не видна другому — иначе слой перестал бы
-// быть per-project и превратился в ещё один repo-wide список.
-func TestLoadProjectsProjectSpecificsAreIsolated(t *testing.T) {
-	office := validOffice + "defaults:\n  network: [common.test]\n" +
-		"VO:\n  default_branch: main\n  branch_prefix: a/\n  network: [vo-only.test]\n"
-	machine := validMachine + "VO:\n  repo_url: https://example.test/vo.git\n  tracker: mock\n"
-
-	projects, err := loadHalves(t, office, machine)
-	if err != nil {
-		t.Fatalf("проекты не загружены: %v", err)
-	}
-	off, _ := projects.Get("OFF")
-	vo, _ := projects.Get("VO")
-
-	if !slices.Equal(off.Network, []string{"common.test"}) {
-		t.Errorf("OFF.network = %v, ожидалось [common.test] без утечки VO", off.Network)
-	}
-	if !slices.Equal(vo.Network, []string{"common.test", "vo-only.test"}) {
-		t.Errorf("VO.network = %v, ожидалось [common.test vo-only.test]", vo.Network)
-	}
-}
-
-// Проект без defaults вообще — сегодняшнее поведение не должно измениться:
-// Network/Tools остаются пустыми, а не паникой на nil-слиянии.
-func TestLoadProjectsWithoutDefaultsAtAllIsUnaffected(t *testing.T) {
-	projects, err := loadHalves(t, validOffice, validMachine)
-	if err != nil {
-		t.Fatalf("проекты не загружены: %v", err)
-	}
-	p, _ := projects.Get("OFF")
-	if len(p.Network) != 0 || len(p.Tools.Allow) != 0 || len(p.Tools.Deny) != 0 {
-		t.Errorf("проект без единого defaults получил правила из ниоткуда: %+v", p)
-	}
-}
-
-// unionStrings — дедуп и сортировка через все слои разом, тот же приём,
-// что уже применяет internal/adapters/claude/adapter.go:networkAllow, обобщённый
-// на произвольное число слоёв.
-func TestUnionStringsDedupsAndSorts(t *testing.T) {
-	got := unionStrings([]string{"b", "a"}, nil, []string{"a", "c"})
-	if want := []string{"a", "b", "c"}; !slices.Equal(got, want) {
-		t.Errorf("unionStrings = %v, ожидалось %v", got, want)
-	}
-	if got := unionStrings(); got != nil {
-		t.Errorf("unionStrings() без слоёв = %v, ожидался nil", got)
-	}
-}
-
 // PRBranch — ветка, от которой форкаются задачи и куда метит PR-проход:
 // target_branch авто-мержа, если задан, иначе default_branch.
 func TestPRBranch(t *testing.T) {
@@ -897,81 +908,5 @@ func TestPRBranch(t *testing.T) {
 	p.AutoMerge.TargetBranch = "office-integration"
 	if got := p.PRBranch(); got != "office-integration" {
 		t.Errorf("PRBranch() = %q, ожидался target_branch %q", got, "office-integration")
-	}
-}
-
-// auto_merge доезжает из машинной половины и склеивается в Project так же,
-// как forge — тем же путём LoadProjects.
-func TestLoadProjectsCarriesAutoMerge(t *testing.T) {
-	machine := validMachine + "  forge: github\n  auto_merge:\n    enabled: true\n    target_branch: office-integration\n"
-	projects, err := loadHalves(t, validOffice, machine)
-	if err != nil {
-		t.Fatalf("проекты не загружены: %v", err)
-	}
-	p, err := projects.Get("OFF")
-	if err != nil {
-		t.Fatalf("проект OFF не найден: %v", err)
-	}
-	if !p.AutoMerge.Enabled {
-		t.Error("auto_merge.enabled не доехал из машинной половины")
-	}
-	if got := p.PRBranch(); got != "office-integration" {
-		t.Errorf("PRBranch() = %q, ожидался office-integration", got)
-	}
-}
-
-// Реальный projects.yaml после переноса общих deny обязан отдавать их
-// каждому проекту через defaults, даже когда у проекта нет собственной
-// специфики: EXP/VO/OFFICE не описывают tools вовсе.
-func TestShippedDefaultsCarrySevenCommonDenyRules(t *testing.T) {
-	root := filepath.Join("..", "..")
-	// Синтетическая машинная половина: у реального projects.local.yaml нет
-	// коммита в репозитории (он инстанс-специфичен), поэтому тест собирает
-	// минимальную сам — она нужна только чтобы LoadProjects прошёл парность.
-	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n" +
-		"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n" +
-		"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"
-
-	projects, err := LoadProjects(filepath.Join(root, ProjectsFile), writeTemp(t, ProjectsLocalFile, machine))
-	if err != nil {
-		t.Fatalf("реальные проекты не загружены: %v", err)
-	}
-	want := []string{
-		"Bash(git *branch*)", "Bash(git *checkout*)", "Bash(git *config*)",
-		"Bash(git *push*)", "Bash(git *remote*)", "Bash(git *switch*)", "Bash(git *worktree*)",
-	}
-	for _, key := range []string{"OFFICE", "VO", "EXP"} {
-		p, err := projects.Get(key)
-		if err != nil {
-			t.Fatalf("%s не найден: %v", key, err)
-		}
-		for _, rule := range want {
-			if !slices.Contains(p.Tools.Deny, rule) {
-				t.Errorf("%s.tools.deny не содержит %q (defaults не доехал)", key, rule)
-			}
-		}
-	}
-}
-
-// Новые опасные команды (переписывание истории, rm -rf) доезжают до
-// каждого проекта тем же способом, что и семь общих строк.
-func TestShippedDefaultsCarryDangerousCommandDenyRules(t *testing.T) {
-	root := filepath.Join("..", "..")
-	machine := "OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n" +
-		"VO:\n  repo_url: https://example.test/v.git\n  tracker: mock\n" +
-		"EXP:\n  repo_url: https://example.test/e.git\n  tracker: mock\n"
-
-	projects, err := LoadProjects(filepath.Join(root, ProjectsFile), writeTemp(t, ProjectsLocalFile, machine))
-	if err != nil {
-		t.Fatalf("реальные проекты не загружены: %v", err)
-	}
-	p, err := projects.Get("EXP")
-	if err != nil {
-		t.Fatalf("EXP не найден: %v", err)
-	}
-	for _, rule := range []string{"Bash(git *filter-branch*)", "Bash(rm *-r*)", "Bash(rm *-f*)"} {
-		if !slices.Contains(p.Tools.Deny, rule) {
-			t.Errorf("EXP.tools.deny не содержит %q", rule)
-		}
 	}
 }

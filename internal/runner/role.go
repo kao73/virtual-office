@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,6 +21,15 @@ const SkillsDir = "skills"
 
 // RoleFile — машиночитаемая спецификация роли.
 const RoleFile = "role.yaml"
+
+// BaseDir — каталог правил, общих для всех ролей; BaseRulesFile — их
+// машиночитаемая половина рядом с base.md. Каталог с подчёркиванием
+// ролью не считается (см. shippedRoles в тестах): в нём лежит то, от чего
+// наследуют все.
+const (
+	BaseDir       = "_base"
+	BaseRulesFile = "base.yaml"
+)
 
 // WriteTool — инструмент записи файлов. Роль называет его в tools.allow, если ей
 // положено править файлы проекта; право записать собственный результат она получает
@@ -88,6 +98,97 @@ type Network struct {
 	Allow []string `yaml:"allow"`
 }
 
+// Union сливает несколько слоёв правил в один список без потерь: то, что
+// назвал любой слой, остаётся в итоге, повторы схлопываются, порядок —
+// алфавитный, чтобы два прогона отдавали агенту одинаковые настройки.
+// Один и тот же приём — для network.allow и для каждого из tools.allow/
+// tools.deny по отдельности. Живёт здесь, а не в tracker: базовый слой
+// (LoadRole) и проектные (tracker.LoadProjects, tracker.MergeProjectRules)
+// сливаются им одинаково, а tracker импортирует runner, не наоборот.
+func Union(layers ...[]string) []string {
+	var all []string
+	for _, l := range layers {
+		all = append(all, l...)
+	}
+	slices.Sort(all)
+	return slices.Compact(all)
+}
+
+// RulesErrors проверяет network.allow и tools.deny — часть контракта, общую
+// для всех четырёх слоёв правил: роли (validate), базового (loadBaseRules),
+// машинного и проектного (tracker.LoadProjects). Битый хост оставил бы без
+// сети, а запрет Write целиком — без результата, кто бы из слоёв его ни
+// объявил; слои сливаются объединением, и убрать такое правило ниже некому.
+// Общий код, а не общие данные: контекст ошибки (путь к файлу, имя проекта)
+// у каждого слоя свой, его добавляет вызывающая сторона.
+func RulesErrors(network Network, tools Tools) []error {
+	var errs []error
+
+	// Запись файла результата — часть контракта прогона, и право на неё роли выдаёт
+	// адаптер, одним путём. Запрет инструмента целиком сильнее любого разрешения
+	// и отнял бы у роли возможность закончиться иначе, чем синтетическим failed.
+	// Чтобы запретить роли правку кода, хватает не давать Write в allow.
+	if slices.Contains(tools.Deny, WriteTool) {
+		errs = append(errs, fmt.Errorf("tools.deny запрещает %s целиком: роли нечем будет записать результат", WriteTool))
+	}
+
+	// Домен, записанный как URL, не совпадёт ни с чем, и роль молча останется
+	// без сети: узнать об этом можно будет только по провалу прогона.
+	for i, host := range network.Allow {
+		if err := validHost(host); err != nil {
+			errs = append(errs, fmt.Errorf("network.allow[%d]=%q: %w", i, host, err))
+		}
+	}
+
+	return errs
+}
+
+// baseRules — то, что наследует каждая роль. Форма совпадает с role.yaml,
+// а не с projects.local.yaml: это роль, от которой наследуют все.
+type baseRules struct {
+	Network Network `yaml:"network"`
+	Tools   Tools   `yaml:"tools"`
+}
+
+// loadBaseRules читает roles/_base/base.yaml.
+//
+// Каталога нет — слоя нет: временные роли в тестах живут без базы. Каталог
+// есть, файла нет — отказ: половина базы (промпт base.md) без другой
+// половины (правила) — сломанная поставка, а не пустой слой. base.md при
+// этом требуется отдельно и иначе — ролью, назвавшей его в includes.
+//
+// Проверки — общий с ролью RulesErrors: битый хост в базе оставил бы без
+// сети каждую роль, а запрет Write целиком — без результата, теми же
+// правилами, что и у самой роли.
+func loadBaseRules(configRoot string) (baseRules, error) {
+	dir := filepath.Join(configRoot, RolesDir, BaseDir)
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		return baseRules{}, nil
+	}
+	path := filepath.Join(dir, BaseRulesFile)
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return baseRules{}, fmt.Errorf("%s: базовые правила ролей не найдены: каталог есть, файла нет", path)
+	}
+	if err != nil {
+		return baseRules{}, fmt.Errorf("%s не прочитан: %w", path, err)
+	}
+
+	var base baseRules
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	// Файл из одних комментариев — пустой слой, а не ошибка: io.EOF здесь
+	// значит «нечего добавить», как и у остальных загрузчиков конфигурации.
+	if err := dec.Decode(&base); err != nil && !errors.Is(err, io.EOF) {
+		return baseRules{}, fmt.Errorf("%s не разобран: %w", path, err)
+	}
+
+	if err := errors.Join(RulesErrors(base.Network, base.Tools)...); err != nil {
+		return baseRules{}, fmt.Errorf("%s нарушает контракт базовых правил: %w", path, err)
+	}
+	return base, nil
+}
+
 // LoadRole читает и проверяет roles/<name>/role.yaml.
 // Разбор строгий: неизвестное поле — ошибка, а не молча забытая настройка.
 func LoadRole(configRoot, name string) (Role, error) {
@@ -111,6 +212,17 @@ func LoadRole(configRoot, name string) (Role, error) {
 	if err := r.validate(name); err != nil {
 		return Role{}, fmt.Errorf("%s нарушает контракт роли: %w", path, err)
 	}
+
+	// Базовый слой кладётся после проверки роли, а не до: роль обязана быть
+	// годной сама по себе (пустой allow — её ошибка, а не базы), а сливаться
+	// с базой она может только добавлением — убрать унаследованное нельзя.
+	base, err := loadBaseRules(configRoot)
+	if err != nil {
+		return Role{}, err
+	}
+	r.Network.Allow = Union(base.Network.Allow, r.Network.Allow)
+	r.Tools.Allow = Union(base.Tools.Allow, r.Tools.Allow)
+	r.Tools.Deny = Union(base.Tools.Deny, r.Tools.Deny)
 	return r, nil
 }
 
@@ -137,21 +249,9 @@ func (r Role) validate(dirName string) error {
 	if len(r.Tools.Allow) == 0 {
 		errs = append(errs, errors.New("tools.allow пуст: агенту нечем работать"))
 	}
-	// Запись файла результата — часть контракта прогона, и право на неё роли выдаёт
-	// адаптер, одним путём. Запрет инструмента целиком сильнее любого разрешения
-	// и отнял бы у роли возможность закончиться иначе, чем синтетическим failed.
-	// Чтобы запретить роли правку кода, хватает не давать Write в allow.
-	if slices.Contains(r.Tools.Deny, WriteTool) {
-		errs = append(errs, fmt.Errorf("tools.deny запрещает %s целиком: роли нечем будет записать результат", WriteTool))
-	}
-
-	// Домен, записанный как URL, не совпадёт ни с чем, и роль молча останется
-	// без сети: узнать об этом можно будет только по провалу прогона.
-	for i, host := range r.Network.Allow {
-		if err := validHost(host); err != nil {
-			errs = append(errs, fmt.Errorf("network.allow[%d]=%q: %w", i, host, err))
-		}
-	}
+	// Запрет Write целиком и битый хост — тот же контракт, что и у остальных
+	// слоёв (RulesErrors): общий код для общей причины отказа.
+	errs = append(errs, RulesErrors(r.Network, r.Tools)...)
 
 	// Всё, на что роль ссылается, должно существовать. Иначе о пропаже узнаём
 	// в середине прогона, уже потратив токены.

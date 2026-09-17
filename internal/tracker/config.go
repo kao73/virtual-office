@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -16,23 +17,26 @@ import (
 	"github.com/kao73/virtual-office/internal/runner"
 )
 
-// Файлы конфигурации. Одни описывают офис и живут в конфиг-репозитории, другие
-// описывают инстанс и живут в хозяйстве раннера. Граница между ними — не вкус
-// раскладки: всё, что правят, заводя новую машину, обязано лежать вне репозитория,
-// иначе правка под себя пачкает рабочее дерево и метка config:…-dirty перестаёт
-// что-либо значить.
+// Файлы конфигурации. Граф переходов описывает офис и живёт в репозитории;
+// проекты описывают инстанс и живут в хозяйстве раннера. Граница — не вкус
+// раскладки: репозиторий — это фреймворк, и всё, что правят, заводя новую
+// машину, обязано лежать вне его, иначе правка под себя пачкает рабочее
+// дерево и метка config:…-dirty перестаёт что-либо значить.
 const (
 	// WorkflowFile — граф переходов. Его читает раннер; агент его не видит.
 	// Описывает офис: одинаков у всех, кто его поднимет.
 	WorkflowFile = "workflow.yaml"
-	// ProjectsFile — проекты-клиенты офиса: имена и неизменные свойства.
-	// Описывает офис.
-	ProjectsFile = "projects.yaml"
-	// ProjectsLocalFile — те же проекты на этой машине: где лежат репозитории,
-	// в каком трекере задачи, куда открывать pull request. Описывает инстанс
-	// и живёт в ${OFFICE_HOME}.
+	// ProjectsLocalFile — единственный файл проектов: где репозиторий, ветка
+	// по умолчанию, трекер, forge, добавки к правилам. Живёт в ${OFFICE_HOME}.
 	ProjectsLocalFile = "projects.local.yaml"
+	// OfficeProjectsFile — имя файла, которого в репозитории больше нет.
+	// Остался от прежней раскладки — раннер о нём скажет, а не промолчит
+	// (RefuseLeftoverOfficeFile).
+	OfficeProjectsFile = "projects.yaml"
 )
+
+// DefaultBranchPrefix — префикс веток задач, если проект не назвал свой.
+const DefaultBranchPrefix = "agent/"
 
 // outcomes — исходы, для которых граф обязан задать переход. Список берётся
 // из контракта «раннер ↔ агент»: собственный разъехался бы с ним.
@@ -473,21 +477,31 @@ func (w Workflow) checkOrder() []error {
 }
 
 // Трекеры, которые офис умеет вести. Список живёт здесь, а не в точке входа:
-// его спрашивает разбор машинной половины проектов, и разъехаться этим двум
-// местам нельзя.
+// его спрашивает LoadProjects, и разъехаться этим двум местам нельзя.
 var trackers = []string{"mock", "jira"}
 
 // Trackers — имена трекеров для подсказок и сообщений об ошибке.
 func Trackers() []string { return slices.Clone(trackers) }
 
-// Rules — сетевой и инструментальный слой, который может назвать любой
-// уровень слоистой модели (repo-wide умолчания, конкретный проект, машина).
-// Роль (уровень 4) сюда не входит: она использует собственные Network/Tools
-// из runner.Role, и сливается с этим слоем отдельным шагом —
-// см. MergeProjectRules (tracker/rules.go), а не здесь.
+// Rules — сетевой и инструментальный слой одной записи ProjectsLocalFile:
+// машинного `defaults` или проекта. Два других слоя сюда не входят: базовый
+// (roles/_base/base.yaml) кладёт в роль LoadRole в форме role.yaml, а роль
+// несёт собственные Network/Tools из runner.Role и сливается с этим слоем
+// отдельным шагом — см. MergeProjectRules (tracker/rules.go), а не здесь.
 type Rules struct {
 	Network []string     `yaml:"network"`
 	Tools   runner.Tools `yaml:"tools"`
+}
+
+// errors — нарушения контракта правил в этом слое, подписанные именем
+// записи (defaults или проект) и файлом: сам контракт общий для всех
+// четырёх слоёв (runner.RulesErrors), контекст — свой у каждого.
+func (r Rules) errors(entry, path string) []error {
+	var errs []error
+	for _, err := range runner.RulesErrors(runner.Network{Allow: r.Network}, r.Tools) {
+		errs = append(errs, fmt.Errorf("%s: %w (%s)", entry, err, path))
+	}
+	return errs
 }
 
 // AutoMerge — доверие конкретного инстанса конкретному проекту: мержить ли
@@ -512,8 +526,8 @@ type Project struct {
 	// WorktreeRoot необязателен: пусто — значит ${OFFICE_HOME}/worktrees/<project>.
 	WorktreeRoot string `yaml:"worktree_root"`
 	// Tracker — трекер проекта. Обязателен: одна и та же задача не живёт разом
-	// в файловом трекере и в JIRA, и раннер, запущенный с одним трекером,
-	// не должен видеть чужих проектов.
+	// в файловом трекере и в JIRA, а офис одного трекера не должен видеть
+	// чужих проектов.
 	Tracker string `yaml:"tracker"`
 	// Forge — куда открывать pull request. Пусто — forge у проекта нет:
 	// PR-проход вырождается, но маршрут остаётся тем же (см. workflow.yaml: pr).
@@ -521,40 +535,37 @@ type Project struct {
 	// AutoMerge — сливает ли офис pull request сам, и в какую ветку. Пусто
 	// (Enabled: false) — сегодняшнее поведение: сливает человек.
 	AutoMerge AutoMerge `yaml:"auto_merge"`
-	// Network — уровни 1–3 слоистой модели (repo-wide + проект + машина),
-	// уже объединённые LoadProjects. Уровень 4 (роль) сюда не входит —
-	// его добавляет MergeProjectRules ближе к месту запуска.
+	// Network — машинный (defaults) и проектный слои, уже объединённые
+	// LoadProjects. Базовый слой (roles/_base/base.yaml) сюда не входит —
+	// он уже в роли из LoadRole, — а роль добавляет MergeProjectRules
+	// ближе к месту запуска.
 	Network []string
 	// Tools — то же самое для tools.allow/tools.deny.
 	Tools runner.Tools
 }
 
-// Половины проекта, разложенные по двум файлам. Раздельные типы нужны разбору:
-// строгое чтение отвергает поле, которого в типе нет, и потому само по себе
-// не пускает машинный ключ в файл офиса, а свойство офиса — в файл машины.
-type (
-	// officeProject — то, что одинаково у всех, кто поднимет этот офис.
-	officeProject struct {
-		DefaultBranch string `yaml:"default_branch"`
-		BranchPrefix  string `yaml:"branch_prefix"`
-		Rules         `yaml:",inline"`
-	}
+// machineProject — запись проекта в ProjectsLocalFile. Всё, что у проекта
+// есть, — здесь: второй половины больше нет. Отдельный от Project тип нужен
+// потому, что Network/Tools в Project — уже слитые слои, не сырые поля
+// файла: разбирать файл прямо в него значило бы путать одно с другим.
+type machineProject struct {
+	RepoURL       string    `yaml:"repo_url"`
+	DefaultBranch string    `yaml:"default_branch"`
+	BranchPrefix  string    `yaml:"branch_prefix"`
+	WorktreeRoot  string    `yaml:"worktree_root"`
+	Tracker       string    `yaml:"tracker"`
+	Forge         string    `yaml:"forge"`
+	AutoMerge     AutoMerge `yaml:"auto_merge"`
+	Rules         `yaml:",inline"`
+}
 
-	// machineProject — то, что правят, заводя новую машину или второй инстанс.
-	machineProject struct {
-		RepoURL      string    `yaml:"repo_url"`
-		WorktreeRoot string    `yaml:"worktree_root"`
-		Tracker      string    `yaml:"tracker"`
-		Forge        string    `yaml:"forge"`
-		AutoMerge    AutoMerge `yaml:"auto_merge"`
-		Rules        `yaml:",inline"`
-	}
-)
-
-// machineKeys — ключи, описывающие машину. Список нужен ради сообщения об ошибке:
-// строгий разбор и без него отвергнет их в файле офиса, но скажет «неизвестное
-// поле», а человеку нужно знать, куда ключ переехал и почему.
-var machineKeys = []string{"repo_url", "worktree_root", "tracker", "forge", "auto_merge"}
+// projectKeys — ключи записи проекта, ровно теги machineProject. Нужны
+// свободному разбору: строгий отверг бы лишний ключ и сам, но назвал бы
+// только поле и строку, а человеку нужен проект, ключ и файл.
+var projectKeys = []string{
+	"repo_url", "default_branch", "branch_prefix", "worktree_root",
+	"tracker", "forge", "auto_merge", "network", "tools",
+}
 
 // Projects — проекты по ключу трекера.
 type Projects map[string]Project
@@ -580,8 +591,8 @@ func (p Projects) Keys() []string { return slices.Sorted(maps.Keys(p)) }
 
 // For — проекты одного трекера.
 //
-// Раннер запускается с одним трекером и работает только со своими проектами.
-// Чужие не просто бесполезны: спрашивать о них трекер — значит получать ошибку
+// Офис ведёт один трекер и работает только со своими проектами. Чужие
+// не просто бесполезны: спрашивать о них трекер — значит получать ошибку
 // «нет такого проекта» на каждом проходе, а сносить их рабочие папки уборкой
 // системного прохода — терять чужую работу.
 func (p Projects) For(tracker string) Projects {
@@ -594,184 +605,146 @@ func (p Projects) For(tracker string) Projects {
 	return mine
 }
 
+// TrackersInUse — трекеры, названные проектами, по алфавиту и без повторов.
+// Порядок устойчив намеренно: по нему раннер обходит офисы, и два запуска
+// обязаны обходить их одинаково.
+func (p Projects) TrackersInUse() []string {
+	var names []string
+	for _, project := range p {
+		names = append(names, project.Tracker)
+	}
+	return runner.Union(names)
+}
+
 // Get отдаёт проект по ключу. Задачу неизвестного проекта раннер брать не вправе:
 // ему негде взять репозиторий и некуда пушить.
-//
-// Причин у «неизвестного» теперь две, и сообщение называет обе: проекта может
-// не быть в конфигурации вовсе, а может он быть чужого трекера — карта к этому
-// моменту уже просеяна `For`. Назвать одну значило бы отправить искать не туда.
 func (p Projects) Get(key string) (Project, error) {
 	project, found := p[key]
 	if !found {
-		return Project{}, fmt.Errorf("проект %q не описан в %s и %s либо заведён под другой трекер: "+
-			"задача не может быть взята в работу", key, ProjectsFile, ProjectsLocalFile)
+		return Project{}, fmt.Errorf("проект %q не описан в %s: задача не может быть взята в работу",
+			key, ProjectsLocalFile)
 	}
 	return project, nil
 }
 
-// reservedRulesKey — имя, под которым в обоих файлах проектов живёт
-// repo-wide (в ProjectsFile) или машинный (в ProjectsLocalFile) слой
-// умолчаний network/tools. Не проект: не подчиняется требованиям
-// к обычным записям и не участвует в проверке парности ключей office/machine.
+// reservedRulesKey — имя, под которым в ProjectsLocalFile живёт машинный
+// слой умолчаний network/tools. Не проект: требования к обычным записям
+// к нему не применяются, а ключи проекта под ним — ошибка.
 const reservedRulesKey = "defaults"
 
-// extractDefaultsOffice вынимает ключ "defaults" из карты офисной половины
-// до того, как остальной код увидит её как список проектов. defaults — не
-// проект: default_branch/branch_prefix ему не положены, а отсутствие ключа
-// вовсе — не ошибка, а «repo-wide слоя добавок нет».
-func extractDefaultsOffice(m map[string]officeProject) (Rules, error) {
-	d, ok := m[reservedRulesKey]
-	if !ok {
-		return Rules{}, nil
+// defaultsKeys — всё, что defaults вправе содержать. Один allow-list вместо
+// перечня запрещённого: новое поле в machineProject не сможет снова
+// проскочить под defaults молча, как проскакивал auto_merge.
+var defaultsKeys = []string{"network", "tools"}
+
+// checkKeys сверяет ключи каждой записи со списком дозволенных — до строгого
+// разбора, потому что строгий назвал бы только поле, а человеку нужно знать
+// проект, ключ и файл; для defaults — ещё и почему ключ не положен.
+func checkKeys(path string, raw map[string]map[string]any) error {
+	var errs []error
+	for _, entry := range slices.Sorted(maps.Keys(raw)) {
+		for _, key := range slices.Sorted(maps.Keys(raw[entry])) {
+			switch {
+			case entry == reservedRulesKey && !slices.Contains(defaultsKeys, key):
+				errs = append(errs, fmt.Errorf("%s: ключ %s не положен — это свойство проекта, "+
+					"а не умолчаний; здесь только %s", reservedRulesKey, key, strings.Join(defaultsKeys, " и ")))
+			case entry != reservedRulesKey && !slices.Contains(projectKeys, key):
+				errs = append(errs, fmt.Errorf("%s: ключ %s не описан контрактом проекта; известны %s",
+					entry, key, strings.Join(projectKeys, ", ")))
+			}
+		}
 	}
-	delete(m, reservedRulesKey)
-	if d.DefaultBranch != "" || d.BranchPrefix != "" {
-		return Rules{}, fmt.Errorf(
-			"%s: %q — зарезервированное имя для repo-wide умолчаний network/tools, "+
-				"default_branch/branch_prefix ему не положены (это не проект)",
-			ProjectsFile, reservedRulesKey)
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
 	}
-	return d.Rules, nil
+	return nil
 }
 
-// extractDefaultsMachine — зеркально extractDefaultsOffice, для машинного
-// слоя в ProjectsLocalFile.
-func extractDefaultsMachine(m map[string]machineProject) (Rules, error) {
-	d, ok := m[reservedRulesKey]
-	if !ok {
-		return Rules{}, nil
-	}
-	delete(m, reservedRulesKey)
-	if d.RepoURL != "" || d.WorktreeRoot != "" || d.Tracker != "" || d.Forge != "" {
-		return Rules{}, fmt.Errorf(
-			"%s: %q — зарезервированное имя для машинного слоя умолчаний network/tools, "+
-				"repo_url/worktree_root/tracker/forge ему не положены (это не проект)",
-			ProjectsLocalFile, reservedRulesKey)
-	}
-	return d.Rules, nil
-}
-
-// unionStrings сливает несколько слоёв в один список без потерь: то, что
-// назвал любой слой, остаётся в итоге. Один и тот же приём — и для
-// network.allow, и для каждого из tools.allow/tools.deny по отдельности,
-// вместо трёх разных механизмов. Обобщает приём, уже применённый
-// в internal/adapters/claude/adapter.go (networkAllow), на большее число слоёв.
-func unionStrings(layers ...[]string) []string {
-	var all []string
-	for _, l := range layers {
-		all = append(all, l...)
-	}
-	slices.Sort(all)
-	return slices.Compact(all)
-}
-
-// LoadProjects собирает проекты из двух половин: офисной и машинной.
+// LoadProjects читает проекты из единственного файла — машинного.
 //
-// officePath лежит в конфиг-репозитории и называет проекты офиса, machinePath —
-// в ${OFFICE_HOME} и говорит, где всё это на этой машине. Склейка поверхностная
-// и по ключу проекта: половины не пересекаются, поэтому спорить им не о чем.
-//
-// Оба файла обязательны, и оба сверяются друг с другом по списку ключей.
-// Проект, названный офисом и не заведённый на машине, — отказ, а не пропуск:
-// пропущенный молча, он выглядел бы как проект, по которому просто нет задач,
-// и искать причину пришлось бы неделю. Проект, заведённый на машине и не названный
-// офисом, — тоже отказ: офис описан в репозитории, а так ловится опечатка в имени.
-func LoadProjects(officePath, machinePath string) (Projects, error) {
-	if err := checkOfficeHalf(officePath); err != nil {
-		return nil, err
-	}
-
-	var office map[string]officeProject
-	if err := decodeStrict(officePath, &office); err != nil {
-		return nil, err
-	}
-
-	officeDefaults, err := extractDefaultsOffice(office)
-	if err != nil {
-		return nil, err
-	}
-
-	// Офис без единого проекта — тоже отказ, и это не педантизм: прочие беды
-	// склейки говорят вслух, а «ни одного проекта» промолчало бы, и раннер крутил бы
-	// пустые тики, ничего не объясняя.
-	//
-	// Проверка стоит раньше машинной половины намеренно: иначе отказ советовал бы
-	// «дать каждому проекту из projects.yaml ключи», когда проектов там ни одного.
-	if len(office) == 0 {
-		return nil, fmt.Errorf("%s не называет ни одного проекта: офису нечего вести", officePath)
-	}
-
+// Репозиторий — это фреймворк: проектов в нём нет, и всё, что у проекта есть,
+// лежит в одной записи ProjectsLocalFile. Слои правил объединяются: базовый
+// (roles/_base/base.yaml) кладёт в роль LoadRole, машинный (defaults здесь)
+// и проектный (сама запись) — этот загрузчик; назвать можно, убрать — нет.
+func LoadProjects(machinePath string) (Projects, error) {
 	if _, err := os.Stat(machinePath); errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("%s не заведён: офис описан репозиторием, а где его проекты "+
-			"на этой машине — узнать неоткуда. Заведите файл, дав каждому проекту из %s "+
-			"ключи repo_url и tracker; worktree_root и forge необязательны",
-			machinePath, officePath)
+		return nil, fmt.Errorf("%s не заведён: проекты — свойство инстанса, а не офиса, "+
+			"и где они на этой машине — узнать неоткуда. Заведите файл, дав каждому проекту "+
+			"ключи repo_url, tracker и default_branch; branch_prefix, worktree_root, forge, "+
+			"auto_merge, network и tools необязательны", machinePath)
 	}
+
+	// Сперва свободный разбор — ради имён: строгий принял бы под defaults
+	// любое поле machineProject, и лишнее там молча пропало бы (так пропадал
+	// auto_merge), а лишний ключ записи назвал бы без имени проекта.
+	var raw map[string]map[string]any
+	if err := decodeLoose(machinePath, &raw); err != nil {
+		return nil, err
+	}
+	if err := checkKeys(machinePath, raw); err != nil {
+		return nil, err
+	}
+
 	var machine map[string]machineProject
 	if err := decodeStrict(machinePath, &machine); err != nil {
 		return nil, err
 	}
+	defaults := machine[reservedRulesKey].Rules
+	delete(machine, reservedRulesKey)
 
-	machineDefaults, err := extractDefaultsMachine(machine)
-	if err != nil {
-		return nil, err
-	}
+	// Машинный и проектный слои держат тот же контракт правил, что роль
+	// и база: запрет Write целиком или хост-URL здесь молча ушли бы в каждую
+	// роль через объединение, и убрать их было бы некому.
+	errs := defaults.errors(reservedRulesKey, machinePath)
 
-	var errs []error
-	for key := range machine {
-		if _, named := office[key]; !named {
-			errs = append(errs, fmt.Errorf("%s: проект не назван в %s — офис описан репозиторием, "+
-				"а на машине его только заводят; если это опечатка в имени, она здесь и видна",
-				key, officePath))
-		}
+	// Ни одного проекта — отказ, и это не педантизм: прочие беды говорят вслух,
+	// а «ни одного проекта» промолчало бы, и раннер крутил бы пустые тики.
+	// Беды defaults идут в тот же отказ: починив одну, узнать о второй
+	// следующим запуском — лишний круг.
+	if len(machine) == 0 {
+		errs = append(errs, fmt.Errorf("%s не называет ни одного проекта: офису нечего вести", machinePath))
 	}
 
 	projects := Projects{}
-	for key, half := range office {
-		local, found := machine[key]
-		if !found {
-			errs = append(errs, fmt.Errorf("%s: проект назван в %s, но не заведён в %s — "+
-				"неоткуда взять ни репозиторий, ни трекер",
-				key, officePath, machinePath))
-			continue
+	for _, key := range slices.Sorted(maps.Keys(machine)) {
+		local := machine[key]
+		errs = append(errs, local.Rules.errors(key, machinePath)...)
+		if local.RepoURL == "" {
+			errs = append(errs, fmt.Errorf("%s: repo_url не задан (%s)", key, machinePath))
+		}
+		if local.DefaultBranch == "" {
+			errs = append(errs, fmt.Errorf("%s: default_branch не задан (%s)", key, machinePath))
+		}
+		// Пустой префикс здесь, а не в Branch(): проект никогда не увидит
+		// ветку без префикса, и умолчание записано в одном месте.
+		if local.BranchPrefix == "" {
+			local.BranchPrefix = DefaultBranchPrefix
+		}
+		if root := local.WorktreeRoot; root != "" && !filepath.IsAbs(root) {
+			errs = append(errs, fmt.Errorf("%s: worktree_root=%q должен быть абсолютным (%s)", key, root, machinePath))
+		}
+		if !slices.Contains(trackers, local.Tracker) {
+			errs = append(errs, fmt.Errorf("%s: tracker=%q, ожидается один из %v (%s)",
+				key, local.Tracker, trackers, machinePath))
+		}
+		if local.AutoMerge.Enabled && local.Forge == "" {
+			errs = append(errs, fmt.Errorf(
+				"%s: auto_merge.enabled=true, но forge не задан — мержить через API "+
+					"некуда (%s)", key, machinePath))
 		}
 		projects[key] = Project{
 			RepoURL:       local.RepoURL,
-			DefaultBranch: half.DefaultBranch,
-			BranchPrefix:  half.BranchPrefix,
+			DefaultBranch: local.DefaultBranch,
+			BranchPrefix:  local.BranchPrefix,
 			WorktreeRoot:  local.WorktreeRoot,
 			Tracker:       local.Tracker,
 			Forge:         local.Forge,
 			AutoMerge:     local.AutoMerge,
-			Network:       unionStrings(officeDefaults.Network, half.Network, machineDefaults.Network, local.Network),
+			Network:       runner.Union(defaults.Network, local.Network),
 			Tools: runner.Tools{
-				Allow: unionStrings(officeDefaults.Tools.Allow, half.Tools.Allow, machineDefaults.Tools.Allow, local.Tools.Allow),
-				Deny:  unionStrings(officeDefaults.Tools.Deny, half.Tools.Deny, machineDefaults.Tools.Deny, local.Tools.Deny),
+				Allow: runner.Union(defaults.Tools.Allow, local.Tools.Allow),
+				Deny:  runner.Union(defaults.Tools.Deny, local.Tools.Deny),
 			},
-		}
-	}
-
-	for key, project := range projects {
-		if project.RepoURL == "" {
-			errs = append(errs, fmt.Errorf("%s: repo_url не задан (%s)", key, machinePath))
-		}
-		if project.DefaultBranch == "" {
-			errs = append(errs, fmt.Errorf("%s: default_branch не задан (%s)", key, officePath))
-		}
-		if project.BranchPrefix == "" {
-			errs = append(errs, fmt.Errorf("%s: branch_prefix не задан (%s)", key, officePath))
-		}
-		if root := project.WorktreeRoot; root != "" && !filepath.IsAbs(root) {
-			errs = append(errs, fmt.Errorf("%s: worktree_root=%q должен быть абсолютным (%s)", key, root, machinePath))
-		}
-		if !slices.Contains(trackers, project.Tracker) {
-			errs = append(errs, fmt.Errorf("%s: tracker=%q, ожидается один из %v (%s)",
-				key, project.Tracker, trackers, machinePath))
-		}
-		if project.AutoMerge.Enabled && project.Forge == "" {
-			errs = append(errs, fmt.Errorf(
-				"%s: auto_merge.enabled=true, но forge не задан — мержить через API "+
-					"некуда (%s)", key, machinePath))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -780,30 +753,23 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 	return projects, nil
 }
 
-// checkOfficeHalf ловит машинный ключ, забредший в файл офиса, и объясняет,
-// куда он переехал.
-//
-// Строгий разбор отверг бы его и сам — поля в officeProject нет, — но сказал бы
-// «неизвестное поле repo_url», и человек пошёл бы искать опечатку. Здесь ошибка
-// называет причину: ключ описывает машину, а не офис.
-func checkOfficeHalf(path string) error {
-	var raw map[string]map[string]any
-	if err := decodeLoose(path, &raw); err != nil {
-		return err
+// RefuseLeftoverOfficeFile — отказ, если под корнем конфигурации лежит
+// projects.yaml. Проекты живут в projects.local.yaml, общие правила —
+// в roles/_base/base.yaml; файл, который раньше носил и то и другое,
+// не читается, и молча пройти мимо него значило бы запустить офис на
+// половине конфигурации: с проектами, но без правил, что в нём лежали.
+func RefuseLeftoverOfficeFile(configRoot string) error {
+	path := filepath.Join(configRoot, OfficeProjectsFile)
+	_, err := os.Stat(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("%s не проверен: %w", path, err)
 	}
-	var errs []error
-	for _, key := range slices.Sorted(maps.Keys(raw)) {
-		for _, field := range machineKeys {
-			if _, found := raw[key][field]; found {
-				errs = append(errs, fmt.Errorf("%s: ключ %s описывает машину, а не офис — "+
-					"его место в %s", key, field, ProjectsLocalFile))
-			}
-		}
-	}
-	if err := errors.Join(errs...); err != nil {
-		return fmt.Errorf("%s нарушает границу конфигурации: %w", path, err)
-	}
-	return nil
+	return fmt.Errorf("%s: этот файл больше не читается. Проекты живут в ${OFFICE_HOME}/%s, "+
+		"общие правила ролей — в %s; уберите файл", path, ProjectsLocalFile,
+		filepath.Join(runner.RolesDir, runner.BaseDir, runner.BaseRulesFile))
 }
 
 // decodeLoose читает YAML как есть, ничего не проверяя. Нужен там, где отказ

@@ -27,7 +27,7 @@ const usage = `runner — обвязка вокруг агента
   runner worktree <ls|rm> …     рабочие папки задач: что лежит и как убрать
   runner mock <add|ls|show|comment> …   файловый трекер для ручных сценариев
 
-Общие флаги: --tracker (mock или jira), --backend (sbx или local).
+Общий флаг: --backend (sbx или local). Трекеры берутся из проектов: по офису на каждый.
 Хозяйство раннера — ${OFFICE_HOME:-~/.office}.`
 
 // Коды возврата те же, что у run-agent: 0 — цикл прошёл, в том числе когда
@@ -73,7 +73,8 @@ func execute(args []string) error {
 }
 
 // signalContext отменяется по SIGINT или SIGTERM — так cron, launchd и systemd
-// останавливают цикл, не убивая идущий прогон посреди работы.
+// останавливают цикл. Тот же контекст доходит до процесса агента: идущий
+// прогон прерывается, задачу вернёт reap (см. loopCommand).
 func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 }

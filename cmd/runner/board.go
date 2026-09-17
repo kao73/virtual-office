@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -10,7 +11,8 @@ import (
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
-// boardCommand печатает плоский список: задачи всех проектов во всех статусах графа.
+// boardCommand печатает плоский список: задачи всех проектов во всех статусах
+// графа, по трекеру за раз.
 //
 // Это не очередь: задачи с живой арендой из неё не выбрасываются, потому что
 // «кто работает прямо сейчас» — первое, что человек ищет глазами. Переписку
@@ -19,20 +21,27 @@ func boardCommand(args []string, out io.Writer) error {
 	fs := flags("ls")
 	project := fs.String("project", "", "показывать только этот проект")
 
-	o, err := office(fs, args, out)
+	all, err := newOffices(fs, args, out)
 	if err != nil {
 		return err
 	}
+	return printBoards(all, *project, time.Now())
+}
 
-	projects := o.Projects.Keys()
-	if *project != "" {
-		if _, known := o.Projects[*project]; !known {
-			return fmt.Errorf("проект %q не описан в %s и %s либо заведён под другой трекер",
-				*project, tracker.ProjectsFile, tracker.ProjectsLocalFile)
+// printBoards — доска каждого офиса под его именем (заголовок ставит each,
+// и только когда офисов больше одного); с проектом — только его офис.
+// Раскладку конфигурации печатает конструктор, один раз на все офисы.
+func printBoards(all *offices, project string, now time.Time) error {
+	if project != "" {
+		no, err := all.byProject(project)
+		if err != nil {
+			return err
 		}
-		projects = []string{*project}
+		return printBoard(no.Tracker, []string{project}, no.Workflow.Statuses, no.Workflow.IsTerminal, now, all.out)
 	}
-	return printBoard(o.Tracker, projects, o.Workflow.Statuses, o.Workflow.IsTerminal, time.Now(), out)
+	return all.each(context.Background(), func(no namedOffice) error {
+		return printBoard(no.Tracker, no.Projects.Keys(), no.Workflow.Statuses, no.Workflow.IsTerminal, now, all.out)
+	})
 }
 
 // printBoard печатает доску проектов: по запросу на проект, без переписки.

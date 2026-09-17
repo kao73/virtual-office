@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kao73/virtual-office/internal/pipeline"
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/mock"
 )
@@ -94,7 +95,7 @@ func TestAgeIsHumanReadable(t *testing.T) {
 }
 
 // unknownProject — трекер, не знающий одного из проектов конфигурации. Так
-// выглядит протухшая строка в projects.yaml: проект описан, а в трекере его
+// выглядит протухшая строка в projects.local.yaml: проект описан, а в трекере его
 // нет и никогда не было.
 type unknownProject struct {
 	tracker.Tracker
@@ -129,7 +130,7 @@ func TestBoardSkipsProjectUnknownToTracker(t *testing.T) {
 	if !strings.Contains(got, "OFF-1") {
 		t.Errorf("из-за чужого проекта потеряна вся доска:\n%s", got)
 	}
-	// Молчать о пропуске нельзя: строка в projects.yaml выглядит рабочей,
+	// Молчать о пропуске нельзя: строка в projects.local.yaml выглядит рабочей,
 	// а задач по ней не видно — человеку нужно знать почему.
 	if !strings.Contains(got, "AAA") {
 		t.Errorf("о пропущенном проекте не сказано ни слова:\n%s", got)
@@ -198,5 +199,69 @@ func TestDependsColumnNamesMissingDependencyByGraphAbsence(t *testing.T) {
 	}
 	if strings.Contains(got, "неизвестная") {
 		t.Errorf("dependsColumn всё ещё утверждает несуществование, которое не может проверить: %q", got)
+	}
+}
+
+// boardOffices — два офиса с задачей в каждом, поверх файловых трекеров.
+func boardOffices(t *testing.T, out *bytes.Buffer) *offices {
+	t.Helper()
+	office := func(name, project, key string) namedOffice {
+		tr := mock.New(t.TempDir())
+		tr.Now = func() time.Time { return boardNow }
+		if err := tr.Add(tracker.Task{Key: key, Project: project, Status: "Ready", Summary: "задача " + key}); err != nil {
+			t.Fatalf("задача не создана: %v", err)
+		}
+		return namedOffice{name: name, Office: &pipeline.Office{
+			Tracker:  tr,
+			Workflow: tracker.Workflow{Statuses: []string{"Ready", "Done"}, Terminal: []string{"Done"}},
+			Projects: tracker.Projects{project: {Tracker: name}},
+		}}
+	}
+	return &offices{list: []namedOffice{office("jira", "VO", "VO-1"), office("mock", "OFF", "OFF-1")}, out: out}
+}
+
+// Два трекера — доска каждого под его именем; конфигурацию печатает
+// конструктор, здесь её нет. Один трекер — прежний вывод, без заголовка.
+func TestBoardsListTasksPerTracker(t *testing.T) {
+	var out bytes.Buffer
+	all := boardOffices(t, &out)
+
+	if err := printBoards(all, "", boardNow); err != nil {
+		t.Fatalf("доски не напечатаны: %v", err)
+	}
+	got := out.String()
+	jira, vo := strings.Index(got, "== трекер jira =="), strings.Index(got, "VO-1")
+	local, off := strings.Index(got, "== трекер mock =="), strings.Index(got, "OFF-1")
+	if !(jira >= 0 && jira < vo && vo < local && local < off) {
+		t.Errorf("задачи не под заголовками своих трекеров:\n%s", got)
+	}
+
+	out.Reset()
+	all.list = all.list[1:]
+	if err := printBoards(all, "", boardNow); err != nil {
+		t.Fatalf("доска не напечатана: %v", err)
+	}
+	if strings.Contains(out.String(), "== трекер") || !strings.Contains(out.String(), "OFF-1") {
+		t.Errorf("при одном трекере вывод изменился:\n%s", out.String())
+	}
+}
+
+// --project — доска только его офиса; чужой проект — отказ с именем файла.
+//
+// Спрашивается OFF — проект второго офиса, не первого: ls, который берёт
+// первый попавшийся офис вместо офиса проекта, напечатал бы VO-1 и провалил
+// тест. Спроси VO — и такой ls прошёл бы его, не найдя ничего.
+func TestBoardsProjectFlagPicksTheOwningOffice(t *testing.T) {
+	var out bytes.Buffer
+	all := boardOffices(t, &out)
+
+	if err := printBoards(all, "OFF", boardNow); err != nil {
+		t.Fatalf("доска проекта не напечатана: %v", err)
+	}
+	if !strings.Contains(out.String(), "OFF-1") || strings.Contains(out.String(), "VO-1") || strings.Contains(out.String(), "== трекер") {
+		t.Errorf("--project OFF показал не только OFF:\n%s", out.String())
+	}
+	if err := printBoards(all, "NOPE", boardNow); err == nil || !strings.Contains(err.Error(), tracker.ProjectsLocalFile) {
+		t.Errorf("неизвестный проект не отвергнут с именем файла: %v", err)
 	}
 }
