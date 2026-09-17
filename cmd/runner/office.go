@@ -123,9 +123,8 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 		trackers[name] = o
 	}
 
-	// Общее хозяйство машины: одно на все офисы. Реестр ведётся всегда,
-	// бюджеты — необязательны: файлов у них два — дефолты офиса и накладка
-	// машины, — и нет ни одного значит нет лимитов; учёт от этого не зависит.
+	// Дальше — общее хозяйство машины, одно на все офисы: forge по всем
+	// проектам, рабочие папки, реестр, бюджеты, уборщик песочниц.
 	forges, err := forgesOf(projects)
 	if err != nil {
 		return nil, err
@@ -138,6 +137,9 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 	if err != nil {
 		return nil, err
 	}
+	// Реестр ведётся всегда, бюджеты — необязательны: файлов у них два —
+	// дефолты офиса и накладка машины, — и нет ни одного значит нет лимитов;
+	// учёт от этого не зависит.
 	budgets, err := budget.Load(
 		sources.office(configRoot, budget.File),
 		sources.machine(home, budget.File),
@@ -270,8 +272,10 @@ func loopCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// Остановка между прогонами, а не посреди: прерванный прогон оставил бы
-	// задачу арендованной до истечения аренды.
+	// Сигнал не даёт начать следующий офис и следующий заход; идущий прогон
+	// он прерывает — тот же контекст доходит до процесса агента, — и задачу
+	// с его арендой вернёт в очередь reap. Дожидаться конца прогона раннер
+	// пока не умеет.
 	ctx, stop := signalContext()
 	defer stop()
 

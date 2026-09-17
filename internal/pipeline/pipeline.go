@@ -197,9 +197,10 @@ func (o *Office) tickRole(ctx context.Context, roleName string) (bool, error) {
 	if err != nil || task.ref.Key == "" {
 		return false, err
 	}
-	// Слои repo-wide/проектных/машинных правил сливаются в роль здесь, а не
-	// сразу после LoadRole: до claim() проект задачи не известен — LoadRole
-	// не знает, чей это прогон.
+	// Машинный и проектный слои правил сливаются в роль здесь, а не сразу
+	// после LoadRole: до claim() проект задачи не известен — LoadRole не знает,
+	// чей это прогон. Базовый слой (roles/_base/base.yaml) роль уже несёт:
+	// он общий для всех проектов, и LoadRole кладёт его сам.
 	role = tracker.MergeProjectRules(task.project, role)
 
 	// Захват только что положил задачу в рабочий статус — есть на чём спросить

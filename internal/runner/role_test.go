@@ -399,7 +399,7 @@ func TestShippedImplementerAndReviewerDeclarePhaseGuardHook(t *testing.T) {
 }
 
 // shippedRoles — имена ролей репозитория. Каталоги с подчёркиванием ролью
-// не являются: в _base лежат общие куски промпта.
+// не являются: в _base лежат общий промпт (base.md) и общие правила (base.yaml).
 func shippedRoles(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join("..", "..", RolesDir))

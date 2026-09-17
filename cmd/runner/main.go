@@ -73,7 +73,8 @@ func execute(args []string) error {
 }
 
 // signalContext отменяется по SIGINT или SIGTERM — так cron, launchd и systemd
-// останавливают цикл, не убивая идущий прогон посреди работы.
+// останавливают цикл. Тот же контекст доходит до процесса агента: идущий
+// прогон прерывается, задачу вернёт reap (см. loopCommand).
 func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 }

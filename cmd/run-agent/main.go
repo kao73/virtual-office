@@ -67,8 +67,8 @@ func execute() (int, error) {
 	backend := flag.String("backend", runagent.DefaultBackend, "бэкенд запуска: sbx (песочница) или local (без изоляции)")
 	taskFlag := flag.String("task", "", "файл с постановкой; без него берётся уже лежащий .agent/task.md")
 	projectFlag := flag.String("project", "", "проект из ${OFFICE_HOME}/projects.local.yaml: подмешивает "+
-		"машинные и проектные слои network/tools поверх роли (базовый слой роль получает и без флага), как это делает конвейер; "+
-		"без флага роль остаётся в изоляции — только то, что названо в её собственном role.yaml")
+		"машинный и проектный слои network/tools поверх роли, как это делает конвейер; "+
+		"без флага — только role.yaml и базовый слой roles/_base/base.yaml, без машинных и проектных добавок")
 	baseFlag := flag.String("base", "", "базовая ветка: от неё считается разница по задаче (нужна reviewer'у)")
 	dryRun := flag.Bool("dry-run", false, "показать, что получит агент, и ничего не запускать")
 	evalFlag := flag.Bool("eval", false, "пометить прогон как eval-harness: не считается в per_role_daily")

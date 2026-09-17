@@ -578,7 +578,7 @@ func HasEvent(comments []Comment, event string) bool {
 // По ВСЕЙ переписке, не по последней записи (LastEventText — прежняя,
 // более узкая версия этой функции — сравнивала только с ней): если ранний
 // шаг падает изредка, а поздний — стабильно, их причины чередуются между
-// циклами Loop, и сравнение с последней всегда видело бы «новую» причину,
+// заходами цикла раннера, и сравнение с последней всегда видело бы «новую» причину,
 // хотя обе уже звучали (внешнее ревью, pr-converge раунд 3).
 func EventCategories(comments []Comment, event string) map[string]bool {
 	categories := make(map[string]bool)
@@ -617,7 +617,7 @@ func EventCategories(comments []Comment, event string) map[string]bool {
 // role.md split-маркеры вложения не несли вовсе, и тикет, доживший под ней
 // до второго такого маркера, отдал бы confirmed=true с пустым attachmentID —
 // CompleteSplits затем звал бы GetAttachment(key, "") и падал бы на этом
-// тикете каждый цикл Loop, бесконечно. Поэтому пустой attachmentID
+// тикете каждый заход цикла раннера, бесконечно. Поэтому пустой attachmentID
 // у последнего маркера — тоже «ещё не подтверждено», а не «подтверждено,
 // но нечего читать».
 func SplitConfirmed(comments []Comment, role string) (confirmed bool, attachmentID string) {

@@ -86,8 +86,9 @@ type Config struct {
 	// LoadConfig: нужен он одному-единственному узкому методу, а не каждому
 	// обращению к трекеру, и отказ здесь ронял бы Comment, Transition и Get
 	// из-за поля, которое им не нужно. Пусто — LinkDependsOn откажет сам,
-	// в момент вызова. Заводится или подбирается на полигоне — см. живую
-	// проверку, Task 8 плана
+	// в момент вызова. На инстансе тип заводит scripts/jira-setup.sh под
+	// именем из tracker.example.yaml (Depends); как он подбирался на полигоне
+	// до этого — живая проверка, Task 8 плана
 	// docs/superpowers/plans/2026-09-05-split-autocreate-tickets.md.
 	DependsOnLink string `yaml:"depends_on_link"`
 }

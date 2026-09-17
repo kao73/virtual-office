@@ -198,8 +198,8 @@ func (c cancelOnExpired) ListExpired(project string, now time.Time) ([]tracker.T
 	return c.Tracker.ListExpired(project, now)
 }
 
-// Сигнал во время прогона первого офиса: его заход дорабатывает, второй
-// офис не начинается — стоп между прогонами, а не посреди.
+// Сигнал в первом офисе: его шаг дорабатывает (reap не смотрит на ctx),
+// второй офис не начинается — стоп между офисами.
 func TestCycleStopsBeforeNextOfficeOnCancel(t *testing.T) {
 	var out bytes.Buffer
 	all, a, b := twoOffices(t, &out)

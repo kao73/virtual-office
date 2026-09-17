@@ -477,18 +477,17 @@ func (w Workflow) checkOrder() []error {
 }
 
 // Трекеры, которые офис умеет вести. Список живёт здесь, а не в точке входа:
-// его спрашивает разбор машинной половины проектов, и разъехаться этим двум
-// местам нельзя.
+// его спрашивает LoadProjects, и разъехаться этим двум местам нельзя.
 var trackers = []string{"mock", "jira"}
 
 // Trackers — имена трекеров для подсказок и сообщений об ошибке.
 func Trackers() []string { return slices.Clone(trackers) }
 
-// Rules — сетевой и инструментальный слой, который может назвать любой
-// уровень слоистой модели (repo-wide умолчания, конкретный проект, машина).
-// Роль (уровень 4) сюда не входит: она использует собственные Network/Tools
-// из runner.Role, и сливается с этим слоем отдельным шагом —
-// см. MergeProjectRules (tracker/rules.go), а не здесь.
+// Rules — сетевой и инструментальный слой одной записи ProjectsLocalFile:
+// машинного `defaults` или проекта. Два других слоя сюда не входят: базовый
+// (roles/_base/base.yaml) кладёт в роль LoadRole в форме role.yaml, а роль
+// несёт собственные Network/Tools из runner.Role и сливается с этим слоем
+// отдельным шагом — см. MergeProjectRules (tracker/rules.go), а не здесь.
 type Rules struct {
 	Network []string     `yaml:"network"`
 	Tools   runner.Tools `yaml:"tools"`
@@ -525,9 +524,10 @@ type Project struct {
 	// AutoMerge — сливает ли офис pull request сам, и в какую ветку. Пусто
 	// (Enabled: false) — сегодняшнее поведение: сливает человек.
 	AutoMerge AutoMerge `yaml:"auto_merge"`
-	// Network — уровни 1–3 слоистой модели (repo-wide + проект + машина),
-	// уже объединённые LoadProjects. Уровень 4 (роль) сюда не входит —
-	// его добавляет MergeProjectRules ближе к месту запуска.
+	// Network — машинный (defaults) и проектный слои, уже объединённые
+	// LoadProjects. Базовый слой (roles/_base/base.yaml) сюда не входит —
+	// он уже в роли из LoadRole, — а роль добавляет MergeProjectRules
+	// ближе к месту запуска.
 	Network []string
 	// Tools — то же самое для tools.allow/tools.deny.
 	Tools runner.Tools
@@ -535,8 +535,8 @@ type Project struct {
 
 // machineProject — запись проекта в ProjectsLocalFile. Всё, что у проекта
 // есть, — здесь: второй половины больше нет. Отдельный от Project тип нужен
-// разбору: строгое чтение отвергает поле, которого в типе нет, а Network/Tools
-// в Project — уже слитые слои, не сырые поля файла.
+// потому, что Network/Tools в Project — уже слитые слои, не сырые поля
+// файла: разбирать файл прямо в него значило бы путать одно с другим.
 type machineProject struct {
 	RepoURL       string    `yaml:"repo_url"`
 	DefaultBranch string    `yaml:"default_branch"`
@@ -664,8 +664,8 @@ func LoadProjects(machinePath string) (Projects, error) {
 	}
 
 	// Сперва свободный разбор — ради имён: строгий принял бы под defaults
-	// любое поле machineProject, и правило молча стало бы «проектом», а лишний
-	// ключ записи назвал бы без имени проекта.
+	// любое поле machineProject, и лишнее там молча пропало бы (так пропадал
+	// auto_merge), а лишний ключ записи назвал бы без имени проекта.
 	var raw map[string]map[string]any
 	if err := decodeLoose(machinePath, &raw); err != nil {
 		return nil, err

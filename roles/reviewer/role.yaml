@@ -29,10 +29,12 @@ tools:
     - Write
     - "Bash(*)"
 
-  # Общие для всех ролей (push/branch/checkout/rebase/reset и т.д.) —
+  # Общие для всех ролей (push/remote/checkout/switch/branch/worktree/config,
+  # переписывание истории filter-branch/filter-repo, rm -r/-f) —
   # в roles/_base/base.yaml. Роль-специфичного deny у reviewer'а
   # больше нет: add/commit/restore, что раньше стояли здесь, разрешены —
-  # см. комментарий у tools.allow выше.
+  # см. комментарий у tools.allow выше. rebase/reset, в отличие от implementer'а
+  # и analyst'а, не запрещены: решение владельца 2026-09-17 — оставить как есть.
 
 hooks:
   stop:
