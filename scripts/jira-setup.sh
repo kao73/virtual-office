@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Настройка полигона JIRA под офис: статусы, кастомные поля аренды, экраны, учётки.
+# Настройка полигона JIRA под офис: статусы, кастомные поля аренды, экраны, тип связи, учётки.
 #
 # Повторяемость важнее краткости: H2 полигона сбрасывается удалением каталога,
 # и после сброса всё это надо завести заново. Поэтому скрипт, а не память о кликах.
@@ -27,6 +27,10 @@ human_user=${OFFICE_HUMAN_USER:-owner}
 human_password=${OFFICE_HUMAN_PASSWORD:-owner}
 reviewer_user=${OFFICE_REVIEWER_USER:-office-reviewer}
 reviewer_password=${OFFICE_REVIEWER_PASSWORD:-office-reviewer}
+
+# Имя типа связи «зависит от» — константа скрипта: оно же стоит
+# в tracker.example.yaml (depends_on_link), переименовать — значит править обоих.
+link_type=Depends
 
 while [ $# -gt 0 ]; do
 	case $1 in
@@ -113,6 +117,25 @@ for screen in $(api "$url/rest/api/2/screens" | python3 -c "import json,sys; pri
 	echo "  экран $screen: поля добавлены"
 done
 
+# --- тип связи «зависит от» ---------------------------------------------------
+# Его читает LinkDependsOn (depends_on_link в tracker.yaml). Направление,
+# в котором этот сервер рисует outward/inward, компенсирует код раннера
+# (internal/tracker/jira, LinkDependsOn), а не имена здесь.
+add_link_type() {
+	local name=$1 outward=$2 inward=$3
+	if api "$url/rest/api/2/issueLinkType" |
+		python3 -c "import json,sys; sys.exit(0 if any(t['name']==sys.argv[1] for t in json.load(sys.stdin)['issueLinkTypes']) else 1)" "$name"; then
+		echo "  тип связи $name уже есть"
+		return
+	fi
+	api -X POST -d "{\"name\":\"$name\",\"outward\":\"$outward\",\"inward\":\"$inward\"}" \
+		"$url/rest/api/2/issueLinkType" >/dev/null
+	echo "  тип связи $name заведён"
+}
+
+echo "тип связи:"
+add_link_type "$link_type" 'depends on' 'is depended on by'
+
 # --- учётки -----------------------------------------------------------------
 # Учётка человека — отдельная от раннера: ответом человека считается комментарий
 # не от учётки офиса, и с одним аккаунтом различать было бы нечем.
@@ -151,3 +174,4 @@ echo "  agent_owner: $owner_id"
 echo "  run_id:      $run_id"
 echo "  lease_until: $lease_id"
 echo "  attempts:    $attempts_id"
+echo "  depends_on_link: $link_type"
