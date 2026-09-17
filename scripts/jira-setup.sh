@@ -128,8 +128,17 @@ add_link_type() {
 		echo "  тип связи $name уже есть"
 		return
 	fi
-	api -X POST -d "{\"name\":\"$name\",\"outward\":\"$outward\",\"inward\":\"$inward\"}" \
-		"$url/rest/api/2/issueLinkType" >/dev/null
+	local response
+	response=$(api -X POST -d "{\"name\":\"$name\",\"outward\":\"$outward\",\"inward\":\"$inward\"}" \
+		"$url/rest/api/2/issueLinkType")
+	# curl без -f не отличает отказ (400/401/403) от успеха — код выхода 0 в
+	# обоих случаях, поэтому код возврата ничего не доказывает. Настройка не
+	# должна отчитываться о создании, которого не было: ответ сверяется с
+	# именем, и только тогда — «заведён».
+	if ! python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('name')==sys.argv[1] else 1)" "$name" <<<"$response"; then
+		echo "  тип связи $name: сервер не подтвердил создание: $response" >&2
+		exit 1
+	fi
 	echo "  тип связи $name заведён"
 }
 
