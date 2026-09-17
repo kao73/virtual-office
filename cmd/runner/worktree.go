@@ -105,6 +105,10 @@ func worktreeRemove(args []string, out io.Writer) error {
 //
 // Папка знает свой проект, проект — трекер, трекер — офис: про аренду
 // спрашивается тот трекер, в котором задача живёт, а не первый попавшийся.
+// Под --force трекер не спрашивается вовсе: флаг перекрывает и грязь,
+// и аренду, а папка проекта, пропавшего из projects.local.yaml, иначе
+// не убиралась бы никак — офиса у неё больше нет, и --force был бы
+// обесценен ровно там, где его зовут.
 func removeWorktree(all *offices, key string, force bool, now time.Time, out io.Writer) error {
 	entries, err := all.workspaces.List()
 	if err != nil {
@@ -116,16 +120,18 @@ func removeWorktree(all *offices, key string, force bool, now time.Time, out io.
 			continue
 		}
 
-		no, err := all.byProject(entry.Project)
-		if err != nil {
-			return err
-		}
-		task, err := no.Tracker.Get(key)
-		if err != nil && !errors.Is(err, tracker.ErrNotFound) {
-			return err
-		}
-		if err := removable(entry, task, now, force); err != nil {
-			return err
+		if !force {
+			no, err := all.byProject(entry.Project)
+			if err != nil {
+				return err
+			}
+			task, err := no.Tracker.Get(key)
+			if err != nil && !errors.Is(err, tracker.ErrNotFound) {
+				return err
+			}
+			if err := removable(entry, task, now); err != nil {
+				return err
+			}
 		}
 		if err := all.workspaces.Remove(entry.Workspace); err != nil {
 			return err
@@ -144,10 +150,7 @@ func removeWorktree(all *offices, key string, force bool, now time.Time, out io.
 //   - незакоммиченное: другого места у него нет;
 //   - живая аренда: в этой папке прямо сейчас работает агент, она смонтирована
 //     в его песочницу.
-func removable(entry workspace.Entry, task tracker.Task, now time.Time, force bool) error {
-	if force {
-		return nil
-	}
+func removable(entry workspace.Entry, task tracker.Task, now time.Time) error {
 	if entry.Dirty > 0 {
 		return fmt.Errorf("в %s незакоммичено: %d путей. Другого места у этой работы нет — "+
 			"закоммить её или сноси с --force", entry.Key, entry.Dirty)
