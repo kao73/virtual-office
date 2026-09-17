@@ -53,7 +53,7 @@ Corresponds to `tasks.md` §1 (1.1–1.3). Also rewrites one `cmd/run-agent` tes
 
 Two existing assertions are order-sensitive and will need adjusting once `Union` sorts: `internal/runner/role_test.go` `TestLoadRole` (`role.Tools.Allow[1] != "Bash(git *)"`) and `TestRoleKeepsNetworkAllowAsWritten` (exact order). Their intent — "rules are not mangled at parse" — survives as a set comparison.
 
-- [ ] **Step 1: Write the failing shipping test (tasks.md 1.3)**
+- [x] **Step 1: Write the failing shipping test (tasks.md 1.3)**
 
 Append to `internal/tracker/boundary_test.go` (add `"github.com/kao73/virtual-office/internal/runner"` to imports):
 
@@ -75,7 +75,7 @@ func TestShippedBaseRulesKeepGitRemoteDeny(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Add the constants so the test compiles, run it to see it fail**
+- [x] **Step 2: Add the constants so the test compiles, run it to see it fail**
 
 In `internal/runner/role.go`, after `const RoleFile = "role.yaml"`:
 
@@ -93,7 +93,7 @@ const (
 Run: `go test ./internal/tracker/ -run TestShippedBaseRulesKeepGitRemoteDeny -v`
 Expected: FAIL with "базовые правила ролей не поставлены: open ../../roles/_base/base.yaml: no such file or directory".
 
-- [ ] **Step 3: Create `roles/_base/base.yaml` (tasks.md 1.1)**
+- [x] **Step 3: Create `roles/_base/base.yaml` (tasks.md 1.1)**
 
 Content is the generic part of today's `projects.yaml: defaults`, evidence comments kept. EXP-specific hosts (`mcr.microsoft.com`, `*.data.mcr.microsoft.com`, `bun.sh`, `cdn.playwright.dev`, `playwright.download.prss.microsoft.com`, `ports.ubuntu.com`, `deb.nodesource.com`) are **not** carried over — they move to the `EXP` entry of this machine's file in Task 5.2. The comments must not contain `/Users/`, `/home/`, `/opt/`, `/var/` or `customfield_` (the boundary test scans `roles/*/*`).
 
@@ -170,12 +170,12 @@ tools:
     - "Bash(rm *--force*)"
 ```
 
-- [ ] **Step 4: Run the shipping test and the boundary scan to see them pass**
+- [x] **Step 4: Run the shipping test and the boundary scan to see them pass**
 
 Run: `go test ./internal/tracker/ -run 'TestShippedBaseRulesKeepGitRemoteDeny|TestRepoCarriesNoMachineValues' -v`
 Expected: PASS (the boundary scan already globs `roles/*/*`, so the new file is scanned for machine values).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add roles/_base/base.yaml internal/runner/role.go internal/tracker/boundary_test.go
@@ -195,7 +195,7 @@ MSG
 )"
 ```
 
-- [ ] **Step 6: Write the failing `Union` test in `internal/runner/role_test.go`**
+- [x] **Step 6: Write the failing `Union` test in `internal/runner/role_test.go`**
 
 Append (the file already imports `slices`):
 
@@ -218,7 +218,7 @@ func TestUnionDedupsAndSorts(t *testing.T) {
 Run: `go test ./internal/runner/ -run TestUnionDedupsAndSorts -v`
 Expected: FAIL — "undefined: Union".
 
-- [ ] **Step 7: Move `unionStrings` to `runner.Union`**
+- [x] **Step 7: Move `unionStrings` to `runner.Union`**
 
 In `internal/runner/role.go` (after `Network`'s definition, before `LoadRole`):
 
@@ -245,7 +245,7 @@ In `internal/tracker/config.go`: delete `unionStrings` (with its comment, lines 
 Run: `go build ./... && go test ./internal/runner/ ./internal/tracker/`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/runner/role.go internal/runner/role_test.go internal/tracker/config.go internal/tracker/rules.go internal/tracker/config_test.go
@@ -261,7 +261,7 @@ MSG
 )"
 ```
 
-- [ ] **Step 9: Write the failing base-layer tests (tasks.md 1.2)**
+- [x] **Step 9: Write the failing base-layer tests (tasks.md 1.2)**
 
 Append to `internal/runner/role_test.go`:
 
@@ -420,7 +420,7 @@ with
 Run: `go test ./internal/runner/ -run 'TestLoadRole|TestShippedRolesInheritBaseRules' -v`
 Expected: FAIL — `TestLoadRoleUnionsBaseRules` (deny lacks base strings), `TestLoadRoleRefusesBaseDirWithoutRules` (no error), `TestLoadRoleRejectsBrokenBaseRules` (no error), `TestShippedRolesInheritBaseRules` (denies missing).
 
-- [ ] **Step 10: Implement the base layer in `LoadRole`**
+- [x] **Step 10: Implement the base layer in `LoadRole`**
 
 In `internal/runner/role.go`, add `"io"` to imports. After the `Union` function:
 
@@ -520,7 +520,7 @@ Also update the `fixtureOffice` in `internal/adapters/claude/adapter_test.go` (l
 Run: `gofmt -l ./internal && go test ./internal/runner/ ./internal/adapters/... ./internal/pipeline/ -v -run 'TestLoadRole|TestShippedRoles|TestRoleKeeps|TestBuild|TestEveryGraphRoleIsShipped'`
 Expected: `gofmt -l` prints nothing; all PASS.
 
-- [ ] **Step 11: Rewrite the `cmd/run-agent` test that asserted the old behaviour**
+- [x] **Step 11: Rewrite the `cmd/run-agent` test that asserted the old behaviour**
 
 `cmd/run-agent/main_test.go` `TestDryRunProjectFlagMergesRepoWideRules` (line ~282) asserts that without `--project` the implementer does not see `registry-1.docker.io`. That is now false: the base layer arrives through `LoadRole`. Replace the whole function with:
 
@@ -571,7 +571,7 @@ func TestDryRunProjectFlagMergesMachineRulesOverBase(t *testing.T) {
 Run: `go test ./cmd/run-agent/ -run TestDryRun -v`
 Expected: PASS.
 
-- [ ] **Step 12: Full check and commit**
+- [x] **Step 12: Full check and commit**
 
 Run: `gofmt -l . ; go build ./... && go vet ./... && go test ./...`
 Expected: no gofmt output; all green. (At this point both layers exist — `projects.yaml: defaults` still reaches projects via `LoadProjects`, and the base reaches roles via `LoadRole`; `Union` collapses the duplicates.)
@@ -2539,7 +2539,7 @@ depends_on_link: Depends
 Run: `go test ./internal/tracker/jira/ -run TestShippedTrackerConfigIsValid -v && go test ./internal/tracker/...`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Commit the example**
 
 ```bash
 git add tracker.example.yaml internal/tracker/jira/jira_test.go

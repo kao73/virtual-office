@@ -1,8 +1,8 @@
 ## 1. Shared role rules move to roles/_base (config-boundary D1)
 
-- [ ] 1.1 Create `roles/_base/base.yaml` with the git/`rm` denies and the generic registries from today's `projects.yaml: defaults` (Docker Hub, GitHub, ghcr, GitHub releases, npm, PyPI, Go proxy), with their evidence comments; EXP-specific hosts are not carried over
-- [ ] 1.2 `runner.LoadRole`: union `roles/_base/base.yaml` into the role's `network`/`tools` when `roles/_base/` exists; missing file with existing directory is a refusal naming it (`internal/runner/role.go`, `role_test.go`)
-- [ ] 1.3 Shipping test: `roles/_base/base.yaml` exists and contains the `Bash(git *push*)` deny (so the guarantee cannot vanish silently); `boundary_test.go` drops `projects.yaml` from its named files
+- [x] 1.1 Create `roles/_base/base.yaml` with the git/`rm` denies and the generic registries from today's `projects.yaml: defaults` (Docker Hub, GitHub, ghcr, GitHub releases, npm, PyPI, Go proxy), with their evidence comments; EXP-specific hosts are not carried over
+- [x] 1.2 `runner.LoadRole`: union `roles/_base/base.yaml` into the role's `network`/`tools` when `roles/_base/` exists; missing file with existing directory is a refusal naming it (`internal/runner/role.go`, `role_test.go`)
+- [x] 1.3 Shipping test: `roles/_base/base.yaml` exists and contains the `Bash(git *push*)` deny (so the guarantee cannot vanish silently); `boundary_test.go` drops `projects.yaml` from its named files
 
 ## 2. Loader: projects live on the machine only (config-boundary D1–D3)
 
