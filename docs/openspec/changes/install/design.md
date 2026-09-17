@@ -201,3 +201,23 @@ the snapshot path (`OFFICE_INSTALL_FROM`) is the only way to install.
 - Whether the ledger/passport field keeps the name `config_sha` for
   compatibility with existing `ledger.jsonl` rows or is renamed with a
   read-side alias; either satisfies the spec.
+
+## Implementation Divergence
+
+Recorded at verify (2026-09-18). Each item is a wording lag of this file
+behind the Design Doc (`docs/superpowers/specs/2026-09-17-install-design.md`)
+and the plan; the decisions themselves are followed.
+
+- **D3 — temp directory suffix.** The unpack temp dir is
+  `office/.unpack-<name>-<random>/` from `os.MkdirTemp`, not `-<pid>`: two
+  goroutines of one process (the `TestUnpackRaceYieldsOneOffice` case) must
+  not share a temp dir. Stated in the plan (Task 2 Interfaces).
+- **D4 — field name.** `runner.Office` carries `Source` (`SourceClone` |
+  `SourcePayload`), not `Mode`; the Design Doc §1.1 already uses `Source`.
+  The snapshot identity for a tree with no release tag is
+  `v0.0.1-SNAPSHOT-<sha>` (`incpatch` of `0.0.0`), and `git.ignore_tags:
+  ["archive/*"]` keeps the archive tags from being taken as the current tag.
+- **D6 — archive names.** Archives are `virtual-office_<os>_<arch>.tar.gz`
+  with no version in the name, so `releases/latest/download/<name>` resolves
+  without an API call for the tag (Design Doc §2.2). The version travels in
+  the binaries (`runner version`) and in `checksums.txt`'s release.
