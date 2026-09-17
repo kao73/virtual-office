@@ -263,7 +263,8 @@ func (o *Office) checkWorkflow(project string, flow tracker.RoleFlow) {
 }
 
 // TickAll прогоняет по циклу на каждую роль графа, в порядке имён. Отвечает,
-// нашлась ли работа хоть одной роли, — тем же словом, что Tick для одной.
+// нашлась ли работа хоть одной роли, — тем же словом, что Tick для одной,
+// и как Tick, на ошибке отвечает false.
 //
 // Ответы человека разбираются один раз на весь заход, а не перед каждой ролью:
 // проход безролевой, и повторять его — лишние запросы к трекеру ради заведомо
@@ -281,7 +282,7 @@ func (o *Office) TickAll(ctx context.Context) (bool, error) {
 	for _, role := range o.Workflow.Order() {
 		w, err := o.as(role).tickRole(ctx, role)
 		if err != nil {
-			return worked, err
+			return false, err
 		}
 		worked = worked || w
 	}

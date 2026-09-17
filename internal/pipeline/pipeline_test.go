@@ -1520,6 +1520,25 @@ func TestTickAllWalksThreeRoles(t *testing.T) {
 	}
 }
 
+// TickAll отвечает про работу тем же словом, что Tick: пустые очереди — false,
+// задача в очереди хоть одной роли — true. Ответ читает `runner tick --role`;
+// без теста его можно было бы заменить на константу незаметно.
+func TestTickAllReportsWhetherAnyRoleWorked(t *testing.T) {
+	o := newOffice(t)
+	// Backlog — человеческий статус, из него не читает ни одна роль.
+	if err := o.tasks.Transition("OFF-1", tracker.BySystem(), "Backlog"); err != nil {
+		t.Fatalf("задача не переведена: %v", err)
+	}
+	if worked, err := o.TickAll(context.Background()); err != nil || worked {
+		t.Errorf("пустые очереди: worked=%v, err=%v, ожидалось false без ошибки", worked, err)
+	}
+
+	o.add("OFF-2", "Ready")
+	if worked, err := o.TickAll(context.Background()); err != nil || !worked {
+		t.Errorf("задача в Ready: worked=%v, err=%v, ожидалось true без ошибки", worked, err)
+	}
+}
+
 // Одобрение уводит задачу в очередь PR-прохода: разбор пройден, дальше офис
 // откроет pull request, а сливает человек. Терминальным этот статус не является
 // — задача живёт до слияния, и рабочая папка живёт вместе с ней.
