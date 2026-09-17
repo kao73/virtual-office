@@ -23,9 +23,9 @@
 
 ## 4. Shipped example and setup script (config-boundary D7–D8)
 
-- [ ] 4.1 Rewrite the `tracker.example.yaml` header for the copied file; ship `accounts.roles`, `also_agents`, `issue_type` as commented blocks; `depends_on_link: Depends` stays active
-- [ ] 4.2 `scripts/jira-setup.sh`: `add_link_type` find-or-create for `Depends` (outward `depends on`, inward `is depended on by`), printed with the field ids; second run creates nothing
-- [ ] 4.3 Live check of 4.2 against the polygon JIRA (or a fresh `bootstrap/jira/` container): one link type after two runs; record the result in the verification report
+- [x] 4.1 Rewrite the `tracker.example.yaml` header for the copied file; ship `accounts.roles`, `also_agents`, `issue_type` as commented blocks; `depends_on_link: Depends` stays active
+- [x] 4.2 `scripts/jira-setup.sh`: `add_link_type` find-or-create for `Depends` (outward `depends on`, inward `is depended on by`), printed with the field ids; second run creates nothing
+- [x] 4.3 Live check of 4.2 against the polygon JIRA (or a fresh `bootstrap/jira/` container): one link type after two runs; record the result in the verification report
 
 ## 5. Repository and this machine (design — Migration Plan)
 

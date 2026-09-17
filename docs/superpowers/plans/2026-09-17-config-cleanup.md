@@ -2385,7 +2385,7 @@ Corresponds to `tasks.md` §4 (4.1–4.3).
 
 `tracker.example.yaml` today opens with "ОБРАЗЕЦ подключения к JIRA. Раннер этот файл не читает." and ships `accounts.roles.reviewer`, `also_agents: []`, `issue_type: Task` active. `internal/tracker/jira/jira_test.go:1357` `TestShippedTrackerConfigIsValid` loads the example and checks that every `accounts.roles` key is a graph role. `scripts/jira-setup.sh` has `add_field` (line 83) as the find-or-create pattern and a final summary (lines 147–153) printing the four field ids. JIRA Server's `GET /rest/api/2/issueLinkType` returns `{"issueLinkTypes":[{"id":…,"name":…,"inward":…,"outward":…}]}`; `POST` with `{name, outward, inward}` creates one.
 
-- [ ] **Step 1: Extend the shipped-example test (tasks.md 4.1)**
+- [x] **Step 1: Extend the shipped-example test (tasks.md 4.1)**
 
 In `internal/tracker/jira/jira_test.go`, replace `TestShippedTrackerConfigIsValid` with:
 
@@ -2433,7 +2433,7 @@ func TestShippedTrackerConfigIsValid(t *testing.T) {
 (Add `"os"` to the imports if not already there.) Run: `go test ./internal/tracker/jira/ -run TestShippedTrackerConfigIsValid -v`
 Expected: FAIL on `accounts.roles`, `issue_type` and the header sentence.
 
-- [ ] **Step 2: Rewrite `tracker.example.yaml` (tasks.md 4.1)**
+- [x] **Step 2: Rewrite `tracker.example.yaml` (tasks.md 4.1)**
 
 Replace the file with (the values stay polygon values; `customfield_*` is allowed here — the boundary test excludes the example on purpose):
 
@@ -2539,7 +2539,7 @@ depends_on_link: Depends
 Run: `go test ./internal/tracker/jira/ -run TestShippedTrackerConfigIsValid -v && go test ./internal/tracker/...`
 Expected: PASS.
 
-- [ ] **Step 3: Commit the example**
+- [x] **Step 3: Commit the example**
 
 ```bash
 git add tracker.example.yaml internal/tracker/jira/jira_test.go
@@ -2557,7 +2557,7 @@ MSG
 )"
 ```
 
-- [ ] **Step 4: `scripts/jira-setup.sh` — `add_link_type` (tasks.md 4.2)**
+- [x] **Step 4: `scripts/jira-setup.sh` — `add_link_type` (tasks.md 4.2)**
 
 The script has no unit test harness; the check is the live run in Step 5. Edit in three places.
 
@@ -2603,7 +2603,7 @@ Also update the header comment line 2: `# Настройка полигона JI
 Run: `bash -n scripts/jira-setup.sh && shellcheck scripts/jira-setup.sh 2>/dev/null || true`
 Expected: `bash -n` prints nothing (syntax OK); shellcheck, if installed, reports nothing new.
 
-- [ ] **Step 5: Live check against the polygon (tasks.md 4.3) — no tokens, no agent**
+- [x] **Step 5: Live check against the polygon (tasks.md 4.3) — no tokens, no agent**
 
 The polygon address is `base_url` in `~/.office/tracker.yaml`; the admin password comes from `JIRA_PASSWORD` in the environment (see the operator's memory note on tracker creds; never put it on the command line). Run:
 
@@ -2623,7 +2623,7 @@ Expected and what to record in the verification report (`docs/superpowers/report
 - Both runs print `depends_on_link: Depends` in the summary next to the four field ids.
 - Note for the report: on this polygon `outward`/`inward` render reversed in the UI (known finding, compensated in `jira.LinkDependsOn`); the API answer above is what counts.
 
-- [ ] **Step 6: Commit the script**
+- [x] **Step 6: Commit the script**
 
 ```bash
 git add scripts/jira-setup.sh
