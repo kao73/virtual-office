@@ -97,6 +97,22 @@ type Network struct {
 	Allow []string `yaml:"allow"`
 }
 
+// Union сливает несколько слоёв правил в один список без потерь: то, что
+// назвал любой слой, остаётся в итоге, повторы схлопываются, порядок —
+// алфавитный, чтобы два прогона отдавали агенту одинаковые настройки.
+// Один и тот же приём — для network.allow и для каждого из tools.allow/
+// tools.deny по отдельности. Живёт здесь, а не в tracker: базовый слой
+// (LoadRole) и проектные (tracker.LoadProjects, tracker.MergeProjectRules)
+// сливаются им одинаково, а tracker импортирует runner, не наоборот.
+func Union(layers ...[]string) []string {
+	var all []string
+	for _, l := range layers {
+		all = append(all, l...)
+	}
+	slices.Sort(all)
+	return slices.Compact(all)
+}
+
 // LoadRole читает и проверяет roles/<name>/role.yaml.
 // Разбор строгий: неизвестное поле — ошибка, а не молча забытая настройка.
 func LoadRole(configRoot, name string) (Role, error) {

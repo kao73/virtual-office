@@ -874,19 +874,6 @@ func TestLoadProjectsWithoutDefaultsAtAllIsUnaffected(t *testing.T) {
 	}
 }
 
-// unionStrings — дедуп и сортировка через все слои разом, тот же приём,
-// что уже применяет internal/adapters/claude/adapter.go:networkAllow, обобщённый
-// на произвольное число слоёв.
-func TestUnionStringsDedupsAndSorts(t *testing.T) {
-	got := unionStrings([]string{"b", "a"}, nil, []string{"a", "c"})
-	if want := []string{"a", "b", "c"}; !slices.Equal(got, want) {
-		t.Errorf("unionStrings = %v, ожидалось %v", got, want)
-	}
-	if got := unionStrings(); got != nil {
-		t.Errorf("unionStrings() без слоёв = %v, ожидался nil", got)
-	}
-}
-
 // PRBranch — ветка, от которой форкаются задачи и куда метит PR-проход:
 // target_branch авто-мержа, если задан, иначе default_branch.
 func TestPRBranch(t *testing.T) {

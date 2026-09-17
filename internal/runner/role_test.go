@@ -411,3 +411,17 @@ func shippedRoles(t *testing.T) []string {
 	}
 	return names
 }
+
+// Union — дедуп и сортировка через все слои разом: один приём для
+// network.allow и для каждого из tools.allow/tools.deny, у базового слоя
+// (LoadRole) и у проектных (tracker.LoadProjects, tracker.MergeProjectRules).
+// Без слоёв — nil, а не пустой срез: так ведёт себя и разбор YAML без ключа.
+func TestUnionDedupsAndSorts(t *testing.T) {
+	got := Union([]string{"b", "a"}, nil, []string{"a", "c"})
+	if want := []string{"a", "b", "c"}; !slices.Equal(got, want) {
+		t.Errorf("Union = %v, ожидалось %v", got, want)
+	}
+	if got := Union(); got != nil {
+		t.Errorf("Union() без слоёв = %v, ожидался nil", got)
+	}
+}

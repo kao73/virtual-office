@@ -651,20 +651,6 @@ func extractDefaultsMachine(m map[string]machineProject) (Rules, error) {
 	return d.Rules, nil
 }
 
-// unionStrings сливает несколько слоёв в один список без потерь: то, что
-// назвал любой слой, остаётся в итоге. Один и тот же приём — и для
-// network.allow, и для каждого из tools.allow/tools.deny по отдельности,
-// вместо трёх разных механизмов. Обобщает приём, уже применённый
-// в internal/adapters/claude/adapter.go (networkAllow), на большее число слоёв.
-func unionStrings(layers ...[]string) []string {
-	var all []string
-	for _, l := range layers {
-		all = append(all, l...)
-	}
-	slices.Sort(all)
-	return slices.Compact(all)
-}
-
 // LoadProjects собирает проекты из двух половин: офисной и машинной.
 //
 // officePath лежит в конфиг-репозитории и называет проекты офиса, machinePath —
@@ -743,10 +729,10 @@ func LoadProjects(officePath, machinePath string) (Projects, error) {
 			Tracker:       local.Tracker,
 			Forge:         local.Forge,
 			AutoMerge:     local.AutoMerge,
-			Network:       unionStrings(officeDefaults.Network, half.Network, machineDefaults.Network, local.Network),
+			Network:       runner.Union(officeDefaults.Network, half.Network, machineDefaults.Network, local.Network),
 			Tools: runner.Tools{
-				Allow: unionStrings(officeDefaults.Tools.Allow, half.Tools.Allow, machineDefaults.Tools.Allow, local.Tools.Allow),
-				Deny:  unionStrings(officeDefaults.Tools.Deny, half.Tools.Deny, machineDefaults.Tools.Deny, local.Tools.Deny),
+				Allow: runner.Union(officeDefaults.Tools.Allow, half.Tools.Allow, machineDefaults.Tools.Allow, local.Tools.Allow),
+				Deny:  runner.Union(officeDefaults.Tools.Deny, half.Tools.Deny, machineDefaults.Tools.Deny, local.Tools.Deny),
 			},
 		}
 	}
