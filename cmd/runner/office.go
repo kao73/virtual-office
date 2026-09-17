@@ -225,14 +225,11 @@ func tickCommand(args []string, out io.Writer) error {
 	}
 	ctx := context.Background()
 	return all.each(ctx, func(no namedOffice) error {
-		if *role == "" {
-			return no.TickAll(ctx)
-		}
-		worked, err := no.Tick(ctx, *role)
+		worked, err := tick(ctx, no, *role)
 		if err != nil {
 			return err
 		}
-		if !worked {
+		if *role != "" && !worked {
 			fmt.Fprintf(out, "%s: работы нет\n", *role)
 		}
 		return nil

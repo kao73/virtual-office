@@ -102,7 +102,7 @@ func (all *offices) cycle(ctx context.Context, role string) {
 		if err := no.Reap(ctx); err != nil {
 			fmt.Fprintf(all.out, "reap: %v\n", err)
 		}
-		if err := tick(ctx, no, role); err != nil {
+		if _, err := tick(ctx, no, role); err != nil {
 			fmt.Fprintf(all.out, "tick: %v\n", err)
 		}
 		if err := no.CompleteSplits(ctx); err != nil {
@@ -113,10 +113,14 @@ func (all *offices) cycle(ctx context.Context, role string) {
 }
 
 // tick — цикл одного офиса: по всем ролям графа или по одной названной.
-func tick(ctx context.Context, no namedOffice, role string) error {
+// Один на команду tick и на заход loop. Нашлась ли работа, известно только
+// для названной роли — TickAll этого не считает, и для него ответ всегда
+// false, на который вызывающий не смотрит. Что делать с ответом, решает
+// вызывающий: команда говорит «работы нет» человеку, loop молчит — иначе
+// лог планировщика рос бы этой строкой каждые две минуты.
+func tick(ctx context.Context, no namedOffice, role string) (bool, error) {
 	if role == "" {
-		return no.TickAll(ctx)
+		return false, no.TickAll(ctx)
 	}
-	_, err := no.Tick(ctx, role)
-	return err
+	return no.Tick(ctx, role)
 }
