@@ -3,11 +3,13 @@ package runner
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // configRoot — корень конфиг-репозитория из тестов пакета runner.
@@ -188,6 +190,110 @@ func TestEnsureValidatorPayloadRefusesWhenNothingEmbedded(t *testing.T) {
 		}
 	}
 	if entries, _ := os.ReadDir(filepath.Join(root, BinDir)); len(entries) != 0 {
+		t.Errorf("в bin/ что-то появилось: %v", entries)
+	}
+}
+
+// fakeValidators подменяет встроенный набор: поддельные «бинарники» под
+// названными платформами.
+func fakeValidators(t *testing.T, platforms ...Platform) {
+	t.Helper()
+	m := fstest.MapFS{}
+	for _, p := range platforms {
+		m[validatorsDir+"/"+ValidatorName+"-"+p.OS+"-"+p.Arch] =
+			&fstest.MapFile{Data: []byte("#!/bin/sh\necho " + p.String() + "\nexit 2\n")}
+	}
+	prev := validatorsFS
+	validatorsFS = m
+	t.Cleanup(func() { validatorsFS = prev })
+}
+
+// Релизный раннер отдаёт ограждение из себя: без go на PATH, один раз, 0755,
+// в bin/ рядом с офисом этой версии — две версии не делят ограждение.
+func TestEnsureValidatorPayloadWritesEmbeddedOnce(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // go здесь нет: сборка невозможна — и не нужна
+	home := t.TempDir()
+	t.Setenv(HomeEnv, home)
+	fakeValidators(t, Platform{OS: "darwin", Arch: "arm64"}, Platform{OS: "linux", Arch: "arm64"})
+	root := t.TempDir()
+	o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
+	target := Platform{OS: "linux", Arch: "arm64"}
+
+	path, err := EnsureValidator(o, target)
+	if err != nil {
+		t.Fatalf("ограждение не выдано: %v", err)
+	}
+	if want := filepath.Join(root, BinDir, "validate-result-linux-arm64"); path != want {
+		t.Errorf("ограждение в %s, ожидалось %s", path, want)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("ограждение не найдено: %v", err)
+	}
+	if fi.Mode().Perm() != 0o755 {
+		t.Errorf("права ограждения %o, ожидалось 0755", fi.Mode().Perm())
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ограждение не прочитано: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("linux/arm64")) {
+		t.Errorf("ограждение не то: %s", raw)
+	}
+
+	// Лежащее не переписывается: подмена переживает второй вызов.
+	if err := os.WriteFile(path, []byte("своя правка"), 0o755); err != nil {
+		t.Fatalf("подмена ограждения не удалась: %v", err)
+	}
+	path2, err := EnsureValidator(o, target)
+	if err != nil {
+		t.Fatalf("повторный вызов отказал: %v", err)
+	}
+	if path2 != path {
+		t.Errorf("повторный вызов вернул %s, ожидался %s", path2, path)
+	}
+	raw2, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ограждение не прочитано после повторного вызова: %v", err)
+	}
+	if string(raw2) != "своя правка" {
+		t.Errorf("ограждение переписано: %s", raw2)
+	}
+
+	// ${OFFICE_HOME}/bin (HomeEnv) не при делах: ограждение поставки лежит
+	// рядом с офисом своей версии, а не в общем хозяйстве раннера.
+	homeBin := filepath.Join(home, BinDir)
+	entries, err := os.ReadDir(homeBin)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("%s не прочитан: %v", homeBin, err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ValidatorName+"-") {
+			t.Errorf("в %s появилось ограждение поставки: %s", homeBin, e.Name())
+		}
+	}
+}
+
+// Ограждения другой платформы не подсовывается: отказ называет платформу
+// и тег, в bin/ ничего не появляется.
+func TestEnsureValidatorPayloadRefusesMissingPlatform(t *testing.T) {
+	fakeValidators(t, Platform{OS: "darwin", Arch: "arm64"})
+	root := t.TempDir()
+	o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
+	_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "amd64"})
+	if err == nil {
+		t.Fatal("платформы нет в наборе, а отказа нет")
+	}
+	for _, want := range []string{"linux/amd64", "-tags release"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не называет %q: %v", want, err)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(root, BinDir))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("%s не прочитан: %v", filepath.Join(root, BinDir), err)
+	}
+	if len(entries) != 0 {
 		t.Errorf("в bin/ что-то появилось: %v", entries)
 	}
 }

@@ -1,11 +1,15 @@
 package runner
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	payload "github.com/kao73/virtual-office"
 )
 
 // BinDir — подкаталог с собранными бинарниками внутри хозяйства раннера.
@@ -17,6 +21,21 @@ const ValidatorName = "validate-result"
 
 // validatorPkg — путь пакета команды от корня конфиг-репозитория.
 const validatorPkg = "./cmd/validate-result"
+
+// validatorsDir — где внутри поставки лежат ограждения (validators_*.go в корне).
+const validatorsDir = "payload/validators"
+
+// validatorsFS — встроенный набор за переменной ради тестов; nil — настоящий.
+// Не «= payload.Validators»: см. payloadFS в office.go — инициализатор
+// пакета удержал бы набор в validate-result.
+var validatorsFS fs.FS
+
+func validatorsOrDefault() fs.FS {
+	if validatorsFS != nil {
+		return validatorsFS
+	}
+	return payload.Validators
+}
 
 // Platform — где будет исполняться агент, а с ним и ограждение. На бэкенде local
 // это хост, в песочнице — Linux. Платформу задаёт бэкенд: гадать по хосту нельзя,
@@ -46,7 +65,7 @@ func EnsureValidator(o Office, target Platform) (string, error) {
 	case SourceClone:
 		return buildValidator(o.Root, name, target)
 	case SourcePayload:
-		return "", noEmbeddedValidator(target)
+		return embeddedValidator(o.Root, name, target)
 	default:
 		return "", fmt.Errorf("офис без источника: неоткуда взять ограждение под %s", target)
 	}
@@ -86,4 +105,55 @@ func buildValidator(configRoot, name string, target Platform) (string, error) {
 		return "", fmt.Errorf("ограждение под %s не собрано: %w: %s", target, err, out)
 	}
 	return path, nil
+}
+
+// embeddedValidator кладёт ограждение из поставки в <root>/bin/<name> один раз.
+//
+// Лежит оно рядом с офисом своей версии, а не в ${OFFICE_HOME}/bin: две
+// версии не должны делить ограждение, а версия офиса и есть версия
+// ограждения. Уже лежащее не переписывается — тот же контракт, что у
+// распакованного офиса. Запись через временное имя и rename: два раннера,
+// впервые готовящие прогон одновременно, не должны читать полуфайл.
+func embeddedValidator(root, name string, target Platform) (string, error) {
+	dir := filepath.Join(root, BinDir)
+	path := filepath.Join(dir, name)
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	raw, err := fs.ReadFile(validatorsOrDefault(), validatorsDir+"/"+name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", noEmbeddedValidator(target)
+	}
+	if err != nil {
+		return "", fmt.Errorf("ограждение под %s не прочитано из поставки: %w", target, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("каталог ограждений не создан: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, "."+name+"-*")
+	if err != nil {
+		return "", fmt.Errorf("ограждение не записано: %w", err)
+	}
+	if err := writeAndPublish(tmp, raw, path); err != nil {
+		os.Remove(tmp.Name())
+		return "", fmt.Errorf("ограждение под %s не записано: %w", target, err)
+	}
+	return path, nil
+}
+
+// writeAndPublish пишет содержимое во временный файл, закрывает, ставит 0755
+// и переименовывает на итоговый путь: rename на той же файловой системе
+// атомарен, и читатель никогда не увидит недописанный или без-прав файл.
+func writeAndPublish(tmp *os.File, raw []byte, path string) error {
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
