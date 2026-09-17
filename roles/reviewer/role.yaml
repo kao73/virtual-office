@@ -30,7 +30,7 @@ tools:
     - "Bash(*)"
 
   # Общие для всех ролей (push/branch/checkout/rebase/reset и т.д.) —
-  # в defaults.tools.deny (projects.yaml). Роль-специфичного deny у reviewer'а
+  # в roles/_base/base.yaml. Роль-специфичного deny у reviewer'а
   # больше нет: add/commit/restore, что раньше стояли здесь, разрешены —
   # см. комментарий у tools.allow выше.
 
@@ -62,7 +62,7 @@ limits:
   # обычного, поднято тем же порядком, вслепую, с запасом.
   #
   # 100 тоже не хватило: живой разбор EXP-5 (2026-09-13), после починки
-  # сетевой политики (defaults.network в projects.yaml), впервые реально
+  # сетевой политики (общий allowlist сети — тогда в projects.yaml, теперь roles/_base/base.yaml), впервые реально
   # гонял Playwright e2e вместо того, чтобы принять его недоступность как
   # известный gap — установка Bun, скачивание браузера (~300 МиБ) и сам
   # e2e-прогон стоят шагов не меньше, чем у implementer'а. Усёкся на 101-м

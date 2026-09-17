@@ -124,6 +124,11 @@ func execute() (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		// projects.yaml из прежней раскладки не читается — и не пропускается
+		// молча: тот же сторож, что и у runner.
+		if err := tracker.RefuseLeftoverOfficeFile(configRoot); err != nil {
+			return 0, err
+		}
 		projects, err := tracker.LoadProjects(filepath.Join(home, tracker.ProjectsLocalFile))
 		if err != nil {
 			return 0, err

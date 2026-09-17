@@ -98,7 +98,7 @@ type fakeJira struct {
 
 	// badSearch заставляет поиск падать, а knownProject — единственный проект,
 	// который сервер признаёт своим. Вместе они изображают заглушку
-	// в projects.yaml: JQL по несуществующему проекту JIRA отвергает.
+	// в projects.local.yaml: JQL по несуществующему проекту JIRA отвергает.
 	badSearch    bool
 	knownProject string
 
@@ -1555,7 +1555,7 @@ func TestOpenRejectsUnimplementedAuthMode(t *testing.T) {
 	}
 }
 
-// Проект, описанный в projects.yaml, но неизвестный трекеру, роняет весь цикл:
+// Проект, описанный в projects.local.yaml, но неизвестный трекеру, роняет весь цикл:
 // раннер обходит проекты по порядку и на первом же отказе бросает остальные.
 // Поймано живой проверкой — заглушка OFFICE остановила reap до настоящего VO.
 func TestListReadyTellsUnknownProjectApart(t *testing.T) {

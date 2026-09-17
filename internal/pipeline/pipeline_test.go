@@ -1965,7 +1965,7 @@ func TestHumanReplyFallsBackWhenRoleIsGone(t *testing.T) {
 	}
 }
 
-// Задача проекта, которого нет в projects.yaml, не берётся: раннеру негде взять
+// Задача проекта, которого нет в projects.local.yaml, не берётся: раннеру негде взять
 // репозиторий и некуда пушить.
 func TestTickSkipsUnknownProject(t *testing.T) {
 	o := newOffice(t)
@@ -2895,7 +2895,7 @@ func TestCheckWorkflowSilentForRoleWithoutWorking(t *testing.T) {
 }
 
 // unknownProject — трекер, не знающий одного из проектов конфигурации.
-// Так выглядит протухшая строка в projects.yaml: проект описан, а в трекере
+// Так выглядит протухшая строка в projects.local.yaml: проект описан, а в трекере
 // его нет и никогда не было.
 type unknownProject struct {
 	tracker.Tracker
@@ -2917,7 +2917,7 @@ func (u unknownProject) ListExpired(project string, now time.Time) ([]tracker.Ta
 }
 
 // Проекты обходятся по порядку, и раньше первый же незнакомый трекеру проект
-// бросал весь цикл — работа по остальным вставала. Заглушка в projects.yaml
+// бросал весь цикл — работа по остальным вставала. Заглушка в projects.local.yaml
 // останавливала reap на полигоне до настоящего проекта; поймано живой проверкой.
 func TestTickSkipsProjectUnknownToTracker(t *testing.T) {
 	var log strings.Builder

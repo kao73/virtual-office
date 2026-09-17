@@ -17,7 +17,7 @@ tools:
   # модель выполняет или нет по собственному суждению, а не по проверке
   # рантайма (измерено 2026-08-27, docs/notes/followup-network-and-permissions.md,
   # «Находка 2»). Единственная реальная граница — tools.deny ниже и
-  # defaults.tools.deny в projects.yaml, плюс hooks.pre_tool_use ниже —
+  # tools.deny в roles/_base/base.yaml, плюс hooks.pre_tool_use ниже —
   # технический, а не текстовый барьер записи вне фазы build.
   allow:
     - Read
@@ -25,7 +25,7 @@ tools:
     - Write
     - "Bash(*)"
 
-  # Общие для всех ролей — в defaults.tools.deny (projects.yaml). Здесь —
+  # Общие для всех ролей — в roles/_base/base.yaml. Здесь —
   # то, что специфично implementer'у: история ветки общая (её видели
   # ревьюер и человек в pull request), поэтому переписывать её нельзя.
   deny:
