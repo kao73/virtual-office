@@ -1105,56 +1105,6 @@ func (o *Office) sweep(task tracker.Task) {
 	}
 }
 
-// Loop гоняет цикл по расписанию, пока не остановят.
-//
-// Это не демон и не supervisor: он не следит за собой, не перезапускается
-// и не держит состояния между циклами. Ошибка цикла — повод сказать о ней
-// и пойти дальше, а не умереть: следующий заход может пройти.
-//
-// CompleteSplits идёт после tickOnce, а не до него, и порядок здесь не
-// косметика. tickOnce зовёт Tick или TickAll, а оба первым делом —
-// HumanReplies: реплика человека, пришедшая между циклами, обязана увести
-// задачу из Blocked раньше, чем до неё дойдёт CompleteSplits. Иначе тикет с
-// двумя подтверждающими split-маркерами всё ещё лежал бы в Blocked, когда
-// CompleteSplits его увидит, и автосоздание тикетов-детей в реальном
-// трекере состоялось бы вопреки ответу, который никто ещё не прочитал.
-// Гонку внутри одного и того же цикла это не убирает целиком — реплика
-// может прийти и посреди самого CompleteSplits, — а лишь ставит проверку
-// на менее опасную сторону порядка.
-//
-// Reap перед tickOnce не переставлен: он разбирает задачи с истёкшей
-// арендой (в работе у роли), а не задачи в Blocked, где эта гонка вообще
-// возможна, — то же разделение ролей, что различает ListExpired и
-// HumanStatuses.
-func (o *Office) Loop(ctx context.Context, every time.Duration, roleName string) error {
-	for {
-		if err := o.Reap(ctx); err != nil {
-			o.logf("reap: %v", err)
-		}
-		if err := o.tickOnce(ctx, roleName); err != nil {
-			o.logf("tick: %v", err)
-		}
-		if err := o.CompleteSplits(ctx); err != nil {
-			o.logf("complete-splits: %v", err)
-		}
-
-		select {
-		case <-ctx.Done():
-			o.logf("остановка по сигналу")
-			return nil
-		case <-time.After(every):
-		}
-	}
-}
-
-func (o *Office) tickOnce(ctx context.Context, roleName string) error {
-	if roleName == "" {
-		return o.TickAll(ctx)
-	}
-	_, err := o.Tick(ctx, roleName)
-	return err
-}
-
 // keepLease продлевает аренду, пока идёт прогон, и возвращает функцию остановки.
 //
 // Интервал — треть таймаута роли: два пропущенных продления подряд ещё не роняют
