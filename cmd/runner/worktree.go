@@ -93,12 +93,20 @@ func worktreeRemove(args []string, out io.Writer) error {
 
 	// Трекер нужен ровно за одним: узнать, не работает ли сейчас над задачей
 	// агент. Всё остальное команда знает из git и с диска. Флаги разбирает
-	// office — он же их и объявляет, поэтому раньше него парсить нечего.
-	o, err := office(fs, args[1:], out)
+	// newOffices — он же их и объявляет, поэтому раньше него парсить нечего.
+	all, err := newOffices(fs, args[1:], out)
 	if err != nil {
 		return err
 	}
-	entries, err := o.Workspaces.List()
+	return removeWorktree(all, key, *force, time.Now(), out)
+}
+
+// removeWorktree — само удаление, отдельно от сборки офисов ради теста.
+//
+// Папка знает свой проект, проект — трекер, трекер — офис: про аренду
+// спрашивается тот трекер, в котором задача живёт, а не первый попавшийся.
+func removeWorktree(all *offices, key string, force bool, now time.Time, out io.Writer) error {
+	entries, err := all.workspaces.List()
 	if err != nil {
 		return err
 	}
@@ -108,14 +116,18 @@ func worktreeRemove(args []string, out io.Writer) error {
 			continue
 		}
 
-		task, err := o.Tracker.Get(key)
+		no, err := all.byProject(entry.Project)
+		if err != nil {
+			return err
+		}
+		task, err := no.Tracker.Get(key)
 		if err != nil && !errors.Is(err, tracker.ErrNotFound) {
 			return err
 		}
-		if err := removable(entry, task, time.Now(), *force); err != nil {
+		if err := removable(entry, task, now, force); err != nil {
 			return err
 		}
-		if err := o.Workspaces.Remove(entry.Workspace); err != nil {
+		if err := all.workspaces.Remove(entry.Workspace); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "%s: рабочая папка удалена, ветка %s осталась в клоне\n", key, entry.Branch)

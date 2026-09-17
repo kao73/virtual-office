@@ -27,7 +27,7 @@ const usage = `runner — обвязка вокруг агента
   runner worktree <ls|rm> …     рабочие папки задач: что лежит и как убрать
   runner mock <add|ls|show|comment> …   файловый трекер для ручных сценариев
 
-Общие флаги: --tracker (mock или jira), --backend (sbx или local).
+Общий флаг: --backend (sbx или local). Трекеры берутся из проектов: по офису на каждый.
 Хозяйство раннера — ${OFFICE_HOME:-~/.office}.`
 
 // Коды возврата те же, что у run-agent: 0 — цикл прошёл, в том числе когда
