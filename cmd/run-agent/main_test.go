@@ -333,6 +333,51 @@ func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 	}
 }
 
+// tracker.RefuseLeftoverOfficeFile покрыт собственным юнит-тестом
+// (internal/tracker), но до этого теста ничто не проверяло сам вызов внутри
+// execute() (main.go, под --project) — рефакторинг мог бы его потерять
+// незамеченным. configRoot здесь свой, не repoRoot(t): стрелять
+// projects.yaml в настоящий репозиторий нельзя, а --project требует роль,
+// так что configRoot собран тем же приёмом, что и в
+// TestRunAgentWarnsThatLocalIgnoresNetworkPolicy — синтетическая роль
+// без roles/_base (LoadRole ждёт его как опцию, не как обязанность).
+func TestDryRunProjectFlagRefusesLeftoverProjectsYAML(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	configRoot := gitRepo(t)
+	roleDir := filepath.Join(configRoot, "roles", "test-role")
+	if err := os.MkdirAll(roleDir, 0o755); err != nil {
+		t.Fatalf("каталог роли не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(roleDir, "role.md"), []byte("# Тестовая роль\n"), 0o644); err != nil {
+		t.Fatalf("промпт не написан: %v", err)
+	}
+	roleYAML := "name: test-role\nprompt: role.md\nincludes: []\nskills: []\ntools:\n  allow: [Read]\n" +
+		"limits: { max_turns: 10, timeout_sec: 300 }\nresult_file: .agent/result.json\n"
+	if err := os.WriteFile(filepath.Join(roleDir, "role.yaml"), []byte(roleYAML), 0o644); err != nil {
+		t.Fatalf("role.yaml не написан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "projects.local.yaml"), []byte(
+		"OFFICE:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n"), 0o644); err != nil {
+		t.Fatalf("projects.local.yaml не записан: %v", err)
+	}
+	env := []string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
+
+	code, out := runAgent(t, bin, env, "--role", "test-role", "--workdir", workdir, "--task", taskFile(t), "--project", "OFFICE", "--dry-run")
+	if code != 2 {
+		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+	}
+	for _, want := range []string{"projects.local.yaml", "roles/_base/base.yaml"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("отказ не назвал %q: %s", want, out)
+		}
+	}
+}
+
 func taskFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "task.md")

@@ -212,3 +212,34 @@ func TestOfficesRejectTrackerFlag(t *testing.T) {
 		t.Errorf("конфигурация прочитана до разбора флагов:\n%s", out.String())
 	}
 }
+
+// tracker.RefuseLeftoverOfficeFile покрыт собственным юнит-тестом
+// (internal/tracker), но до этого теста ничто не проверяло сам вызов
+// внутри newOffices (office.go, сразу после runner.Home()) — рефакторинг
+// мог бы его потерять, и ни один тест этого не заметил бы. Отказ
+// проверяется до печати строки о workflow.yaml (sources.office) — то есть
+// guard стоит раньше первого чтения самой конфигурации, а не где-то
+// посреди сборки офисов.
+func TestNewOfficesRefusesLeftoverProjectsYAML(t *testing.T) {
+	root, _ := fixtureRunner(t, mockProject)
+	if err := os.WriteFile(filepath.Join(root, tracker.OfficeProjectsFile), []byte("OFF: {}\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	var out bytes.Buffer
+
+	all, err := newOffices(flags("tick"), nil, &out)
+	if err == nil {
+		t.Fatal("оставшийся projects.yaml пропущен молча")
+	}
+	for _, want := range []string{tracker.ProjectsLocalFile, "roles/_base/base.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не назвал %q: %v", want, err)
+		}
+	}
+	if all != nil {
+		t.Error("при отказе guard'а офисы всё равно собраны")
+	}
+	if strings.Contains(out.String(), "workflow.yaml") {
+		t.Errorf("guard сработал после того, как конфигурация уже читалась:\n%s", out.String())
+	}
+}

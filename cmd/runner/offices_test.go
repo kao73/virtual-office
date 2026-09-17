@@ -215,6 +215,65 @@ func TestCycleStopsBeforeNextOfficeOnCancel(t *testing.T) {
 	}
 }
 
+// stepRecorder оборачивает трекер одного офиса и пишет в общий срез метку первого
+// же вызова, который опознаёт шаг cycle: ListExpired бывает только у Reap,
+// ListReady — только внутри Tick (HumanReplies, claim, PRPass), List — у
+// CompleteSplits (и лениво у claim(), когда у кандидата есть depends_on — но
+// в задаче этого теста зависимостей нет, а очередь reviewer'а пуста, так что
+// в этом прогоне List зовёт только CompleteSplits).
+type stepRecorder struct {
+	tracker.Tracker
+	calls *[]string
+}
+
+func (s stepRecorder) ListExpired(project string, now time.Time) ([]tracker.TaskRef, error) {
+	*s.calls = append(*s.calls, "reap")
+	return s.Tracker.ListExpired(project, now)
+}
+
+func (s stepRecorder) ListReady(project, status string) ([]tracker.TaskRef, error) {
+	*s.calls = append(*s.calls, "tick")
+	return s.Tracker.ListReady(project, status)
+}
+
+func (s stepRecorder) List(project string, statuses []string) ([]tracker.TaskRef, error) {
+	*s.calls = append(*s.calls, "complete-splits")
+	return s.Tracker.List(project, statuses)
+}
+
+// Порядок шагов внутри одного захода — reap → tick → complete-splits — нагружен
+// смыслом (см. доккомент cycle): tick первым разбирает ответы человека, и реплика,
+// пришедшая между заходами, обязана увести задачу из Blocked раньше, чем до неё
+// доберётся CompleteSplits. Раньше этот порядок пинил в internal/pipeline
+// TestLoopProcessesHumanReplyBeforeCompletingSplits, гоняя pipeline.Office.Loop
+// целиком; коммит 3116974 этой ветки убрал Loop и tickOnce вместе с тем тестом —
+// теперь драйвер живёт в cmd/runner (offices.go, cycle), и без этого теста тихая
+// перестановка — например, CompleteSplits перед tick — не уронила бы ни одного
+// теста, хотя вернула бы ту же гонку с ответом человека.
+func TestCycleOrderIsReapThenTickThenCompleteSplits(t *testing.T) {
+	var out bytes.Buffer
+	all, a, _ := twoOffices(t, &out)
+	expiredTask(t, a, "VO-1", "VO")
+	var calls []string
+	all.list[0].Tracker = stepRecorder{Tracker: a, calls: &calls}
+
+	all.cycle(context.Background(), "reviewer")
+
+	first := func(step string) int {
+		for i, c := range calls {
+			if c == step {
+				return i
+			}
+		}
+		t.Fatalf("шаг %q не наблюдался среди вызовов: %v", step, calls)
+		return -1
+	}
+	reap, tick, splits := first("reap"), first("tick"), first("complete-splits")
+	if !(reap < tick && tick < splits) {
+		t.Errorf("порядок шагов %v, ожидался reap → tick → complete-splits", calls)
+	}
+}
+
 // loop с уже отменённым контекстом не ждёт таймера и говорит, почему встал.
 func TestLoopStopsOnSignalWithoutWaiting(t *testing.T) {
 	var out bytes.Buffer
