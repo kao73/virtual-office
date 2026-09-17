@@ -885,9 +885,10 @@ func TestTickMaterializesHumanAttachmentsButNotSplitJSON(t *testing.T) {
 	}
 }
 
-// Роль, дошедшая до агента, обязана нести уже смёрженные с проектом
-// network/tools — слияние происходит после claim(), не сразу при загрузке
-// роли, потому что до захвата задачи проект не известен.
+// Роль, дошедшая до агента, обязана нести все слои правил разом: базовый
+// (roles/_base/base.yaml, его кладёт LoadRole) и машинный с проектным —
+// их слияние происходит после claim(), не сразу при загрузке роли, потому
+// что до захвата задачи проект не известен.
 func TestTickMergesProjectRulesBeforeAgentRun(t *testing.T) {
 	o := newOffice(t)
 	proj := o.Office.Projects["OFF"]
@@ -905,6 +906,10 @@ func TestTickMergesProjectRulesBeforeAgentRun(t *testing.T) {
 	got := o.agent.seen.Role
 	if !slices.Contains(got.Network.Allow, "project.test") {
 		t.Errorf("network.allow агента %v не содержит project.test", got.Network.Allow)
+	}
+	// Хост базового слоя поставки: корень конфигурации у офиса — репозиторий.
+	if !slices.Contains(got.Network.Allow, "registry-1.docker.io") {
+		t.Errorf("network.allow агента %v не содержит базовый registry-1.docker.io", got.Network.Allow)
 	}
 	if !slices.Contains(got.Tools.Allow, "Bash(project-tool)") {
 		t.Errorf("tools.allow агента %v не содержит Bash(project-tool)", got.Tools.Allow)

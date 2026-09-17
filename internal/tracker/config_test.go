@@ -476,7 +476,9 @@ func TestLoadProjectsRejectsIncomplete(t *testing.T) {
 	cases := []struct {
 		name, machine, want string
 	}{
-		{"неизвестное поле", strings.Replace(validMachine, "repo_url:", "repo:", 1), "repo"},
+		// Ключ подобран так, чтобы не быть подстрокой перечня известных
+		// в хвосте сообщения: проверяется, что отказ назвал сам ключ.
+		{"неизвестное поле", validMachine + "  colour: red\n", "colour"},
 		{"нет репозитория", strings.Replace(validMachine, "  repo_url: https://example.test/office.git\n", "", 1), "repo_url"},
 		{"нет ветки по умолчанию", strings.Replace(validMachine, "  default_branch: master\n", "", 1), "default_branch"},
 		{"относительный worktree_root", validMachine + "  worktree_root: ../рядом\n", "worktree_root"},
@@ -630,7 +632,7 @@ func TestLoadProjectsAllowsEmptyDefaults(t *testing.T) {
 // Машинный слой достаётся каждому проекту; специфика одного проекта другому
 // не видна; проект без единого правила остаётся без правил.
 func TestLoadProjectsLayersDefaultsAndProjectRules(t *testing.T) {
-	machine := "defaults:\n  network: [common.test]\n  tools:\n    deny: [\"Bash(git *push*)\"]\n" +
+	machine := "defaults:\n  network: [common.test]\n  tools:\n    allow: [\"Bash(common-tool)\"]\n    deny: [\"Bash(git *push*)\"]\n" +
 		validMachine +
 		"VO:\n  repo_url: https://example.test/vo.git\n  tracker: mock\n  default_branch: main\n  network: [vo-only.test]\n"
 	projects, err := load(t, machine)
@@ -647,6 +649,9 @@ func TestLoadProjectsLayersDefaultsAndProjectRules(t *testing.T) {
 	}
 	if !slices.Equal(vo.Tools.Deny, []string{"Bash(git *push*)"}) {
 		t.Errorf("VO.tools.deny = %v, defaults не доехал", vo.Tools.Deny)
+	}
+	if !slices.Equal(vo.Tools.Allow, []string{"Bash(common-tool)"}) {
+		t.Errorf("VO.tools.allow = %v, defaults.tools.allow не доехал", vo.Tools.Allow)
 	}
 
 	bare, err := load(t, validMachine)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,10 @@ import (
 // по проекту на каждый; имена «jira» и «mock» — метки обхода, под обоими
 // лежит mock. Граф — поставляемый, корень конфигурации — репозиторий:
 // cycle зовёт настоящие Reap/Tick/CompleteSplits, а им нужны роли и статусы.
+//
+// Хозяйство рабочих папок одно на оба офиса, как на машине: уборка
+// PR-прохода перечисляет папки всей машины, и только общее хозяйство
+// покажет, не снесёт ли один офис папку другого.
 func twoOffices(t *testing.T, out *bytes.Buffer) (*offices, *mock.Tracker, *mock.Tracker) {
 	t.Helper()
 	root := filepath.Join("..", "..")
@@ -26,15 +31,13 @@ func twoOffices(t *testing.T, out *bytes.Buffer) (*offices, *mock.Tracker, *mock
 	if err != nil {
 		t.Fatalf("граф не загружен: %v", err)
 	}
+	ws := workspace.New(t.TempDir())
 	office := func(name, project string) (namedOffice, *mock.Tracker) {
 		tr := mock.New(t.TempDir())
 		return namedOffice{name: name, Office: &pipeline.Office{
-			Tracker:  tr,
-			Trackers: map[string]tracker.Tracker{},
-			// Tick гонит PR-проход, а тот уборкой перечисляет рабочие папки
-			// машины: хозяйство нужно хотя бы пустое — на nil упало бы раньше,
-			// чем дело дошло до очереди.
-			Workspaces: workspace.New(t.TempDir()),
+			Tracker:    tr,
+			Trackers:   map[string]tracker.Tracker{},
+			Workspaces: ws,
 			Workflow:   wf,
 			Projects: tracker.Projects{project: {
 				Tracker: name, DefaultBranch: "master", BranchPrefix: "agent/",
@@ -45,7 +48,7 @@ func twoOffices(t *testing.T, out *bytes.Buffer) (*offices, *mock.Tracker, *mock
 	}
 	jira, a := office("jira", "VO")
 	local, b := office("mock", "OFF")
-	return &offices{list: []namedOffice{jira, local}, out: out}, a, b
+	return &offices{list: []namedOffice{jira, local}, workspaces: ws, out: out}, a, b
 }
 
 // expiredTask заводит задачу с истёкшей арендой: единственное, что Reap
@@ -286,5 +289,105 @@ func TestLoopStopsOnSignalWithoutWaiting(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "остановка по сигналу") {
 		t.Errorf("о причине остановки не сказано:\n%s", out.String())
+	}
+}
+
+// loop — это cycle по расписанию, и тест обязан увидеть сам cycle: заход
+// с уже отменённым контекстом (тест выше) не посещает ни одного офиса,
+// и loop, забывший позвать cycle, прошёл бы его. Здесь контекст отменяется
+// изнутри первого же reap — как сигнал, пришедший во время захода: задача
+// возвращена в очередь (cycle дошёл), а loop вернулся, не дожидаясь таймера
+// в час.
+func TestLoopDrivesCycleAndStopsOnSignal(t *testing.T) {
+	var out bytes.Buffer
+	all, a, _ := twoOffices(t, &out)
+	expiredTask(t, a, "VO-1", "VO")
+	// Срок — страховка, а не механизм: loop, не дошедший до cycle, никогда
+	// не отменил бы контекст сам и ждал бы таймер в час; со сроком он вернётся
+	// и провалит проверку статуса, а не повесит пакет тестов.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	all.list[0].Tracker = cancelOnExpired{Tracker: a, cancel: cancel}
+
+	if err := all.loop(ctx, time.Hour, "reviewer"); err != nil {
+		t.Fatalf("цикл вернул ошибку: %v", err)
+	}
+	if got := status(t, a, "VO-1"); got != "Ready" {
+		t.Errorf("VO-1 в %q, ожидался Ready: loop не довёл заход до cycle", got)
+	}
+	if !strings.Contains(out.String(), "остановка по сигналу") {
+		t.Errorf("о причине остановки не сказано:\n%s", out.String())
+	}
+}
+
+// failingExpired — трекер, у которого reap падает: так выглядит офис,
+// чей трекер отвечает ошибкой посреди захода.
+type failingExpired struct{ tracker.Tracker }
+
+func (failingExpired) ListExpired(string, time.Time) ([]tracker.TaskRef, error) {
+	return nil, errors.New("трекер недоступен")
+}
+
+// Ошибка шага одного офиса — строка в логе с именем шага, а не смерть
+// захода: второй офис своё получает. «Продолжить» без «сказать» было бы
+// тихим отказом: планировщик крутил бы заходы, а в логе — пусто.
+func TestCycleLogsStepErrorsAndContinues(t *testing.T) {
+	var out bytes.Buffer
+	all, a, b := twoOffices(t, &out)
+	expiredTask(t, b, "OFF-1", "OFF")
+	all.list[0].Tracker = failingExpired{Tracker: a}
+
+	all.cycle(context.Background(), "reviewer")
+
+	if !strings.Contains(out.String(), "reap: ") || !strings.Contains(out.String(), "трекер недоступен") {
+		t.Errorf("об ошибке reap не сказано:\n%s", out.String())
+	}
+	if got := status(t, b, "OFF-1"); got != "Ready" {
+		t.Errorf("OFF-1 в %q, ожидался Ready: второй офис не дождался своего reap", got)
+	}
+}
+
+// getRecorder запоминает, о каких задачах офис спрашивал трекер.
+type getRecorder struct {
+	tracker.Tracker
+	asked *[]string
+}
+
+func (g getRecorder) Get(key string) (tracker.Task, error) {
+	*g.asked = append(*g.asked, key)
+	return g.Tracker.Get(key)
+}
+
+// Рабочие папки — хозяйство машины, и уборка каждого офиса видит их все.
+// Закончённую задачу jira убирает офис jira тем же заходом; офис mock,
+// стоящий первым, о чужой задаче даже не спрашивает свой трекер — иначе
+// ответ «нет такой задачи» из чужого трекера решал бы судьбу чужой папки.
+func TestCycleSweepsFolderOnlyInOwningOffice(t *testing.T) {
+	var out bytes.Buffer
+	all, a, b := twoOffices(t, &out)
+	all.list[0], all.list[1] = all.list[1], all.list[0] // mock первым, jira вторым
+	project := tracker.Project{RepoURL: bareOrigin(t), DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "jira"}
+	ws, err := all.workspaces.Ensure(tracker.TaskRef{Key: "VO-1", Project: "VO"}, project)
+	if err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+	// Ensure держит барьер до конца прогона; прогон кончился — папка свободна,
+	// иначе уборка молча обошла бы её как занятую.
+	if err := ws.Unlock(); err != nil {
+		t.Fatalf("барьер не снят: %v", err)
+	}
+	if err := a.Add(tracker.Task{Key: "VO-1", Project: "VO", Status: "Done", Summary: "закрыта"}); err != nil {
+		t.Fatalf("задача не создана: %v", err)
+	}
+	var asked []string
+	all.list[0].Tracker = getRecorder{Tracker: b, asked: &asked}
+
+	all.cycle(context.Background(), "reviewer")
+
+	if entries, _ := all.workspaces.List(); len(entries) != 0 {
+		t.Errorf("папка закрытой задачи осталась: %+v\n%s", entries, out.String())
+	}
+	if slices.Contains(asked, "VO-1") {
+		t.Errorf("офис mock спрашивал свой трекер о чужой задаче VO-1: %v", asked)
 	}
 }

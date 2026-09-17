@@ -162,3 +162,36 @@ func TestRemoveWorktreeAsksTheOfficeOwningTheProject(t *testing.T) {
 		t.Errorf("об удалении не сказано:\n%s", out.String())
 	}
 }
+
+// Папка проекта, которого в projects.local.yaml больше нет, не убирается
+// и с --force: некому спросить трекер об аренде, а «снести вслепую» —
+// не то, что обещает флаг (он перекрывает грязь и аренду, не отсутствие
+// проекта). Решение владельца 2026-09-17; отказ называет файл проектов,
+// чтобы человек вернул запись или убрал папку руками.
+func TestRemoveWorktreeRefusesProjectGoneFromConfigEvenWithForce(t *testing.T) {
+	origin := bareOrigin(t)
+	ws := workspace.New(t.TempDir())
+	project := tracker.Project{RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "jira"}
+	if _, err := ws.Ensure(tracker.TaskRef{Key: "VO-1", Project: "VO"}, project); err != nil {
+		t.Fatalf("рабочая папка не создана: %v", err)
+	}
+
+	var out bytes.Buffer
+	all := &offices{
+		list: []namedOffice{
+			{name: "mock", Office: &pipeline.Office{Tracker: mock.New(t.TempDir()), Projects: tracker.Projects{"OFF": {Tracker: "mock"}}}},
+		},
+		workspaces: ws,
+		out:        &out,
+	}
+	err := removeWorktree(all, "VO-1", true, moment, &out)
+	if err == nil {
+		t.Fatal("папка проекта, пропавшего из конфигурации, удалена по --force")
+	}
+	if !strings.Contains(err.Error(), tracker.ProjectsLocalFile) {
+		t.Errorf("отказ не назвал файл проектов: %v", err)
+	}
+	if entries, _ := ws.List(); len(entries) != 1 {
+		t.Errorf("папка не должна была исчезнуть: %+v", entries)
+	}
+}
