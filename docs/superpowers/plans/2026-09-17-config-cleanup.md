@@ -616,7 +616,7 @@ Corresponds to `tasks.md` §2 (2.1–2.4).
 
 The spec scenario "An unknown key in a project entry is refused" wants the refusal to name **the project, the key, and the file**. yaml.v3's strict decoder names only the field and a line number. So the loose pre-pass (already needed for `defaults`) checks every entry against an allow-list: `defaults` → `{network, tools}`; a project → the nine contract keys. The strict decode remains as the second line (types). `projectKeys` must mirror `machineProject`'s tags — a test loads an entry with every key set, so a forgotten entry in the list fails loudly.
 
-- [ ] **Step 1: Replace the LoadProjects test section in `internal/tracker/config_test.go` (tasks.md 2.1, 2.2, 2.3)**
+- [x] **Step 1: Replace the LoadProjects test section in `internal/tracker/config_test.go` (tasks.md 2.1, 2.2, 2.3)**
 
 Delete these from `config_test.go`: the `projects.yaml` part of `TestShippedConfigIsValid` (lines 32–48: from the comment "Машинную половину репозиторий не хранит" to the closing `}` of `if len(office) == 0`; keep the workflow part), the `validOffice`/`validMachine` const block, `loadHalves`, `TestLoadProjects`, `TestLoadProjectsRejectsIncomplete`, `TestLoadProjectsRejectsMachineKeysInOfficeFile`, `TestLoadProjectsRequiresBothHalves`, `TestLoadProjectsExplainsEmptyMachineHalf`, `TestLoadProjectsRejectsEmptyOffice`, `TestOfficeProjectAcceptsInlineNetworkAndTools`, `TestLoadProjectsAllowsDefaultsInEitherOrBothFiles`, `TestLoadProjectsRejectsDefaultBranchUnderDefaultsKey`, `TestLoadProjectsRejectsRepoURLUnderDefaultsKeyInMachineFile`, `TestLoadProjectsDefaultsSkipsParityCheck`, `TestLoadProjectsProjectInheritsOnlyDefaults`, `TestLoadProjectsProjectSpecificsAreIsolated`, `TestLoadProjectsWithoutDefaultsAtAllIsUnaffected`, `TestLoadProjectsCarriesAutoMerge`, `TestShippedDefaultsCarrySevenCommonDenyRules`, `TestShippedDefaultsCarryDangerousCommandDenyRules`. Keep `TestProjectsFor` and `TestPRBranch` as they are.
 
@@ -877,7 +877,7 @@ Also in `internal/tracker/boundary_test.go`, delete the line `filepath.Join(root
 Run: `go vet ./internal/tracker/`
 Expected: compile errors — `LoadProjects` still takes two arguments, `OfficeProjectsFile`, `TrackersInUse`, `RefuseLeftoverOfficeFile` undefined.
 
-- [ ] **Step 2: Rewrite the loader in `internal/tracker/config.go`**
+- [x] **Step 2: Rewrite the loader in `internal/tracker/config.go`**
 
 Replace the file-constants block (lines 19–35) with:
 
@@ -1131,7 +1131,7 @@ func RefuseLeftoverOfficeFile(configRoot string) error {
 
 `decodeLoose` and `decodeStrict` stay as they are.
 
-- [ ] **Step 3: Update the call sites minimally so everything compiles**
+- [x] **Step 3: Update the call sites minimally so everything compiles**
 
 `cmd/runner/office.go` lines 107–113: replace
 
@@ -1179,7 +1179,7 @@ and the second test's file body with `"OFFICE:\n  repo_url: https://example.test
 Run: `gofmt -l . ; go build ./... && go vet ./... && go test ./internal/tracker/ ./cmd/... -run 'TestLoadProjects|TestTrackersInUse|TestRefuseLeftover|TestRepoCarries|TestDryRun|TestShippedConfigIsValid' -v`
 Expected: no gofmt output; all PASS. Note `TestShippedConfigIsValid` no longer touches `projects.yaml` (it still exists in the tree until Task 5.1; nothing reads it now).
 
-- [ ] **Step 4: Full test run and commit**
+- [x] **Step 4: Full test run and commit**
 
 Run: `go test ./...`
 Expected: green.

@@ -6,10 +6,10 @@
 
 ## 2. Loader: projects live on the machine only (config-boundary D1–D3)
 
-- [ ] 2.1 `LoadProjects(machinePath)`: single file; `machineProject` gains `default_branch` (required) and `branch_prefix` (default `agent/`); `Project` built from it alone; drop `ProjectsFile`, `officeProject`, `checkOfficeHalf`, the pairing checks; zero projects refused (`internal/tracker/config.go`, `config_test.go`)
-- [ ] 2.2 One allow-list guard for `defaults` (`network`, `tools`); `auto_merge`, `default_branch`, `branch_prefix` under it refused by name
-- [ ] 2.3 Leftover `projects.yaml` under the configuration root is refused with a pointer to `projects.local.yaml` and `roles/_base/base.yaml` (checked where projects are loaded)
-- [ ] 2.4 Messages that named `projects.yaml` (`Projects.Get`, `SkipUnknownProject`, `board.go`) now name `projects.local.yaml`; every test that builds `Projects` by hand (`pipeline_test.go`, `prpass_test.go`, `board_test.go`, `jira/jira_test.go`, `cmd/run-agent/main_test.go`) follows the new constructor; `go test ./...` green
+- [x] 2.1 `LoadProjects(machinePath)`: single file; `machineProject` gains `default_branch` (required) and `branch_prefix` (default `agent/`); `Project` built from it alone; drop `ProjectsFile`, `officeProject`, `checkOfficeHalf`, the pairing checks; zero projects refused (`internal/tracker/config.go`, `config_test.go`)
+- [x] 2.2 One allow-list guard for `defaults` (`network`, `tools`); `auto_merge`, `default_branch`, `branch_prefix` under it refused by name
+- [x] 2.3 Leftover `projects.yaml` under the configuration root is refused with a pointer to `projects.local.yaml` and `roles/_base/base.yaml` (checked where projects are loaded)
+- [x] 2.4 Messages that named `projects.yaml` (`Projects.Get`, `SkipUnknownProject`, `board.go`) now name `projects.local.yaml`; every test that builds `Projects` by hand (`pipeline_test.go`, `prpass_test.go`, `board_test.go`, `jira/jira_test.go`, `cmd/run-agent/main_test.go`) follows the new constructor; `go test ./...` green
 
 ## 3. Runner: one office per tracker (runner-multi-tracker D4–D6)
 
