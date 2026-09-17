@@ -1,6 +1,6 @@
 workflow: hotfix
 language: en
-phase: build
+phase: archive
 context_compression: off
 build_mode: direct
 build_pause: null
@@ -13,13 +13,13 @@ auto_transition: true
 base_ref: f9c3c82450c8f1691a83b00fccf28171d72244f0
 design_doc: null
 plan: null
-verify_result: pending
+verify_result: pass
 verify_failures: 0
-verification_report: null
+verification_report: docs/superpowers/reports/2026-09-17-fix-lease-tests-verify.md
 branch_status: pending
 created_at: 2026-09-17
-verified_at: null
-archive_confirmation: null
+verified_at: 2026-09-17
+archive_confirmation: pending
 archived: false
 bound_branch: comet/config-cleanup
 direct_override: null
