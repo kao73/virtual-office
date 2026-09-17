@@ -1235,7 +1235,7 @@ Design deviation, documented: the `offices` type carries the shared `*workspace.
 
 Error prefixing: `each` wraps every office error as `<name>: <err>` regardless of how many offices there are (the Design Doc: "по строке на офис с его именем в префиксе"). Only **stdout** is byte-identical with one office (no `== трекер … ==` header); the error text on stderr gains the prefix.
 
-- [ ] **Step 1: Write the failing walker tests — `cmd/runner/offices_test.go` (tasks.md 3.2, 3.4)**
+- [x] **Step 1: Write the failing walker tests — `cmd/runner/offices_test.go` (tasks.md 3.2, 3.4)**
 
 ```go
 package main
@@ -1469,7 +1469,7 @@ func TestLoopStopsOnSignalWithoutWaiting(t *testing.T) {
 Run: `go vet ./cmd/runner/`
 Expected: compile errors — `namedOffice`, `offices` undefined.
 
-- [ ] **Step 2: Implement `cmd/runner/offices.go`**
+- [x] **Step 2: Implement `cmd/runner/offices.go`**
 
 ```go
 package main
@@ -1599,7 +1599,7 @@ func tick(ctx context.Context, no namedOffice, role string) error {
 Run: `gofmt -l ./cmd/runner; go test ./cmd/runner/ -run 'TestEach|TestByProject|TestCycle|TestLoop' -v`
 Expected: no gofmt output; PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add cmd/runner/offices.go cmd/runner/offices_test.go
@@ -1618,7 +1618,7 @@ MSG
 )"
 ```
 
-- [ ] **Step 4: Write the failing constructor tests in `cmd/runner/office_test.go` (tasks.md 3.1, 3.7)**
+- [x] **Step 4: Write the failing constructor tests in `cmd/runner/office_test.go` (tasks.md 3.1, 3.7)**
 
 Replace the comment sentence in `TestConfigSourcesPrintImmediately` that says `тогда строка про tracker.yaml выйдет и под --tracker mock, где файл не открывается` with `тогда строка про tracker.yaml выйдет и на машине без единого jira-проекта, где файл не открывается`. Then append (add imports `bytes`, `net/http`, `net/http/httptest`, `os`, `os/exec`, `io`, and `github.com/kao73/virtual-office/internal/tracker`):
 
@@ -1789,7 +1789,7 @@ func TestOfficesRejectTrackerFlag(t *testing.T) {
 Add `"fmt"` to the test imports as well. Run: `go vet ./cmd/runner/`
 Expected: compile error — `offices` is a type, not a function yet (`offices(flags(...))` undefined).
 
-- [ ] **Step 5: Replace `office()` with `offices()` and rewire the commands (tasks.md 3.1, 3.3, 3.4)**
+- [x] **Step 5: Replace `office()` with `offices()` and rewire the commands (tasks.md 3.1, 3.3, 3.4)**
 
 In `cmd/runner/office.go`, replace `office()` (the doc comment and the function, lines 25–168) with:
 
@@ -2033,7 +2033,7 @@ Update the `configSources` doc comment (line 280): `Конфигурация л�
 
 In `cmd/runner/main.go` line 30: `Общие флаги: --tracker (mock или jira), --backend (sbx или local).` → `Общий флаг: --backend (sbx или local). Трекеры берутся из проектов: по офису на каждый.`
 
-- [ ] **Step 6: `ls` — configuration once, boards per tracker, `--project` via `byProject` (tasks.md 3.5)**
+- [x] **Step 6: `ls` — configuration once, boards per tracker, `--project` via `byProject` (tasks.md 3.5)**
 
 First the failing tests. Append to `cmd/runner/board_test.go` (add imports `context`? no — `printBoards` takes no ctx; add `"github.com/kao73/virtual-office/internal/pipeline"`):
 
@@ -2141,7 +2141,7 @@ func printBoards(all *offices, project string, now time.Time, out io.Writer) err
 Run: `go test ./cmd/runner/ -run TestBoards -v`
 Expected: PASS.
 
-- [ ] **Step 7: `worktree rm` — office via `byProject(entry.Project)` (tasks.md 3.6)**
+- [x] **Step 7: `worktree rm` — office via `byProject(entry.Project)` (tasks.md 3.6)**
 
 Failing test first. Append to `cmd/runner/worktree_test.go` (add imports `bytes`, `os`, `os/exec`, `path/filepath`, `github.com/kao73/virtual-office/internal/pipeline`, `github.com/kao73/virtual-office/internal/tracker/mock`):
 
@@ -2281,7 +2281,7 @@ func removeWorktree(all *offices, key string, force bool, now time.Time, out io.
 Run: `gofmt -l ./cmd/runner; go vet ./cmd/runner/ && go test ./cmd/runner/ -v`
 Expected: no gofmt output; everything in `cmd/runner` PASS, including the five `TestOffices*` tests from Step 4.
 
-- [ ] **Step 8: Commit the runner restructure**
+- [x] **Step 8: Commit the runner restructure**
 
 Run: `go build ./... && go vet ./... && go test ./...`
 Expected: green. (`pipeline.Office.Loop` still exists and its two tests still pass; deleting it is the next step.)
@@ -2306,7 +2306,7 @@ MSG
 )"
 ```
 
-- [ ] **Step 9: Delete `pipeline.Office.Loop` and `tickOnce`; adjust the two tests (tasks.md 3.4)**
+- [x] **Step 9: Delete `pipeline.Office.Loop` and `tickOnce`; adjust the two tests (tasks.md 3.4)**
 
 In `internal/pipeline/pipeline_test.go`, add a helper next to `tickAll` (around line 210):
 
@@ -2350,7 +2350,7 @@ In `internal/pipeline/pipeline.go` delete `Loop` with its doc comment and `tickO
 Run: `gofmt -l ./internal/pipeline; go vet ./internal/pipeline/ && go test ./internal/pipeline/ -run 'TestCycle' -v && go test ./...`
 Expected: no gofmt output; PASS; full suite green.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add internal/pipeline/pipeline.go internal/pipeline/pipeline_test.go

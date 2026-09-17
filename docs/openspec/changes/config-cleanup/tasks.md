@@ -13,13 +13,13 @@
 
 ## 3. Runner: one office per tracker (runner-multi-tracker D4–D6)
 
-- [ ] 3.1 Remove `--tracker`; `office()` → `offices()` with load order workflow → projects → trackers in use → forges → shared resources; `namedOffice` wrapper; `tracker.yaml` opened and listed only when `jira` is in use (`cmd/runner/office.go`)
-- [ ] 3.2 `offices` type: `each` (header only when >1, `errors.Join`), `byProject`; unit tests over two mock trackers in temp dirs (`cmd/runner/offices.go`, `offices_test.go`)
-- [ ] 3.3 `tick`, `reap`, `complete-splits` use `each`; `tick --role` prints "работы нет" per office
-- [ ] 3.4 `loop`: driver moves from `pipeline.Office.Loop` to `offices.loop` with a `ctx` check between offices; `Office.Loop`/`tickOnce` deleted; loop test updated
-- [ ] 3.5 `ls`: configuration sources once, then each tracker's board under its name; `--project` via `byProject` (`board.go`, `board_test.go`)
-- [ ] 3.6 `worktree rm KEY`: office via `byProject(entry.Project)` (`worktree.go`, `worktree_test.go`)
-- [ ] 3.7 `office_test.go`: mock-only machine needs no `tracker.yaml`; jira project without it is refused; rejected jira credentials refuse the whole command; `--tracker` is an unknown flag
+- [x] 3.1 Remove `--tracker`; `office()` → `offices()` with load order workflow → projects → trackers in use → forges → shared resources; `namedOffice` wrapper; `tracker.yaml` opened and listed only when `jira` is in use (`cmd/runner/office.go`)
+- [x] 3.2 `offices` type: `each` (header only when >1, `errors.Join`), `byProject`; unit tests over two mock trackers in temp dirs (`cmd/runner/offices.go`, `offices_test.go`)
+- [x] 3.3 `tick`, `reap`, `complete-splits` use `each`; `tick --role` prints "работы нет" per office
+- [x] 3.4 `loop`: driver moves from `pipeline.Office.Loop` to `offices.loop` with a `ctx` check between offices; `Office.Loop`/`tickOnce` deleted; loop test updated
+- [x] 3.5 `ls`: configuration sources once, then each tracker's board under its name; `--project` via `byProject` (`board.go`, `board_test.go`)
+- [x] 3.6 `worktree rm KEY`: office via `byProject(entry.Project)` (`worktree.go`, `worktree_test.go`)
+- [x] 3.7 `office_test.go`: mock-only machine needs no `tracker.yaml`; jira project without it is refused; rejected jira credentials refuse the whole command; `--tracker` is an unknown flag
 
 ## 4. Shipped example and setup script (config-boundary D7–D8)
 
