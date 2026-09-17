@@ -221,6 +221,20 @@ func (o *office) get(t *testing.T, key string) tracker.Task {
 	return task
 }
 
+// afterLease — момент, когда аренда задачи, записанная трекером, уже истекла:
+// LeaseUntil плюс минута. Считается от факта, а не от константы: «+2 часа»
+// протухли, когда implementer'у подняли timeout_sec (f90fd60) и аренда стала
+// 2ч05м — тесты «истёкшей аренды» заходили с ещё живой. Следующее повышение
+// таймаута или запаса графа эти тесты уже не сломает.
+func (o *office) afterLease(t *testing.T, key string) time.Time {
+	t.Helper()
+	task := o.get(t, key)
+	if task.LeaseUntil.IsZero() {
+		t.Fatalf("%s без аренды: истекать нечему, тест собран неверно", key)
+	}
+	return task.LeaseUntil.Add(time.Minute)
+}
+
 // tickAll прогоняет цикл по всем ролям, как это делает `runner tick` без --role.
 func (o *office) tickAll(t *testing.T) {
 	t.Helper()
@@ -2037,7 +2051,7 @@ func TestTickWithLostLeaseOnlyWarns(t *testing.T) {
 	stealAgent := o.Office.Agent.(*fakeAgent)
 	o.Office.Agent = agentFunc(func(ctx context.Context, req Request) (AgentRun, error) {
 		run, err := stealAgent.Run(ctx, req)
-		later := now.Add(2 * time.Hour) // аренда истекла, пока агент работал
+		later := o.afterLease(t, "OFF-1") // аренда истекла, пока агент работал
 		o.tasks.Now = func() time.Time { return later }
 		o.Office.Now = func() time.Time { return later }
 		if err := o.Reap(context.Background()); err != nil {
@@ -2092,7 +2106,7 @@ func TestReapReturnsExpiredTask(t *testing.T) {
 	}
 
 	// Аренда истекла, приходит reaper.
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	if err := o.Reap(context.Background()); err != nil {
@@ -2143,7 +2157,7 @@ func TestReapRemovesSandboxOfDeadRun(t *testing.T) {
 		t.Fatal("задача осталась без аренды: убирать станет нечего")
 	}
 
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	if err := o.Reap(context.Background()); err != nil {
@@ -2173,7 +2187,7 @@ func TestReapKeepsSandboxOfReclaimedTask(t *testing.T) {
 		t.Fatal("смерть раннера не замечена")
 	}
 
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 
@@ -2224,7 +2238,7 @@ func TestReapReturnsTaskWhenSandboxSurvives(t *testing.T) {
 		t.Fatal("смерть раннера не замечена")
 	}
 
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	if err := o.Reap(context.Background()); err != nil {
@@ -2292,7 +2306,7 @@ func TestReapCallsHumanAfterStreakOfDeaths(t *testing.T) {
 			t.Fatalf("смерть %d не замечена", death)
 		}
 
-		at = at.Add(2 * time.Hour) // аренда истекла
+		at = o.afterLease(t, "OFF-1") // аренда истекла
 		o.tasks.Now = func() time.Time { return at }
 		o.Office.Now = func() time.Time { return at }
 		if err := o.Reap(context.Background()); err != nil {
@@ -2337,7 +2351,7 @@ func TestReapStreakResetsAfterSuccessfulRun(t *testing.T) {
 		if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 			t.Fatal("смерть не замечена")
 		}
-		at = at.Add(2 * time.Hour)
+		at = o.afterLease(t, "OFF-1")
 		o.tasks.Now = func() time.Time { return at }
 		o.Office.Now = func() time.Time { return at }
 		if err := o.Reap(context.Background()); err != nil {
@@ -2385,7 +2399,7 @@ func TestReapDoesNotClaimRemovalOfAbsentSandbox(t *testing.T) {
 	if _, err := o.Tick(context.Background(), "implementer"); err == nil {
 		t.Fatal("смерть раннера не замечена")
 	}
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	if err := o.Reap(context.Background()); err != nil {
@@ -2955,7 +2969,7 @@ func TestReapSkipsProjectUnknownToTracker(t *testing.T) {
 	o.Office.Projects["AAA"] = tracker.Project{
 		RepoURL: o.origin, DefaultBranch: "master", BranchPrefix: "agent/",
 	}
-	later := now.Add(2 * time.Hour)
+	later := o.afterLease(t, "OFF-1")
 	o.tasks.Now = func() time.Time { return later }
 	o.Office.Now = func() time.Time { return later }
 	o.useTracker(unknownProject{Tracker: o.tasks, missing: "AAA"})
