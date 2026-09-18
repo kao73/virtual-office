@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 
 	payload "github.com/kao73/virtual-office"
@@ -28,6 +29,19 @@ const (
 	SourceClone   Source = "clone"   // OFFICE_CONFIG_ROOT: клон, ограждение собирает go build
 	SourcePayload Source = "payload" // поставка бинарника, распакованная под ${OFFICE_HOME}/office/
 )
+
+// DirtySuffix — пометка личности при незакоммиченных правках: в клоне по
+// git status, в поставке по vcs.modified. Единственное место, где она задана:
+// её сохраняет маркер при сокращении и ищет всё, что судит о чистоте.
+const DirtySuffix = "-dirty"
+
+// commitIdentity — 40-hex commit, возможно с DirtySuffix.
+var commitIdentity = regexp.MustCompile(`^[0-9a-f]{40}(` + DirtySuffix + `)?$`)
+
+// IsCommitIdentity — личность имеет форму commit'а (с -dirty или без). Только
+// такую маркер сокращает до восьми символов; версия релиза (v0.7.0) и любая
+// другая личность пишутся целиком.
+func IsCommitIdentity(identity string) bool { return commitIdentity.MatchString(identity) }
 
 // Office — где лежит офис и чем подписывать его прогоны.
 type Office struct {
@@ -172,5 +186,5 @@ func dirtyIdentity(identity, dir string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	return identity + "-dirty", dir + "-dirty-" + hash[:8], nil
+	return identity + DirtySuffix, dir + DirtySuffix + "-" + hash[:8], nil
 }

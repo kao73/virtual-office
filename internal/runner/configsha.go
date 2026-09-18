@@ -28,7 +28,7 @@ func ConfigSHA(repo string) (string, error) {
 		return "", fmt.Errorf("не прочитано состояние конфигурации в %s: %w", repo, err)
 	}
 	if strings.TrimSpace(string(status)) != "" {
-		sha += "-dirty"
+		sha += DirtySuffix
 	}
 	return sha, nil
 }

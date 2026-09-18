@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -360,8 +359,7 @@ func TestOfficesKeepVersionsSideBySide(t *testing.T) {
 // в корень до git init — файл остаётся неотслеживаемым, и git status
 // --porcelain видит его как правку: личность выходит грязной (см. Controller
 // ruling R1 в task-5-brief.md — len(ConfigSHA)==40 в исходном наброске
-// не выполняется никогда).
-var configSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}(-dirty)?$`)
+// не выполняется никогда); форму судит runner.IsCommitIdentity.
 
 // Обёртки bin/* задают OFFICE_CONFIG_ROOT, и тогда поставка не трогается:
 // ${OFFICE_HOME}/office/ не появляется, личность — commit клона.
@@ -377,7 +375,7 @@ func TestOfficesCloneModeUnpacksNothing(t *testing.T) {
 	if o.Source != runner.SourceClone {
 		t.Errorf("Source = %q, ожидался %q", o.Source, runner.SourceClone)
 	}
-	if !configSHAPattern.MatchString(o.Identity) {
+	if !runner.IsCommitIdentity(o.Identity) {
 		t.Errorf("Identity = %q, не похож на commit клона (с возможным -dirty)", o.Identity)
 	}
 	if _, err := os.Stat(filepath.Join(home, runner.OfficeDir)); !errors.Is(err, fs.ErrNotExist) {

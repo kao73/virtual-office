@@ -735,19 +735,16 @@ func shorten(s string) string {
 	return string(runes[:short])
 }
 
-// commitHash — 40-hex commit, возможно с -dirty: единственное, что в поле
-// config: маркер сокращает. Версия релиза (v0.7.0) и любая другая личность
-// пишутся целиком.
-var commitHash = regexp.MustCompile(`^[0-9a-f]{40}(-dirty)?$`)
-
 // shortenSHA режет commit до восьми символов, сохраняя пометку -dirty: без неё
 // маркер утверждал бы, что агенту достался коммит, которого агент не видел.
+// Что считается commit'ом, решает runner.IsCommitIdentity — там, где личность
+// и производится; версия релиза и любая другая личность пишутся целиком.
 func shortenSHA(identity string) string {
-	if !commitHash.MatchString(identity) {
+	if !runner.IsCommitIdentity(identity) {
 		return identity
 	}
-	if suffix := "-dirty"; strings.HasSuffix(identity, suffix) {
-		return shorten(strings.TrimSuffix(identity, suffix)) + suffix
+	if strings.HasSuffix(identity, runner.DirtySuffix) {
+		return shorten(strings.TrimSuffix(identity, runner.DirtySuffix)) + runner.DirtySuffix
 	}
 	return shorten(identity)
 }
