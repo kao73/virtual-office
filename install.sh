@@ -47,6 +47,12 @@ main() {
     *) die "платформа $os/$arch не поддерживается; есть сборки для: $supported" ;;
   esac
 
+  # Из каталога ставится то, что в нём лежит: явная версия рядом с
+  # OFFICE_INSTALL_FROM — противоречие, а не выбор.
+  if [ -n "${OFFICE_INSTALL_FROM:-}" ] && [ "$version" != latest ]; then
+    die "OFFICE_INSTALL_FROM=$OFFICE_INSTALL_FROM и версия $version заданы вместе: из каталога ставится то, что в нём есть"
+  fi
+
   archive="virtual-office_${os}_${arch}.tar.gz"
   sums="checksums.txt"
   tmp="$(mktemp -d)"
@@ -88,7 +94,9 @@ main() {
 
   # 6. Отчёт: что установлено (и что бинарник запускается), PATH, следующий шаг.
   echo "установлено в $bin:"
-  "$bin/runner" version || die "установленный runner не запускается"
+  # Без OFFICE_CONFIG_ROOT из профиля разработчика: доказывается установленный
+  # релиз, а не клон, на который указывает переменная.
+  OFFICE_CONFIG_ROOT= "$bin/runner" version || die "установленный runner не запускается"
   case ":$PATH:" in
     *":$bin:"*) echo "$bin уже в PATH" ;;
     *) echo "$bin не в PATH — добавьте в профиль оболочки:"; echo "  export PATH=\"$bin:\$PATH\"" ;;
