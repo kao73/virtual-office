@@ -2,6 +2,8 @@
 comet_change: install
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-18-install
+status: final
 ---
 
 # install — technical design
