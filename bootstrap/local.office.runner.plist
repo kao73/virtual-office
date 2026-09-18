@@ -12,7 +12,7 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/ВЛАДЕЛЕЦ/IdeaProjects/virtual-office/bin/runner</string>
+    <string>/Users/ВЛАДЕЛЕЦ/.office/bin/runner</string>
     <string>loop</string>
     <string>--role</string>
     <string>implementer</string>
