@@ -53,6 +53,11 @@ func initCommand(args []string, out io.Writer) error {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return fmt.Errorf("хозяйство раннера не создано: %w", err)
 	}
+	// Права явно: под строгим umask хозяйство вышло бы 0700, и в офис под ним
+	// не вошёл бы ни чужой uid песочницы, ни второй пользователь машины.
+	if err := os.Chmod(home, 0o755); err != nil {
+		return fmt.Errorf("права хозяйства раннера не выставлены: %w", err)
+	}
 	for _, s := range samples {
 		path := filepath.Join(home, s.example)
 		raw, err := fs.ReadFile(payload.Payload, s.example)

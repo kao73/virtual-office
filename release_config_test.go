@@ -86,7 +86,16 @@ func TestReleasePlatformsAgree(t *testing.T) {
 func TestGoReleaserPinsAgree(t *testing.T) {
 	// Ищем version: внутри блока goreleaser-action, а не первый в файле:
 	// setup-go и прочие шаги пишут своё version: и молча подменили бы предмет.
-	workflow := regexp.MustCompile(`goreleaser-action@[^\n]*\n(?:[^\n]*\n)??\s*version: (v[\d.]+)`).FindStringSubmatch(read(t, filepath.Join(".github", "workflows", "release.yml")))
+	// Внутри шага goreleaser-action может стоять сколько угодно строк
+	// (distribution:, install-only:, комментарий) — ищем ближайший version:
+	// после него, но не дальше начала следующего шага.
+	step := read(t, filepath.Join(".github", "workflows", "release.yml"))
+	if _, after, found := strings.Cut(step, "goreleaser-action@"); found {
+		step, _, _ = strings.Cut(after, "\n      - ")
+	} else {
+		t.Fatal("в release.yml не найден шаг goreleaser-action")
+	}
+	workflow := regexp.MustCompile(`version: (v[\d.]+)`).FindStringSubmatch(step)
 	snapshot := regexp.MustCompile(`goreleaser/v2@(v[\d.]+)`).FindStringSubmatch(read(t, filepath.Join("scripts", "release-snapshot.sh")))
 	switch {
 	case workflow == nil:
@@ -98,39 +107,60 @@ func TestGoReleaserPinsAgree(t *testing.T) {
 	}
 }
 
-// Оба бинарника обязаны собираться одним рецептом: разойдись ldflags, релиз
-// уехал бы с runner v0.7.0 и run-agent <commit>, которые распаковали бы
-// разные офисы и подписали прогоны разными личностями. Держат это якоря —
-// значит, у run-agent не должно быть собственных значений.
-func TestBothBuildsShareOneRecipe(t *testing.T) {
+// Все сборки обязаны идти одним рецептом: разойдись ldflags, релиз уехал бы
+// с runner v0.7.0 и run-agent <commit>, которые распаковали бы разные офисы и
+// подписали прогоны разными личностями. Держат это якоря — значит, каждая
+// сборка, кроме определяющей якорь, обязана ссылаться, а не задавать своё.
+func TestAllBuildsShareOneRecipe(t *testing.T) {
 	config := read(t, ".goreleaser.yaml")
-	for _, anchor := range []string{"build_env", "build_flags", "build_ldflags", "build_targets"} {
-		if n := strings.Count(config, "&"+anchor+" "); n != 1 {
-			t.Errorf("якорь %s определён %d раз, ожидался один", anchor, n)
-		}
-		if n := strings.Count(config, "*"+anchor); n != 1 {
-			t.Errorf("на якорь %s ссылаются %d раз, ожидался один (вторая сборка)", anchor, n)
+	keys := map[string]string{"env": "build_env", "flags": "build_flags", "ldflags": "build_ldflags", "targets": "build_targets"}
+	for _, anchor := range keys {
+		// Пробел после якоря не требуем: в блочном YAML значение уходит на
+		// следующую строку, и счёт по «&имя » дал бы ноль на законной правке.
+		defined := regexp.MustCompile(`&`+anchor+`\b`).FindAllString(config, -1)
+		if len(defined) != 1 {
+			t.Errorf("якорь %s определён %d раз, ожидался один", anchor, len(defined))
 		}
 	}
-	// В блоке run-agent — только ссылки: литеральные flags/ldflags/env там
-	// означают, что рецепт снова раздвоился.
-	_, agent, found := strings.Cut(config, "- id: run-agent")
+
+	builds, _, found := strings.Cut(section(t, config, "builds:"), "\narchives:")
 	if !found {
-		t.Fatal("в .goreleaser.yaml не найдена сборка run-agent")
+		builds = section(t, config, "builds:")
 	}
-	if end := strings.Index(agent, "\narchives:"); end >= 0 {
-		agent = agent[:end]
+	blocks := strings.Split(builds, "\n  - id: ")
+	if len(blocks) < 3 { // [до первой сборки, runner, run-agent]
+		t.Fatalf("в .goreleaser.yaml найдено %d сборок, ожидалось не меньше двух", len(blocks)-1)
 	}
-	for _, key := range []string{"env:", "flags:", "ldflags:", "targets:"} {
-		line := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(key) + ` *(.*)$`).FindStringSubmatch(agent)
-		if line == nil {
-			t.Errorf("в сборке run-agent нет %s", key)
-			continue
+	// GoReleaser умеет overrides с собственными ldflags под цель — рецепт
+	// раздваивается и так, без второго верхнего ключа.
+	if strings.Contains(builds, "overrides:") {
+		t.Error("в сборках есть overrides: рецепт может разойтись мимо якорей")
+	}
+	for _, block := range blocks[1:] {
+		name, _, _ := strings.Cut(block, "\n")
+		for key, anchor := range keys {
+			line := regexp.MustCompile(`(?m)^\s*` + key + `: *(.*)$`).FindStringSubmatch(block)
+			if line == nil {
+				t.Errorf("в сборке %s нет %s:", name, key)
+				continue
+			}
+			value := strings.TrimSpace(line[1])
+			if strings.HasPrefix(value, "&"+anchor) || value == "*"+anchor {
+				continue
+			}
+			t.Errorf("в сборке %s ключ %s: задан значением %q, а не якорем и не ссылкой на него", name, key, value)
 		}
-		if !strings.HasPrefix(strings.TrimSpace(line[1]), "*") {
-			t.Errorf("в сборке run-agent %s задан значением %q, а не ссылкой на якорь", key, line[1])
-		}
 	}
+}
+
+// section — кусок конфигурации от ключа верхнего уровня до конца файла.
+func section(t *testing.T, config, key string) string {
+	t.Helper()
+	_, rest, found := strings.Cut(config, "\n"+key)
+	if !found {
+		t.Fatalf("в .goreleaser.yaml не найден раздел %s", key)
+	}
+	return rest
 }
 
 // Файл validators_<os>_<arch>.go обязан встраивать ограждение своей платформы:
@@ -160,6 +190,33 @@ func TestEmbeddedValidatorsMatchTheirFile(t *testing.T) {
 		}
 		if !slices.Contains(embedded, own) {
 			t.Errorf("%s встраивает %v, но не ограждение своей платформы %s", name, embedded, own)
+		}
+		// Песочница sbx — Linux той же архитектуры: на darwin прогон с
+		// бэкендом sbx просит ограждение linux/<arch>, и если его нет в
+		// поставке, упрётся в отказ уже у пользователя. Правило проверяется
+		// здесь, а не в validators_release_test.go: тот под darwin и на
+		// Linux-раннере CI не исполняется никогда.
+		if sandbox := "linux-" + parts[1]; parts[0] != "linux" && !slices.Contains(embedded, sandbox) {
+			t.Errorf("%s встраивает %v, но не ограждение своей песочницы %s", name, embedded, sandbox)
+		}
+	}
+}
+
+// Каталог маркера передаётся хуку литералом dist (.goreleaser.yaml), и там же
+// его ищут release.yml и release-snapshot.sh. Ключ dist: в конфигурации увёл
+// бы сборку в другой каталог: хук упал бы на записи маркера, и диагноз вышел
+// бы про права, а не про рассинхрон.
+func TestMarkerDirMatchesDist(t *testing.T) {
+	config := read(t, ".goreleaser.yaml")
+	if regexp.MustCompile(`(?m)^dist:`).MatchString(config) {
+		t.Error(".goreleaser.yaml задаёт свой dist:, а маркер личности пишется в dist/")
+	}
+	if !strings.Contains(config, "{{ .IsSnapshot }} dist") {
+		t.Error("хук check-release-identity.sh больше не получает dist аргументом")
+	}
+	for _, path := range []string{filepath.Join(".github", "workflows", "release.yml"), filepath.Join("scripts", "release-snapshot.sh")} {
+		if !strings.Contains(read(t, path), "dist/identity-checked-") {
+			t.Errorf("%s не проверяет маркер dist/identity-checked-*", path)
 		}
 	}
 }

@@ -39,6 +39,11 @@ func Unpack(src fs.FS, officeDir, name string) (string, error) {
 	if err := os.MkdirAll(officeDir, 0o755); err != nil {
 		return "", fmt.Errorf("каталог офисов не создан: %w", err)
 	}
+	// Каталог версий — тоже из-под umask: 0700-родитель закрыл бы весь офис
+	// не хуже, чем 0700 внутри него.
+	if err := os.Chmod(officeDir, 0o755); err != nil {
+		return "", fmt.Errorf("права каталога офисов не выставлены: %w", err)
+	}
 	// Уникальный суффикс, а не только pid: две горутины одного процесса
 	// не должны писать в один временный каталог.
 	tmp, err := os.MkdirTemp(officeDir, tempPrefix+name+"-")
@@ -68,6 +73,9 @@ func Unpack(src fs.FS, officeDir, name string) (string, error) {
 }
 
 // chmodDirs выставляет 0755 каждому каталогу внутри root, включая сам root.
+// Лечение кончается на дереве поставки: ${OFFICE_HOME} заводит `runner init`,
+// каталог версий — Unpack выше, bin/ с ограждением — runner.EnsureValidator,
+// и каждый из них выставляет права сам.
 func chmodDirs(root string) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {

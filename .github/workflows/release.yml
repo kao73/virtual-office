@@ -25,6 +25,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # Конфигурация — до минут сборки и тестов: она от них не зависит, а
+      # ошибка в списке целей должна находиться на десятой секунде.
+      - run: sh scripts/check-host-is-target.sh
       - run: go test ./...
       # install.sh — единственное, что пользователь запускает через curl | sh:
       # пять сценариев на поддельном dist/, под dash (sh на ubuntu).
@@ -32,10 +35,6 @@ jobs:
       # Релизная сборка несёт настоящие ограждения: собрать их и проверить
       # под тегом release, а не только скомпилировать в GoReleaser.
       - run: sh scripts/build-validators.sh && go test -tags release .
-      # Гейт личности запускает собранный бинарник и потому пропускает чужие
-      # платформы. Если ни одна цель не совпадёт с машиной сборки, он
-      # промолчит на всех — а маркер ниже проверяется уже после публикации.
-      - run: sh scripts/check-host-is-target.sh
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: v2.18.2  # тот же пин, что в scripts/release-snapshot.sh

@@ -12,7 +12,8 @@ cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 targets="$(sed -n 's/.*targets: &build_targets \[\(.*\)\].*/\1/p' .goreleaser.yaml | tr -d ' ' | tr ',' ' ')"
 [ -n "$targets" ] || { echo "check-host-is-target: в .goreleaser.yaml не найден якорь build_targets" >&2; exit 1; }
 
-host="$(go env GOOS)_$(go env GOARCH)"
+. scripts/host-platform.sh
+host="${host_os}_${host_arch}"
 for target in $targets; do
   if [ "$target" = "$host" ]; then
     echo "check-host-is-target: $host среди целей ($targets)"

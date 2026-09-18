@@ -14,8 +14,7 @@ set -eu
 
 bin=$1; version=$2; os=$3; arch=$4; snapshot=${5:-false}; dist=${6:-dist}
 
-host_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-case "$(uname -m)" in arm64|aarch64) host_arch=arm64 ;; x86_64|amd64) host_arch=amd64 ;; *) host_arch="$(uname -m)" ;; esac
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/host-platform.sh"
 if [ "$os/$arch" != "$host_os/$host_arch" ]; then
   echo "check-release-identity: $os/$arch не хост ($host_os/$host_arch), пропуск"
   exit 0

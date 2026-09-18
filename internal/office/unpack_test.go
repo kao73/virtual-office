@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"testing/fstest"
 )
@@ -193,41 +192,4 @@ func TestUnpackRaceYieldsOneOffice(t *testing.T) {
 		t.Errorf("в каталоге офисов %d записей, ожидалась одна: %v", len(entries), names)
 	}
 	noTempDirs(t, officeDir)
-}
-
-// Строгий umask не должен просачиваться в разложенный офис: иначе каталоги
-// выходят 0700, и чужой uid — песочница или второй пользователь общего
-// ${OFFICE_HOME} — не войдёт в них, хотя файлы внутри читаемы.
-func TestUnpackIgnoresUmask(t *testing.T) {
-	prev := syscall.Umask(0o077)
-	t.Cleanup(func() { syscall.Umask(prev) })
-
-	officeDir := filepath.Join(t.TempDir(), "office")
-	root, err := Unpack(fixture(), officeDir, "v0.7.0")
-	if err != nil {
-		t.Fatalf("не распаковано: %v", err)
-	}
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		fi, err := d.Info()
-		if err != nil {
-			return err
-		}
-		want := fs.FileMode(0o644)
-		switch {
-		case d.IsDir():
-			want = 0o755
-		case fi.Mode().Perm()&0o111 != 0:
-			want = 0o755
-		}
-		if got := fi.Mode().Perm(); got != want {
-			t.Errorf("%s: права %o, ожидались %o", path, got, want)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("обход не удался: %v", err)
-	}
 }

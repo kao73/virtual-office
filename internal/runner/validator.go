@@ -142,6 +142,12 @@ func embeddedValidator(root, name string, target Platform) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("каталог ограждений не создан: %w", err)
 	}
+	// Права явно, как и самому ограждению: под строгим umask каталог вышел бы
+	// 0700, и чекер, специально положенный 0755, остался бы недостижим для
+	// песочницы — ровно того, ради чего он тут лежит.
+	if err := os.Chmod(dir, 0o755); err != nil {
+		return "", fmt.Errorf("права каталога ограждений не выставлены: %w", err)
+	}
 	if err := writeAndPublish(dir, path, raw); err != nil {
 		return "", fmt.Errorf("ограждение под %s не записано: %w", target, err)
 	}
