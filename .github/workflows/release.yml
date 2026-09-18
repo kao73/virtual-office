@@ -41,4 +41,4 @@ jobs:
       # Гейт личности (scripts/check-release-identity.sh) пропускает чужие
       # платформы; без маркера он ни разу не сработал на хосте — и это отказ,
       # а не зелёный релиз на честном слове.
-      - run: ls dist/identity-checked-*
+      - run: ls dist/identity-checked-* || { echo "проверка личности не сработала ни на одной цели"; exit 1; }

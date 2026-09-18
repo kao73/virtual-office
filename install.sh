@@ -37,10 +37,12 @@ main() {
   version="${1:-${OFFICE_VERSION:-latest}}"
   home="${OFFICE_HOME:-$HOME/.office}"
   bin="$home/bin"
+  bins="runner run-agent"
   supported="darwin/arm64 linux/amd64 linux/arm64"
 
-  # 1. Платформа — до всего остального: чужой ничего не качать.
-  case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) os="$(uname -s | tr '[:upper:]' '[:lower:]')" ;; esac
+  # 1. Платформа — до всего остального: чужой ничего не качать. Имена те же,
+  # что у GoReleaser: darwin/linux от uname -s, arm64/amd64 — сопоставлением.
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=amd64 ;; *) arch="$(uname -m)" ;; esac
   case " $supported " in
     *" $os/$arch "*) ;;
@@ -74,7 +76,7 @@ main() {
   # 4. Распаковка.
   mkdir -p "$tmp/x"
   tar -xzf "$tmp/$archive" -C "$tmp/x" || die "$archive не распакован"
-  for name in runner run-agent; do [ -f "$tmp/x/$name" ] || die "в $archive нет $name"; done
+  for name in $bins; do [ -f "$tmp/x/$name" ] || die "в $archive нет $name"; done
 
   # 5. Установка в две фазы: сперва оба бинарника копируются во временные
   # имена и получают 0755, и только потом — оба mv -f подряд. Так провал
@@ -83,12 +85,12 @@ main() {
   # а между первым и вторым mv — только атомарная подмена одного из двух.
   # Временные имена убираются и при провале: они лежат в $bin, не в $tmp.
   mkdir -p "$bin"
-  trap 'rm -rf "$tmp" "$bin/.runner.$$" "$bin/.run-agent.$$"' EXIT
-  for name in runner run-agent; do
+  trap 'rm -rf "$tmp" "$bin"/.*."$$"' EXIT
+  for name in $bins; do
     cp "$tmp/x/$name" "$bin/.$name.$$"
     chmod 0755 "$bin/.$name.$$"
   done
-  for name in runner run-agent; do
+  for name in $bins; do
     mv -f "$bin/.$name.$$" "$bin/$name"
   done
 

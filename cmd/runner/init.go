@@ -23,6 +23,16 @@ var samples = []sample{
 	{jira.ExampleFile, jira.TrackerFile, "base_url и четыре customfield_*; нужен только проектам с tracker: jira"},
 }
 
+// writeAndClose — запись и закрытие как одна неудача: оборванная на середине
+// (кончилось место) и незакрытая запись значат для вызывающего одно и то же.
+func writeAndClose(f *os.File, raw []byte) error {
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
 // initCommand заводит хозяйство раннера: каталог ${OFFICE_HOME} и два образца
 // рядом с местом, где будут лежать рабочие файлы. Образцы — из поставки
 // в бинарнике в любом режиме, в том числе из клона: init не разрешает офис
@@ -60,13 +70,8 @@ func initCommand(args []string, out io.Writer) error {
 		case err != nil:
 			return fmt.Errorf("образец не записан: %w", err)
 		}
-		if _, err := f.Write(raw); err != nil {
-			f.Close()
-			os.Remove(path)
-			return fmt.Errorf("образец %s не записан: %w", path, err)
-		}
-		if err := f.Close(); err != nil {
-			os.Remove(path)
+		if err := writeAndClose(f, raw); err != nil {
+			os.Remove(path) // недописанный образец не должен сойти за оставленный
 			return fmt.Errorf("образец %s не записан: %w", path, err)
 		}
 		fmt.Fprintf(out, "создан   %s\n", path)

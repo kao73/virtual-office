@@ -32,15 +32,14 @@ fi
 got="$(printf '%s\n' "$out" | head -1)"
 want="runner v$version"
 marker="$(dirname -- "$(dirname -- "$bin")")/identity-checked-$os-$arch"  # dist/<сборка>_<цель>/<бинарник> → dist/
-if [ "$got" = "$want" ]; then
-  echo "check-release-identity: $got"
-  : > "$marker"
-  exit 0
-fi
+note=""
 if [ "$snapshot" = true ] && [ "$got" = "$want-dirty" ]; then
-  echo "check-release-identity: $got (снапшот с незакоммиченного дерева)"
-  : > "$marker"
-  exit 0
+  note=" (снапшот с незакоммиченного дерева)"
+elif [ "$got" != "$want" ]; then
+  echo "check-release-identity: ${bin} называет себя «${got}», ожидалось «${want}»" >&2
+  exit 1
 fi
-echo "check-release-identity: ${bin} называет себя «${got}», ожидалось «${want}»" >&2
-exit 1
+# Маркер пишется ровно здесь: на него опираются release.yml и
+# release-snapshot.sh, чтобы гейт не самоотключился одними «пропусками».
+echo "check-release-identity: ${got}${note}"
+: > "$marker"
