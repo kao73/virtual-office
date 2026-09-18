@@ -63,7 +63,7 @@ main() {
   [ -n "$actual" ] || die "контрольная сумма $archive не посчитана"
   expected="$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/$sums")"
   [ -n "$expected" ] || die "$archive не значится в $sums"
-  [ "$actual" = "$expected" ] || die "контрольная сумма $archive не совпала: ожидалась $expected, получена $actual; ничего не установлено"
+  [ "$actual" = "$expected" ] || die "контрольная сумма $archive не совпала: ожидалась $expected, получена $actual; ничего не установлено. Если между скачиванием $sums и архива вышел новый релиз — просто повторите"
 
   # 4. Распаковка.
   mkdir -p "$tmp/x"

@@ -35,7 +35,7 @@ func Hash(srcs ...fs.FS) (string, error) {
 			return nil
 		})
 		if err != nil {
-			return "", fmt.Errorf("поставка не прочитана: %w", err)
+			return "", fmt.Errorf("дерево %d из %d не прочитано: %w", i+1, len(srcs), err)
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

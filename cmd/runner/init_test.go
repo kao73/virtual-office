@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	payload "github.com/kao73/virtual-office"
+	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/jira"
 )
@@ -18,7 +19,7 @@ import (
 // в слово из поставки, и с подсказкой, куда их копировать.
 func TestInitLaysOutFreshHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "office-home") // ещё не существует
-	t.Setenv("OFFICE_HOME", home)
+	t.Setenv(runner.HomeEnv, home)
 	var out bytes.Buffer
 	if err := initCommand(nil, &out); err != nil {
 		t.Fatalf("init отказал: %v", err)
@@ -64,7 +65,7 @@ func TestInitLaysOutFreshHome(t *testing.T) {
 // Настроенная машина: рабочие файлы и правленый образец не тронуты, код 0.
 func TestInitLeavesConfiguredHomeAlone(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("OFFICE_HOME", home)
+	t.Setenv(runner.HomeEnv, home)
 	files := map[string]string{
 		tracker.ProjectsLocalFile:        "PROJ: {repo_url: x, default_branch: main, tracker: mock}\n",
 		jira.TrackerFile:                 "base_url: http://jira\n",

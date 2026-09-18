@@ -337,9 +337,9 @@ func TestResolveOfficeRefusesFileAtOfficeRoot(t *testing.T) {
 }
 
 func TestResolveOfficeRefusesWithoutIdentity(t *testing.T) {
-	for name, settings := range map[string]func(){
-		"нет build info": func() { buildInfo(t, "", false) },
-		"нет vcs.revision": func() {
+	for name, settings := range map[string]func(t *testing.T){
+		"нет build info": func(t *testing.T) { buildInfo(t, "", false) },
+		"нет vcs.revision": func(t *testing.T) {
 			prev := readBuildInfo
 			readBuildInfo = func() (*debug.BuildInfo, bool) { return &debug.BuildInfo{}, true }
 			t.Cleanup(func() { readBuildInfo = prev })
@@ -349,7 +349,7 @@ func TestResolveOfficeRefusesWithoutIdentity(t *testing.T) {
 			home := payloadHome(t)
 			fakePayload(t)
 			releaseVersion(t, "")
-			settings()
+			settings(t) // Cleanup вешается на подтест, не на родителя
 			_, err := ResolveOffice(Resolve{Unpack: true})
 			if err == nil {
 				t.Fatal("ResolveOffice не отказал")
