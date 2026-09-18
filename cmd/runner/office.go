@@ -44,8 +44,9 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 	if err != nil {
 		return nil, err
 	}
-	// Хозяйство раннера — вторая половина конфигурации. Репозиторий описывает
-	// офис, ${OFFICE_HOME} — этот инстанс: проекты, адреса, учётки, номера полей.
+	// Хозяйство раннера — вторая половина конфигурации. Корень офиса (клон
+	// или распакованная поставка) описывает офис, ${OFFICE_HOME} — этот
+	// инстанс: проекты, адреса, учётки, номера полей.
 	home, err := runner.Home()
 	if err != nil {
 		return nil, err
@@ -324,7 +325,8 @@ func (c *configSources) root(o runner.Office) {
 	fmt.Fprintf(c.out, "  офис: %s\n", o.Describe())
 }
 
-// office — файл, описывающий офис: он в конфиг-репозитории.
+// office — файл, описывающий офис: он под корнем офиса — в клоне или
+// в распакованной поставке.
 func (c *configSources) office(root, name string) string { return c.add("офис", root, name) }
 
 // machine — файл, описывающий инстанс: он в хозяйстве раннера.

@@ -51,7 +51,8 @@ func (o Office) Describe() string {
 // Resolve — параметры ResolveOffice.
 type Resolve struct {
 	// Unpack — распаковать поставку, если её каталога ещё нет. Всё, что
-	// читает роли, просит распаковку; `runner version` только считает путь.
+	// открывает офис — роли, граф, бюджеты, — просит распаковку;
+	// `runner version` только считает путь.
 	Unpack bool
 }
 

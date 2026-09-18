@@ -4,7 +4,7 @@
 
 Источник истины — `.goreleaser.yaml`, `scripts/build-validators.sh`,
 `.github/workflows/release.yml`, `install.sh`, `payload.go`; решения и их
-причины — `docs/openspec/changes/install/design.md` (D1, D5, D6) и
+причины — `docs/openspec/changes/archive/2026-09-18-install/design.md` (D1, D5, D6) и
 Design Doc `docs/superpowers/specs/2026-09-17-install-design.md` §2.1–2.4.
 
 ### Три архива, чексуммы, install.sh
@@ -99,7 +99,7 @@ github.com/goreleaser/goreleaser/v2@v2.18.2 release --snapshot --clean`),
 `payloadIdentity`, `errNoIdentity`), `internal/runner/validator.go`
 (`EnsureValidator`), `internal/office/unpack.go`, `internal/tracker/marker.go`
 (`commitHash`, `shortenSHA`), `cmd/runner/version.go`, `cmd/runner/init.go`,
-`bin/runner`/`bin/run-agent`; решения — `docs/openspec/changes/install/design.md`
+`bin/runner`/`bin/run-agent`; решения — `docs/openspec/changes/archive/2026-09-18-install/design.md`
 D3, D4, D7, D9 и Design Doc §1.2–1.6.
 
 ### Четыре ветки `ResolveOffice`
@@ -110,16 +110,18 @@ D3, D4, D7, D9 и Design Doc §1.2–1.6.
 | # | Условие | Root | Identity | Source | Чекер даёт |
 |---|---|---|---|---|---|
 | 1 | `OFFICE_CONFIG_ROOT` задан | эта директория (клон) | `git rev-parse HEAD` (+`-dirty`, если `git status --porcelain` не пуст) | `clone` | `go build ./cmd/validate-result` из `Root` под целевую платформу — заново на каждый прогон, в `${OFFICE_HOME}/bin/` (`buildValidator`) |
-| 2 | `payload.Version != ""` (релизная сборка, ldflags `-X …Version=`) | `${OFFICE_HOME}/office/<Version>` | `Version` (например, `v0.7.0` или `v0.0.1-SNAPSHOT-abc1234`) | `payload` | встроенный бинарник поставки, записан один раз в `<Root>/bin/` (`embeddedValidator`) |
+| 2 | `payload.Version != ""` (релизная сборка, ldflags `-X …Version=`) | `${OFFICE_HOME}/office/<Version>`, либо, при незакоммиченных правках в дереве сборки (`vcs.modified`), `${OFFICE_HOME}/office/<Version>-dirty-<hash8>` | `Version` (например, `v0.7.0` или `v0.0.1-SNAPSHOT-abc1234`), либо `<Version>-dirty` | `payload` | встроенный бинарник поставки, записан один раз в `<Root>/bin/` (`embeddedValidator`) |
 | 3 | build info несёт `vcs.revision` (сборка `go build` из клона без обёртки) | `${OFFICE_HOME}/office/<rev[:12]>`, либо, при незакоммиченных правках, `${OFFICE_HOME}/office/<rev[:12]>-dirty-<hash8>` | `<rev>` (полные 40 hex), либо `<rev>-dirty` | `payload` | тот же встроенный бинарник |
 | 4 | ни версии, ни `vcs.revision` (например, `go build -buildvcs=false` вне git) | — | — | отказ `errNoIdentity` | — |
 
 ### Грязная сборка: имя каталога по содержимому
 
-Каталог `<rev[:12]>-dirty-<hash8>` (восемь hex от `office.Hash(Payload)`)
-существует потому, что для «грязной» сборки коммит уже не определяет
-содержимое поставки: две сборки одного и того же незакоммиченного дерева
-могут нести разные роли. Ключевание по содержимому, а не только по commit,
+Каталог `<rev[:12]>-dirty-<hash8>` — и `<Version>-dirty-<hash8>` у снапшота
+с незакоммиченного дерева — (восемь hex от `office.Hash(Payload, Validators)`)
+существует потому, что для «грязной» сборки ни коммит, ни версия уже не
+определяют содержимое поставки: две сборки одного и того же
+незакоммиченного дерева могут нести разные роли или разные ограждения, а
+GoReleaser даёт снапшотам одного HEAD одну и ту же версию. Ключевание по содержимому, а не только по commit,
 делает распаковку идемпотентной и никогда не переписывающей уже
 распакованный каталог (D3) — то же правило, что держит «распакованную
 версию не трогают» и для чистых версий.
@@ -183,7 +185,7 @@ pid) остаётся лежать: убирать его некому — со�
 Чистка старых `office/<dir>/` (их сама поставка не убирает никогда — чужой
 работающий раннер мог быть собран из любой из них), `runner doctor`,
 самообновление раннера, платформа `darwin/amd64`, установка через Homebrew.
-См. Non-Goals в `docs/openspec/changes/install/design.md` и §6 Design Doc.
+См. Non-Goals в `docs/openspec/changes/archive/2026-09-18-install/design.md` и §6 Design Doc.
 
 ### Две находки со сборки
 
@@ -439,7 +441,7 @@ $ file "$OFFICE_HOME/office/v0.0.1-SNAPSHOT-338d2e7/bin/validate-result-linux-ar
 ...: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, ...
 ```
 
-Bake (`sh "$OFFICE_HOME/office/"*/sbx-kits/bake-comet-template.sh`) **пропущен**: сеть
+Bake (`"$OFFICE_HOME/office/"*/sbx-kits/bake-comet-template.sh` — скрипт bash, под `sh` = dash не запустится) **пропущен**: сеть
 песочницы на этой машине закрыта (deny-all), а bake тянет образ с `registry.npmjs.org` —
 без сети шаг не пройдёт, запускать не стали.
 
@@ -462,3 +464,31 @@ rm -rf "$OFFICE_HOME"; rm -rf dist; rm -f payload/validators/validate-result-*
 Пропущено: платный `runner tick` (кредов нет в обычном окружении сессии — заменён
 `--dry-run`-эквивалентом, см. шаг 4); bake образа sbx-кита (сеть песочницы на машине
 закрыта).
+
+## Отложено после pr-converge (2026-09-18)
+
+Находки локального ревью PR #11, которые сознательно не правились в этом PR —
+с причиной, чтобы не переоткрывать:
+
+- **`runner init` и `runner version` молча игнорируют позиционные аргументы**
+  (`runner init /some/dir`). Так же ведут себя остальные подкоманды; менять
+  договор о разборе флагов — не в этом PR.
+- **Распаковка не делает fsync файлов перед `rename`.** После потери питания
+  итоговый каталог теоретически может содержать усечённые файлы, и
+  `ResolveOffice` будет считать его распакованным. Цена — fsync каждого из
+  сотен файлов на первом запуске; лечение руками — `rm -rf` каталога версии.
+  Ограждение (один файл) fsync'ается.
+- **`ConfigSHA` теряет stderr git'а**: на не-git каталоге в `OFFICE_CONFIG_ROOT`
+  ошибка звучит как `exit status 128`, а не `not a git repository`. Поведение
+  старше этого PR.
+- **`go install github.com/kao73/virtual-office/cmd/runner@vX`** получает
+  отказ `errNoIdentity`, хотя `debug.ReadBuildInfo().Main.Version` знает
+  версию модуля. Пятая ветка `ResolveOffice` — отдельное решение: такой
+  бинарник не несёт ограждений (`-tags release` через `go install` не
+  передать), и что он должен делать в режиме поставки — вопрос.
+- **Соседние тексты, задетые новой моделью, но лежащие вне PR**:
+  `docs/ONBOARDING.md` (путь из клона: «Go — раннер», «config_sha — HEAD
+  конфиг-репозитория»), комментарии `internal/runner/archive.go` (`HomeEnv`
+  без `office/<версия>/`) и `internal/backends/sbx/sbx.go` (путь к bake только
+  клоновый), `internal/tracker/config.go` (`LoadProjects` не упоминает
+  `runner init`). Править вместе с user-guide.

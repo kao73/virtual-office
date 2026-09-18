@@ -40,7 +40,11 @@
 Из установленного релиза клон не нужен — тот же скрипт лежит в распакованном офисе,
 и кит он ищет рядом с собой:
 
-    sh "${OFFICE_HOME:-$HOME/.office}/office/<версия>/sbx-kits/bake-comet-template.sh"
+    "${OFFICE_HOME:-$HOME/.office}/office/<версия>/sbx-kits/bake-comet-template.sh"
+
+Запускать напрямую (бит исполняемости распаковка восстанавливает по shebang),
+не через `sh`: скрипт — bash с `set -o pipefail`, под `sh` = dash он падает
+на первой строке.
 
 Версия кита — та, что несёт раннер: `runner version` называет каталог.
 

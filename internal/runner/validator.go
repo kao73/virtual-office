@@ -12,7 +12,8 @@ import (
 	payload "github.com/kao73/virtual-office"
 )
 
-// BinDir — подкаталог с собранными бинарниками внутри хозяйства раннера.
+// BinDir — подкаталог бинарников: ${OFFICE_HOME}/bin у клона (ограждение
+// собирается туда), <корень офиса>/bin у поставки (ограждение кладётся туда).
 const BinDir = "bin"
 
 // ValidatorName — имя бинарника ограждения. К нему приписывается платформа:
@@ -58,7 +59,7 @@ func (p Platform) String() string { return p.OS + "/" + p.Arch }
 // момент сборки, и оставленный от прошлой версии проверял бы не то, что
 // проверяет раннер (этап 1 потерял на этом прогон); повторная сборка почти
 // бесплатна, её кэширует сам go. Поставка: ограждение собрано при релизе
-// и лежит в самом раннере (Task 7); без него — отказ с адресом.
+// и лежит в самом раннере; без него — отказ с адресом.
 func EnsureValidator(o Office, target Platform) (string, error) {
 	// Пустой Root значил бы «текущий каталог» — для go build через cmd.Dir и
 	// для bin/ поставки одинаково, — а от этого ResolveOffice и ушёл.
@@ -82,8 +83,8 @@ func noEmbeddedValidator(target Platform) error {
 	return fmt.Errorf("раннер собран без ограждения под %s: соберите с `-tags release` после scripts/build-validators.sh или задайте %s", target, ConfigRootEnv)
 }
 
-// buildValidator — сегодняшний код EnsureValidator: ${OFFICE_HOME}/bin/<name>
-// собирается go build из корня клона с GOOS/GOARCH/CGO_ENABLED=0.
+// buildValidator — ветка клона: ${OFFICE_HOME}/bin/<name> собирается
+// go build из корня клона с GOOS/GOARCH/CGO_ENABLED=0.
 func buildValidator(configRoot, name string, target Platform) (string, error) {
 	home, err := Home()
 	if err != nil {

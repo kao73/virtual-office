@@ -40,7 +40,8 @@ func TestRepoCarriesNoMachineValues(t *testing.T) {
 	named := []string{
 		filepath.Join(root, WorkflowFile),
 		// Образец проектов — исключение среди образцов: в нём нет ни одного
-		// машинного значения нарочно (D8), и он обязан пройти этот тест как есть.
+		// машинного значения нарочно (D8 в design.md изменения install), и он
+		// обязан пройти этот тест как есть.
 		filepath.Join(root, ProjectsLocalExampleFile),
 	}
 	for _, path := range named {

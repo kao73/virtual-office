@@ -31,7 +31,7 @@ const (
 	ProjectsLocalFile = "projects.local.yaml"
 	// ProjectsLocalExampleFile — образец ProjectsLocalFile. Лежит в репозитории
 	// и в поставке бинарника; `runner init` кладёт его в ${OFFICE_HOME}, откуда
-	// его копируют под рабочее имя. Раннер образец не читает никогда.
+	// его копируют под рабочее имя. Как конфигурацию раннер образец не читает.
 	ProjectsLocalExampleFile = "projects.local.example.yaml"
 	// OfficeProjectsFile — имя файла, которого в репозитории больше нет.
 	// Остался от прежней раскладки — раннер о нём скажет, а не промолчит

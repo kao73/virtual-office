@@ -2,7 +2,7 @@
 
 ## Purpose
 Lets the runner carry the office — roles, skills, hooks, the workflow graph,
-default budgets, the tracker example and the sandbox kit — inside its own
+default budgets, the two examples and the sandbox kit — inside its own
 binary, unpack one version of it under `${OFFICE_HOME}`, and sign every run
 with the version it came from, so that a machine needs neither a clone of
 this repository nor a Go toolchain to run the office.
@@ -12,8 +12,8 @@ this repository nor a Go toolchain to run the office.
 ### Requirement: The runner carries the office and unpacks it by version
 The runner and `run-agent` binaries SHALL carry the office payload:
 `roles/`, `skills/`, `hooks/`, `workflow.yaml`, `budgets.yaml`,
-`tracker.example.yaml`, and the sandbox kit `sbx-kits/comet-cli` with its
-bake script. When no configuration root is given by the environment, the
+`tracker.example.yaml`, `projects.local.example.yaml`, and the sandbox kit
+`sbx-kits/comet-cli` with its bake script. When no configuration root is given by the environment, the
 runner SHALL read roles, skills, hooks, the workflow graph and the default
 budgets from `${OFFICE_HOME}/office/<version>/`, unpacking the payload
 there first when that directory does not exist. Unpacking SHALL be atomic
@@ -25,8 +25,8 @@ be read as an office.
   starts without a configuration root in the environment
 - **THEN** afterwards that directory contains `roles/_base/base.yaml`,
   every role directory, `skills/`, `hooks/`, `workflow.yaml`,
-  `budgets.yaml`, `tracker.example.yaml` and `sbx-kits/comet-cli/`, and the
-  runner's configuration listing names files under that directory as the
+  `budgets.yaml`, `tracker.example.yaml`, `projects.local.example.yaml`
+  and `sbx-kits/comet-cli/`, and the runner's configuration listing names files under that directory as the
   office files it opened
 
 #### Scenario: An unpacked version is left alone
@@ -97,9 +97,13 @@ passport SHALL carry the identity of the office the run used. For a release
 build that identity SHALL be the release version (`v<X.Y.Z>`), written whole
 — shortening SHALL apply only to commit hashes. For a build from source that
 carries no release version, the identity SHALL be the build's recorded
-source revision, with `-dirty` appended when the build recorded local
-modifications. A binary that carries neither a version nor a revision SHALL
-refuse to start rather than sign runs with an empty identity.
+source revision. In either case, when the build recorded local
+modifications, `-dirty` SHALL be appended to the identity and the unpack
+directory SHALL additionally be keyed by the content of the payload and the
+embedded checkers, so that a later build of the same commit or the same
+snapshot version never reuses an office unpacked from different content. A
+binary that carries neither a version nor a revision SHALL refuse to start
+rather than sign runs with an empty identity.
 
 #### Scenario: A release run is marked with its version
 - **WHEN** a runner built for release version `v0.7.0` records a run
@@ -119,6 +123,15 @@ refuse to start rather than sign runs with an empty identity.
 - **THEN** the marker contains the build's source revision shortened to
   eight characters followed by `-dirty`
 
+#### Scenario: A snapshot from an uncommitted tree does not reuse the previous snapshot's office
+- **WHEN** a runner carrying release version `v0.0.1-SNAPSHOT-abc1234` was
+  built from a tree with uncommitted changes, and
+  `${OFFICE_HOME}/office/v0.0.1-SNAPSHOT-abc1234/` already exists from a
+  clean build of that commit
+- **THEN** its identity is `v0.0.1-SNAPSHOT-abc1234-dirty`, it unpacks its
+  own payload into a directory named by that version, `-dirty` and a content
+  hash, and the existing directory is left untouched
+
 #### Scenario: A marker without any identity is refused
 - **WHEN** a runner carries neither a release version nor a source revision
 - **THEN** it refuses to start and says the build carries no identity
@@ -128,9 +141,10 @@ When `OFFICE_CONFIG_ROOT` is set, the runner and `run-agent` SHALL read the
 office from that directory, SHALL sign runs with that directory's git
 commit (with `-dirty` when its tree is not clean), and SHALL build the
 result checker from that directory's sources, exactly as before this
-change. The payload carried by the binary SHALL NOT be unpacked or read in
-that mode. When the variable is unset, the working directory SHALL NOT be
-used as an office.
+change. The payload carried by the binary SHALL NOT be unpacked or read as
+an office in that mode; `runner init` MAY still take its sample files from
+the payload, since it resolves no office. When the variable is unset, the
+working directory SHALL NOT be used as an office.
 
 #### Scenario: The wrappers behave as before
 - **WHEN** `bin/runner tick` is invoked from a clone
