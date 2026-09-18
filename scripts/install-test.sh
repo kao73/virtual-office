@@ -5,11 +5,15 @@
 # ($1), либо поддельный: два скрипта вместо бинарников, tar.gz под текущую
 # платформу, checksums.txt.
 #
-#   sh scripts/install-test.sh          # поддельный dist
-#   sh scripts/install-test.sh dist     # настоящий снапшот
+#   sh scripts/install-test.sh                       # поддельный dist
+#   sh scripts/install-test.sh dist                  # настоящий снапшот
+#   INSTALL_SH=/bin/dash sh scripts/install-test.sh  # install.sh под другой оболочкой
 set -eu
 
 root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+# Оболочка, которой запускается сам install.sh: на macOS sh — это bash,
+# на Debian/Ubuntu — dash; проверить обе можно только явно.
+sh_bin="${INSTALL_SH:-sh}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -33,7 +37,7 @@ fi
 
 # 1. Установка на чистое хозяйство.
 home="$work/home1"
-OFFICE_INSTALL_FROM="$dist" OFFICE_HOME="$home" sh "$root/install.sh" > "$work/out1" 2>&1 || fail "установка: $(cat "$work/out1")"
+OFFICE_INSTALL_FROM="$dist" OFFICE_HOME="$home" "$sh_bin" "$root/install.sh" > "$work/out1" 2>&1 || fail "установка: $(cat "$work/out1")"
 [ -x "$home/bin/runner" ] && [ -x "$home/bin/run-agent" ] || fail "бинарники не установлены"
 grep -q '^runner ' "$work/out1" || fail "runner version не напечатан"
 grep -q "$home/bin" "$work/out1" || fail "каталог не назван"
@@ -46,7 +50,7 @@ echo old > "$home/bin/runner"; echo old > "$home/bin/run-agent"
 echo "PROJ: {}" > "$home/projects.local.yaml"; echo "base_url: x" > "$home/tracker.yaml"
 echo "old office" > "$home/office/v0.0.0-old/workflow.yaml"
 before="$(cat "$home/projects.local.yaml" "$home/tracker.yaml" "$home/office/v0.0.0-old/workflow.yaml")"
-OFFICE_INSTALL_FROM="$dist" OFFICE_HOME="$home" sh "$root/install.sh" > "$work/out2" 2>&1 || fail "обновление: $(cat "$work/out2")"
+OFFICE_INSTALL_FROM="$dist" OFFICE_HOME="$home" "$sh_bin" "$root/install.sh" > "$work/out2" 2>&1 || fail "обновление: $(cat "$work/out2")"
 [ "$(cat "$home/bin/runner")" != old ] && [ "$(cat "$home/bin/run-agent")" != old ] || fail "бинарники не заменены"
 after="$(cat "$home/projects.local.yaml" "$home/tracker.yaml" "$home/office/v0.0.0-old/workflow.yaml")"
 [ "$before" = "$after" ] || fail "обновление тронуло рабочие файлы или старый офис"
@@ -56,7 +60,7 @@ echo "ok: обновление на месте"
 bad="$work/bad"; mkdir -p "$bad"; cp "$dist/$archive" "$bad/"
 printf '%s  %s\n' 0000000000000000000000000000000000000000000000000000000000000000 "$archive" > "$bad/checksums.txt"
 home="$work/home3"
-if OFFICE_INSTALL_FROM="$bad" OFFICE_HOME="$home" sh "$root/install.sh" > "$work/out3" 2>&1; then fail "битая сумма принята"; fi
+if OFFICE_INSTALL_FROM="$bad" OFFICE_HOME="$home" "$sh_bin" "$root/install.sh" > "$work/out3" 2>&1; then fail "битая сумма принята"; fi
 grep -q "контрольная сумма" "$work/out3" || fail "причина не названа: $(cat "$work/out3")"
 [ ! -e "$home/bin/runner" ] || fail "runner установлен несмотря на битую сумму"
 [ ! -e "$home/bin/run-agent" ] || fail "run-agent установлен несмотря на битую сумму"
@@ -68,7 +72,7 @@ shim="$work/shim"; mkdir -p "$shim"
 printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo x86_64 ;; *) exec /usr/bin/uname "$@" ;; esac\n' > "$shim/uname"
 chmod 0755 "$shim/uname"
 home="$work/home4"
-if PATH="$shim:$PATH" OFFICE_INSTALL_FROM="$dist" OFFICE_HOME="$home" sh "$root/install.sh" > "$work/out4" 2>&1; then fail "darwin/amd64 принят"; fi
+if PATH="$shim:$PATH" OFFICE_INSTALL_FROM="$dist" OFFICE_HOME="$home" "$sh_bin" "$root/install.sh" > "$work/out4" 2>&1; then fail "darwin/amd64 принят"; fi
 grep -q "darwin/amd64" "$work/out4" || fail "платформа не названа: $(cat "$work/out4")"
 grep -q "linux/arm64" "$work/out4" || fail "поддерживаемые не перечислены: $(cat "$work/out4")"
 [ ! -e "$home/bin" ] || fail "что-то установлено на чужой платформе"

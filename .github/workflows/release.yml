@@ -26,6 +26,12 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./...
+      # install.sh — единственное, что пользователь запускает через curl | sh:
+      # четыре сценария на поддельном dist/, под dash (sh на ubuntu).
+      - run: sh scripts/install-test.sh
+      # Релизная сборка несёт настоящие ограждения: собрать их и проверить
+      # под тегом release, а не только скомпилировать в GoReleaser.
+      - run: sh scripts/build-validators.sh && go test -tags release .
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: v2.18.2  # тот же пин, что в scripts/release-snapshot.sh
