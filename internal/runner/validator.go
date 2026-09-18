@@ -31,11 +31,12 @@ const validatorsDir = "payload/validators"
 // пакета удержал бы набор в validate-result.
 var validatorsFS fs.FS
 
-func validatorsOrDefault() fs.FS {
-	if validatorsFS != nil {
-		return validatorsFS
-	}
-	return payload.Validators
+func validatorsOrDefault() fs.FS { return orDefault(validatorsFS, payload.Validators) }
+
+// validatorName — имя файла ограждения под платформу: одно правило для
+// поставки (имя внутри payload/validators/) и для того, что кладётся на диск.
+func validatorName(target Platform) string {
+	return fmt.Sprintf("%s-%s-%s", ValidatorName, target.OS, target.Arch)
 }
 
 // Platform — где будет исполняться агент, а с ним и ограждение. На бэкенде local
@@ -61,20 +62,17 @@ func (p Platform) String() string { return p.OS + "/" + p.Arch }
 // бесплатна, её кэширует сам go. Поставка: ограждение собрано при релизе
 // и лежит в самом раннере; без него — отказ с адресом.
 func EnsureValidator(o Office, target Platform) (string, error) {
-	// Пустой Root значил бы «текущий каталог» — для go build через cmd.Dir и
-	// для bin/ поставки одинаково, — а от этого ResolveOffice и ушёл.
-	if o.Root == "" {
-		return "", fmt.Errorf("офис не разрешён: Root пуст (source %q), ограждение под %s брать неоткуда", o.Source, target)
+	// Офис не от ResolveOffice: пустой Root значил бы «текущий каталог» — для
+	// go build через cmd.Dir и для bin/ поставки одинаково, — а от этого
+	// ResolveOffice и ушёл; неизвестный источник не назвал бы способ.
+	if o.Root == "" || (o.Source != SourceClone && o.Source != SourcePayload) {
+		return "", fmt.Errorf("офис не разрешён (root %q, source %q): ограждение под %s брать неоткуда", o.Root, o.Source, target)
 	}
-	name := fmt.Sprintf("%s-%s-%s", ValidatorName, target.OS, target.Arch)
-	switch o.Source {
-	case SourceClone:
+	name := validatorName(target)
+	if o.Source == SourceClone {
 		return buildValidator(o.Root, name, target)
-	case SourcePayload:
-		return embeddedValidator(o.Root, name, target)
-	default:
-		return "", fmt.Errorf("офис без источника: неоткуда взять ограждение под %s", target)
 	}
+	return embeddedValidator(o.Root, name, target)
 }
 
 // noEmbeddedValidator — отказ поставки: раннер собран без ограждения под эту
@@ -144,29 +142,32 @@ func embeddedValidator(root, name string, target Platform) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("каталог ограждений не создан: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, "."+name+"-*")
-	if err != nil {
-		return "", fmt.Errorf("ограждение не записано: %w", err)
-	}
-	if err := writeAndPublish(tmp, raw, path); err != nil {
-		os.Remove(tmp.Name())
+	if err := writeAndPublish(dir, path, raw); err != nil {
 		return "", fmt.Errorf("ограждение под %s не записано: %w", target, err)
 	}
 	return path, nil
 }
 
-// writeAndPublish пишет содержимое во временный файл, сбрасывает на диск,
-// закрывает, ставит 0755 и переименовывает на итоговый путь: rename на той
-// же файловой системе атомарен, и читатель никогда не увидит недописанный
-// или без-прав файл. Sync до rename — чтобы после сбоя питания под итоговым
+// writeAndPublish пишет содержимое во временный файл рядом, сбрасывает на
+// диск, ставит 0755 и переименовывает на итоговый путь: rename на той же
+// файловой системе атомарен, и читатель никогда не увидит недописанный или
+// без-прав файл. Sync до rename — чтобы после сбоя питания под итоговым
 // именем не оказался пустой файл, которому следующий запуск поверил бы.
-func writeAndPublish(tmp *os.File, raw []byte, path string) error {
-	if _, err := tmp.Write(raw); err != nil {
+// Временный файл заводится и убирается здесь же: после удачного rename
+// удалять нечего, и отложенная уборка становится пустой операцией.
+func writeAndPublish(dir, path string, raw []byte) error {
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
 		tmp.Close()
+		os.Remove(tmp.Name())
+	}()
+	if _, err := tmp.Write(raw); err != nil {
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {

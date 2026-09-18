@@ -177,24 +177,45 @@ func TestValidatorBlocksOnMisuse(t *testing.T) {
 
 // Поставка без встроенных ограждений — сборка без -tags release. Отказ
 // называет платформу и оба выхода и не подсовывает ограждение другой платформы.
-func TestEnsureValidatorPayloadRefusesWhenNothingEmbedded(t *testing.T) {
-	// Пустой набор внедряется явно: под `-tags release` на linux/amd64 (или
-	// linux/arm64) настоящий payload.Validators уже содержит этот чекер, и
-	// без подмены отказ на таком хосте не воспроизвести.
-	fakeValidators(t)
-	root := t.TempDir()
-	o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
-	_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "amd64"})
-	if err == nil {
-		t.Fatal("ограждения нет, а отказа нет")
+// Ограждения под платформу нет — ни потому что набор пуст, ни потому что в
+// нём чужая платформа: отказ называет платформу и способ, в bin/ пусто.
+// Подставить ограждение другой платформы нельзя — оно не запустится.
+func TestEnsureValidatorPayloadRefusesWithoutPlatform(t *testing.T) {
+	for name, embedded := range map[string][]Platform{
+		// Пустой набор внедряется явно: под `-tags release` на linux/amd64
+		// настоящий payload.Validators уже содержит этот чекер, и без подмены
+		// отказ на таком хосте не воспроизвести.
+		"набор пуст":      nil,
+		"чужая платформа": {{OS: "darwin", Arch: "arm64"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeValidators(t, embedded...)
+			root := t.TempDir()
+			o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
+			_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "amd64"})
+			if err == nil {
+				t.Fatal("ограждения нет, а отказа нет")
+			}
+			for _, want := range []string{"linux/amd64", "-tags release", ConfigRootEnv} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("отказ не называет %q: %v", want, err)
+				}
+			}
+			emptyBinDir(t, root)
+		})
 	}
-	for _, want := range []string{"linux/amd64", "-tags release", ConfigRootEnv} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("отказ не называет %q: %v", want, err)
-		}
+}
+
+// emptyBinDir — в bin/ офиса ничего не появилось: отказ не оставляет следов.
+func emptyBinDir(t *testing.T, root string) {
+	t.Helper()
+	dir := filepath.Join(root, BinDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("%s не прочитан: %v", dir, err)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(root, BinDir)); len(entries) != 0 {
-		t.Errorf("в bin/ что-то появилось: %v", entries)
+	if len(entries) != 0 {
+		t.Errorf("в %s что-то появилось: %v", dir, entries)
 	}
 }
 
@@ -204,7 +225,7 @@ func fakeValidators(t *testing.T, platforms ...Platform) fstest.MapFS {
 	t.Helper()
 	m := fstest.MapFS{}
 	for _, p := range platforms {
-		m[validatorsDir+"/"+ValidatorName+"-"+p.OS+"-"+p.Arch] =
+		m[validatorsDir+"/"+validatorName(p)] =
 			&fstest.MapFile{Data: []byte("#!/bin/sh\necho " + p.String() + "\nexit 2\n")}
 	}
 	prev := validatorsFS
@@ -279,33 +300,6 @@ func TestEnsureValidatorPayloadWritesEmbeddedOnce(t *testing.T) {
 	}
 }
 
-// Ограждения другой платформы не подсовывается: отказ называет платформу
-// и тег, в bin/ ничего не появляется.
-func TestEnsureValidatorPayloadRefusesMissingPlatform(t *testing.T) {
-	fakeValidators(t, Platform{OS: "darwin", Arch: "arm64"})
-	root := t.TempDir()
-	o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
-	_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "amd64"})
-	if err == nil {
-		t.Fatal("платформы нет в наборе, а отказа нет")
-	}
-	for _, want := range []string{"linux/amd64", "-tags release"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("отказ не называет %q: %v", want, err)
-		}
-	}
-	entries, err := os.ReadDir(filepath.Join(root, BinDir))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("%s не прочитан: %v", filepath.Join(root, BinDir), err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("в bin/ что-то появилось: %v", entries)
-	}
-}
-
-// Офис, собранный руками без Root, — не офис: без отказа пустой Root означал
-// бы «текущий каталог» (cmd.Dir у go build, ./bin у поставки), а именно от
-// этого ResolveOffice и ушёл.
 func TestEnsureValidatorRefusesUnresolvedOffice(t *testing.T) {
 	for name, o := range map[string]Office{
 		"поставка": {Identity: "v0.7.0", Source: SourcePayload},
