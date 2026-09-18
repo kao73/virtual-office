@@ -20,14 +20,7 @@ func Hash(srcs ...fs.FS) (string, error) {
 		// Метка дерева — граница между деревьями: без неё файл, переехавший
 		// из одного в другое, хеша бы не изменил.
 		fmt.Fprintf(h, "fs:%d\x00", i)
-		err := fs.WalkDir(src, ".", func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-			data, err := fs.ReadFile(src, path)
-			if err != nil {
-				return err
-			}
+		err := walkFiles(src, func(path string, data []byte) error {
 			// Длина между путём и байтами — граница: без неё «a»+«bc» и «ab»+«c»
 			// дали бы один хеш.
 			fmt.Fprintf(h, "%s\x00%d\x00", path, len(data))

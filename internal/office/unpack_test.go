@@ -26,13 +26,17 @@ func fixture() fstest.MapFS {
 
 // tempDirs — остатки .unpack-* в каталоге офисов: после любого исхода их
 // быть не должно (кроме убитого процесса, которого тест не изображает).
-func tempDirs(t *testing.T, officeDir string) []string {
+// noTempDirs — распаковка за собой не оставила временных каталогов. Проверяют
+// это все сценарии: осиротевший .unpack-* убирать некому.
+func noTempDirs(t *testing.T, officeDir string) {
 	t.Helper()
 	found, err := filepath.Glob(filepath.Join(officeDir, tempPrefix+"*"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return found
+	if len(found) != 0 {
+		t.Errorf("остались временные каталоги: %v", found)
+	}
 }
 
 func TestUnpackLaysOutTreeWithModes(t *testing.T) {
@@ -67,9 +71,7 @@ func TestUnpackLaysOutTreeWithModes(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "bootstrap")); !errors.Is(err, fs.ErrNotExist) {
 		t.Error("bootstrap/ остался в распакованном офисе")
 	}
-	if left := tempDirs(t, officeDir); len(left) != 0 {
-		t.Errorf("остались временные каталоги: %v", left)
-	}
+	noTempDirs(t, officeDir)
 }
 
 // Распакованная версия неприкосновенна: правка руками в ней законна.
@@ -97,9 +99,7 @@ func TestUnpackLeavesExistingOfficeAlone(t *testing.T) {
 	if string(data) != "правка руками\n" {
 		t.Errorf("workflow.yaml = %q, правка руками затёрта", data)
 	}
-	if left := tempDirs(t, officeDir); len(left) != 0 {
-		t.Errorf("остались временные каталоги: %v", left)
-	}
+	noTempDirs(t, officeDir)
 }
 
 func TestUnpackVersionsSideBySide(t *testing.T) {
@@ -120,9 +120,7 @@ func TestUnpackVersionsSideBySide(t *testing.T) {
 	if rootOld == rootNew {
 		t.Errorf("v0.7.0 и v0.8.0 распакованы в один каталог: %s", rootOld)
 	}
-	if left := tempDirs(t, officeDir); len(left) != 0 {
-		t.Errorf("остались временные каталоги: %v", left)
-	}
+	noTempDirs(t, officeDir)
 }
 
 // failingFS ломает чтение одного файла: так выглядит распаковка, оборванная
@@ -149,9 +147,7 @@ func TestUnpackFailureLeavesNoTarget(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(officeDir, "v0.7.0")); !errors.Is(err, fs.ErrNotExist) {
 		t.Error("после отказа остался каталог офиса")
 	}
-	if left := tempDirs(t, officeDir); len(left) != 0 {
-		t.Errorf("после отказа остались временные каталоги: %v", left)
-	}
+	noTempDirs(t, officeDir)
 	// Следующая попытка — с нуля, и она проходит.
 	if _, err := Unpack(fixture(), officeDir, "v0.7.0"); err != nil {
 		t.Fatalf("повторная распаковка после отказа: %v", err)
@@ -195,7 +191,5 @@ func TestUnpackRaceYieldsOneOffice(t *testing.T) {
 		}
 		t.Errorf("в каталоге офисов %d записей, ожидалась одна: %v", len(entries), names)
 	}
-	if left := tempDirs(t, officeDir); len(left) != 0 {
-		t.Errorf("остались временные каталоги: %v", left)
-	}
+	noTempDirs(t, officeDir)
 }

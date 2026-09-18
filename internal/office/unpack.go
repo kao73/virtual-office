@@ -53,22 +53,22 @@ func Unpack(src fs.FS, officeDir, name string) (string, error) {
 		_ = os.RemoveAll(tmp)
 		return "", fmt.Errorf("офис %s не распакован: %w", name, err)
 	}
-	switch err := os.Rename(tmp, target); {
-	case err == nil:
-		return target, nil
-	case errors.Is(err, fs.ErrExist):
-		// EEXIST и ENOTEMPTY: кто-то успел раньше. syscall.Errno.Is сводит
-		// оба к fs.ErrExist.
+	if err := os.Rename(tmp, target); err != nil {
 		_ = os.RemoveAll(tmp)
-		return target, nil
-	default:
-		_ = os.RemoveAll(tmp)
-		return "", fmt.Errorf("офис %s не переименован из временного каталога: %w", name, err)
+		// EEXIST и ENOTEMPTY: кто-то успел раньше, и это удача, а не отказ —
+		// каталог на месте. syscall.Errno.Is сводит оба к fs.ErrExist.
+		if !errors.Is(err, fs.ErrExist) {
+			return "", fmt.Errorf("офис %s не переименован из временного каталога: %w", name, err)
+		}
 	}
+	return target, nil
 }
 
-// copyTree пишет каждый файл src под dst; каталоги создаются по пути.
-func copyTree(src fs.FS, dst string) error {
+// walkFiles зовёт fn для каждого файла дерева в порядке обхода (он лексический,
+// значит устойчивый). Один обход на весь пакет: Hash считает ключ каталога,
+// который наполняет copyTree, и разойдись они в том, что считать файлом
+// поставки, изменившееся дерево перестало бы менять ключ.
+func walkFiles(src fs.FS, fn func(path string, data []byte) error) error {
 	return fs.WalkDir(src, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -77,6 +77,13 @@ func copyTree(src fs.FS, dst string) error {
 		if err != nil {
 			return err
 		}
+		return fn(path, data)
+	})
+}
+
+// copyTree пишет каждый файл src под dst; каталоги создаются по пути.
+func copyTree(src fs.FS, dst string) error {
+	return walkFiles(src, func(path string, data []byte) error {
 		out := filepath.Join(dst, filepath.FromSlash(strings.TrimPrefix(path, bootstrapPrefix)))
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return err
@@ -88,11 +95,8 @@ func copyTree(src fs.FS, dst string) error {
 		if err := os.WriteFile(out, data, mode); err != nil {
 			return err
 		}
-		// umask может срезать биты при создании — как copyExecutable в адаптере,
-		// выставляем явно.
-		if mode == 0o755 {
-			return os.Chmod(out, mode)
-		}
-		return nil
+		// umask срезает биты при создании — выставляем явно, и не только
+		// исполняемым: офис должен разложиться одинаково при любом umask.
+		return os.Chmod(out, mode)
 	})
 }
