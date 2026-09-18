@@ -1,7 +1,7 @@
 #!/bin/sh
 # Проверка install.sh по четырём сценариям спецификации office-install без
-# сети: установка, обновление на месте, битая контрольная сумма, чужая
-# платформа. Артефакты — либо настоящий dist/ от scripts/release-snapshot.sh
+# сети — установка, обновление на месте, битая контрольная сумма, чужая
+# платформа — и пятому, собственному: версия рядом с OFFICE_INSTALL_FROM. Артефакты — либо настоящий dist/ от scripts/release-snapshot.sh
 # ($1), либо поддельный: два скрипта вместо бинарников, tar.gz под текущую
 # платформу, checksums.txt.
 #
@@ -78,4 +78,14 @@ grep -q "linux/arm64" "$work/out4" || fail "поддерживаемые не п
 [ ! -e "$home/bin" ] || fail "что-то установлено на чужой платформе"
 echo "ok: чужая платформа"
 
-echo "все четыре сценария прошли"
+# 5. Версия рядом с OFFICE_INSTALL_FROM — отказ до любых действий: из каталога
+# ставится то, что в нём есть. И аргументом, и через OFFICE_VERSION.
+home="$work/home5"
+if OFFICE_INSTALL_FROM="$dist" OFFICE_HOME="$home" "$sh_bin" "$root/install.sh" v0.7.0 > "$work/out5" 2>&1; then fail "версия аргументом рядом с OFFICE_INSTALL_FROM принята"; fi
+grep -q "v0.7.0" "$work/out5" || fail "версия не названа: $(cat "$work/out5")"
+if OFFICE_VERSION=v0.7.1 OFFICE_INSTALL_FROM="$dist" OFFICE_HOME="$home" "$sh_bin" "$root/install.sh" > "$work/out5b" 2>&1; then fail "OFFICE_VERSION рядом с OFFICE_INSTALL_FROM принят"; fi
+grep -q "v0.7.1" "$work/out5b" || fail "версия из OFFICE_VERSION не названа: $(cat "$work/out5b")"
+[ ! -e "$home" ] || fail "что-то создано при отказе"
+echo "ok: версия рядом с OFFICE_INSTALL_FROM"
+
+echo "все пять сценариев прошли"

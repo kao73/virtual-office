@@ -27,7 +27,7 @@ jobs:
           go-version-file: go.mod
       - run: go test ./...
       # install.sh — единственное, что пользователь запускает через curl | sh:
-      # четыре сценария на поддельном dist/, под dash (sh на ubuntu).
+      # пять сценариев на поддельном dist/, под dash (sh на ubuntu).
       - run: sh scripts/install-test.sh
       # Релизная сборка несёт настоящие ограждения: собрать их и проверить
       # под тегом release, а не только скомпилировать в GoReleaser.
@@ -38,3 +38,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Гейт личности (scripts/check-release-identity.sh) пропускает чужие
+      # платформы; без маркера он ни разу не сработал на хосте — и это отказ,
+      # а не зелёный релиз на честном слове.
+      - run: ls dist/identity-checked-*

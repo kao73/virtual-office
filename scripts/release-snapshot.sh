@@ -6,4 +6,6 @@
 # Первый запуск скачивает и собирает GoReleaser — это минуты, не секунды.
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-exec go run github.com/goreleaser/goreleaser/v2@v2.18.2 release --snapshot --clean
+go run github.com/goreleaser/goreleaser/v2@v2.18.2 release --snapshot --clean
+# Тот же гейт, что в release.yml: проверка личности обязана сработать на хосте.
+ls dist/identity-checked-* >/dev/null 2>&1 || { echo "release-snapshot: проверка личности не сработала ни на одной цели (нет dist/identity-checked-*)" >&2; exit 1; }

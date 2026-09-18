@@ -17,27 +17,32 @@ before:
     # validators_<os>_<arch>.go под -tags release.
     - sh scripts/build-validators.sh
 
+# Оба бинарника собираются одинаково — якоря, а не две копии строк: разойдись
+# ldflags, релиз уехал бы с runner v0.7.0 и run-agent <commit>, которые
+# распаковали бы разные офисы и подписали прогоны разными личностями.
 builds:
   - id: runner
     main: ./cmd/runner
     binary: runner
-    env: [CGO_ENABLED=0]
-    flags: [-trimpath, -tags=release]
-    ldflags: ["-s -w -X github.com/kao73/virtual-office.Version=v{{ .Version }}"]
-    targets: [darwin_arm64, linux_amd64, linux_arm64]
+    env: &build_env [CGO_ENABLED=0]
+    flags: &build_flags [-trimpath, -tags=release]
+    ldflags: &build_ldflags ["-s -w -X github.com/kao73/virtual-office.Version=v{{ .Version }}"]
+    targets: &build_targets [darwin_arm64, linux_amd64, linux_arm64]
     hooks:
       post:
         # Собранный раннер называет себя версией релиза — проверяется до
-        # публикации на нативной цели; чужие платформы скрипт пропускает.
+        # публикации на нативной цели; чужие платформы скрипт пропускает,
+        # а что хотя бы одна цель совпала с хостом, проверяет release.yml
+        # по маркеру dist/identity-checked-<os>-<arch>.
         - cmd: sh scripts/check-release-identity.sh {{ .Path }} {{ .Version }} {{ .Os }} {{ .Arch }} {{ .IsSnapshot }}
           output: true
   - id: run-agent
     main: ./cmd/run-agent
     binary: run-agent
-    env: [CGO_ENABLED=0]
-    flags: [-trimpath, -tags=release]
-    ldflags: ["-s -w -X github.com/kao73/virtual-office.Version=v{{ .Version }}"]
-    targets: [darwin_arm64, linux_amd64, linux_arm64]
+    env: *build_env
+    flags: *build_flags
+    ldflags: *build_ldflags
+    targets: *build_targets
 
 archives:
   - id: default

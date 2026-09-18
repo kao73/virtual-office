@@ -3,7 +3,9 @@
 ## Что лежит в релизе
 
 Источник истины — `.goreleaser.yaml`, `scripts/build-validators.sh`,
-`.github/workflows/release.yml`, `install.sh`, `payload.go`; решения и их
+`scripts/check-release-identity.sh` (гейт «личность собранного раннера ==
+версия», post-hook сборки), `.github/workflows/release.yml`, `install.sh`,
+`payload.go`; решения и их
 причины — `docs/openspec/changes/archive/2026-09-18-install/design.md` (D1, D5, D6) и
 Design Doc `docs/superpowers/specs/2026-09-17-install-design.md` §2.1–2.4.
 
@@ -169,7 +171,9 @@ dev-сборкой без ограждений и без версии; `runner` 
 на «раннер собран без ограждения», не говоря о подмене. Теперь на одной
 машине клон и релиз не мешают друг другу; старый `${OFFICE_HOME}/bin/runner`
 от прежних обёрток, если он есть, при следующем `install.sh` будет
-перезаписан релизом.
+перезаписан релизом — а если релиз ставить не собираетесь, уберите его
+руками: обновлять его больше нечему, и в `PATH` он будет замёрзшей
+dev-сборкой.
 
 ### Осиротевшие `.unpack-*`
 

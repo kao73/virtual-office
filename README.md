@@ -578,7 +578,7 @@ go test ./...                               # всё, кроме прогоно�
 ./scripts/smoke.sh all                      # девять сценариев, настоящие прогоны
 ./scripts/smoke.sh analyst                  # только роль analyst: три из них
 OFFICE_BACKEND=sbx ./scripts/smoke.sh all   # они же в песочнице
-sh scripts/install-test.sh                  # install.sh по четырём сценариям на поддельном dist/
+sh scripts/install-test.sh                  # install.sh по пяти сценариям на поддельном dist/
 sh scripts/release-snapshot.sh              # снапшот релиза в dist/ (GoReleaser через go run)
 ```
 
