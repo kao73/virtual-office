@@ -67,11 +67,13 @@ func TestHashCoversEveryTree(t *testing.T) {
 // склейкой байтов дали бы один ключ каталога, и вторая грязная сборка молча
 // работала бы на офисе первой. Пара ниже отличается только границами.
 func TestHashFramesPathAndLength(t *testing.T) {
-	// Одинаковая склейка содержимого, разные длины: «x»+«yz» против «xy»+«z».
-	split := hashOf(t, fstest.MapFS{"a": {Data: []byte("x")}, "b": {Data: []byte("yz")}})
-	other := hashOf(t, fstest.MapFS{"a": {Data: []byte("xy")}, "b": {Data: []byte("z")}})
-	if split == other {
-		t.Error("деревья с одинаковой склейкой байтов, но разной разбивкой дали один хеш")
+	// Длина отдельно от пути: без неё «a»+«x», «ab»+«» и «a»+«xab\x00» дают
+	// один и тот же поток «a\x00xab\x00» — путь второго файла первого дерева
+	// становится содержимым единственного файла второго.
+	split := hashOf(t, fstest.MapFS{"a": {Data: []byte("x")}, "ab": {Data: []byte("")}})
+	glued := hashOf(t, fstest.MapFS{"a": {Data: []byte("xab\x00")}})
+	if split == glued {
+		t.Error("деревья с одинаковым потоком «путь+байты» дали один хеш: длина в хеш не попадает")
 	}
 	// Одно и то же содержимое под разными именами.
 	named := hashOf(t, fstest.MapFS{"a": {Data: []byte("x")}})

@@ -32,9 +32,10 @@ builds:
       post:
         # Собранный раннер называет себя версией релиза — проверяется до
         # публикации на нативной цели; чужие платформы скрипт пропускает,
-        # а что хотя бы одна цель совпала с хостом, проверяет release.yml
-        # по маркеру dist/identity-checked-<os>-<arch>.
-        - cmd: sh scripts/check-release-identity.sh {{ .Path }} {{ .Version }} {{ .Os }} {{ .Arch }} {{ .IsSnapshot }}
+        # а что хотя бы одна цель совпала с машиной сборки, до сборки
+        # проверяет scripts/check-host-is-target.sh. Каталог маркера (dist)
+        # передаётся явно: раскладка dist/<сборка>_<цель>/ не контракт.
+        - cmd: sh scripts/check-release-identity.sh {{ .Path }} {{ .Version }} {{ .Os }} {{ .Arch }} {{ .IsSnapshot }} dist
           output: true
   - id: run-agent
     main: ./cmd/run-agent

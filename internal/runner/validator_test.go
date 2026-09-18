@@ -300,10 +300,15 @@ func TestEnsureValidatorPayloadWritesEmbeddedOnce(t *testing.T) {
 	}
 }
 
+// Офис, собранный руками, а не ResolveOffice, — не офис: пустой Root означал
+// бы «текущий каталог» (cmd.Dir у go build, ./bin у поставки), а именно от
+// этого ResolveOffice и ушёл; неизвестный источник не назвал бы способ, каким
+// брать ограждение.
 func TestEnsureValidatorRefusesUnresolvedOffice(t *testing.T) {
 	for name, o := range map[string]Office{
-		"поставка": {Identity: "v0.7.0", Source: SourcePayload},
-		"клон":     {Identity: "abc", Source: SourceClone},
+		"без Root, поставка":   {Identity: "v0.7.0", Source: SourcePayload},
+		"без Root, клон":       {Identity: "abc", Source: SourceClone},
+		"неизвестный источник": {Root: t.TempDir(), Identity: "v0.7.0", Source: Source("самосбор")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "arm64"})

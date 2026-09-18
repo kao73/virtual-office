@@ -45,13 +45,16 @@ func Unpack(src fs.FS, officeDir, name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("временный каталог распаковки не создан: %w", err)
 	}
-	if err := os.Chmod(tmp, 0o755); err != nil { // MkdirTemp даёт 0700
-		_ = os.RemoveAll(tmp)
-		return "", err
-	}
 	if err := copyTree(src, tmp); err != nil {
 		_ = os.RemoveAll(tmp)
 		return "", fmt.Errorf("офис %s не распакован: %w", name, err)
+	}
+	// Каталоги — как и файлы: MkdirAll отдаёт их umask'у, и при строгом umask
+	// офис вышел бы из 0700-каталогов, в которые чужой uid (песочница, общее
+	// ${OFFICE_HOME}) не войдёт, хотя файлы в них читаемы.
+	if err := chmodDirs(tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", fmt.Errorf("права каталогов офиса %s не выставлены: %w", name, err)
 	}
 	if err := os.Rename(tmp, target); err != nil {
 		_ = os.RemoveAll(tmp)
@@ -62,6 +65,16 @@ func Unpack(src fs.FS, officeDir, name string) (string, error) {
 		}
 	}
 	return target, nil
+}
+
+// chmodDirs выставляет 0755 каждому каталогу внутри root, включая сам root.
+func chmodDirs(root string) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return err
+		}
+		return os.Chmod(path, 0o755)
+	})
 }
 
 // walkFiles зовёт fn для каждого файла дерева в порядке обхода (он лексический,

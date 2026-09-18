@@ -9,10 +9,10 @@
 # по нему release.yml и release-snapshot.sh убеждаются, что хотя бы одна
 # цель совпала с хостом и гейт не самоотключился одними «пропусками».
 #
-#   sh scripts/check-release-identity.sh <бинарник> <версия без v> <os> <arch> [true|false: снапшот]
+#   sh scripts/check-release-identity.sh <бинарник> <версия без v> <os> <arch> [true|false: снапшот] [каталог маркера]
 set -eu
 
-bin=$1; version=$2; os=$3; arch=$4; snapshot=${5:-false}
+bin=$1; version=$2; os=$3; arch=$4; snapshot=${5:-false}; dist=${6:-dist}
 
 host_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "$(uname -m)" in arm64|aarch64) host_arch=arm64 ;; x86_64|amd64) host_arch=amd64 ;; *) host_arch="$(uname -m)" ;; esac
@@ -31,7 +31,7 @@ if ! out="$(OFFICE_HOME="$home" OFFICE_CONFIG_ROOT= "$bin" version 2>&1)"; then
 fi
 got="$(printf '%s\n' "$out" | head -1)"
 want="runner v$version"
-marker="$(dirname -- "$(dirname -- "$bin")")/identity-checked-$os-$arch"  # dist/<сборка>_<цель>/<бинарник> → dist/
+marker="$dist/identity-checked-$os-$arch"  # каталог передаётся явно: раскладка dist/<сборка>_<цель>/ — договорённость GoReleaser, а не контракт
 note=""
 if [ "$snapshot" = true ] && [ "$got" = "$want-dirty" ]; then
   note=" (снапшот с незакоммиченного дерева)"

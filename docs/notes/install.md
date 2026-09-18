@@ -4,8 +4,10 @@
 
 Источник истины — `.goreleaser.yaml`, `scripts/build-validators.sh`,
 `scripts/check-release-identity.sh` (гейт «личность собранного раннера ==
-версия», post-hook сборки), `.github/workflows/release.yml`, `install.sh`,
-`payload.go`; решения и их
+версия», post-hook сборки) и `scripts/check-host-is-target.sh` (до сборки:
+машина сборки обязана быть среди целей, иначе гейту негде сработать),
+`.github/workflows/release.yml`, `install.sh`, `payload.go`; согласованность
+списков платформ и пинов держит `release_config_test.go`; решения и их
 причины — `docs/openspec/changes/archive/2026-09-18-install/design.md` (D1, D5, D6) и
 Design Doc `docs/superpowers/specs/2026-09-17-install-design.md` §2.1–2.4.
 

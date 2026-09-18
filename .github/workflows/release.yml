@@ -32,13 +32,17 @@ jobs:
       # Релизная сборка несёт настоящие ограждения: собрать их и проверить
       # под тегом release, а не только скомпилировать в GoReleaser.
       - run: sh scripts/build-validators.sh && go test -tags release .
+      # Гейт личности запускает собранный бинарник и потому пропускает чужие
+      # платформы. Если ни одна цель не совпадёт с машиной сборки, он
+      # промолчит на всех — а маркер ниже проверяется уже после публикации.
+      - run: sh scripts/check-host-is-target.sh
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: v2.18.2  # тот же пин, что в scripts/release-snapshot.sh
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Гейт личности (scripts/check-release-identity.sh) пропускает чужие
-      # платформы; без маркера он ни разу не сработал на хосте — и это отказ,
-      # а не зелёный релиз на честном слове.
+      # Второй пояс к тому же: маркер доказывает, что гейт личности отработал,
+      # а не пропустил все цели. Шаг стоит после публикации — до неё это
+      # закрывает check-host-is-target.sh.
       - run: ls dist/identity-checked-* || { echo "проверка личности не сработала ни на одной цели"; exit 1; }
