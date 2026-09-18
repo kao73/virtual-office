@@ -45,3 +45,29 @@ func TestHashIsStableAndSensitive(t *testing.T) {
 		t.Error("недочитанная поставка получила хеш")
 	}
 }
+
+// Второе дерево — ограждения: их правка меняет хеш при той же поставке,
+// а перенос файла между деревьями не сходится в один хеш.
+func TestHashCoversEveryTree(t *testing.T) {
+	validators := func(body string) fstest.MapFS {
+		return fstest.MapFS{"payload/validators/validate-result-linux-arm64": {Data: []byte(body)}}
+	}
+	a, err := Hash(fixture(), validators("v1"))
+	if err != nil {
+		t.Fatalf("не хешируется: %v", err)
+	}
+	b, err := Hash(fixture(), validators("v2"))
+	if err != nil {
+		t.Fatalf("не хешируется: %v", err)
+	}
+	if a == b {
+		t.Error("другое ограждение при той же поставке не изменило хеш")
+	}
+	only, err := Hash(fixture())
+	if err != nil {
+		t.Fatalf("не хешируется: %v", err)
+	}
+	if only == a {
+		t.Error("поставка без ограждений дала тот же хеш, что с ними")
+	}
+}

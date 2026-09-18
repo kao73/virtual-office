@@ -456,10 +456,12 @@ func TestAccountWritesTermination(t *testing.T) {
 
 // buildRunAgentRelease собирает CLI как релиз: с версией в ldflags. Без
 // OFFICE_CONFIG_ROOT такой бинарник обязан брать офис из своей поставки.
+// Без VCS-штампа: иначе на грязном дереве разработчика личность получила бы
+// -dirty и каталог по хешу, и тест зависел бы от того, что лежит в git status.
 func buildRunAgentRelease(t *testing.T, version string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "run-agent")
-	cmd := exec.Command("go", "build", "-ldflags", "-X github.com/kao73/virtual-office.Version="+version, "-o", path, ".")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-ldflags", "-X github.com/kao73/virtual-office.Version="+version, "-o", path, ".")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("run-agent не собран: %v: %s", err, out)
 	}

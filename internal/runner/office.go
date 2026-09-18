@@ -31,8 +31,12 @@ const (
 
 // Office — где лежит офис и чем подписывать его прогоны.
 type Office struct {
-	Root     string // каталог с roles/, skills/, hooks/, workflow.yaml, budgets.yaml, sbx-kits/
-	Identity string // версия релиза (v0.7.0) или commit, с -dirty при незакоммиченных правках
+	// Root — каталог с roles/, skills/, hooks/, workflow.yaml, budgets.yaml и
+	// китом песочницы: sbx-kits/ в поставке, bootstrap/sbx-kits/ в клоне.
+	Root string
+	// Identity — версия релиза (v0.7.0) или commit, с -dirty при незакоммиченных
+	// правках. У грязных сборок одного commit она одна; различает их Root.
+	Identity string
 	Source   Source
 }
 
@@ -75,7 +79,9 @@ var errNoIdentity = errors.New("раннер собран без личност�
 // ResolveOffice отвечает, где офис и как его звать. Четыре ветки, первая
 // подошедшая выигрывает: OFFICE_CONFIG_ROOT — клон и его commit; версия
 // из ldflags — релиз; vcs.revision из build info — сборка из клона без
-// обёртки; иначе отказ. Текущий каталог офисом не считается никогда.
+// обёртки; иначе отказ. Незакоммиченные правки в дереве сборки — с версией
+// или без — дают -dirty (payloadIdentity). Текущий каталог офисом не
+// считается никогда.
 func ResolveOffice(opts Resolve) (Office, error) {
 	if root := os.Getenv(ConfigRootEnv); root != "" {
 		identity, err := ConfigSHA(root)
@@ -109,26 +115,20 @@ func ResolveOffice(opts Resolve) (Office, error) {
 	return o, nil
 }
 
-// payloadIdentity — личность поставки и имя её каталога. Грязная сборка
-// получает в имени каталога ещё и хеш содержимого: две сборки одного commit
-// могут нести разные роли, а распакованная версия не переписывается (D3).
+// payloadIdentity — личность поставки и имя её каталога. Версия из ldflags
+// выигрывает у commit из build info: релиз собирается в клоне и несёт оба.
+// Грязная сборка — с версией или без — получает -dirty в личность и хеш
+// содержимого в имя каталога: две сборки одного commit могут нести разные
+// роли, а распакованная версия не переписывается (D3). Снапшот GoReleaser
+// на незакоммиченном дереве — ровно этот случай: тот же HEAD, та же версия,
+// другое содержимое.
 func payloadIdentity() (identity, dir string, err error) {
+	rev, modified := vcsState()
 	if payload.Version != "" {
-		return payload.Version, payload.Version, nil
-	}
-	info, ok := readBuildInfo()
-	if !ok {
-		return "", "", errNoIdentity
-	}
-	var rev string
-	modified := false
-	for _, s := range info.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			rev = s.Value
-		case "vcs.modified":
-			modified = s.Value == "true"
+		if !modified {
+			return payload.Version, payload.Version, nil
 		}
+		return dirtyIdentity(payload.Version, payload.Version)
 	}
 	if rev == "" {
 		return "", "", errNoIdentity
@@ -140,9 +140,34 @@ func payloadIdentity() (identity, dir string, err error) {
 	if !modified {
 		return rev, short, nil
 	}
-	hash, err := office.Hash(payloadOrDefault())
+	return dirtyIdentity(rev, short)
+}
+
+// vcsState — commit и признак незакоммиченных правок из build info.
+// Пустой commit: build info нет или сборка без VCS (-buildvcs=false, go test).
+func vcsState() (rev string, modified bool) {
+	info, ok := readBuildInfo()
+	if !ok {
+		return "", false
+	}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	return rev, modified
+}
+
+// dirtyIdentity — личность и каталог грязной сборки. Хеш берёт и поставку,
+// и ограждения: чекер лежит в каталоге офиса и не переписывается, так что
+// другой validate-result при тех же ролях обязан дать другой каталог.
+func dirtyIdentity(identity, dir string) (string, string, error) {
+	hash, err := office.Hash(payloadOrDefault(), validatorsOrDefault())
 	if err != nil {
 		return "", "", err
 	}
-	return rev + "-dirty", short + "-dirty-" + hash[:8], nil
+	return identity + "-dirty", dir + "-dirty-" + hash[:8], nil
 }

@@ -222,6 +222,98 @@ func TestResolveOfficeDirtyBuildKeysDirByContent(t *testing.T) {
 	}
 }
 
+// Версия из ldflags выигрывает у commit из build info: релиз собирается
+// в клоне и несёт оба, а зваться обязан версией — иначе каждый бинарник
+// GoReleaser подписывал бы прогоны commit'ом, и в тикетах снова были бы
+// восемь hex вместо v0.7.0.
+func TestResolveOfficeReleaseVersionWinsOverRevision(t *testing.T) {
+	home := payloadHome(t)
+	fakePayload(t)
+	releaseVersion(t, "v0.7.0")
+	buildInfo(t, rev, false)
+	o, err := ResolveOffice(Resolve{})
+	if err != nil {
+		t.Fatalf("ResolveOffice: %v", err)
+	}
+	if o.Identity != "v0.7.0" {
+		t.Errorf("Identity = %q, ждали v0.7.0", o.Identity)
+	}
+	if want := filepath.Join(home, OfficeDir, "v0.7.0"); o.Root != want {
+		t.Errorf("Root = %q, ждали %q", o.Root, want)
+	}
+}
+
+// Версия из ldflags на грязном дереве — снапшот GoReleaser или ручной
+// go build с -X: тот же HEAD даёт ту же версию при другом содержимом, и без
+// пометки второй снапшот молча работал бы на офисе первого, подписывая
+// прогоны как чистые. Поэтому та же защита, что у сборки из клона: -dirty
+// в личности, хеш содержимого в каталоге — и новая поставка распаковывается.
+func TestResolveOfficeDirtyReleaseVersionKeysDirByContent(t *testing.T) {
+	home := payloadHome(t)
+	m := fakePayload(t)
+	const version = "v0.0.1-SNAPSHOT-9f2e1c4"
+	releaseVersion(t, version)
+	buildInfo(t, rev, true)
+	o1, err := ResolveOffice(Resolve{Unpack: true})
+	if err != nil {
+		t.Fatalf("ResolveOffice: %v", err)
+	}
+	if o1.Identity != version+"-dirty" {
+		t.Errorf("Identity = %q, ждали %q", o1.Identity, version+"-dirty")
+	}
+	dirPattern := regexp.MustCompile(`^` + regexp.QuoteMeta(version) + `-dirty-[0-9a-f]{8}$`)
+	if base := filepath.Base(o1.Root); !dirPattern.MatchString(base) {
+		t.Errorf("каталог %q не по образцу %s", base, dirPattern)
+	}
+	if dir, want := filepath.Dir(o1.Root), filepath.Join(home, OfficeDir); dir != want {
+		t.Errorf("каталог офисов = %q, ждали %q", dir, want)
+	}
+	m["workflow.yaml"] = &fstest.MapFile{Data: []byte("другое\n")}
+	o2, err := ResolveOffice(Resolve{Unpack: true})
+	if err != nil {
+		t.Fatalf("ResolveOffice с другой поставкой: %v", err)
+	}
+	if o2.Identity != o1.Identity {
+		t.Errorf("Identity изменилась: %q → %q", o1.Identity, o2.Identity)
+	}
+	if o2.Root == o1.Root {
+		t.Fatalf("другая поставка той же версии легла в тот же каталог %q", o2.Root)
+	}
+	got, err := os.ReadFile(filepath.Join(o2.Root, "workflow.yaml"))
+	if err != nil {
+		t.Fatalf("новая поставка не распакована: %v", err)
+	}
+	if string(got) != "другое\n" {
+		t.Errorf("в новом каталоге старое содержимое: %q", got)
+	}
+}
+
+// Хеш грязной сборки покрывает и ограждения: другой validate-result при тех
+// же ролях — другой каталог. Иначе лежащий в office/<…>/bin чекер прошлой
+// сборки проверял бы не то, что проверяет раннер, — тот самый расход
+// этапа 1, ради которого клон пересобирает ограждение каждый раз.
+func TestResolveOfficeDirtyHashCoversValidators(t *testing.T) {
+	payloadHome(t)
+	fakePayload(t)
+	releaseVersion(t, "")
+	buildInfo(t, rev, true)
+	linuxArm := Platform{OS: "linux", Arch: "arm64"}
+	v := fakeValidators(t, linuxArm)
+	o1, err := ResolveOffice(Resolve{})
+	if err != nil {
+		t.Fatalf("ResolveOffice: %v", err)
+	}
+	name := validatorsDir + "/" + ValidatorName + "-linux-arm64"
+	v[name] = &fstest.MapFile{Data: []byte("#!/bin/sh\nexit 0\n")}
+	o2, err := ResolveOffice(Resolve{})
+	if err != nil {
+		t.Fatalf("ResolveOffice с другим ограждением: %v", err)
+	}
+	if o2.Root == o1.Root {
+		t.Errorf("другое ограждение при той же поставке легло в тот же каталог %q", o2.Root)
+	}
+}
+
 func TestResolveOfficeRefusesWithoutIdentity(t *testing.T) {
 	for name, settings := range map[string]func(){
 		"нет build info": func() { buildInfo(t, "", false) },

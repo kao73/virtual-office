@@ -200,7 +200,7 @@ func TestEnsureValidatorPayloadRefusesWhenNothingEmbedded(t *testing.T) {
 
 // fakeValidators подменяет встроенный набор: поддельные «бинарники» под
 // названными платформами.
-func fakeValidators(t *testing.T, platforms ...Platform) {
+func fakeValidators(t *testing.T, platforms ...Platform) fstest.MapFS {
 	t.Helper()
 	m := fstest.MapFS{}
 	for _, p := range platforms {
@@ -210,6 +210,7 @@ func fakeValidators(t *testing.T, platforms ...Platform) {
 	prev := validatorsFS
 	validatorsFS = m
 	t.Cleanup(func() { validatorsFS = prev })
+	return m
 }
 
 // Релизный раннер отдаёт ограждение из себя: без go на PATH, один раз, 0755,
