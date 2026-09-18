@@ -50,7 +50,7 @@ func TestHashIsStableAndSensitive(t *testing.T) {
 // а перенос файла между деревьями не сходится в один хеш.
 func TestHashCoversEveryTree(t *testing.T) {
 	validators := func(body string) fstest.MapFS {
-		return fstest.MapFS{"payload/validators/validate-result-linux-arm64": {Data: []byte(body)}}
+		return fstest.MapFS{"validate-result-linux-arm64": {Data: []byte(body)}}
 	}
 	a := hashOf(t, fixture(), validators("v1"))
 	b := hashOf(t, fixture(), validators("v2"))

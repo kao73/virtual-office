@@ -19,7 +19,7 @@ import (
 
 // twoOffices — два офиса над файловыми трекерами во временных каталогах,
 // по проекту на каждый; имена «jira» и «mock» — метки обхода, под обоими
-// лежит mock. Граф — поставляемый, корень конфигурации — репозиторий:
+// лежит mock. Граф — поставляемый, корень конфигурации — каталог офиса:
 // cycle зовёт настоящие Reap/Tick/CompleteSplits, а им нужны роли и статусы.
 //
 // Хозяйство рабочих папок одно на оба офиса, как на машине: уборка
@@ -27,7 +27,7 @@ import (
 // покажет, не снесёт ли один офис папку другого.
 func twoOffices(t *testing.T, out *bytes.Buffer) (*offices, *mock.Tracker, *mock.Tracker) {
 	t.Helper()
-	root := filepath.Join("..", "..")
+	root := filepath.Join("..", "..", "office")
 	wf, err := tracker.LoadWorkflow(filepath.Join(root, tracker.WorkflowFile))
 	if err != nil {
 		t.Fatalf("граф не загружен: %v", err)

@@ -46,7 +46,7 @@ func TestCreateArgs(t *testing.T) {
 // ловит разъезд механически: без него TestCreateArgs зелёный при любом значении
 // константы, потому что сравнивает только с самой Template, а не с реальным тегом.
 func TestBakeScriptTagMatchesTemplate(t *testing.T) {
-	path := "../../../bootstrap/sbx-kits/bake-comet-template.sh"
+	path := "../../../office/sbx-kits/bake-comet-template.sh"
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("скрипт печи не прочитан: %v", err)

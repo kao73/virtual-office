@@ -11,7 +11,7 @@
 | `go test ./...` | repo root | ~16 packages; all hermetic (fake HTTP servers / in-memory mock tracker) — no live network, nothing to exclude from a normal cycle |
 | `gofmt -l .` | repo root | must print nothing. (The old note about a "false positive" in `internal/pipeline/prpass_test.go` is obsolete since PR #11: it was gofmt's own doc-comment normalization `''`→`”` that nobody had applied; the PR applied it. A reviewer who flags that hunk as a "stray editor edit" is wrong — `gofmt -l` on `master` flagged the file, on the branch it is clean.) |
 | `sh scripts/install-test.sh` | repo root | five install.sh scenarios on a fake dist, ~1 s, no network. `INSTALL_SH=/bin/dash` / `INSTALL_SH=bash` runs install.sh under that shell — do both on darwin, where `sh` is bash but both Linux release targets have dash |
-| `sh scripts/build-validators.sh && go test -tags release .` | repo root | only when the PR touches `validators_*.go`, `payload.go`, `internal/runner/validator.go` or the release config; ~30 s; leaves `payload/validators/validate-result-*` (gitignored) — delete them afterwards |
+| `sh scripts/build-validators.sh && go test -tags release ./office/...` | repo root | only when the PR touches `office/validators/validators_*.go`, `office/payload.go`, `internal/runner/validator.go` or the release config; ~30 s; leaves `office/validators/validate-result-*` (gitignored) — delete them afterwards |
 
 No Makefile; no lint step beyond `go vet`.
 

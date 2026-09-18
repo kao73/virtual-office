@@ -12,7 +12,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	payload "github.com/kao73/virtual-office"
+	payload "github.com/kao73/virtual-office/office"
 )
 
 const rev = "9f2e1c4b7a3d5e6f8091a2b3c4d5e6f708192a3b"
@@ -22,10 +22,10 @@ const rev = "9f2e1c4b7a3d5e6f8091a2b3c4d5e6f708192a3b"
 func fakePayload(t *testing.T) fstest.MapFS {
 	t.Helper()
 	m := fstest.MapFS{
-		"roles/_base/base.yaml":                  {Data: []byte("network: {}\n")},
-		"hooks/require-result.sh":                {Data: []byte("#!/bin/sh\nexit 0\n")},
-		"bootstrap/sbx-kits/comet-cli/spec.yaml": {Data: []byte("name: comet\n")},
-		"workflow.yaml":                          {Data: []byte("statuses: []\n")},
+		"roles/_base/base.yaml":        {Data: []byte("network: {}\n")},
+		"hooks/require-result.sh":      {Data: []byte("#!/bin/sh\nexit 0\n")},
+		"sbx-kits/comet-cli/spec.yaml": {Data: []byte("name: comet\n")},
+		"workflow.yaml":                {Data: []byte("statuses: []\n")},
 	}
 	prev := payloadFS
 	payloadFS = m
@@ -303,7 +303,7 @@ func TestResolveOfficeDirtyHashCoversValidators(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveOffice: %v", err)
 	}
-	name := validatorsDir + "/" + ValidatorName + "-linux-arm64"
+	name := ValidatorName + "-linux-arm64"
 	v[name] = &fstest.MapFile{Data: []byte("#!/bin/sh\nexit 0\n")}
 	o2, err := ResolveOffice(Resolve{})
 	if err != nil {

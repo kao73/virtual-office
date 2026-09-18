@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	payload "github.com/kao73/virtual-office"
+	validators "github.com/kao73/virtual-office/office/validators"
 )
 
 // BinDir — подкаталог бинарников: ${OFFICE_HOME}/bin у клона (ограждение
@@ -23,18 +23,15 @@ const ValidatorName = "validate-result"
 // validatorPkg — путь пакета команды от корня конфиг-репозитория.
 const validatorPkg = "./cmd/validate-result"
 
-// validatorsDir — где внутри поставки лежат ограждения (validators_*.go в корне).
-const validatorsDir = "payload/validators"
-
 // validatorsFS — встроенный набор за переменной ради тестов; nil — настоящий.
-// Не «= payload.Validators»: см. payloadFS в office.go — инициализатор
+// Не «= validators.Validators»: см. payloadFS в office.go — инициализатор
 // пакета удержал бы набор в validate-result.
 var validatorsFS fs.FS
 
-func validatorsOrDefault() fs.FS { return orDefault(validatorsFS, payload.Validators) }
+func validatorsOrDefault() fs.FS { return orDefault(validatorsFS, validators.Validators) }
 
 // validatorName — имя файла ограждения под платформу: одно правило для
-// поставки (имя внутри payload/validators/) и для того, что кладётся на диск.
+// поставки (имя в корне её embed-дерева) и для того, что кладётся на диск.
 func validatorName(target Platform) string {
 	return fmt.Sprintf("%s-%s-%s", ValidatorName, target.OS, target.Arch)
 }
@@ -132,7 +129,7 @@ func embeddedValidator(root, name string, target Platform) (string, error) {
 	case !errors.Is(err, fs.ErrNotExist):
 		return "", fmt.Errorf("ограждение %s не проверено: %w", path, err)
 	}
-	raw, err := fs.ReadFile(validatorsOrDefault(), validatorsDir+"/"+name)
+	raw, err := fs.ReadFile(validatorsOrDefault(), name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", noEmbeddedValidator(target)
 	}

@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 )
@@ -42,7 +41,7 @@ func TestUnpackIgnoresUmask(t *testing.T) {
 		if bytes.HasPrefix(data, []byte("#!")) {
 			mode = 0o755
 		}
-		want[filepath.FromSlash(strings.TrimPrefix(path, bootstrapPrefix))] = mode
+		want[filepath.FromSlash(path)] = mode
 		return nil
 	}); err != nil {
 		t.Fatalf("фикстура не обойдена: %v", err)

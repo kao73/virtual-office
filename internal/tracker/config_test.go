@@ -13,7 +13,7 @@ import (
 // Файлы графа и проектов лежат в конфиг-репозитории и едут в прод как есть.
 // Битый workflow.yaml иначе обнаружился бы в проде первым же tick'ом.
 func TestShippedConfigIsValid(t *testing.T) {
-	root := filepath.Join("..", "..")
+	root := filepath.Join("..", "..", "office")
 
 	wf, err := LoadWorkflow(filepath.Join(root, WorkflowFile))
 	if err != nil {
@@ -917,7 +917,7 @@ func TestPRBranch(t *testing.T) {
 // иначе первый запуск у нового пользователя упрётся в контракт, который
 // образец сам же нарушает.
 func TestShippedProjectsExampleLoadsAfterFourEdits(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", ProjectsLocalExampleFile))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "office", ProjectsLocalExampleFile))
 	if err != nil {
 		t.Fatalf("%s не прочитан: %v", ProjectsLocalExampleFile, err)
 	}

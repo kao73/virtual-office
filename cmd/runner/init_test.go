@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	payload "github.com/kao73/virtual-office"
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/jira"
+	payload "github.com/kao73/virtual-office/office"
 )
 
 // Свежая машина: каталога нет — появляется ровно с двумя образцами, слово

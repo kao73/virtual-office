@@ -27,7 +27,7 @@
 
 ### Испечь на новой машине (или после смены версии)
 
-    ./bootstrap/sbx-kits/bake-comet-template.sh
+    ./office/sbx-kits/bake-comet-template.sh
 
 Печёт `office-claude-comet:<версия>` в локальный образный стор `sbx` на этой машине —
 образ никуда не публикуется и с git не едет. Без этого шага `sbx create` в
@@ -63,13 +63,13 @@
 ### Обновление версии `comet`
 
 1. Освежить тарбол: `npm pack @rpamis/comet@<новая версия> --pack-destination
-   bootstrap/sbx-kits/comet-cli/files/home/.comet-pkg`, убрать старый файл.
+   office/sbx-kits/comet-cli/files/home/.comet-pkg`, убрать старый файл.
 2. Поправить путь и версию в `commands.install` файла `spec.yaml`, и в `.source.yaml`
    (тег/коммит — как для `skills/comet/.source.yaml`/`skills/comet-native/.source.yaml`,
    тот же npm-пакет).
 3. Поправить тег `TAG` в `bake-comet-template.sh` и константу `Template` в
    `internal/backends/sbx/sbx.go` — они обязаны совпадать буквально.
-4. Перепечь: `./bootstrap/sbx-kits/bake-comet-template.sh`.
+4. Перепечь: `./office/sbx-kits/bake-comet-template.sh`.
 
 Старый образ в сторе не подчищается сам — `sbx template rm <старый тег>`, если нужно
 освободить место.
@@ -77,7 +77,7 @@
 ### Обновление версии `openspec`
 
 То же самое, отдельно от `comet`: `npm pack @fission-ai/openspec@<версия>
---pack-destination bootstrap/sbx-kits/comet-cli/files/home/.comet-pkg`, убрать старый
+--pack-destination office/sbx-kits/comet-cli/files/home/.comet-pkg`, убрать старый
 файл, поправить путь во втором `commands.install` файла `spec.yaml` и в
 `.source-openspec.yaml`, перепечь. Версии `comet` и `openspec` друг от друга не зависят технически — `@rpamis/comet`
 несёт `@fission-ai/openspec` как npm-зависимость лишь для собственных нужд (не пробрасывает

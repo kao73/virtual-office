@@ -1,7 +1,7 @@
 #!/bin/sh
 # Точка входа раннера.
 #
-# Обёртка сообщает раннеру корень конфиг-репозитория — оттуда он берёт роли
+# Обёртка сообщает раннеру каталог офиса в клоне — оттуда он берёт роли
 # и workflow.yaml — и запоминает каталог вызова, чтобы
 # относительные пути в аргументах не поехали после перехода в корень.
 #
@@ -21,13 +21,14 @@
 
 set -eu
 
-OFFICE_CONFIG_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OFFICE_CONFIG_ROOT="$repo/office"
 OFFICE_INVOCATION_DIR=$PWD
 export OFFICE_CONFIG_ROOT OFFICE_INVOCATION_DIR
 
 bin="${OFFICE_HOME:-$HOME/.office}/bin"
 mkdir -p "$bin"
 
-cd "$OFFICE_CONFIG_ROOT"
+cd "$repo"
 go build -o "$bin/runner-dev" ./cmd/runner
 exec "$bin/runner-dev" "$@"

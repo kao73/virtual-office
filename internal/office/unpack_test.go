@@ -12,15 +12,15 @@ import (
 )
 
 // fixture — маленькая поставка в форме embed: базовый слой под подчёркиванием,
-// исполняемый хук, кит под bootstrap/ и обычные файлы.
+// исполняемый хук, кит песочницы и обычные файлы.
 func fixture() fstest.MapFS {
 	return fstest.MapFS{
-		"roles/_base/base.yaml":                     {Data: []byte("network: {}\n")},
-		"hooks/require-result.sh":                   {Data: []byte("#!/bin/sh\nexit 0\n")},
-		"skills/comet/.source.yaml":                 {Data: []byte("package: comet\n")},
-		"bootstrap/sbx-kits/comet-cli/spec.yaml":    {Data: []byte("name: comet\n")},
-		"bootstrap/sbx-kits/bake-comet-template.sh": {Data: []byte("#!/usr/bin/env bash\n")},
-		"workflow.yaml":                             {Data: []byte("statuses: []\n")},
+		"roles/_base/base.yaml":           {Data: []byte("network: {}\n")},
+		"hooks/require-result.sh":         {Data: []byte("#!/bin/sh\nexit 0\n")},
+		"skills/comet/.source.yaml":       {Data: []byte("package: comet\n")},
+		"sbx-kits/comet-cli/spec.yaml":    {Data: []byte("name: comet\n")},
+		"sbx-kits/bake-comet-template.sh": {Data: []byte("#!/usr/bin/env bash\n")},
+		"workflow.yaml":                   {Data: []byte("statuses: []\n")},
 	}
 }
 
@@ -52,7 +52,7 @@ func TestUnpackLaysOutTreeWithModes(t *testing.T) {
 		"roles/_base/base.yaml":           false,
 		"hooks/require-result.sh":         true,
 		"skills/comet/.source.yaml":       false,
-		"sbx-kits/comet-cli/spec.yaml":    false, // bootstrap/ снят
+		"sbx-kits/comet-cli/spec.yaml":    false,
 		"sbx-kits/bake-comet-template.sh": true,
 		"workflow.yaml":                   false,
 	} {

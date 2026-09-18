@@ -1,6 +1,6 @@
 //go:build !release
 
-package office
+package validators
 
 import "embed"
 

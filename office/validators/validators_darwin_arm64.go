@@ -1,6 +1,6 @@
 //go:build release
 
-package office
+package validators
 
 import "embed"
 
@@ -9,5 +9,5 @@ import "embed"
 // scripts/build-validators.sh; без них релизная сборка не компилируется —
 // нарочно: неполный релиз не должен собираться.
 //
-//go:embed payload/validators/validate-result-darwin-arm64 payload/validators/validate-result-linux-arm64
+//go:embed validate-result-darwin-arm64 validate-result-linux-arm64
 var Validators embed.FS

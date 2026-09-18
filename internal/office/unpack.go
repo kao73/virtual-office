@@ -9,13 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 )
-
-// bootstrapPrefix — каталог, который в репозитории оборачивает кит песочницы
-// (bootstrap/sbx-kits/…), а в распакованном офисе не нужен: там кит лежит
-// как sbx-kits/…, рядом с roles/ и hooks/.
-const bootstrapPrefix = "bootstrap/"
 
 // tempPrefix — как называется каталог распаковки, пока она не кончилась.
 // Осиротевший после убитого процесса он остаётся лежать: чистить его
@@ -32,8 +26,7 @@ const tempPrefix = ".unpack-"
 // тоже остаётся: os.Rename, в отличие от rename(2), отказывает и на нём.
 //
 // Права: embed их не хранит, поэтому файл, начинающийся с «#!», получает 0755,
-// остальные — 0644. Свой обход, а не os.CopyFS: тот не умеет ни прав, ни
-// переноса bootstrap/ на уровень выше.
+// остальные — 0644. Свой обход, а не os.CopyFS: тот не умеет прав.
 func Unpack(src fs.FS, officeDir, name string) (string, error) {
 	target := filepath.Join(officeDir, name)
 	if err := os.MkdirAll(officeDir, 0o755); err != nil {
@@ -105,7 +98,7 @@ func walkFiles(src fs.FS, fn func(path string, data []byte) error) error {
 // copyTree пишет каждый файл src под dst; каталоги создаются по пути.
 func copyTree(src fs.FS, dst string) error {
 	return walkFiles(src, func(path string, data []byte) error {
-		out := filepath.Join(dst, filepath.FromSlash(strings.TrimPrefix(path, bootstrapPrefix)))
+		out := filepath.Join(dst, filepath.FromSlash(path))
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return err
 		}

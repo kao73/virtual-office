@@ -1,6 +1,6 @@
 //go:build release
 
-package office
+package validators
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 // Релизная сборка несёт ограждение под собственную платформу, и это
 // настоящий бинарник: ELF под Linux, Mach-O под darwin.
 func TestValidatorsCarryHostChecker(t *testing.T) {
-	raw, err := fs.ReadFile(Validators, "payload/validators/validate-result-"+runtime.GOOS+"-"+runtime.GOARCH)
+	raw, err := fs.ReadFile(Validators, "validate-result-"+runtime.GOOS+"-"+runtime.GOARCH)
 	if err != nil {
 		t.Fatalf("ограждение хоста не встроено: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestValidatorsCarryHostChecker(t *testing.T) {
 	}
 
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
-		if _, err := fs.Stat(Validators, "payload/validators/validate-result-linux-arm64"); err != nil {
+		if _, err := fs.Stat(Validators, "validate-result-linux-arm64"); err != nil {
 			t.Errorf("darwin/arm64 обязан нести ограждение своей песочницы sbx (linux/arm64): %v", err)
 		}
 	}

@@ -32,7 +32,7 @@ const Executable = "sbx"
 const Agent = "claude"
 
 // Template — образ песочницы с запечённым внутрь comet CLI, испечённый один раз
-// на хосте bootstrap/sbx-kits/bake-comet-template.sh (bootstrap/sbx-kits/README.md).
+// на хосте office/sbx-kits/bake-comet-template.sh (office/sbx-kits/README.md).
 // Без него sbx create откажет — живьём код "403 Forbidden: pull failed for image",
 // а не «образ не найден»: это не деградация, а намеренный fail-closed — молча
 // откатываться на образ без comet означало бы проваливать роли Comet Native

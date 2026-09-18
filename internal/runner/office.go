@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"runtime/debug"
 
-	payload "github.com/kao73/virtual-office"
 	"github.com/kao73/virtual-office/internal/office"
+	payload "github.com/kao73/virtual-office/office"
 )
 
 // ConfigRootEnv — переключатель разработчика: корень клона, из которого брать
@@ -46,7 +46,8 @@ func IsCommitIdentity(identity string) bool { return commitIdentity.MatchString(
 // Office — где лежит офис и чем подписывать его прогоны.
 type Office struct {
 	// Root — каталог с roles/, skills/, hooks/, workflow.yaml, budgets.yaml и
-	// китом песочницы: sbx-kits/ в поставке, bootstrap/sbx-kits/ в клоне.
+	// китом песочницы sbx-kits/: в клоне это office/, в поставке —
+	// ${OFFICE_HOME}/office/<версия>/, раскладка та же самая.
 	Root string
 	// Identity — версия релиза (v0.7.0) или commit, с -dirty при незакоммиченных
 	// правках. У грязных сборок одного commit она одна; различает их Root.

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	payload "github.com/kao73/virtual-office"
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
+	payload "github.com/kao73/virtual-office/office"
 )
 
 // Строка об источнике печатается **в момент разрешения пути**, а не в конце сборки.
@@ -63,7 +63,7 @@ func fixtureRunner(t *testing.T, projectsLocal string) (root, home string) {
 	t.Helper()
 	root, home = t.TempDir(), t.TempDir()
 
-	wf, err := os.ReadFile(filepath.Join("..", "..", tracker.WorkflowFile))
+	wf, err := os.ReadFile(filepath.Join("..", "..", "office", tracker.WorkflowFile))
 	if err != nil {
 		t.Fatalf("поставляемый граф не прочитан: %v", err)
 	}

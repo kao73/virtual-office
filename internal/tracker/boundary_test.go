@@ -22,7 +22,8 @@ import (
 // полигонные значения закоммичены. Тест смотрит на причину: пропадут значения —
 // метка починится сама.
 func TestRepoCarriesNoMachineValues(t *testing.T) {
-	root := filepath.Join("..", "..")
+	repoRoot := filepath.Join("..", "..")
+	root := filepath.Join(repoRoot, "office")
 
 	// Файлы, которые читает раннер, и файлы ролей, уезжающие агенту.
 	//
@@ -64,8 +65,9 @@ func TestRepoCarriesNoMachineValues(t *testing.T) {
 		// bin/ — обёртки, которыми раннер запускают, и они читают ${OFFICE_HOME}:
 		// путь, вписанный туда руками, был бы машинным значением. (Исполняемое
 		// в поставке есть и в hooks/, и в scripts/: первое здесь же в обходе,
-		// второе исключено выше как пробы.)
-		filepath.Join(root, "bin", "*"),
+		// второе исключено выше как пробы.) bin/ не переехал в office/ — он
+		// вызывает go build и наружу от офиса не зависит, поэтому свой корень.
+		filepath.Join(repoRoot, "bin", "*"),
 	} {
 		found, err := filepath.Glob(pattern)
 		if err != nil {
@@ -108,7 +110,7 @@ func TestRepoCarriesNoMachineValues(t *testing.T) {
 // принадлежит раннеру, а не агенту, держится одной строкой этого файла,
 // и исчезнуть молча она не должна — ни переименованием файла, ни правкой.
 func TestShippedBaseRulesKeepGitRemoteDeny(t *testing.T) {
-	path := filepath.Join("..", "..", runner.RolesDir, runner.BaseDir, runner.BaseRulesFile)
+	path := filepath.Join("..", "..", "office", runner.RolesDir, runner.BaseDir, runner.BaseRulesFile)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("базовые правила ролей не поставлены: %v", err)

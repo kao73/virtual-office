@@ -225,8 +225,7 @@ func fakeValidators(t *testing.T, platforms ...Platform) fstest.MapFS {
 	t.Helper()
 	m := fstest.MapFS{}
 	for _, p := range platforms {
-		m[validatorsDir+"/"+validatorName(p)] =
-			&fstest.MapFile{Data: []byte("#!/bin/sh\necho " + p.String() + "\nexit 2\n")}
+		m[validatorName(p)] = &fstest.MapFile{Data: []byte("#!/bin/sh\necho " + p.String() + "\nexit 2\n")}
 	}
 	prev := validatorsFS
 	validatorsFS = m

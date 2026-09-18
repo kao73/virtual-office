@@ -11,7 +11,7 @@ import (
 // payloadDirs и payloadFiles повторяют директиву embed в payload.go нарочно:
 // разошлись — тест скажет.
 var (
-	payloadDirs  = []string{"roles", "skills", "hooks", "bootstrap/sbx-kits"}
+	payloadDirs  = []string{"roles", "skills", "hooks", "sbx-kits"}
 	payloadFiles = []string{"workflow.yaml", "budgets.yaml", "tracker.example.yaml", "projects.local.example.yaml"}
 )
 
@@ -59,7 +59,7 @@ func TestPayloadNamesTheEssentials(t *testing.T) {
 		"roles/_base/base.yaml", "roles/_base/base.md",
 		"hooks/require-result.sh", "hooks/debug-env.sh",
 		"skills/comet/scripts/comet-hook-router.mjs",
-		"bootstrap/sbx-kits/bake-comet-template.sh", "bootstrap/sbx-kits/comet-cli/spec.yaml",
+		"sbx-kits/bake-comet-template.sh", "sbx-kits/comet-cli/spec.yaml",
 	}
 	roles, err := os.ReadDir("roles")
 	if err != nil {
