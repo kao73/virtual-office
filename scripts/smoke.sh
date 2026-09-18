@@ -174,7 +174,7 @@ case_self() {
 	[ "$(outcome "$dir")" = done ] && ok "исход done" || bad "исход $(outcome "$dir"), ожидался done"
 	assert_common "$dir"
 
-	echo "  --- самоописание роли, сверить с roles/implementer/role.yaml ---"
+	echo "  --- самоописание роли, сверить с office/roles/implementer/role.yaml ---"
 	jq -r '.summary, (.details_md // "")' "$dir/.agent/result.json" 2>/dev/null | sed 's/^/  /'
 }
 
@@ -280,7 +280,7 @@ case_review_self() {
 	[ "$(outcome "$dir")" = done ] && ok "исход done" || bad "исход $(outcome "$dir"), ожидался done"
 	assert_common "$dir"
 
-	echo "  --- самоописание роли, сверить с roles/reviewer/role.yaml: инструментов записи быть не должно ---"
+	echo "  --- самоописание роли, сверить с office/roles/reviewer/role.yaml: инструментов записи быть не должно ---"
 	jq -r '.summary, (.details_md // "")' "$dir/.agent/result.json" 2>/dev/null | sed 's/^/  /'
 }
 

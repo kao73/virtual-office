@@ -6,7 +6,7 @@
 `scripts/check-release-identity.sh` (гейт «личность собранного раннера ==
 версия», post-hook сборки) и `scripts/check-host-is-target.sh` (до сборки:
 машина сборки обязана быть среди целей, иначе гейту негде сработать),
-`.github/workflows/release.yml`, `install.sh`, `payload.go`; согласованность
+`.github/workflows/release.yml`, `install.sh`, `office/payload.go`; согласованность
 списков платформ и пинов держит `release_config_test.go`; решения и их
 причины — `docs/openspec/changes/archive/2026-09-18-install/design.md` (D1, D5, D6) и
 Design Doc `docs/superpowers/specs/2026-09-17-install-design.md` §2.1–2.4.
@@ -29,9 +29,10 @@ GitHub напрямую, без обращения к API за именем те
 
 ### Что несёт каждый раннер
 
-Поставка (`payload.go`, `go:embed`) весит на диске около 13 МБ: `skills/` —
-6,6 МБ, `bootstrap/sbx-kits/` (тарболы кита песочницы) — 6,4 МБ, `roles/` —
-104 КБ, `hooks/` — 8 КБ, плюс `workflow.yaml`, `budgets.yaml` и оба образца.
+Поставка (`office/payload.go`, `go:embed`) весит на диске около 13 МБ:
+`office/skills/` — 6,6 МБ, `office/sbx-kits/` (тарболы кита песочницы) —
+6,4 МБ, `office/roles/` — 104 КБ, `office/hooks/` — 8 КБ, плюс
+`office/workflow.yaml`, `office/budgets.yaml` и оба образца.
 Она встроена и в `runner`, и в `run-agent` — второй тоже импортирует корневой
 пакет через `internal/runner`, так что каждый архив несёт эти ~13 МБ дважды.
 Принято осознанно (Design Doc §2.2): сжатая поставка — единицы мегабайт, а
@@ -59,11 +60,11 @@ GitHub напрямую, без обращения к API за именем те
 
 `.goreleaser.yaml` (version 2): хук `before.hooks` зовёт
 `scripts/build-validators.sh` (кросс-сборка трёх чекеров в
-`payload/validators/`, `CGO_ENABLED=0`) раньше сборки самих раннеров; затем
+`office/validators/`, `CGO_ENABLED=0`) раньше сборки самих раннеров; затем
 два билда — `runner` (`./cmd/runner`) и `run-agent` (`./cmd/run-agent`) — на
 три цели (`darwin_arm64`, `linux_amd64`, `linux_arm64`) с
 `flags: [-trimpath, -tags=release]` и `ldflags: -s -w -X
-github.com/kao73/virtual-office.Version=v{{ .Version }}` — этой строкой
+github.com/kao73/virtual-office/office.Version=v{{ .Version }}` — этой строкой
 версия релиза попадает в `payload.Version` и делает раннер веткой 2 из
 следующего раздела. `git.ignore_tags: ["archive/*"]` нужен ровно потому, что
 теги `archive/concept-2026-08` и им подобные достижимы из HEAD этого
@@ -113,7 +114,7 @@ D3, D4, D7, D9 и Design Doc §1.2–1.6.
 
 | # | Условие | Root | Identity | Source | Чекер даёт |
 |---|---|---|---|---|---|
-| 1 | `OFFICE_CONFIG_ROOT` задан | эта директория (клон) | `git rev-parse HEAD` (+`-dirty`, если `git status --porcelain` не пуст) | `clone` | `go build ./cmd/validate-result` из `Root` под целевую платформу — заново на каждый прогон, в `${OFFICE_HOME}/bin/` (`buildValidator`) |
+| 1 | `OFFICE_CONFIG_ROOT` задан | `$OFFICE_CONFIG_ROOT/office` (`Module` — сам `$OFFICE_CONFIG_ROOT`, корень клона) | `git rev-parse HEAD` (+`-dirty`, если `git status --porcelain` не пуст) | `clone` | `go build ./cmd/validate-result` из `Module` (корня клона, не `Root`) под целевую платформу — заново на каждый прогон, в `${OFFICE_HOME}/bin/` (`buildValidator`) |
 | 2 | `payload.Version != ""` (релизная сборка, ldflags `-X …Version=`) | `${OFFICE_HOME}/office/<Version>`, либо, при незакоммиченных правках в дереве сборки (`vcs.modified`), `${OFFICE_HOME}/office/<Version>-dirty-<hash8>` | `Version` (например, `v0.7.0` или `v0.0.1-SNAPSHOT-abc1234`), либо `<Version>-dirty` | `payload` | встроенный бинарник поставки, записан один раз в `<Root>/bin/` (`embeddedValidator`) |
 | 3 | build info несёт `vcs.revision` (сборка `go build` из клона без обёртки) | `${OFFICE_HOME}/office/<rev[:12]>`, либо, при незакоммиченных правках, `${OFFICE_HOME}/office/<rev[:12]>-dirty-<hash8>` | `<rev>` (полные 40 hex), либо `<rev>-dirty` | `payload` | тот же встроенный бинарник |
 | 4 | ни версии, ни `vcs.revision` (например, `go build -buildvcs=false` вне git) | — | — | отказ `errNoIdentity` | — |
@@ -499,7 +500,7 @@ rm -rf "$OFFICE_HOME"; rm -rf dist; rm -f payload/validators/validate-result-*
   ls/prune` нет — чистить руками `rm -r office/<dir>`; решение о команде — вместе
   с `runner doctor`.
 - **Ручная `-tags release` на чистом дереве с устаревшими чекерами.**
-  `payload/validators/*` не отслеживаются git, поэтому чекеры, собранные до
+  `office/validators/*` не отслеживаются git, поэтому чекеры, собранные до
   последнего коммита, не делают дерево грязным: релизный бинарник под тем же
   коммитом получит тот же каталог `office/<версия>/`, а лежащий там чекер
   первой сборки не перепишется. В CI не воспроизводится — `before.hooks`

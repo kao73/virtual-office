@@ -146,8 +146,8 @@ mkdir -p "${OFFICE_HOME:-$HOME/.office}"
       `implementer`, `reviewer`) откажут на первом же прогоне кодом
       `403 Forbidden: pull failed for image` — на глаз неотличимо от сетевого
       отказа политики, а причина другая: образ с запечённым `comet` не испечён
-      на этой машине. Печётся один раз: `./bootstrap/sbx-kits/bake-comet-template.sh`
-      (`bootstrap/sbx-kits/README.md`). На бэкенде `local` шаг не нужен.
+      на этой машине. Печётся один раз: `./office/sbx-kits/bake-comet-template.sh`
+      (`office/sbx-kits/README.md`). На бэкенде `local` шаг не нужен.
 
 Без машинной половины проектов работают `ledger`, `worktree ls` и `mock ls` —
 им нужно только хозяйство. (Именно `worktree ls`: `worktree rm` собирает офис
