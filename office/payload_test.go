@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +101,54 @@ func TestExecutablePayloadFilesStartWithShebang(t *testing.T) {
 				t.Errorf("%s исполняемый, но без shebang: после распаковки бит пропадёт", path)
 			}
 		})
+	}
+}
+
+// Поставка и каталог офиса в клоне — одно дерево: путь внутри embed равен
+// пути внутри office/. Это и есть смысл переезда: распаковка больше ничего
+// не переименовывает, а значит «роль лежит там же, где лежала» — свойство,
+// а не обещание. Go-файлы пакета и ограждения в поставку не входят.
+func TestPayloadMirrorsOfficeDirectory(t *testing.T) {
+	skip := func(path string) bool {
+		return strings.HasSuffix(path, ".go") ||
+			path == "validators" || strings.HasPrefix(path, "validators/")
+	}
+
+	inPayload := map[string]bool{}
+	err := fs.WalkDir(Payload, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		inPayload[path] = true
+		if _, err := os.Stat(filepath.FromSlash(path)); err != nil {
+			t.Errorf("%s в поставке, но не на диске под office/: %v", path, err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("поставка не обойдена: %v", err)
+	}
+
+	err = filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := filepath.ToSlash(path)
+		if skip(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !inPayload[rel] {
+			t.Errorf("%s лежит в office/, но не едет в поставке", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("каталог офиса не обойдён: %v", err)
 	}
 }
