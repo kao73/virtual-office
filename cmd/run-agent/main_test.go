@@ -27,45 +27,17 @@ func buildRunAgent(t *testing.T) string {
 	return path
 }
 
-// officeConfigRoot — синтетический клон-корень для тестов, гоняющих настоящий
-// run-agent целиком: office.Root в режиме клона служит и LoadRole (роль —
-// office/roles/<имя>), и EnsureValidator (go build ./cmd/validate-result
-// зовётся с cmd.Dir=office.Root). До переезда офиса в office/ оба смотрели
-// в один каталог — корень репозитория; после переезда это разные каталоги
-// на диске, и разводит их по-настоящему только задача 2 (eval-roles).
-// Здесь — символьные ссылки, сводящие go.mod/go.sum/cmd/internal/office (для
-// сборки) и office/{roles,hooks,skills} (для LoadRole, без каталога office/
-// в пути — так их ждёт configRoot) в один временный каталог, плюс свой
-// одноразовый git поверх них: ConfigSHA нужен только ответ команды, а не
-// настоящая история. bin/run-agent так не подстраховывается — что это
-// значит для него, см. task-1-report.md.
-func officeConfigRoot(t *testing.T) string {
+// repoRoot — корень клона: OFFICE_CONFIG_ROOT для run-agent называет именно
+// его, а office/ и корень Go-модуля ResolveOffice достаёт из него сам
+// (internal/runner.Office.Root и .Module) — так же, как это делает
+// bin/run-agent.
+func repoRoot(t *testing.T) string {
 	t.Helper()
-	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatalf("корень репозитория не определён: %v", err)
 	}
-	dir := t.TempDir()
-	for _, name := range []string{"go.mod", "go.sum", "cmd", "internal", "office"} {
-		if err := os.Symlink(filepath.Join(repo, name), filepath.Join(dir, name)); err != nil {
-			t.Fatalf("%s не слинкован: %v", name, err)
-		}
-	}
-	for _, name := range []string{"roles", "hooks", "skills"} {
-		if err := os.Symlink(filepath.Join(repo, "office", name), filepath.Join(dir, name)); err != nil {
-			t.Fatalf("%s не слинкован: %v", name, err)
-		}
-	}
-	for _, args := range [][]string{{"init", "-q", "-b", "master"}, {"add", "-A"}, {"commit", "-q", "-m", "фикстура"}} {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=тест", "GIT_AUTHOR_EMAIL=test@office.local",
-			"GIT_COMMITTER_NAME=тест", "GIT_COMMITTER_EMAIL=test@office.local")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	return dir
+	return root
 }
 
 // runAgent запускает CLI с окружением офиса и возвращает код выхода.
@@ -90,7 +62,7 @@ func runAgent(t *testing.T, bin string, env []string, args ...string) (int, stri
 // на инфраструктурную беду надо будить человека, а на failed — считать попытки.
 func TestExitCodeTwoOnInfrastructureFailure(t *testing.T) {
 	bin := buildRunAgent(t)
-	root := officeConfigRoot(t)
+	root := repoRoot(t)
 	env := []string{"OFFICE_CONFIG_ROOT=" + root, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
 	cases := []struct {
@@ -119,7 +91,7 @@ func TestExitCodeTwoWithoutCredential(t *testing.T) {
 	workdir := gitRepo(t)
 
 	code, out := runAgent(t, bin,
-		[]string{"OFFICE_CONFIG_ROOT=" + officeConfigRoot(t), "ANTHROPIC_API_KEY=", "CLAUDE_CODE_OAUTH_TOKEN="},
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "ANTHROPIC_API_KEY=", "CLAUDE_CODE_OAUTH_TOKEN="},
 		"--role", "implementer", "--workdir", workdir, "--dry-run")
 	if code != 2 {
 		t.Errorf("код %d, ожидался 2; вывод: %s", code, out)
@@ -137,7 +109,7 @@ func TestExitCodeZeroOnDryRun(t *testing.T) {
 	}
 
 	code, out := runAgent(t, bin,
-		[]string{"OFFICE_CONFIG_ROOT=" + officeConfigRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
 		"--role", "implementer", "--workdir", workdir, "--task", task, "--dry-run")
 	if code != 0 {
 		t.Errorf("код %d, ожидался 0; вывод: %s", code, out)
@@ -152,7 +124,7 @@ func TestDryRunNamesBranches(t *testing.T) {
 	workdir := gitRepo(t)
 
 	code, out := runAgent(t, bin,
-		[]string{"OFFICE_CONFIG_ROOT=" + officeConfigRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
 		"--role", "reviewer", "--workdir", workdir, "--task", taskFile(t), "--base", "origin/master", "--dry-run")
 	if code != 0 {
 		t.Fatalf("код %d, ожидался 0; вывод: %s", code, out)
@@ -187,7 +159,7 @@ func TestDryRunNamesCometChangeDirFromTaskKey(t *testing.T) {
 	}
 
 	code, out := runAgent(t, bin,
-		[]string{"OFFICE_CONFIG_ROOT=" + officeConfigRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
 		"--role", "reviewer", "--workdir", workdir, "--task", taskFile(t), "--task-key", taskKey, "--dry-run")
 	if code != 0 {
 		t.Fatalf("код %d, ожидался 0; вывод: %s", code, out)
@@ -212,7 +184,7 @@ func TestDryRunCloneSetsCloneSync(t *testing.T) {
 	branch := currentBranch(t, workdir)
 
 	code, out := runAgent(t, bin,
-		[]string{"OFFICE_CONFIG_ROOT=" + officeConfigRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
 		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--clone", "--dry-run")
 	if code != 0 {
 		t.Fatalf("код %d, ожидался 0; вывод: %s", code, out)
@@ -242,7 +214,7 @@ func TestCloneWithoutBranchFails(t *testing.T) {
 	}
 
 	code, out := runAgent(t, bin,
-		[]string{"OFFICE_CONFIG_ROOT=" + officeConfigRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
+		[]string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + t.TempDir(), "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="},
 		"--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--clone", "--dry-run")
 	if code != 2 {
 		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
@@ -254,7 +226,7 @@ func TestCloneWithoutBranchFails(t *testing.T) {
 func syntheticRole(t *testing.T, extra string) (configRoot string) {
 	t.Helper()
 	configRoot = gitRepo(t)
-	roleDir := filepath.Join(configRoot, "roles", "test-role")
+	roleDir := filepath.Join(configRoot, runner.OfficeDir, runner.RolesDir, "test-role")
 	if err := os.MkdirAll(roleDir, 0o755); err != nil {
 		t.Fatalf("каталог роли не создан: %v", err)
 	}
@@ -318,7 +290,7 @@ func TestDryRunProjectFlagMergesMachineRulesOverBase(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
 	home := projectsLocal(t, "  network: [machine-only.test]\n")
-	env := []string{"OFFICE_CONFIG_ROOT=" + officeConfigRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
+	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
 	_, withoutFlag := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--dry-run")
 	for _, want := range []string{"registry-1.docker.io", "Bash(git *push*)"} {
@@ -348,7 +320,7 @@ func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
 	home := projectsLocal(t, "")
-	env := []string{"OFFICE_CONFIG_ROOT=" + officeConfigRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
+	env := []string{"OFFICE_CONFIG_ROOT=" + repoRoot(t), "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
 
 	code, out := runAgent(t, bin, env, "--role", "implementer", "--workdir", workdir, "--task", taskFile(t), "--project", "НЕТ-ТАКОГО", "--dry-run")
 	if code != 2 {
@@ -359,16 +331,16 @@ func TestDryRunProjectFlagRejectsUnknownProject(t *testing.T) {
 // tracker.RefuseLeftoverOfficeFile покрыт собственным юнит-тестом
 // (internal/tracker), но до этого теста ничто не проверяло сам вызов внутри
 // execute() (main.go, под --project) — рефакторинг мог бы его потерять
-// незамеченным. configRoot здесь свой, не officeConfigRoot(t): проверка ждёт
-// каталог без roles/_base, а настоящий офис его несёт, — так что configRoot
-// собран тем же приёмом, что и в TestRunAgentWarnsThatLocalIgnoresNetworkPolicy —
-// синтетическая роль без roles/_base (LoadRole ждёт его как опцию, не как
-// обязанность).
+// незамеченным. configRoot здесь свой, не repoRoot(t): стрелять
+// projects.yaml в настоящий репозиторий нельзя, а --project требует роль,
+// так что configRoot собран тем же приёмом, что и в
+// TestRunAgentWarnsThatLocalIgnoresNetworkPolicy — синтетическая роль
+// без roles/_base (LoadRole ждёт его как опцию, не как обязанность).
 func TestDryRunProjectFlagRefusesLeftoverProjectsYAML(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
 	configRoot := syntheticRole(t, "")
-	if err := os.WriteFile(filepath.Join(configRoot, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configRoot, runner.OfficeDir, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
 		t.Fatalf("projects.yaml не записан: %v", err)
 	}
 	home := projectsLocal(t, "")

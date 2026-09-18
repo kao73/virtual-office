@@ -14,12 +14,15 @@ import (
 )
 
 // ConfigRootEnv — переключатель разработчика: корень клона, из которого брать
-// офис вместо поставки в бинарнике. Его выставляют обёртки bin/*.
+// офис вместо поставки в бинарнике, а не сам офис — офис в клоне лежит в его
+// подкаталоге office/. Его выставляют обёртки bin/*.
 const ConfigRootEnv = "OFFICE_CONFIG_ROOT"
 
-// OfficeDir — подкаталог хозяйства с распакованными версиями офиса:
-// ${OFFICE_HOME}/office/<версия>/. Старые версии не убираются: чужой
-// работающий раннер мог быть собран из любой из них.
+// OfficeDir — имя подкаталога офиса. В поставке это подкаталог хозяйства с
+// распакованными версиями: ${OFFICE_HOME}/office/<версия>/, старые версии не
+// убираются — чужой работающий раннер мог быть собран из любой из них.
+// В клоне то же имя — подкаталог OFFICE_CONFIG_ROOT/office/, где лежат
+// roles/, skills/, hooks/ и прочее содержимое (ResolveOffice).
 const OfficeDir = "office"
 
 // Source — откуда взят офис.
@@ -53,6 +56,10 @@ type Office struct {
 	// правках. У грязных сборок одного commit она одна; различает их Root.
 	Identity string
 	Source   Source
+	// Module — корень Go-модуля клона: оттуда собирается ограждение
+	// (go build ./cmd/validate-result). Пусто в режиме поставки: там
+	// ограждение уже собрано и лежит в самом раннере.
+	Module string
 }
 
 // Describe — строка для раскладки конфигурации: что за офис и где он.
@@ -108,7 +115,7 @@ func ResolveOffice(opts Resolve) (Office, error) {
 		if err != nil {
 			return Office{}, err
 		}
-		return Office{Root: root, Identity: identity, Source: SourceClone}, nil
+		return Office{Root: filepath.Join(root, OfficeDir), Module: root, Identity: identity, Source: SourceClone}, nil
 	}
 	identity, dir, err := payloadIdentity()
 	if err != nil {

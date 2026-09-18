@@ -56,7 +56,7 @@ func TestVersionInCloneModeNamesTheClone(t *testing.T) {
 	if !commitVersionLine(lines[0]) {
 		t.Errorf("первая строка %q не похожа на identity клона", lines[0])
 	}
-	wantSecond := "офис: " + root + " (клон, OFFICE_CONFIG_ROOT)"
+	wantSecond := "офис: " + filepath.Join(root, runner.OfficeDir) + " (клон, OFFICE_CONFIG_ROOT)"
 	if lines[1] != wantSecond {
 		t.Errorf("вторая строка %q, ожидалось %q", lines[1], wantSecond)
 	}

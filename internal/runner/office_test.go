@@ -90,8 +90,11 @@ func TestResolveOfficeCloneFollowsConfigRoot(t *testing.T) {
 	if o.Source != SourceClone {
 		t.Errorf("Source = %q, ждали %q", o.Source, SourceClone)
 	}
-	if o.Root != repo {
-		t.Errorf("Root = %q, ждали %q", o.Root, repo)
+	if want := filepath.Join(repo, OfficeDir); o.Root != want {
+		t.Errorf("Root = %q, ждали %q", o.Root, want)
+	}
+	if o.Module != repo {
+		t.Errorf("Module = %q, ждали корень клона %q", o.Module, repo)
 	}
 	head := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD"))
 	if o.Identity != head {

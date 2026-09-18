@@ -55,10 +55,11 @@ func TestConfigSourcesPrintImmediately(t *testing.T) {
 	}
 }
 
-// fixtureRunner — временные корень конфигурации и хозяйство раннера.
-// Корень — git-репозиторий с одним коммитом: runner.ConfigSHA читает HEAD.
-// В нём копия поставляемого workflow.yaml; ролей нет — их читает tick,
-// а не конструктор. Оба пути уходят в окружение, откуда их берёт newOffices().
+// fixtureRunner — временные корень клона и хозяйство раннера. Корень —
+// git-репозиторий с одним коммитом: runner.ConfigSHA читает HEAD. В его
+// подкаталоге office/ (ResolveOffice.Root) — копия поставляемого
+// workflow.yaml; ролей нет — их читает tick, а не конструктор. Оба пути
+// уходят в окружение, откуда их берёт newOffices().
 func fixtureRunner(t *testing.T, projectsLocal string) (root, home string) {
 	t.Helper()
 	root, home = t.TempDir(), t.TempDir()
@@ -67,7 +68,11 @@ func fixtureRunner(t *testing.T, projectsLocal string) (root, home string) {
 	if err != nil {
 		t.Fatalf("поставляемый граф не прочитан: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, tracker.WorkflowFile), wf, 0o644); err != nil {
+	officeDir := filepath.Join(root, runner.OfficeDir)
+	if err := os.MkdirAll(officeDir, 0o755); err != nil {
+		t.Fatalf("каталог офиса не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(officeDir, tracker.WorkflowFile), wf, 0o644); err != nil {
 		t.Fatalf("граф не скопирован: %v", err)
 	}
 	gitT(t, root, "init", "-q", "-b", "master")
@@ -233,7 +238,7 @@ func TestOfficesRejectTrackerFlag(t *testing.T) {
 // посреди сборки офисов.
 func TestNewOfficesRefusesLeftoverProjectsYAML(t *testing.T) {
 	root, _ := fixtureRunner(t, mockProject)
-	if err := os.WriteFile(filepath.Join(root, tracker.OfficeProjectsFile), []byte("OFF: {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, runner.OfficeDir, tracker.OfficeProjectsFile), []byte("OFF: {}\n"), 0o644); err != nil {
 		t.Fatalf("projects.yaml не записан: %v", err)
 	}
 	var out bytes.Buffer
