@@ -1,0 +1,31 @@
+package main
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/kao73/virtual-office/internal/runner"
+)
+
+// versionCommand говорит, что установлено: личность раннера и каталог офиса
+// этой личности. Ничего не распаковывает и не открывает ни одного файла
+// конфигурации: команда обязана отвечать и там, где хозяйства ещё нет, —
+// install.sh зовёт её сразу после установки как доказательство, что
+// бинарник вообще запускается на этой машине. Грязная сборка при этом
+// читает всю встроенную поставку ради хеша в имени каталога.
+func versionCommand(args []string, out io.Writer) error {
+	if err := flags("version").Parse(args); err != nil {
+		return err
+	}
+	office, err := runner.ResolveOffice(runner.Resolve{Unpack: false})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "runner %s\n", office.Identity)
+	line := "офис: " + office.Root
+	if office.Source == runner.SourceClone {
+		line += " (клон, " + runner.ConfigRootEnv + ")"
+	}
+	fmt.Fprintln(out, line)
+	return nil
+}

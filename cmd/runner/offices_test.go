@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kao73/virtual-office/internal/pipeline"
+	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/mock"
 	"github.com/kao73/virtual-office/internal/workspace"
@@ -42,8 +43,8 @@ func twoOffices(t *testing.T, out *bytes.Buffer) (*offices, *mock.Tracker, *mock
 			Projects: tracker.Projects{project: {
 				Tracker: name, DefaultBranch: "master", BranchPrefix: "agent/",
 			}},
-			ConfigRoot: root,
-			Log:        out,
+			Office: runner.Office{Root: root, Identity: "5bc6a3b0", Source: runner.SourceClone},
+			Log:    out,
 		}}, tr
 	}
 	jira, a := office("jira", "VO")

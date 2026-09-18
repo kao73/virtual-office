@@ -25,10 +25,14 @@ const usage = `runner — обвязка вокруг агента
   runner ls [--project P]       доска: где какая задача, кто её взял и сколько висит
   runner ledger [--since 24h]   расход: сколько прогонов и на сколько денег
   runner worktree <ls|rm> …     рабочие папки задач: что лежит и как убрать
+  runner init                   завести ${OFFICE_HOME} и положить образцы projects.local.example.yaml и tracker.example.yaml
+  runner version                что установлено: личность раннера и каталог его офиса
   runner mock <add|ls|show|comment> …   файловый трекер для ручных сценариев
 
 Общий флаг: --backend (sbx или local). Трекеры берутся из проектов: по офису на каждый.
-Хозяйство раннера — ${OFFICE_HOME:-~/.office}.`
+Хозяйство раннера — ${OFFICE_HOME:-~/.office}; офис — из поставки бинарника,
+распакованной в ${OFFICE_HOME}/office/<версия>/. OFFICE_CONFIG_ROOT переключает
+на клон репозитория (так работают обёртки bin/*).`
 
 // Коды возврата те же, что у run-agent: 0 — цикл прошёл, в том числе когда
 // работы не нашлось; 2 — инфраструктурная беда, дальше без человека никак.
@@ -61,6 +65,10 @@ func execute(args []string) error {
 		return ledgerCommand(args[1:], os.Stdout)
 	case "worktree":
 		return worktreeCommand(args[1:], os.Stdout)
+	case "init":
+		return initCommand(args[1:], os.Stdout)
+	case "version":
+		return versionCommand(args[1:], os.Stdout)
 	case "mock":
 		tasks, err := mock.Default()
 		if err != nil {

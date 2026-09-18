@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/../.."  # repo root
 
-KIT_DIR="bootstrap/sbx-kits/comet-cli"
+# Кит лежит рядом со скриптом — и в клоне (bootstrap/sbx-kits/comet-cli), и в
+# распакованном офисе (${OFFICE_HOME}/office/<версия>/sbx-kits/comet-cli).
+KIT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/comet-cli"
 TAG="office-claude-comet:0.4.0-beta.20"
 PROBE="office-comet-bake-$$"
 

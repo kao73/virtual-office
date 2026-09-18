@@ -194,7 +194,7 @@ type Marker struct {
 	// Значим только у отчётов, как и Next — у системных записей вложения
 	// не бывает.
 	Attachment string
-	ConfigSHA  string // SHA конфига, возможно с суффиксом -dirty
+	ConfigSHA  string // личность офиса: версия релиза или commit (с -dirty); имя историческое — ключ config: в тикетах
 }
 
 // String собирает первую строку комментария.
@@ -735,11 +735,16 @@ func shorten(s string) string {
 	return string(runes[:short])
 }
 
-// shortenSHA режет SHA до восьми символов, сохраняя пометку -dirty: без неё
+// shortenSHA режет commit до восьми символов, сохраняя пометку -dirty: без неё
 // маркер утверждал бы, что агенту достался коммит, которого агент не видел.
-func shortenSHA(sha string) string {
-	if suffix := "-dirty"; strings.HasSuffix(sha, suffix) {
-		return shorten(strings.TrimSuffix(sha, suffix)) + suffix
+// Что считается commit'ом, решает runner.IsCommitIdentity — там, где личность
+// и производится; версия релиза и любая другая личность пишутся целиком.
+func shortenSHA(identity string) string {
+	if !runner.IsCommitIdentity(identity) {
+		return identity
 	}
-	return shorten(sha)
+	if strings.HasSuffix(identity, runner.DirtySuffix) {
+		return shorten(strings.TrimSuffix(identity, runner.DirtySuffix)) + runner.DirtySuffix
+	}
+	return shorten(identity)
 }

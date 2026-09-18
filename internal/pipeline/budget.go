@@ -156,7 +156,7 @@ func (o *Office) budgetNotice(task tracker.Task, roleName, event, text string) (
 		return false, err
 	}
 	err = o.notice(task.Key, tracker.Marker{
-		RunID: runID, Role: roleName, Event: event, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: roleName, Event: event, ConfigSHA: o.Identity,
 	}, text)
 	if errors.Is(err, tracker.ErrNotOwner) {
 		o.logf("%s: о пределе расхода сказать не вышло (%v), задачу взял кто-то другой", task.Key, err)
@@ -186,7 +186,7 @@ func (o *Office) warnRunCost(task tracker.Task, runID, roleName string, usage ru
 	}
 
 	return o.record(task.Key, tracker.ByRun(runID), tracker.Marker{
-		RunID: runID, Role: roleName, Event: tracker.EventRunBudgetExceeded, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: roleName, Event: tracker.EventRunBudgetExceeded, ConfigSHA: o.Identity,
 	}, fmt.Sprintf("Прогон run:%s стоил $%.4f при пределе $%.2f на прогон (%s, per_run). "+
 		"Прервать его было нечем: цена известна, когда работа уже сделана, — жёсткая граница "+
 		"прогона задаётся числом шагов (limits.max_turns в role.yaml). "+

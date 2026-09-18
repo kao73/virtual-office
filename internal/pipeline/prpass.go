@@ -179,7 +179,7 @@ func (o *Office) openPR(task tracker.Task) error {
 			"закрытый без слияния PR вернётся разговором.", o.Workflow.PR.Merged)
 	}
 	if err := o.record(task.Key, tracker.BySystem(), tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPROpened, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPROpened, ConfigSHA: o.Identity,
 	}, fmt.Sprintf("Pull request открыт: %s\n\n%s", url, fate)); err != nil {
 		return err
 	}
@@ -292,7 +292,7 @@ func (o *Office) prConflict(task tracker.Task, project tracker.Project, url stri
 			"Попытка, как и прежде, не потрачена. %s", to, returns, fate)
 	}
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeConflict, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeConflict, ConfigSHA: o.Identity,
 	}, reason+" "+tail); err != nil {
 		return err
 	}
@@ -304,7 +304,7 @@ func (o *Office) prConflict(task tracker.Task, project tracker.Project, url stri
 		// причина и тот же приём, что у mergeRefused, — см. её). Маркер свой
 		// и вне prEvents: семейству состояния PR он не лжёт.
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRReturnsExhausted, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRReturnsExhausted, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("PR-проход не сходится %d раз подряд (limits.max_pr_returns): либо база "+
 			"не даёт ветке устояться, либо forge не даёт слить, — счёт у этих бед общий, потому "+
 			"что чередованием одно от другого не отличить. Дальше разбираться человеку: уберите "+
@@ -334,7 +334,7 @@ func (o *Office) prSkipped(task tracker.Task, project tracker.Project) error {
 	to := o.Workflow.PR.Merged
 	by := tracker.BySystem()
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRSkipped, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRSkipped, ConfigSHA: o.Identity,
 	}, fmt.Sprintf("У проекта %s нет forge — открывать pull request негде. Работа опубликована "+
 		"в ветке %s, задача уходит в %s. Слияния не было: ветку сливает человек, если сочтёт нужным.",
 		task.Project, project.Branch(task.Key), to)); err != nil {
@@ -353,7 +353,7 @@ func (o *Office) prMerged(task tracker.Task, project tracker.Project, url string
 	to := o.Workflow.PR.Merged
 	by := tracker.BySystem()
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMerged, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMerged, ConfigSHA: o.Identity,
 	}, fmt.Sprintf("Pull request %s слит в %s. Задача уходит в %s, рабочая папка больше не нужна "+
 		"и будет убрана.", url, project.PRBranch(), to)); err != nil {
 		return err
@@ -439,7 +439,7 @@ func (o *Office) mergeBlocked(task tracker.Task, category, detail string) error 
 	}
 	text := category + "\n" + detail
 	if err := o.record(task.Key, tracker.BySystem(), tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeUnavailable, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeUnavailable, ConfigSHA: o.Identity,
 	}, text); err != nil {
 		return err
 	}
@@ -475,7 +475,7 @@ func (o *Office) mergePending(task tracker.Task, project tracker.Project, url st
 			return err
 		}
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePending, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePending, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("%v Гейт (нет конфликта, база %s не продвинулась) чист — офис попробует "+
 			"слияние снова на следующем тике; если причина не в CI, а в чём-то, что само не пройдёт "+
 			"(упавшая проверка, недостающее ревью), не раньше чем через %s подряд такого ожидания "+
@@ -499,7 +499,7 @@ func (o *Office) mergePending(task tracker.Task, project tracker.Project, url st
 		return err
 	}
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePendingExhausted, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergePendingExhausted, ConfigSHA: o.Identity,
 	}, fmt.Sprintf("Слияние не становится готовым %s (limits.max_merge_pending_sec). "+
 		"Pull request %s остаётся открытым — похоже, дело не в CI: разберитесь (упавшая "+
 		"обязательная проверка, недостающее обязательное ревью) и ответьте здесь, и офис "+
@@ -549,7 +549,7 @@ func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url st
 	returns := tracker.PRReturns(task.Comments, o.Workflow.PR.Role) + 1
 
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeRefused, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeRefused, ConfigSHA: o.Identity,
 	}, fmt.Sprintf("Forge отказал в слиянии pull request %s, хотя локально гейт чист (нет конфликта, "+
 		"база %s не продвинулась): %v. Разбираться с этим — не работа implementer'а: смотреть надо "+
 		"на правило forge, о котором офис не знает (например, branch protection).",
@@ -569,7 +569,7 @@ func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url st
 		// слияния. Эскалация здесь — по образцу pushFailed: отдельная запись-предел,
 		// без вмешательства в семейство состояния PR.
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeRefusalsExhausted, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventMergeRefusalsExhausted, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("Forge отказывает в слиянии %d раз подряд (limits.max_merge_refusals) при локально "+
 			"чистом состоянии. Pull request %s остаётся открытым — разбираться с правилом forge (например, "+
 			"branch protection) нужно человеку; после исправления ответьте здесь, и офис попробует слияние снова.",
@@ -585,7 +585,7 @@ func (o *Office) mergeRefused(task tracker.Task, project tracker.Project, url st
 		o.logf("%s: PR-проход не сходится подряд %d раз (чередование отказа и продвижения базы), "+
 			"задача уходит к человеку", task.Key, returns)
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRReturnsExhausted, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRReturnsExhausted, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("PR-проход не сходится %d раз подряд (limits.max_pr_returns), чередуя отказ forge "+
 			"и продвижение базы: ни одна из двух серий по отдельности предела не достигает, а задача "+
 			"так и не сдвигается. Pull request %s остаётся открытым — дальше разбираться человеку: "+
@@ -613,7 +613,7 @@ func (o *Office) prAnomaly(task tracker.Task, text string) error {
 	to := o.Workflow.PR.Closed
 	by := tracker.BySystem()
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRClosed, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: o.Workflow.PR.Role, Event: tracker.EventPRClosed, ConfigSHA: o.Identity,
 	}, text); err != nil {
 		return err
 	}

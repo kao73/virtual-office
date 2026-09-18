@@ -172,12 +172,11 @@ func newOffice(t *testing.T) *office {
 			Projects: tracker.Projects{"OFF": {
 				RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "mock",
 			}},
-			Agent:      agent,
-			ConfigRoot: root,
-			ConfigSHA:  "5bc6a3b0",
-			Accounts:   accounts,
-			Now:        func() time.Time { return now },
-			Log:        io.Discard,
+			Agent:    agent,
+			Office:   runner.Office{Root: root, Identity: "5bc6a3b0", Source: runner.SourceClone},
+			Accounts: accounts,
+			Now:      func() time.Time { return now },
+			Log:      io.Discard,
 		},
 	}
 	o.add("OFF-1", "Ready")
@@ -1237,7 +1236,7 @@ func agentContext(t *testing.T, o *office) string {
 func TestEveryGraphRoleIsShipped(t *testing.T) {
 	o := newOffice(t)
 	for _, name := range o.Workflow.Order() {
-		if _, err := runner.LoadRole(o.ConfigRoot, name); err != nil {
+		if _, err := runner.LoadRole(o.Root, name); err != nil {
 			t.Errorf("роль %s есть в графе, но не загружается: %v", name, err)
 		}
 	}

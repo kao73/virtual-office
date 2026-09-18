@@ -33,7 +33,7 @@ func stopHookCommand(t *testing.T, settings string) string {
 func realValidator(t *testing.T) string {
 	t.Helper()
 	t.Setenv(runner.HomeEnv, t.TempDir())
-	path, err := runner.EnsureValidator(filepath.Join("..", "..", ".."), runner.HostPlatform())
+	path, err := runner.EnsureValidator(runner.Office{Root: filepath.Join("..", "..", ".."), Source: runner.SourceClone}, runner.HostPlatform())
 	if err != nil {
 		t.Fatalf("валидатор не собран: %v", err)
 	}

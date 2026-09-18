@@ -3,11 +3,13 @@ package runner
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // configRoot — корень конфиг-репозитория из тестов пакета runner.
@@ -20,11 +22,18 @@ func configRoot(t *testing.T) string {
 	return root
 }
 
+// cloneOffice — офис из этого репозитория в режиме клона: ограждение
+// собирается go build, как у обёрток bin/*.
+func cloneOffice(t *testing.T) Office {
+	t.Helper()
+	return Office{Root: configRoot(t), Source: SourceClone}
+}
+
 func TestEnsureValidatorBuildsExecutableForHost(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(HomeEnv, home)
 
-	path, err := EnsureValidator(configRoot(t), HostPlatform())
+	path, err := EnsureValidator(cloneOffice(t), HostPlatform())
 	if err != nil {
 		t.Fatalf("валидатор не собран: %v", err)
 	}
@@ -50,7 +59,7 @@ func TestEnsureValidatorBuildsExecutableForHost(t *testing.T) {
 func TestEnsureValidatorReplacesStaleBinary(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(HomeEnv, home)
-	root := configRoot(t)
+	root := cloneOffice(t)
 
 	path, err := EnsureValidator(root, HostPlatform())
 	if err != nil {
@@ -77,7 +86,7 @@ func TestEnsureValidatorReplacesStaleBinary(t *testing.T) {
 func TestEnsureValidatorCrossCompilesForSandbox(t *testing.T) {
 	t.Setenv(HomeEnv, t.TempDir())
 
-	path, err := EnsureValidator(configRoot(t), Platform{OS: "linux", Arch: HostPlatform().Arch})
+	path, err := EnsureValidator(cloneOffice(t), Platform{OS: "linux", Arch: HostPlatform().Arch})
 	if err != nil {
 		t.Fatalf("валидатор под песочницу не собран: %v", err)
 	}
@@ -95,7 +104,7 @@ func TestEnsureValidatorCrossCompilesForSandbox(t *testing.T) {
 // уходил с результатом, который раннер потом отвергал, теряя сделанную работу.
 func TestValidatorRejectsWhatRunnerRejects(t *testing.T) {
 	t.Setenv(HomeEnv, t.TempDir())
-	validator, err := EnsureValidator(configRoot(t), HostPlatform())
+	validator, err := EnsureValidator(cloneOffice(t), HostPlatform())
 	if err != nil {
 		t.Fatalf("валидатор не собран: %v", err)
 	}
@@ -149,7 +158,7 @@ func TestValidatorRejectsWhatRunnerRejects(t *testing.T) {
 // код, отличный от 2, Claude Code считает неблокирующей ошибкой и молча идёт дальше.
 func TestValidatorBlocksOnMisuse(t *testing.T) {
 	t.Setenv(HomeEnv, t.TempDir())
-	validator, err := EnsureValidator(configRoot(t), HostPlatform())
+	validator, err := EnsureValidator(cloneOffice(t), HostPlatform())
 	if err != nil {
 		t.Fatalf("валидатор не собран: %v", err)
 	}
@@ -163,5 +172,185 @@ func TestValidatorBlocksOnMisuse(t *testing.T) {
 	}
 	if stderr.Len() == 0 {
 		t.Error("валидатор блокирует молча")
+	}
+}
+
+// Поставка без встроенных ограждений — сборка без -tags release. Отказ
+// называет платформу и оба выхода и не подсовывает ограждение другой платформы.
+// Ограждения под платформу нет — ни потому что набор пуст, ни потому что в
+// нём чужая платформа: отказ называет платформу и способ, в bin/ пусто.
+// Подставить ограждение другой платформы нельзя — оно не запустится.
+func TestEnsureValidatorPayloadRefusesWithoutPlatform(t *testing.T) {
+	for name, embedded := range map[string][]Platform{
+		// Пустой набор внедряется явно: под `-tags release` на linux/amd64
+		// настоящий payload.Validators уже содержит этот чекер, и без подмены
+		// отказ на таком хосте не воспроизвести.
+		"набор пуст":      nil,
+		"чужая платформа": {{OS: "darwin", Arch: "arm64"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeValidators(t, embedded...)
+			root := t.TempDir()
+			o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
+			_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "amd64"})
+			if err == nil {
+				t.Fatal("ограждения нет, а отказа нет")
+			}
+			for _, want := range []string{"linux/amd64", "-tags release", ConfigRootEnv} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("отказ не называет %q: %v", want, err)
+				}
+			}
+			emptyBinDir(t, root)
+		})
+	}
+}
+
+// emptyBinDir — в bin/ офиса ничего не появилось: отказ не оставляет следов.
+func emptyBinDir(t *testing.T, root string) {
+	t.Helper()
+	dir := filepath.Join(root, BinDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("%s не прочитан: %v", dir, err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("в %s что-то появилось: %v", dir, entries)
+	}
+}
+
+// fakeValidators подменяет встроенный набор: поддельные «бинарники» под
+// названными платформами.
+func fakeValidators(t *testing.T, platforms ...Platform) fstest.MapFS {
+	t.Helper()
+	m := fstest.MapFS{}
+	for _, p := range platforms {
+		m[validatorsDir+"/"+validatorName(p)] =
+			&fstest.MapFile{Data: []byte("#!/bin/sh\necho " + p.String() + "\nexit 2\n")}
+	}
+	prev := validatorsFS
+	validatorsFS = m
+	t.Cleanup(func() { validatorsFS = prev })
+	return m
+}
+
+// Релизный раннер отдаёт ограждение из себя: без go на PATH, один раз, 0755,
+// в bin/ рядом с офисом этой версии — две версии не делят ограждение.
+func TestEnsureValidatorPayloadWritesEmbeddedOnce(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // go здесь нет: сборка невозможна — и не нужна
+	home := t.TempDir()
+	t.Setenv(HomeEnv, home)
+	fakeValidators(t, Platform{OS: "darwin", Arch: "arm64"}, Platform{OS: "linux", Arch: "arm64"})
+	root := t.TempDir()
+	o := Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}
+	target := Platform{OS: "linux", Arch: "arm64"}
+
+	path, err := EnsureValidator(o, target)
+	if err != nil {
+		t.Fatalf("ограждение не выдано: %v", err)
+	}
+	if want := filepath.Join(root, BinDir, "validate-result-linux-arm64"); path != want {
+		t.Errorf("ограждение в %s, ожидалось %s", path, want)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("ограждение не найдено: %v", err)
+	}
+	if fi.Mode().Perm() != 0o755 {
+		t.Errorf("права ограждения %o, ожидалось 0755", fi.Mode().Perm())
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ограждение не прочитано: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("linux/arm64")) {
+		t.Errorf("ограждение не то: %s", raw)
+	}
+
+	// Лежащее не переписывается: подмена переживает второй вызов.
+	if err := os.WriteFile(path, []byte("своя правка"), 0o755); err != nil {
+		t.Fatalf("подмена ограждения не удалась: %v", err)
+	}
+	path2, err := EnsureValidator(o, target)
+	if err != nil {
+		t.Fatalf("повторный вызов отказал: %v", err)
+	}
+	if path2 != path {
+		t.Errorf("повторный вызов вернул %s, ожидался %s", path2, path)
+	}
+	raw2, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ограждение не прочитано после повторного вызова: %v", err)
+	}
+	if string(raw2) != "своя правка" {
+		t.Errorf("ограждение переписано: %s", raw2)
+	}
+
+	// ${OFFICE_HOME}/bin (HomeEnv) не при делах: ограждение поставки лежит
+	// рядом с офисом своей версии, а не в общем хозяйстве раннера.
+	homeBin := filepath.Join(home, BinDir)
+	entries, err := os.ReadDir(homeBin)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("%s не прочитан: %v", homeBin, err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ValidatorName+"-") {
+			t.Errorf("в %s появилось ограждение поставки: %s", homeBin, e.Name())
+		}
+	}
+}
+
+// Офис, собранный руками, а не ResolveOffice, — не офис: пустой Root означал
+// бы «текущий каталог» (cmd.Dir у go build, ./bin у поставки), а именно от
+// этого ResolveOffice и ушёл; неизвестный источник не назвал бы способ, каким
+// брать ограждение.
+func TestEnsureValidatorRefusesUnresolvedOffice(t *testing.T) {
+	for name, o := range map[string]Office{
+		"без Root, поставка":   {Identity: "v0.7.0", Source: SourcePayload},
+		"без Root, клон":       {Identity: "abc", Source: SourceClone},
+		"неизвестный источник": {Root: t.TempDir(), Identity: "v0.7.0", Source: Source("самосбор")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "arm64"})
+			if err == nil {
+				t.Fatal("отказа нет")
+			}
+			if !strings.Contains(err.Error(), "не разрешён") {
+				t.Errorf("отказ не про неразрешённый офис: %v", err)
+			}
+		})
+	}
+}
+
+// Лежащий чекер не переписывается — но и не подсовывается, если это не
+// исполняемый непустой файл: пустой файл после сбоя или каталог с тем же
+// именем внутри песочницы дали бы код 126, а хук считает его неблокирующим.
+func TestEnsureValidatorPayloadRefusesDamagedChecker(t *testing.T) {
+	fakeValidators(t, Platform{OS: "linux", Arch: "arm64"})
+	target := Platform{OS: "linux", Arch: "arm64"}
+	for name, plant := range map[string]func(path string) error{
+		"пустой файл": func(path string) error { return os.WriteFile(path, nil, 0o755) },
+		"без бита исполняемости": func(path string) error {
+			return os.WriteFile(path, []byte("#!/bin/sh\nexit 2\n"), 0o644)
+		},
+		"каталог": func(path string) error { return os.Mkdir(path, 0o755) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, BinDir, "validate-result-linux-arm64")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := plant(path); err != nil {
+				t.Fatal(err)
+			}
+			_, err := EnsureValidator(Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}, target)
+			if err == nil {
+				t.Fatal("повреждённый чекер выдан как ограждение")
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("отказ не называет путь %s: %v", path, err)
+			}
+		})
 	}
 }

@@ -13,6 +13,8 @@ import (
 // достался коммит, которого агент не видел, — и разбор «после какого коммита роль
 // стала косячить» опёрся бы на враньё. Пометка не восстанавливает правку, а лишь
 // запрещает доверять SHA; сам материал прогона хранит архив.
+//
+// Работает только в режиме клона (OFFICE_CONFIG_ROOT); личность поставки считает ResolveOffice.
 func ConfigSHA(repo string) (string, error) {
 	out, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
 	if err != nil {
@@ -26,7 +28,7 @@ func ConfigSHA(repo string) (string, error) {
 		return "", fmt.Errorf("не прочитано состояние конфигурации в %s: %w", repo, err)
 	}
 	if strings.TrimSpace(string(status)) != "" {
-		sha += "-dirty"
+		sha += DirtySuffix
 	}
 	return sha, nil
 }

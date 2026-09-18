@@ -68,7 +68,7 @@ func (o Outcome) known() bool {
 type Run struct {
 	RunID     string    `json:"run_id"`
 	Role      string    `json:"role"`
-	ConfigSHA string    `json:"config_sha"`
+	ConfigSHA string    `json:"config_sha"` // личность офиса: версия релиза или commit (с -dirty)
 	StartedAt time.Time `json:"started_at"`
 	// TaskKey — ключ задачи в трекере. Пуст при ручном запуске: трекера там нет.
 	TaskKey string `json:"task_key,omitempty"`

@@ -351,7 +351,7 @@ func TestPRPassBodyCarriesBriefEvenWhenArchivedInSamePass(t *testing.T) {
 }
 
 // Независимое ревью (Важно #2): архивирование — свойство изменения, а не
-// forge — но archiveIfReady стояло после ветки "project.Forge == ''" в
+// forge — но archiveIfReady стояло после ветки "project.Forge == ”" в
 // switch, и на проекте без forge (оба текущих полигона живут именно так)
 // Archive был недостижим целиком. Тест воспроизводит проект без forge
 // (дефолт newOffice, o.withForge здесь нарочно не зовётся) и проверяет,
@@ -1295,7 +1295,7 @@ func TestPRPassMergeUnavailableRemembersMultipleCategories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run_id не создан: %v", err)
 	}
-	marker := tracker.Marker{RunID: fixRunID, Role: "office", Event: tracker.EventPROpened, ConfigSHA: o.ConfigSHA}
+	marker := tracker.Marker{RunID: fixRunID, Role: "office", Event: tracker.EventPROpened, ConfigSHA: o.Identity}
 	if err := o.tasks.Comment("OFF-1", tracker.BySystem(),
 		tracker.NoticeBody(marker, "Ручная правка адреса: "+f.url)); err != nil {
 		t.Fatalf("комментарий не записан: %v", err)

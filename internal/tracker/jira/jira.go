@@ -1284,7 +1284,8 @@ func LoadConfig(path string) (Config, error) {
 	// не пишут, его копируют из образца.
 	case errors.Is(err, os.ErrNotExist):
 		return Config{}, fmt.Errorf("%s не заведён: подключение к JIRA — свойство инстанса, "+
-			"а не офиса. Сделайте файл из образца %s, лежащего в конфиг-репозитории", path, ExampleFile)
+			"а не офиса. Сделайте файл из образца %s: его кладёт рядом `runner init` "+
+			"(в клоне он лежит в корне репозитория)", path, ExampleFile)
 	case err != nil:
 		return Config{}, fmt.Errorf("%s не прочитан: %w", path, err)
 	}

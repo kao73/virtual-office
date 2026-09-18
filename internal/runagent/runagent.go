@@ -94,11 +94,11 @@ func NetworkAudit(backend string) string {
 
 // Options — что нужно для прогона.
 type Options struct {
-	ConfigRoot string      // корень конфиг-репозитория: оттуда роль и ограждения
-	Role       runner.Role // уже загруженная роль
-	Workdir    string      // рабочая папка агента; каталог обмена уже подготовлен
-	Backend    string      // local или sbx
-	Passport   runner.Run  // паспорт прогона
+	Office   runner.Office // офис: откуда роль и ограждение, и чем подписан прогон
+	Role     runner.Role   // уже загруженная роль
+	Workdir  string        // рабочая папка агента; каталог обмена уже подготовлен
+	Backend  string        // local или sbx
+	Passport runner.Run    // паспорт прогона
 
 	// Mounts — что отдать изоляции сверх рабочей папки. Для worktree сюда идёт
 	// bare-репозиторий: без него git внутри песочницы не заводится.
@@ -159,9 +159,9 @@ func Prepare(opts Options) (Launch, error) {
 		return Launch{}, err
 	}
 
-	// Ограждение проверяет результат тем же кодом, что и раннер, поэтому бинарник
-	// собирается из конфиг-репозитория под платформу выбранного бэкенда.
-	validator, err := runner.EnsureValidator(opts.ConfigRoot, target)
+	// Ограждение проверяет результат тем же кодом, что и раннер: берётся из
+	// поставки или собирается из клона — решает EnsureValidator по Office.Source.
+	validator, err := runner.EnsureValidator(opts.Office, target)
 	if err != nil {
 		return Launch{}, err
 	}

@@ -1,0 +1,36 @@
+# Проекты этого инстанса: ${OFFICE_HOME}/projects.local.yaml.
+#
+# Образец кладёт `runner init` как projects.local.example.yaml; рабочий файл —
+# копия под именем projects.local.yaml:
+#     cp "${OFFICE_HOME:-$HOME/.office}/projects.local.example.yaml" \
+#        "${OFFICE_HOME:-$HOME/.office}/projects.local.yaml"
+# После копии правятся ровно четыре значения: ключ проекта, repo_url,
+# default_branch и tracker. Необязательные ключи ниже закомментированы, у каждого
+# одна строка о назначении. Проектов в репозитории офиса нет: они — свойство
+# инстанса, и живут только здесь.
+
+# Ключ проекта — тот же, что в трекере: задачи PROJ-1, PROJ-2 принадлежат PROJ.
+PROJ:
+  # Откуда клонировать и куда пушить ветки задач: URL или локальный путь.
+  repo_url: https://github.com/you/your-project.git
+  # Ветка, от которой ответвляются задачи и в которую открывается pull request.
+  default_branch: main
+  # Где живут задачи проекта: jira (нужен tracker.yaml) или mock (файловый трекер).
+  tracker: jira
+  # branch_prefix: agent/            # префикс веток задач; умолчание — agent/
+  # worktree_root: <абсолютный путь> # где держать рабочие папки; пусто — ${OFFICE_HOME}/worktrees/PROJ
+  # forge: github                    # куда открывать pull request; пусто — PR не открывается
+  # auto_merge:                      # сливать ли PR самим (нужен forge) и в какую ветку
+  #   enabled: false
+  #   target_branch: main
+  # network:                         # домены сверх базового слоя ролей, только этому проекту
+  #   - pypi.org
+  # tools:                           # инструменты сверх базового слоя ролей
+  #   allow: ["Bash(make *)"]
+  #   deny: []
+
+# defaults — не проект, а добавки network/tools для всей машины; других ключей
+# под ним быть не может.
+# defaults:
+#   network:
+#     - registry.npmjs.org

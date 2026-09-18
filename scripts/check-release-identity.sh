@@ -1,0 +1,44 @@
+#!/bin/sh
+# Личность собранного раннера равна версии релиза — проверка после сборки:
+# GoReleaser зовёт этот скрипт из builds[].hooks.post для каждой цели runner,
+# ещё до публикации. Чужие платформы пропускаются (бинарник не запустится);
+# для хоста запускается `runner version` в пустом OFFICE_HOME и первая строка
+# сверяется с «runner v<версия>». Снапшоту с незакоммиченного дерева законно
+# отвечать «…-dirty» — релизу нет: у него дерево чистое по построению.
+# Успешная проверка оставляет маркер dist/identity-checked-<os>-<arch>:
+# по нему release.yml и release-snapshot.sh убеждаются, что хотя бы одна
+# цель совпала с хостом и гейт не самоотключился одними «пропусками».
+#
+#   sh scripts/check-release-identity.sh <бинарник> <версия без v> <os> <arch> [true|false: снапшот] [каталог маркера]
+set -eu
+
+bin=$1; version=$2; os=$3; arch=$4; snapshot=${5:-false}; dist=${6:-dist}
+
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/host-platform.sh"
+if [ "$os/$arch" != "$host_os/$host_arch" ]; then
+  echo "check-release-identity: $os/$arch не хост ($host_os/$host_arch), пропуск"
+  exit 0
+fi
+
+home="$(mktemp -d)"
+trap 'rm -rf "$home"' EXIT
+# Не через пайп: статус пайплайна — статус head, и упавший бинарник читался бы
+# как «называет себя пустой строкой».
+if ! out="$(OFFICE_HOME="$home" OFFICE_CONFIG_ROOT= "$bin" version 2>&1)"; then
+  echo "check-release-identity: ${bin} не запустился: ${out}" >&2
+  exit 1
+fi
+got="$(printf '%s\n' "$out" | head -1)"
+want="runner v$version"
+marker="$dist/identity-checked-$os-$arch"  # каталог передаётся явно: раскладка dist/<сборка>_<цель>/ — договорённость GoReleaser, а не контракт
+note=""
+if [ "$snapshot" = true ] && [ "$got" = "$want-dirty" ]; then
+  note=" (снапшот с незакоммиченного дерева)"
+elif [ "$got" != "$want" ]; then
+  echo "check-release-identity: ${bin} называет себя «${got}», ожидалось «${want}»" >&2
+  exit 1
+fi
+# Маркер пишется ровно здесь: на него опираются release.yml и
+# release-snapshot.sh, чтобы гейт не самоотключился одними «пропусками».
+echo "check-release-identity: ${got}${note}"
+: > "$marker"

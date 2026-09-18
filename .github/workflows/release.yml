@@ -1,0 +1,47 @@
+name: Release
+
+# Релиз собирает GoReleaser по тегу v*: три архива (darwin/arm64, linux/amd64,
+# linux/arm64) с runner и run-agent, checksums.txt и install.sh — и прикладывает
+# их к GitHub Release этого тега. Ничего больше: ни подписи, ни Homebrew,
+# ни своего changelog (список коммитов GoReleaser составит сам).
+#
+# Проверить сборку до тега — scripts/release-snapshot.sh на своей машине.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # создать Release и приложить артефакты
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # GoReleaser читает теги и историю для списка коммитов
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Конфигурация — до минут сборки и тестов: она от них не зависит, а
+      # ошибка в списке целей должна находиться на десятой секунде.
+      - run: sh scripts/check-host-is-target.sh
+      - run: go test ./...
+      # install.sh — единственное, что пользователь запускает через curl | sh:
+      # пять сценариев на поддельном dist/, под dash (sh на ubuntu).
+      - run: sh scripts/install-test.sh
+      # Релизная сборка несёт настоящие ограждения: собрать их и проверить
+      # под тегом release, а не только скомпилировать в GoReleaser.
+      - run: sh scripts/build-validators.sh && go test -tags release .
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.18.2  # тот же пин, что в scripts/release-snapshot.sh
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Второй пояс к тому же: маркер доказывает, что гейт личности отработал,
+      # а не пропустил все цели. Шаг стоит после публикации — до неё это
+      # закрывает check-host-is-target.sh.
+      - run: ls dist/identity-checked-* || { echo "проверка личности не сработала ни на одной цели"; exit 1; }

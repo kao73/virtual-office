@@ -14,6 +14,10 @@
 # с родителем 1 и работал дальше — под launchd, systemd или cron это означало бы
 # накопление живых прогонов, которых никто не остановит. После exec процесс один,
 # и сигнал приходит прямо ему.
+#
+# Имя бинарника — runner-dev, не runner: ${OFFICE_HOME}/bin/runner принадлежит
+# install.sh, и dev-сборка без ограждений и без версии, записанная поверх
+# установленного релиза, подменяла бы его молча — до первого прогона из PATH.
 
 set -eu
 
@@ -25,5 +29,5 @@ bin="${OFFICE_HOME:-$HOME/.office}/bin"
 mkdir -p "$bin"
 
 cd "$OFFICE_CONFIG_ROOT"
-go build -o "$bin/runner" ./cmd/runner
-exec "$bin/runner" "$@"
+go build -o "$bin/runner-dev" ./cmd/runner
+exec "$bin/runner-dev" "$@"

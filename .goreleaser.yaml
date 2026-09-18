@@ -1,0 +1,68 @@
+# Релиз: три платформы, два бинарника, архив на платформу, checksums.txt
+# и install.sh отдельным файлом релиза. Проверка без тега —
+# scripts/release-snapshot.sh (тот же файл, --snapshot).
+version: 2
+
+project_name: virtual-office
+
+git:
+  # Теги archive/* — замороженные прежние наработки, не релизы: без этого
+  # снапшот принял бы archive/concept-2026-08 за текущий тег и упал на incpatch.
+  ignore_tags:
+    - "archive/*"
+
+before:
+  hooks:
+    # Ограждения под три платформы — в payload/validators/; их встраивают
+    # validators_<os>_<arch>.go под -tags release.
+    - sh scripts/build-validators.sh
+
+# Оба бинарника собираются одинаково — якоря, а не две копии строк: разойдись
+# ldflags, релиз уехал бы с runner v0.7.0 и run-agent <commit>, которые
+# распаковали бы разные офисы и подписали прогоны разными личностями.
+builds:
+  - id: runner
+    main: ./cmd/runner
+    binary: runner
+    env: &build_env [CGO_ENABLED=0]
+    flags: &build_flags [-trimpath, -tags=release]
+    ldflags: &build_ldflags ["-s -w -X github.com/kao73/virtual-office.Version=v{{ .Version }}"]
+    targets: &build_targets [darwin_arm64, linux_amd64, linux_arm64]
+    hooks:
+      post:
+        # Собранный раннер называет себя версией релиза — проверяется до
+        # публикации на нативной цели; чужие платформы скрипт пропускает,
+        # а что хотя бы одна цель совпала с машиной сборки, до сборки
+        # проверяет scripts/check-host-is-target.sh. Каталог маркера (dist)
+        # передаётся явно: раскладка dist/<сборка>_<цель>/ не контракт.
+        - cmd: sh scripts/check-release-identity.sh {{ .Path }} {{ .Version }} {{ .Os }} {{ .Arch }} {{ .IsSnapshot }} dist
+          output: true
+  - id: run-agent
+    main: ./cmd/run-agent
+    binary: run-agent
+    env: *build_env
+    flags: *build_flags
+    ldflags: *build_ldflags
+    targets: *build_targets
+
+archives:
+  - id: default
+    ids: [runner, run-agent]
+    formats: [tar.gz]
+    # Без версии в имени: releases/latest/download/<имя> разрешается без
+    # запроса к API за тегом.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    # Только бинарники: README по умолчанию GoReleaser кладёт в архив,
+    # а install.sh ждёт ровно runner и run-agent.
+    files: [none*]
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  # Без единого тега: 0.0.1-SNAPSHOT-<sha> → личность v0.0.1-SNAPSHOT-<sha>.
+  version_template: "{{ incpatch .Version }}-SNAPSHOT-{{ .ShortCommit }}"
+
+release:
+  extra_files:
+    - glob: ./install.sh
