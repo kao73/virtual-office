@@ -25,6 +25,12 @@ builds:
     flags: [-trimpath, -tags=release]
     ldflags: ["-s -w -X github.com/kao73/virtual-office.Version=v{{ .Version }}"]
     targets: [darwin_arm64, linux_amd64, linux_arm64]
+    hooks:
+      post:
+        # Собранный раннер называет себя версией релиза — проверяется до
+        # публикации на нативной цели; чужие платформы скрипт пропускает.
+        - cmd: sh scripts/check-release-identity.sh {{ .Path }} {{ .Version }} {{ .Os }} {{ .Arch }} {{ .IsSnapshot }}
+          output: true
   - id: run-agent
     main: ./cmd/run-agent
     binary: run-agent
