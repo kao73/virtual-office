@@ -139,17 +139,16 @@ docs/changes/<KEY>/
 └── tasks.md     упорядоченные `- [ ]`, каждый — один коммит
 ```
 
-(для ручных прогонов без ключа задачи — `docs/changes/_manual/`). Но это не
-единственный вариант: куда класть план, решает собственный `role.md` каждой
-роли (`office/roles/*/role.md`), а не техническая проверка — раннер лишь
-считает эталонное имя каталога по ключу задачи (`internal/runner/change.go`,
-`CometChangeName`/`ChangeDirRel`) и передаёт его в контекст, не навязывая, что
-там должно лежать.
+(для ручных прогонов без ключа задачи — `docs/changes/_manual/`, имя каталога
+считает `ChangeDirRel` в `internal/runner/change.go`). Но это не единственный
+вариант: куда класть план, решает собственный `role.md` каждой роли
+(`office/roles/*/role.md`), а не техническая проверка.
 
 Сегодня `analyst` в `docs/changes/<KEY>/` не пишет вовсе: свой спек и план он
 ведёт как изменение Comet Native — `brief.md` и `specs/<capability>/spec.md`
 в `docs/comet/changes/<name>/` (`<name>` — ключ задачи, приведённый к паттерну
-Comet Native: `OFF-1` становится `off-1`). `implementer` и `reviewer` следуют
+Comet Native: `OFF-1` становится `off-1`, считает его `CometChangeName` там же,
+в `internal/runner/change.go`). `implementer` и `reviewer` следуют
 за ним тем же путём, если контекст называет каталог изменения, и падают
 обратно на чтение `brief.md`/`design.md` по старому контракту, если нет
 (`office/roles/implementer/role.md`, `office/roles/reviewer/role.md`). Оба

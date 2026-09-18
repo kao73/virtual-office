@@ -148,7 +148,7 @@ internal/workspace/    bare-клоны, worktree задач, публикаци�
 internal/ledger/       реестр прогонов: строка на прогон, локально для машины
 internal/budget/       пределы расхода поверх реестра
 internal/pipeline/     конвейер: захват задачи, прогон, разбор исхода, переходы
-internal/release/      тест на согласованность платформ и версий релизной обвязки (release_config_test.go)
+internal/release/      тест на согласованность платформ и версий релизной обвязки (config_test.go)
 bootstrap/             обвязка машины: задания планировщика, локальная JIRA в контейнере
 scripts/               smoke-тест, сборка релиза, установка, настройка полигона JIRA
 docs/                  замысел, контракты, внедрение, рабочие заметки
@@ -161,12 +161,10 @@ install.sh             установка релиза: бинарники в ${
 или второй инстанс, живёт вне репозитория:
 
 ```
-projects.local.yaml   на каждый проект: repo_url, default_branch, tracker; необязательные
-                      branch_prefix, worktree_root, forge, auto_merge, network, tools;
-                      ключ defaults — добавки network/tools всей машине
+projects.local.yaml   на каждый проект — поля перечислены в quickstart.md, «Первый проект»
 tracker.yaml          адрес, учётки, номера полей, карта статусов
-budgets.yaml          перекрытие пределов, необязательное
-bin/                  runner и run-agent от install.sh; runner-dev и run-agent-dev от обёрток bin/*
+budgets.yaml          на этой машине — устройство хозяйства раннера ниже
+bin/                  на этой машине — устройство хозяйства раннера ниже
 office/<версия>/      распакованный офис этой версии; не правится обновлением
 ```
 
@@ -177,8 +175,9 @@ commit, и `-dirty` значит ровно то, что говорит. За г
 `projects.yaml` из прежней раскладки, оставшийся под корнем конфигурации, —
 отказ при старте с указанием, куда переехало содержимое.
 
-Устройство хозяйства раннера (`${OFFICE_HOME}`: `repos/`, `worktrees/`,
-`runs/`, `ledger.jsonl`) и жизненный цикл рабочей папки задачи —
+Устройство хозяйства раннера (`${OFFICE_HOME}`: `budgets.yaml`, `bin/`,
+`repos/`, `worktrees/`, `runs/`, `ledger.jsonl`) и жизненный цикл рабочей
+папки задачи —
 [«Хозяйство `${OFFICE_HOME}`»](operations.md#хозяйство-office_home); что
 делает каждая роль и как устроен граф переходов — `office/workflow.yaml`
 и [«Роли и путь задачи»](roles-and-flow.md). Заметки в `docs/notes/` — то, к чему
