@@ -1,0 +1,26 @@
+name: CI
+
+# Гоняется на каждый PR и на push в master: build + vet + test. Отдельно от
+# release.yml, который собирает GoReleaser только по тегу v* — здесь только
+# быстрая проверка, что ветка вообще собирается и проходит тесты.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
