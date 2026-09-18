@@ -21,6 +21,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # Тесты в internal/backends/sbx и internal/workspace шеллятся в
+      # git commit — раннеру нужна хоть какая-то identity, иначе "Please
+      # tell me who you are" валит их ещё до сборки.
+      - run: git config --global user.name "CI" && git config --global user.email "ci@localhost"
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
