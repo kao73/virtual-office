@@ -11,5 +11,3 @@ import "embed"
 //
 //go:embed payload/validators/validate-result-darwin-arm64 payload/validators/validate-result-linux-arm64
 var Validators embed.FS
-
-const releaseBuild = true

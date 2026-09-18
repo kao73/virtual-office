@@ -493,7 +493,7 @@ func TestPayloadModeReadsUnpackedOfficeNotCwd(t *testing.T) {
 	if strings.Contains(out, "не исполняемый") {
 		t.Errorf("хук из распакованного офиса без бита исполняемости:\n%s", out)
 	}
-	root := filepath.Join(home, "office", "v0.0.0-test")
+	root := filepath.Join(home, runner.OfficeDir, "v0.0.0-test")
 	for _, rel := range []string{"roles/implementer/role.yaml", "hooks/require-result.sh", "skills/comet/scripts/comet-hook-router.mjs"} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Errorf("%s не распакован: %v", rel, err)

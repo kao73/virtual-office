@@ -11,5 +11,3 @@ import "embed"
 //
 //go:embed payload/validators/validate-result-linux-amd64
 var Validators embed.FS
-
-const releaseBuild = true

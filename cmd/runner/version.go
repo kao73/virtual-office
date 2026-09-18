@@ -22,10 +22,10 @@ func versionCommand(args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "runner %s\n", office.Identity)
+	line := "офис: " + office.Root
 	if office.Source == runner.SourceClone {
-		fmt.Fprintf(out, "офис: %s (клон, %s)\n", office.Root, runner.ConfigRootEnv)
-		return nil
+		line += " (клон, " + runner.ConfigRootEnv + ")"
 	}
-	fmt.Fprintf(out, "офис: %s\n", office.Root)
+	fmt.Fprintln(out, line)
 	return nil
 }

@@ -6,23 +6,24 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 // version отвечает и на машине, где хозяйства ещё нет: ничего не распаковывает
 // и не открывает — только считает, где лежал бы офис этой версии.
 func TestVersionPrintsIdentityAndOfficeDirWithoutUnpacking(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "office-home") // не существует
-	t.Setenv("OFFICE_HOME", home)
-	t.Setenv("OFFICE_CONFIG_ROOT", "")
+	t.Setenv(runner.HomeEnv, home)
+	t.Setenv(runner.ConfigRootEnv, "")
 	releaseVersion(t, "v0.7.0")
 	var out bytes.Buffer
 	if err := versionCommand(nil, &out); err != nil {
 		t.Fatalf("version отказал: %v", err)
 	}
-	want := "runner v0.7.0\nофис: " + filepath.Join(home, "office", "v0.7.0") + "\n"
+	want := "runner v0.7.0\nофис: " + filepath.Join(home, runner.OfficeDir, "v0.7.0") + "\n"
 	if out.String() != want {
 		t.Errorf("напечатано %q, ожидалось %q", out.String(), want)
 	}
@@ -36,7 +37,10 @@ func TestVersionPrintsIdentityAndOfficeDirWithoutUnpacking(t *testing.T) {
 // построению: fixtureRunner пишет workflow.yaml до git init, файл остаётся
 // неотслеживаемым, и git status --porcelain видит его как правку — тест не
 // держит более строгий вид без -dirty.
-var versionLinePattern = regexp.MustCompile(`^runner [0-9a-f]{40}(-dirty)?$`)
+func commitVersionLine(line string) bool {
+	identity, ok := strings.CutPrefix(line, "runner ")
+	return ok && runner.IsCommitIdentity(identity)
+}
 
 // В режиме клона — commit клона и его путь, с пометкой, откуда он взялся.
 func TestVersionInCloneModeNamesTheClone(t *testing.T) {
@@ -49,7 +53,7 @@ func TestVersionInCloneModeNamesTheClone(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("строк напечатано %d, ожидалось 2:\n%s", len(lines), out.String())
 	}
-	if !versionLinePattern.MatchString(lines[0]) {
+	if !commitVersionLine(lines[0]) {
 		t.Errorf("первая строка %q не похожа на identity клона", lines[0])
 	}
 	wantSecond := "офис: " + root + " (клон, OFFICE_CONFIG_ROOT)"

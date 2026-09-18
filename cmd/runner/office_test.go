@@ -269,8 +269,8 @@ func releaseVersion(t *testing.T, v string) {
 func payloadFixture(t *testing.T, version string) (home string) {
 	t.Helper()
 	home = t.TempDir()
-	t.Setenv("OFFICE_HOME", home)
-	t.Setenv("OFFICE_CONFIG_ROOT", "")
+	t.Setenv(runner.HomeEnv, home)
+	t.Setenv(runner.ConfigRootEnv, "")
 	releaseVersion(t, version)
 	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte(mockProject), 0o644); err != nil {
 		t.Fatalf("projects.local.yaml не записан: %v", err)
@@ -353,13 +353,6 @@ func TestOfficesKeepVersionsSideBySide(t *testing.T) {
 		t.Errorf("раскладка второго запуска упоминает первую версию:\n%s", printed)
 	}
 }
-
-// configSHAPattern — вид личности офиса-клона: HEAD (40 hex) и, при
-// незакоммиченных правках, суффикс -dirty. fixtureRunner пишет workflow.yaml
-// в корень до git init — файл остаётся неотслеживаемым, и git status
-// --porcelain видит его как правку: личность выходит грязной (см. Controller
-// ruling R1 в task-5-brief.md — len(ConfigSHA)==40 в исходном наброске
-// не выполняется никогда); форму судит runner.IsCommitIdentity.
 
 // Обёртки bin/* задают OFFICE_CONFIG_ROOT, и тогда поставка не трогается:
 // ${OFFICE_HOME}/office/ не появляется, личность — commit клона.
