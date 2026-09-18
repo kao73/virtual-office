@@ -60,6 +60,11 @@ func (p Platform) String() string { return p.OS + "/" + p.Arch }
 // бесплатна, её кэширует сам go. Поставка: ограждение собрано при релизе
 // и лежит в самом раннере (Task 7); без него — отказ с адресом.
 func EnsureValidator(o Office, target Platform) (string, error) {
+	// Пустой Root значил бы «текущий каталог» — для go build через cmd.Dir и
+	// для bin/ поставки одинаково, — а от этого ResolveOffice и ушёл.
+	if o.Root == "" {
+		return "", fmt.Errorf("офис не разрешён: Root пуст (source %q), ограждение под %s брать неоткуда", o.Source, target)
+	}
 	name := fmt.Sprintf("%s-%s-%s", ValidatorName, target.OS, target.Arch)
 	switch o.Source {
 	case SourceClone:
@@ -112,13 +117,21 @@ func buildValidator(configRoot, name string, target Platform) (string, error) {
 // Лежит оно рядом с офисом своей версии, а не в ${OFFICE_HOME}/bin: две
 // версии не должны делить ограждение, а версия офиса и есть версия
 // ограждения. Уже лежащее не переписывается — тот же контракт, что у
-// распакованного офиса. Запись через временное имя и rename: два раннера,
-// впервые готовящие прогон одновременно, не должны читать полуфайл.
+// распакованного офиса; но и не выдаётся, если это не исполняемый непустой
+// файл: внутри песочницы такой чекер дал бы код 126, а хук считает его
+// неблокирующим — ограждение перестало бы ограждать молча. Запись через
+// временное имя и rename: два раннера, впервые готовящие прогон
+// одновременно, не должны читать полуфайл.
 func embeddedValidator(root, name string, target Platform) (string, error) {
 	dir := filepath.Join(root, BinDir)
 	path := filepath.Join(dir, name)
-	if _, err := os.Stat(path); err == nil {
+	switch fi, err := os.Stat(path); {
+	case err == nil && fi.Mode().IsRegular() && fi.Size() > 0 && fi.Mode()&0o111 != 0:
 		return path, nil
+	case err == nil:
+		return "", fmt.Errorf("на месте ограждения %s лежит не исполняемый файл (%s, %d байт): уберите его, раннер положит своё", path, fi.Mode(), fi.Size())
+	case !errors.Is(err, fs.ErrNotExist):
+		return "", fmt.Errorf("ограждение %s не проверено: %w", path, err)
 	}
 	raw, err := fs.ReadFile(validatorsOrDefault(), validatorsDir+"/"+name)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -141,11 +154,17 @@ func embeddedValidator(root, name string, target Platform) (string, error) {
 	return path, nil
 }
 
-// writeAndPublish пишет содержимое во временный файл, закрывает, ставит 0755
-// и переименовывает на итоговый путь: rename на той же файловой системе
-// атомарен, и читатель никогда не увидит недописанный или без-прав файл.
+// writeAndPublish пишет содержимое во временный файл, сбрасывает на диск,
+// закрывает, ставит 0755 и переименовывает на итоговый путь: rename на той
+// же файловой системе атомарен, и читатель никогда не увидит недописанный
+// или без-прав файл. Sync до rename — чтобы после сбоя питания под итоговым
+// именем не оказался пустой файл, которому следующий запуск поверил бы.
 func writeAndPublish(tmp *os.File, raw []byte, path string) error {
 	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return err
 	}

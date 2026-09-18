@@ -302,3 +302,56 @@ func TestEnsureValidatorPayloadRefusesMissingPlatform(t *testing.T) {
 		t.Errorf("в bin/ что-то появилось: %v", entries)
 	}
 }
+
+// Офис, собранный руками без Root, — не офис: без отказа пустой Root означал
+// бы «текущий каталог» (cmd.Dir у go build, ./bin у поставки), а именно от
+// этого ResolveOffice и ушёл.
+func TestEnsureValidatorRefusesUnresolvedOffice(t *testing.T) {
+	for name, o := range map[string]Office{
+		"поставка": {Identity: "v0.7.0", Source: SourcePayload},
+		"клон":     {Identity: "abc", Source: SourceClone},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := EnsureValidator(o, Platform{OS: "linux", Arch: "arm64"})
+			if err == nil {
+				t.Fatal("отказа нет")
+			}
+			if !strings.Contains(err.Error(), "не разрешён") {
+				t.Errorf("отказ не про неразрешённый офис: %v", err)
+			}
+		})
+	}
+}
+
+// Лежащий чекер не переписывается — но и не подсовывается, если это не
+// исполняемый непустой файл: пустой файл после сбоя или каталог с тем же
+// именем внутри песочницы дали бы код 126, а хук считает его неблокирующим.
+func TestEnsureValidatorPayloadRefusesDamagedChecker(t *testing.T) {
+	fakeValidators(t, Platform{OS: "linux", Arch: "arm64"})
+	target := Platform{OS: "linux", Arch: "arm64"}
+	for name, plant := range map[string]func(path string) error{
+		"пустой файл": func(path string) error { return os.WriteFile(path, nil, 0o755) },
+		"без бита исполняемости": func(path string) error {
+			return os.WriteFile(path, []byte("#!/bin/sh\nexit 2\n"), 0o644)
+		},
+		"каталог": func(path string) error { return os.Mkdir(path, 0o755) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, BinDir, "validate-result-linux-arm64")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := plant(path); err != nil {
+				t.Fatal(err)
+			}
+			_, err := EnsureValidator(Office{Root: root, Identity: "v0.7.0", Source: SourcePayload}, target)
+			if err == nil {
+				t.Fatal("повреждённый чекер выдан как ограждение")
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("отказ не называет путь %s: %v", path, err)
+			}
+		})
+	}
+}

@@ -103,9 +103,11 @@ func ResolveOffice(opts Resolve) (Office, error) {
 	if !opts.Unpack {
 		return o, nil
 	}
-	switch _, err := os.Stat(o.Root); {
-	case err == nil:
+	switch fi, err := os.Stat(o.Root); {
+	case err == nil && fi.IsDir():
 		return o, nil
+	case err == nil:
+		return Office{}, fmt.Errorf("на месте каталога офиса %s лежит файл: уберите его, раннер распакует поставку", o.Root)
 	case !errors.Is(err, fs.ErrNotExist):
 		return Office{}, fmt.Errorf("каталог офиса не проверен: %w", err)
 	}

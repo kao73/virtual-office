@@ -45,19 +45,29 @@ func initCommand(args []string, out io.Writer) error {
 	}
 	for _, s := range samples {
 		path := filepath.Join(home, s.example)
-		switch _, err := os.Stat(path); {
-		case err == nil:
-			fmt.Fprintf(out, "оставлен %s\n", path)
-			continue
-		case !errors.Is(err, fs.ErrNotExist):
-			return fmt.Errorf("%s не проверен: %w", path, err)
-		}
 		raw, err := fs.ReadFile(payload.Payload, s.example)
 		if err != nil {
 			return fmt.Errorf("образец %s не найден в поставке: %w", s.example, err)
 		}
-		if err := os.WriteFile(path, raw, 0o644); err != nil {
+		// O_EXCL, а не «проверить и записать»: существующий образец не
+		// трогается ни при какой гонке, а недописанный (кончилось место)
+		// не остаётся лежать под видом оставленного — он убирается.
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		switch {
+		case errors.Is(err, fs.ErrExist):
+			fmt.Fprintf(out, "оставлен %s\n", path)
+			continue
+		case err != nil:
 			return fmt.Errorf("образец не записан: %w", err)
+		}
+		if _, err := f.Write(raw); err != nil {
+			f.Close()
+			os.Remove(path)
+			return fmt.Errorf("образец %s не записан: %w", path, err)
+		}
+		if err := f.Close(); err != nil {
+			os.Remove(path)
+			return fmt.Errorf("образец %s не записан: %w", path, err)
 		}
 		fmt.Fprintf(out, "создан   %s\n", path)
 	}

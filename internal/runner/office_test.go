@@ -314,6 +314,28 @@ func TestResolveOfficeDirtyHashCoversValidators(t *testing.T) {
 	}
 }
 
+// На месте каталога офиса лежит файл: молча принять его значило бы уронить
+// прогон позже, на чтении роли, с ошибкой, не называющей причину.
+func TestResolveOfficeRefusesFileAtOfficeRoot(t *testing.T) {
+	home := payloadHome(t)
+	fakePayload(t)
+	releaseVersion(t, "v0.7.0")
+	root := filepath.Join(home, OfficeDir, "v0.7.0")
+	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root, []byte("не каталог"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ResolveOffice(Resolve{Unpack: true})
+	if err == nil {
+		t.Fatal("файл на месте офиса принят")
+	}
+	if !strings.Contains(err.Error(), root) {
+		t.Errorf("отказ не называет путь %s: %v", root, err)
+	}
+}
+
 func TestResolveOfficeRefusesWithoutIdentity(t *testing.T) {
 	for name, settings := range map[string]func(){
 		"нет build info": func() { buildInfo(t, "", false) },

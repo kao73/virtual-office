@@ -914,6 +914,9 @@ func TestMarkerShortensOnlyCommitHashes(t *testing.T) {
 		sha:                       "5bc6a3b0",
 		sha + "-dirty":            "5bc6a3b0-dirty",
 		"5bc6a3b0-dirty":          "5bc6a3b0-dirty", // уже короткий — не commit по форме, целиком
+		sha[:39]:                  sha[:39],         // 39 hex — не commit
+		sha + "0":                 sha + "0",        // 41 hex — не commit
+		strings.ToUpper(sha):      strings.ToUpper(sha),
 	}
 	for identity, want := range cases {
 		m := Marker{RunID: runID, Role: "implementer", Outcome: "done", ConfigSHA: identity}
