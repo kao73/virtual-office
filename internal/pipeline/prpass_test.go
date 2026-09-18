@@ -1295,7 +1295,7 @@ func TestPRPassMergeUnavailableRemembersMultipleCategories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run_id не создан: %v", err)
 	}
-	marker := tracker.Marker{RunID: fixRunID, Role: "office", Event: tracker.EventPROpened, ConfigSHA: o.ConfigSHA}
+	marker := tracker.Marker{RunID: fixRunID, Role: "office", Event: tracker.EventPROpened, ConfigSHA: o.Identity}
 	if err := o.tasks.Comment("OFF-1", tracker.BySystem(),
 		tracker.NoticeBody(marker, "Ручная правка адреса: "+f.url)); err != nil {
 		t.Fatalf("комментарий не записан: %v", err)

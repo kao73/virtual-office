@@ -409,7 +409,7 @@ func (o *Office) closeSplitParent(task tracker.Task, keys []string) error {
 			return err
 		}
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: splitAnalystRole, Event: tracker.EventSplitCreated, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: splitAnalystRole, Event: tracker.EventSplitCreated, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("Разбита на: %s. Тикеты-дети созданы и связаны по depends_on автоматически, "+
 			"задача уходит в %s.", strings.Join(keys, ", "), to)); err != nil {
 			return err
@@ -473,7 +473,7 @@ func (o *Office) splitFailed(task tracker.Task, category string, cause error) er
 		return err
 	}
 	if err := o.record(task.Key, tracker.BySystem(), tracker.Marker{
-		RunID: runID, Role: splitAnalystRole, Event: tracker.EventSplitCreateFailed, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: splitAnalystRole, Event: tracker.EventSplitCreateFailed, ConfigSHA: o.Identity,
 	}, text); err != nil {
 		return err
 	}

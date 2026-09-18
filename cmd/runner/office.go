@@ -138,7 +138,6 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 			Ledger:    runs,
 			Budgets:   budgets,
 			Office:    office,
-			ConfigSHA: office.Identity,
 			Accounts:  tr.accounts,
 			Log:       out,
 		}})

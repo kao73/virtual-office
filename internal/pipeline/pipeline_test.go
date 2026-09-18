@@ -172,12 +172,11 @@ func newOffice(t *testing.T) *office {
 			Projects: tracker.Projects{"OFF": {
 				RepoURL: origin, DefaultBranch: "master", BranchPrefix: "agent/", Tracker: "mock",
 			}},
-			Agent:     agent,
-			Office:    runner.Office{Root: root, Identity: "5bc6a3b0", Source: runner.SourceClone},
-			ConfigSHA: "5bc6a3b0",
-			Accounts:  accounts,
-			Now:       func() time.Time { return now },
-			Log:       io.Discard,
+			Agent:    agent,
+			Office:   runner.Office{Root: root, Identity: "5bc6a3b0", Source: runner.SourceClone},
+			Accounts: accounts,
+			Now:      func() time.Time { return now },
+			Log:      io.Discard,
 		},
 	}
 	o.add("OFF-1", "Ready")

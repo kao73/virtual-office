@@ -102,12 +102,11 @@ type Office struct {
 	// это естественное состояние офиса, а не недонастроенное.
 	Budgets budget.Budgets
 
-	// Office — откуда роли и чем подписаны прогоны (встроено: o.Root, o.Identity, o.Source).
+	// Office — откуда роли и чем подписаны прогоны (встроено: o.Root,
+	// o.Identity, o.Source). Identity уходит в маркеры и реестр под
+	// историческим именем config_sha — оно на runner.Run, ledger.Entry и
+	// tracker.Marker, здесь второго поля для той же личности нет.
 	runner.Office
-	// ConfigSHA — личность офиса для маркеров и реестра: то же, что
-	// Office.Identity. Имя историческое — так называется поле config_sha
-	// в реестре и паспорте, и переименовывать два десятка мест незачем.
-	ConfigSHA string
 
 	// Accounts — все учётки офиса: общая, учётки ролей и чужая автоматизация.
 	// Всё, написанное не ими, считается словами человека. Список собирается
@@ -480,7 +479,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		return err
 	}
 	passport := runner.Run{
-		RunID: runID, Role: roleName, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: roleName, ConfigSHA: o.Identity,
 		StartedAt: o.now(), TaskKey: task.Key, BaseCommit: base,
 	}
 	attachments, err := o.fetchAttachments(task)
@@ -537,7 +536,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 				RunID: runID, Task: task.Key, Role: roleName, Project: c.ref.Project,
 				Started: passport.StartedAt, Usage: run.Usage,
 				Outcome: string(run.Result.Outcome), Termination: string(run.Termination.Kind),
-				ConfigSHA: o.ConfigSHA,
+				ConfigSHA: o.Identity,
 			})
 		}
 		return fmt.Errorf("прогон %s не состоялся: %w", runID, runErr)
@@ -556,7 +555,7 @@ func (o *Office) work(ctx context.Context, c claimed, roleName string, flow trac
 		RunID: runID, Task: task.Key, Role: roleName, Project: c.ref.Project,
 		Started: passport.StartedAt, Usage: usage,
 		Outcome: string(result.Outcome), Termination: string(run.Termination.Kind),
-		ConfigSHA: o.ConfigSHA,
+		ConfigSHA: o.Identity,
 	})
 
 	// Пуш идёт раньше всего остального и при любом исходе: работа не должна жить
@@ -623,7 +622,7 @@ func (o *Office) pushFailed(task tracker.Task, runID, roleName string, flow trac
 	failures := tracker.PushFailures(task.Comments, roleName) + 1
 
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: roleName, Event: tracker.EventPushFailed, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: roleName, Event: tracker.EventPushFailed, ConfigSHA: o.Identity,
 	}, fmt.Sprintf("Ветка не опубликована: %v\n\nРабота никуда не делась — она в рабочей папке и в локальной "+
 		"ветке, — но пока её не видит никто, кроме этой машины. Итог прогона run:%s — %s: %s\n\n"+
 		"Задача возвращается в %s. Счётчик попыток не тронут: публикует ветку раннер, а не агент.%s",
@@ -636,7 +635,7 @@ func (o *Office) pushFailed(task tracker.Task, runID, roleName string, flow trac
 		to, human = flow.Blocked(), true
 		o.logf("%s: пуш не удаётся подряд %d раз, задача уходит к человеку", task.Key, failures)
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: roleName, Event: tracker.EventPushFailuresExhausted, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: roleName, Event: tracker.EventPushFailuresExhausted, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("Публикация не удаётся %d раз подряд — это предел (limits.max_push_failures). "+
 			"Дело не в задаче: смотреть надо на доступ к репозиторию, токен и сам remote. "+
 			"Работа всех этих прогонов цела и лежит в рабочей папке.", failures)); err != nil {
@@ -686,7 +685,7 @@ func (o *Office) idleRun(task tracker.Task, runID, roleName string, flow tracker
 	}
 
 	if err := o.record(task.Key, by, tracker.Marker{
-		RunID: runID, Role: roleName, Event: event, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: roleName, Event: event, ConfigSHA: o.Identity,
 	}, text); err != nil {
 		return err
 	}
@@ -697,7 +696,7 @@ func (o *Office) idleRun(task tracker.Task, runID, roleName string, flow tracker
 		o.logf("%s: прогоны роли %s не доходят до результата подряд %d раз, задача уходит к человеку",
 			task.Key, roleName, idle)
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: roleName, Event: tracker.EventIdleRunsExhausted, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: roleName, Event: tracker.EventIdleRunsExhausted, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("Прогоны роли %s не доходят до результата %d раз подряд — это предел "+
 			"(limits.max_idle_runs). Считаются вместе оба вида: и «не начинал», и «не успел», — "+
 			"потому что следствие у них одно, а чередование обошло бы два раздельных счётчика. "+
@@ -736,7 +735,7 @@ func (o *Office) renew(task tracker.Task, runID, roleName string, result runner.
 
 	o.logf("%s: аренда потеряна, в трекер идёт только предупреждение", task.Key)
 	return true, o.notice(task.Key, tracker.Marker{
-		RunID: runID, Role: roleName, Event: tracker.EventLeaseLost, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: roleName, Event: tracker.EventLeaseLost, ConfigSHA: o.Identity,
 	}, fmt.Sprintf("Прогон run:%s завершился после потери аренды с исходом %s. %s Задачу он не двигает: "+
 		"её мог взять другой прогон. Итог прогона: %s%s",
 		short(runID), result.Outcome, published, result.Summary, spent(usage)))
@@ -828,7 +827,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 
 	marker := tracker.Marker{
 		RunID: runID, Role: roleName, Outcome: string(result.Outcome),
-		Next: result.NextOwner, Attachment: attachmentID, ConfigSHA: o.ConfigSHA,
+		Next: result.NextOwner, Attachment: attachmentID, ConfigSHA: o.Identity,
 	}
 
 	// Круги считаются по маркерам, а этот ещё не написан: к прошлым добавляется
@@ -851,7 +850,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	// в переписке, а человек видит, почему разговор роли с ролью на этом кончился.
 	if rounds > 0 && rounds >= o.Workflow.Limits.MaxReturnRounds {
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: roleName, Event: tracker.EventReturnRoundsExhausted, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: roleName, Event: tracker.EventReturnRoundsExhausted, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("Роль %s отдала задачу роли %s %d раза подряд и не сдвинула её вперёд — это предел "+
 			"(limits.max_return_rounds). Дальше крутить круги бессмысленно: спор решает человек. "+
 			"Замечания последнего разбора — в отчёте run:%s выше.",
@@ -861,7 +860,7 @@ func (o *Office) finish(task tracker.Task, runID, roleName string, flow tracker.
 	}
 	if stray {
 		if err := o.record(task.Key, by, tracker.Marker{
-			RunID: runID, Role: roleName, Event: tracker.EventRouteUnknown, ConfigSHA: o.ConfigSHA,
+			RunID: runID, Role: roleName, Event: tracker.EventRouteUnknown, ConfigSHA: o.Identity,
 		}, fmt.Sprintf("Роль %s назвала следующим владельцем роль %s, но маршрута для неё "+
 			"у исхода done в графе нет — решите, куда задаче дальше. Везти её по умолчанию "+
 			"раннер не стал: у этого исхода умолчание ведёт в %s. Работа цела, отчёт run:%s выше.",
@@ -970,7 +969,7 @@ func (o *Office) unblock(task tracker.Task, roleName string, reply tracker.Comme
 	}
 
 	marker := tracker.Marker{
-		RunID: runID, Role: roleName, Event: tracker.EventHumanReply, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: roleName, Event: tracker.EventHumanReply, ConfigSHA: o.Identity,
 	}
 	text := fmt.Sprintf("Ответ получен (%s), возвращаю задачу в %s. Он попадёт в контекст следующего прогона роли %s.",
 		reply.Author, to, roleName)
@@ -1063,7 +1062,7 @@ func (o *Office) returnExpired(task tracker.Task) error {
 	}
 
 	marker := tracker.Marker{
-		RunID: runID, Role: task.Owner, Event: tracker.EventLeaseExpired, ConfigSHA: o.ConfigSHA,
+		RunID: runID, Role: task.Owner, Event: tracker.EventLeaseExpired, ConfigSHA: o.Identity,
 	}
 	if err := o.notice(task.Key, marker, text); err != nil {
 		return err

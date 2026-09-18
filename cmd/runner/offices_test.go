@@ -43,7 +43,7 @@ func twoOffices(t *testing.T, out *bytes.Buffer) (*offices, *mock.Tracker, *mock
 			Projects: tracker.Projects{project: {
 				Tracker: name, DefaultBranch: "master", BranchPrefix: "agent/",
 			}},
-			Office: runner.Office{Root: root, Source: runner.SourceClone},
+			Office: runner.Office{Root: root, Identity: "5bc6a3b0", Source: runner.SourceClone},
 			Log:    out,
 		}}, tr
 	}

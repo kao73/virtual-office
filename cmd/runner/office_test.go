@@ -307,7 +307,7 @@ func TestOfficesUnpackPayloadWithoutConfigRoot(t *testing.T) {
 	if !strings.Contains(printed, filepath.Join(root, tracker.WorkflowFile)) {
 		t.Errorf("раскладка не называет файлы под распакованным офисом:\n%s", printed)
 	}
-	if o := all.list[0]; o.ConfigSHA != "v0.0.0-test" || o.Root != root || o.Source != runner.SourcePayload {
+	if o := all.list[0]; o.Identity != "v0.0.0-test" || o.Root != root || o.Source != runner.SourcePayload {
 		t.Errorf("офис %+v, ожидались v0.0.0-test, %s, payload", o.Office, root)
 	}
 	// Роль с обоими хуками грузится из распакованного офиса: биты на месте.
@@ -377,8 +377,8 @@ func TestOfficesCloneModeUnpacksNothing(t *testing.T) {
 	if o.Source != runner.SourceClone {
 		t.Errorf("Source = %q, ожидался %q", o.Source, runner.SourceClone)
 	}
-	if !configSHAPattern.MatchString(o.ConfigSHA) {
-		t.Errorf("ConfigSHA = %q, не похож на commit клона (с возможным -dirty)", o.ConfigSHA)
+	if !configSHAPattern.MatchString(o.Identity) {
+		t.Errorf("Identity = %q, не похож на commit клона (с возможным -dirty)", o.Identity)
 	}
 	if _, err := os.Stat(filepath.Join(home, runner.OfficeDir)); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("поставка распакована при заданном OFFICE_CONFIG_ROOT: %v", err)
