@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0    # GoReleaser читает теги и историю для списка коммитов
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       # Тесты в internal/backends/sbx и internal/workspace шеллятся в
