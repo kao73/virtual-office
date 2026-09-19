@@ -19,12 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0    # GoReleaser читает теги и историю для списка коммитов
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # Тесты в internal/backends/sbx и internal/workspace шеллятся в
+      # git commit — раннеру нужна хоть какая-то identity, иначе "Please
+      # tell me who you are" валит их ещё до сборки.
+      - run: git config --global user.name "CI" && git config --global user.email "ci@localhost"
       # Конфигурация — до минут сборки и тестов: она от них не зависит, а
       # ошибка в списке целей должна находиться на десятой секунде.
       - run: sh scripts/check-host-is-target.sh
