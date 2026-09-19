@@ -1,7 +1,8 @@
 # pr-converge adapter
 
 ## What CI proves
-- Nothing automatically. `.github/workflows/claude-review.yml` runs ONLY on manual `@claude` mention in a PR/issue comment — no push/PR-triggered job at all. `gh pr checks <N>` will report "no checks reported" even on a fully broken branch. The check set below is the real gate; a green PR page proves nothing on its own.
+- **Changed 2026-09-19:** `.github/workflows/ci.yml` now runs on every `pull_request` and on push to `master` — `go build ./...`, `go vet ./...`, `go test ./...` on `ubuntu-latest`. So `gh pr checks <N>` is finally meaningful, and a PR is the cheapest way to get the suite run on Linux (this repo is developed on darwin/arm64). It does NOT cover: `gofmt`, the `-tags release` build, `scripts/install-test.sh`, or a GoReleaser snapshot — the check set below is still the real gate.
+- `.github/workflows/claude-review.yml` still runs only on a manual `@claude` mention in a PR/issue comment.
 
 ## Checks
 | Command | Run from | Notes |

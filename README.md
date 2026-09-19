@@ -136,4 +136,5 @@ runner ls     # что происходит с задачей прямо сей�
 ## Статус и лицензия
 
 Пятый этап сдан и проверен дважды на живом проекте — подробности и то, что
-не доделано, — [docs/notes/stage-5-retro.md](docs/notes/stage-5-retro.md). Лицензии в репозитории пока нет.
+не доделано, — [docs/notes/stage-5-retro.md](docs/notes/stage-5-retro.md).
+Лицензия — [MIT](LICENSE). Как сообщить об уязвимости — [SECURITY.md](SECURITY.md).
