@@ -45,9 +45,21 @@ runner version     # что установлено и где лежит офис
 
 ## Первая задача
 
-На файловом трекере `mock`, без JIRA:
+На файловом трекере `mock`, без JIRA. `runner init` кладёт только образцы —
+нужен ещё репозиторий-цель (годится пустой локальный) и запись о нём
+в `${OFFICE_HOME}/projects.local.yaml`, которого пока нет:
 
 ```sh
+git init --bare -b master /tmp/client.git
+git clone -q /tmp/client.git /tmp/client
+git -C /tmp/client -c user.name=you -c user.email=you@local commit -q --allow-empty -m init
+git -C /tmp/client push -q origin master
+
+cp ${OFFICE_HOME:-~/.office}/projects.local.example.yaml \
+   ${OFFICE_HOME:-~/.office}/projects.local.yaml
+# в копии: ключ проекта → OFF, repo_url → /tmp/client.git,
+# default_branch → master, tracker → mock
+
 runner mock add OFF-1 --status Analysis \
   --summary "Добавить hello.py" \
   --description "Создай hello.py, печатающий приветствие, и тест к нему. Закоммить."

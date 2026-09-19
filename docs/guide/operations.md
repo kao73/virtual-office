@@ -182,7 +182,8 @@ ${OFFICE_HOME:-~/.office}/
 ├── office/<версия>/                распакованный офис этой версии: роли, скиллы, хуки, кит; не правится обновлением
 ├── runs/<run_id>/                  архив прогонов: постановка, контекст, лог, результат
 ├── ledger.jsonl                    реестр прогонов: строка на прогон
-└── bin/                            runner и run-agent от install.sh; runner-dev и run-agent-dev от обёрток bin/*
+└── bin/                            runner и run-agent от install.sh; runner-dev и run-agent-dev от обёрток bin/runner
+                                    и bin/run-agent; eval-roles (без -dev — не часть install.sh) от bin/eval-roles
 ```
 
 `runner init` создаёт только сам каталог и два образца

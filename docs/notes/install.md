@@ -7,7 +7,7 @@
 версия», post-hook сборки) и `scripts/check-host-is-target.sh` (до сборки:
 машина сборки обязана быть среди целей, иначе гейту негде сработать),
 `.github/workflows/release.yml`, `install.sh`, `office/payload.go`; согласованность
-списков платформ и пинов держит `release_config_test.go`; решения и их
+списков платформ и пинов держит `internal/release/config_test.go`; решения и их
 причины — `docs/openspec/changes/archive/2026-09-18-install/design.md` (D1, D5, D6) и
 Design Doc `docs/superpowers/specs/2026-09-17-install-design.md` §2.1–2.4.
 
@@ -33,8 +33,8 @@ GitHub напрямую, без обращения к API за именем те
 `office/skills/` — 6,6 МБ, `office/sbx-kits/` (тарболы кита песочницы) —
 6,4 МБ, `office/roles/` — 104 КБ, `office/hooks/` — 8 КБ, плюс
 `office/workflow.yaml`, `office/budgets.yaml` и оба образца.
-Она встроена и в `runner`, и в `run-agent` — второй тоже импортирует корневой
-пакет через `internal/runner`, так что каждый архив несёт эти ~13 МБ дважды.
+Она встроена и в `runner`, и в `run-agent` — второй тоже импортирует пакет
+`office` через `internal/runner`, так что каждый архив несёт эти ~13 МБ дважды.
 Принято осознанно (Design Doc §2.2): сжатая поставка — единицы мегабайт, а
 отдельный код-путь «`run-agent` ждёт, пока `runner` распакует офис» усложнил
 бы устройство сильнее, чем экономит.
