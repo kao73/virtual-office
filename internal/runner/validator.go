@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	payload "github.com/kao73/virtual-office"
+	validators "github.com/kao73/virtual-office/office/validators"
 )
 
 // BinDir — подкаталог бинарников: ${OFFICE_HOME}/bin у клона (ограждение
@@ -20,21 +20,18 @@ const BinDir = "bin"
 // хост и песочница разные, а лежат рядом.
 const ValidatorName = "validate-result"
 
-// validatorPkg — путь пакета команды от корня конфиг-репозитория.
+// validatorPkg — путь пакета команды от корня Go-модуля клона (Office.Module).
 const validatorPkg = "./cmd/validate-result"
 
-// validatorsDir — где внутри поставки лежат ограждения (validators_*.go в корне).
-const validatorsDir = "payload/validators"
-
 // validatorsFS — встроенный набор за переменной ради тестов; nil — настоящий.
-// Не «= payload.Validators»: см. payloadFS в office.go — инициализатор
+// Не «= validators.Validators»: см. payloadFS в office.go — инициализатор
 // пакета удержал бы набор в validate-result.
 var validatorsFS fs.FS
 
-func validatorsOrDefault() fs.FS { return orDefault(validatorsFS, payload.Validators) }
+func validatorsOrDefault() fs.FS { return orDefault(validatorsFS, validators.Validators) }
 
 // validatorName — имя файла ограждения под платформу: одно правило для
-// поставки (имя внутри payload/validators/) и для того, что кладётся на диск.
+// поставки (имя в корне её embed-дерева) и для того, что кладётся на диск.
 func validatorName(target Platform) string {
 	return fmt.Sprintf("%s-%s-%s", ValidatorName, target.OS, target.Arch)
 }
@@ -63,14 +60,21 @@ func (p Platform) String() string { return p.OS + "/" + p.Arch }
 // и лежит в самом раннере; без него — отказ с адресом.
 func EnsureValidator(o Office, target Platform) (string, error) {
 	// Офис не от ResolveOffice: пустой Root значил бы «текущий каталог» — для
-	// go build через cmd.Dir и для bin/ поставки одинаково, — а от этого
-	// ResolveOffice и ушёл; неизвестный источник не назвал бы способ.
-	if o.Root == "" || (o.Source != SourceClone && o.Source != SourcePayload) {
+	// bin/ поставки, — а от этого ResolveOffice и ушёл; неизвестный источник
+	// не назвал бы способ. В клоне то же самое верно для Module: пустой
+	// означал бы «собирать ограждение go build'ом из текущего каталога
+	// процесса», а не из корня клона, — и это именно тот отказ, ради
+	// которого Root и Module разведены (после переезда офиса в office/
+	// они не одно и то же).
+	switch {
+	case o.Root == "" || (o.Source != SourceClone && o.Source != SourcePayload):
 		return "", fmt.Errorf("офис не разрешён (root %q, source %q): ограждение под %s брать неоткуда", o.Root, o.Source, target)
+	case o.Source == SourceClone && o.Module == "":
+		return "", fmt.Errorf("офис не разрешён (module %q, source %q): ограждение под %s собирать неоткуда", o.Module, o.Source, target)
 	}
 	name := validatorName(target)
 	if o.Source == SourceClone {
-		return buildValidator(o.Root, name, target)
+		return buildValidator(o.Module, name, target)
 	}
 	return embeddedValidator(o.Root, name, target)
 }
@@ -82,8 +86,12 @@ func noEmbeddedValidator(target Platform) error {
 }
 
 // buildValidator — ветка клона: ${OFFICE_HOME}/bin/<name> собирается
-// go build из корня клона с GOOS/GOARCH/CGO_ENABLED=0.
-func buildValidator(configRoot, name string, target Platform) (string, error) {
+// go build из корня Go-модуля клона (Office.Module) с GOOS/GOARCH/CGO_ENABLED=0.
+// Не из Office.Root: тот — каталог офиса (office/) внутри того же клона,
+// и validatorPkg от него не резолвится — go build ищет ./cmd/validate-result
+// от переданного каталога, а не от корня модуля, который он нашёл бы по
+// go.mod выше по дереву.
+func buildValidator(moduleRoot, name string, target Platform) (string, error) {
 	home, err := Home()
 	if err != nil {
 		return "", err
@@ -103,7 +111,7 @@ func buildValidator(configRoot, name string, target Platform) (string, error) {
 
 	// CGO_ENABLED=0 — бинарник должен быть статическим: в песочнице чужая libc.
 	cmd := exec.Command("go", "build", "-o", path, validatorPkg)
-	cmd.Dir = configRoot
+	cmd.Dir = moduleRoot
 	cmd.Env = append(os.Environ(), "GOOS="+target.OS, "GOARCH="+target.Arch, "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("ограждение под %s не собрано: %w: %s", target, err, out)
@@ -132,7 +140,7 @@ func embeddedValidator(root, name string, target Platform) (string, error) {
 	case !errors.Is(err, fs.ErrNotExist):
 		return "", fmt.Errorf("ограждение %s не проверено: %w", path, err)
 	}
-	raw, err := fs.ReadFile(validatorsOrDefault(), validatorsDir+"/"+name)
+	raw, err := fs.ReadFile(validatorsOrDefault(), name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", noEmbeddedValidator(target)
 	}

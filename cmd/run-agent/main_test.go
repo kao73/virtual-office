@@ -27,6 +27,10 @@ func buildRunAgent(t *testing.T) string {
 	return path
 }
 
+// repoRoot — корень клона: OFFICE_CONFIG_ROOT для run-agent называет именно
+// его, а office/ и корень Go-модуля ResolveOffice достаёт из него сам
+// (internal/runner.Office.Root и .Module) — так же, как это делает
+// bin/run-agent.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
@@ -222,7 +226,7 @@ func TestCloneWithoutBranchFails(t *testing.T) {
 func syntheticRole(t *testing.T, extra string) (configRoot string) {
 	t.Helper()
 	configRoot = gitRepo(t)
-	roleDir := filepath.Join(configRoot, "roles", "test-role")
+	roleDir := filepath.Join(configRoot, runner.OfficeDir, runner.RolesDir, "test-role")
 	if err := os.MkdirAll(roleDir, 0o755); err != nil {
 		t.Fatalf("каталог роли не создан: %v", err)
 	}
@@ -336,7 +340,7 @@ func TestDryRunProjectFlagRefusesLeftoverProjectsYAML(t *testing.T) {
 	bin := buildRunAgent(t)
 	workdir := gitRepo(t)
 	configRoot := syntheticRole(t, "")
-	if err := os.WriteFile(filepath.Join(configRoot, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configRoot, runner.OfficeDir, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
 		t.Fatalf("projects.yaml не записан: %v", err)
 	}
 	home := projectsLocal(t, "")
@@ -360,6 +364,34 @@ func TestDryRunProjectFlagRefusesLeftoverProjectsYAML(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Легаси-файл может остаться и под корнем клона (configRoot), а не только
+// внутри configRoot/office: после переезда офиса (D1) ничто больше не кладёт
+// файлы из-под корня внутрь office/, и забытый projects.yaml мог остаться
+// снаружи. office.Root у этого прогона — configRoot/office, а не сам
+// configRoot, так что без проверки office.Module внутри
+// tracker.RefuseLeftoverOfficeFile этот тест красный.
+func TestDryRunProjectFlagRefusesLeftoverProjectsYAMLAtCloneRoot(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	configRoot := syntheticRole(t, "")
+	if err := os.WriteFile(filepath.Join(configRoot, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	home := projectsLocal(t, "")
+	env := []string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
+
+	args := []string{"--role", "test-role", "--workdir", workdir, "--task", taskFile(t), "--dry-run"}
+	code, out := runAgent(t, bin, env, args...)
+	if code != 2 {
+		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+	}
+	for _, want := range []string{"projects.local.yaml", "roles/_base/base.yaml"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("отказ не назвал %q: %s", want, out)
+		}
 	}
 }
 
@@ -461,7 +493,7 @@ func TestAccountWritesTermination(t *testing.T) {
 func buildRunAgentRelease(t *testing.T, version string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "run-agent")
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-ldflags", "-X github.com/kao73/virtual-office.Version="+version, "-o", path, ".")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-ldflags", "-X github.com/kao73/virtual-office/office.Version="+version, "-o", path, ".")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("run-agent не собран: %v: %s", err, out)
 	}

@@ -13,7 +13,7 @@ git:
 
 before:
   hooks:
-    # Ограждения под три платформы — в payload/validators/; их встраивают
+    # Ограждения под три платформы — в office/validators/; их встраивают
     # validators_<os>_<arch>.go под -tags release.
     - sh scripts/build-validators.sh
 
@@ -26,7 +26,7 @@ builds:
     binary: runner
     env: &build_env [CGO_ENABLED=0]
     flags: &build_flags [-trimpath, -tags=release]
-    ldflags: &build_ldflags ["-s -w -X github.com/kao73/virtual-office.Version=v{{ .Version }}"]
+    ldflags: &build_ldflags ["-s -w -X github.com/kao73/virtual-office/office.Version=v{{ .Version }}"]
     targets: &build_targets [darwin_arm64, linux_amd64, linux_arm64]
     hooks:
       post:

@@ -366,7 +366,7 @@ func TestLoadRoleRejectsBlanketWriteDenial(t *testing.T) {
 // не здесь, а на живом прогоне.
 func TestShippedRolesAreValid(t *testing.T) {
 	for _, name := range shippedRoles(t) {
-		role, err := LoadRole(filepath.Join("..", ".."), name)
+		role, err := LoadRole(filepath.Join("..", "..", "office"), name)
 		if err != nil {
 			t.Errorf("roles/%s не проходит проверку: %v", name, err)
 			continue
@@ -387,7 +387,7 @@ func TestShippedRolesAreValid(t *testing.T) {
 // единственный, кто это заметит, — живой прогон, ломающийся посреди Verify.
 func TestShippedImplementerAndReviewerDeclarePhaseGuardHook(t *testing.T) {
 	for _, name := range []string{"implementer", "reviewer"} {
-		role, err := LoadRole(filepath.Join("..", ".."), name)
+		role, err := LoadRole(filepath.Join("..", "..", "office"), name)
 		if err != nil {
 			t.Fatalf("roles/%s не загружена: %v", name, err)
 		}
@@ -402,7 +402,7 @@ func TestShippedImplementerAndReviewerDeclarePhaseGuardHook(t *testing.T) {
 // не являются: в _base лежат общий промпт (base.md) и общие правила (base.yaml).
 func shippedRoles(t *testing.T) []string {
 	t.Helper()
-	entries, err := os.ReadDir(filepath.Join("..", "..", RolesDir))
+	entries, err := os.ReadDir(filepath.Join("..", "..", "office", RolesDir))
 	if err != nil {
 		t.Fatalf("каталог ролей не прочитан: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestShippedRolesInheritBaseRules(t *testing.T) {
 	}
 	wantNet := []string{"registry-1.docker.io", "github.com", "pypi.org", "proxy.golang.org", "ghcr.io"}
 	for _, name := range shippedRoles(t) {
-		role, err := LoadRole(filepath.Join("..", ".."), name)
+		role, err := LoadRole(filepath.Join("..", "..", "office"), name)
 		if err != nil {
 			t.Fatalf("roles/%s не загружена: %v", name, err)
 		}

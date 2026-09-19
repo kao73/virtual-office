@@ -23,10 +23,12 @@ func configRoot(t *testing.T) string {
 }
 
 // cloneOffice — офис из этого репозитория в режиме клона: ограждение
-// собирается go build, как у обёрток bin/*.
+// собирается go build из Module, как у обёрток bin/*; Root — каталог
+// офиса (office/) того же клона, ролей эти тесты не читают.
 func cloneOffice(t *testing.T) Office {
 	t.Helper()
-	return Office{Root: configRoot(t), Source: SourceClone}
+	root := configRoot(t)
+	return Office{Root: filepath.Join(root, OfficeDir), Module: root, Source: SourceClone}
 }
 
 func TestEnsureValidatorBuildsExecutableForHost(t *testing.T) {
@@ -225,8 +227,7 @@ func fakeValidators(t *testing.T, platforms ...Platform) fstest.MapFS {
 	t.Helper()
 	m := fstest.MapFS{}
 	for _, p := range platforms {
-		m[validatorsDir+"/"+validatorName(p)] =
-			&fstest.MapFile{Data: []byte("#!/bin/sh\necho " + p.String() + "\nexit 2\n")}
+		m[validatorName(p)] = &fstest.MapFile{Data: []byte("#!/bin/sh\necho " + p.String() + "\nexit 2\n")}
 	}
 	prev := validatorsFS
 	validatorsFS = m
@@ -319,6 +320,28 @@ func TestEnsureValidatorRefusesUnresolvedOffice(t *testing.T) {
 				t.Errorf("отказ не про неразрешённый офис: %v", err)
 			}
 		})
+	}
+}
+
+// Root и Module — разные каталоги одного клона после переезда офиса в
+// office/ (Root им и стал, Module остался корнем модуля для go build).
+// Office с Root, но без Module в режиме клона — та же беда, что Office без
+// Root вовсе: без явного отказа EnsureValidator подсунул бы buildValidator
+// пустой Module, и cmd.Dir достался бы текущему каталогу процесса — go build
+// собрал бы что-то не то (или ничего) молча, без единого слова о причине.
+func TestEnsureValidatorRefusesCloneWithoutModule(t *testing.T) {
+	o := cloneOffice(t)
+	o.Module = ""
+
+	_, err := EnsureValidator(o, HostPlatform())
+	if err == nil {
+		t.Fatal("отказа нет")
+	}
+	if !strings.Contains(err.Error(), "не разрешён") {
+		t.Errorf("отказ не про неразрешённый офис: %v", err)
+	}
+	if !strings.Contains(err.Error(), "module") {
+		t.Errorf("отказ не называет поле module: %v", err)
 	}
 }
 

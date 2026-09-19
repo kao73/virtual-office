@@ -1285,7 +1285,7 @@ func LoadConfig(path string) (Config, error) {
 	case errors.Is(err, os.ErrNotExist):
 		return Config{}, fmt.Errorf("%s не заведён: подключение к JIRA — свойство инстанса, "+
 			"а не офиса. Сделайте файл из образца %s: его кладёт рядом `runner init` "+
-			"(в клоне он лежит в корне репозитория)", path, ExampleFile)
+			"(в клоне он лежит в office/tracker.example.yaml)", path, ExampleFile)
 	case err != nil:
 		return Config{}, fmt.Errorf("%s не прочитан: %w", path, err)
 	}

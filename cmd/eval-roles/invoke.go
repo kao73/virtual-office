@@ -59,7 +59,7 @@ func runRoleAgent(binPath, repoRoot, role, workdir, taskPath, taskKey string, cl
 	}
 	cmd := exec.Command(binPath, args...)
 	cmd.Dir = repoRoot
-	cmd.Env = append(os.Environ(), "OFFICE_CONFIG_ROOT="+repoRoot)
+	cmd.Env = append(os.Environ(), runner.ConfigRootEnv+"="+repoRoot)
 	out, runErr := cmd.CombinedOutput()
 
 	code := 0

@@ -8,10 +8,10 @@ import (
 	"os"
 	"path/filepath"
 
-	payload "github.com/kao73/virtual-office"
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/jira"
+	payload "github.com/kao73/virtual-office/office"
 )
 
 // sample — образец из поставки, рабочее имя, под которым его ждёт раннер,

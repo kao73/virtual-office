@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 func main() {
@@ -36,12 +38,12 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 		return 0, errors.New("--case requires --role")
 	}
 
-	repoRoot, err := officeRoot()
+	repo, err := repoRoot()
 	if err != nil {
 		return 0, err
 	}
 
-	dirs, err := discoverCases(filepath.Join(repoRoot, "evals"), *roleFlag, *caseFlag)
+	dirs, err := discoverCases(filepath.Join(repo, "evals"), *roleFlag, *caseFlag)
 	if err != nil {
 		return 0, err
 	}
@@ -75,28 +77,27 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 	}()
 
-	runAgentBin, err := resolveRunAgentBin(repoRoot, binDir)
+	runAgentBin, err := resolveRunAgentBin(repo, binDir)
 	if err != nil {
 		return 0, err
 	}
 
 	outcomes := make([]CaseOutcome, 0, len(cases))
 	for _, c := range cases {
-		outcomes = append(outcomes, evaluateCase(runAgentBin, repoRoot, c, stderr, *keepFailedFlag, *cloneFlag))
+		outcomes = append(outcomes, evaluateCase(runAgentBin, repo, c, stderr, *keepFailedFlag, *cloneFlag))
 	}
 
 	printSummary(stdout, outcomes)
 	return exitCode(outcomes), nil
 }
 
-// officeRoot возвращает корень конфиг-репозитория офиса: OFFICE_CONFIG_ROOT,
-// если задан, иначе текущий рабочий каталог. В обоих случаях каталог обязан
-// быть похож на настоящий корень (есть roles/) — без этой проверки запуск не
-// из корня репозитория (или без bin/eval-roles, который выставляет
-// OFFICE_CONFIG_ROOT) молча находит пустой evals/ и зеленеет «0 cases found»,
-// как будто кейсов действительно нет.
-func officeRoot() (string, error) {
-	root := os.Getenv("OFFICE_CONFIG_ROOT")
+// repoRoot — корень репозитория: оттуда берётся корпус кейсов и оттуда же
+// собирается run-agent. Сторож на evals/ обязателен: без него запуск не из
+// корня находит пустое множество и зеленеет «0 cases found», как будто
+// кейсов действительно нет. Роли здесь не проверяются — их каталог с этого
+// этапа лежит в office/, и открывает офис уже дочерний run-agent.
+func repoRoot() (string, error) {
+	root := os.Getenv(runner.ConfigRootEnv)
 	if root == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -104,8 +105,8 @@ func officeRoot() (string, error) {
 		}
 		root = wd
 	}
-	if info, err := os.Stat(filepath.Join(root, "roles")); err != nil || !info.IsDir() {
-		return "", fmt.Errorf("%q не похож на корень конфиг-репозитория офиса: нет roles/", root)
+	if info, err := os.Stat(filepath.Join(root, "evals")); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("%q не похож на корень репозитория: нет evals/", root)
 	}
 	return root, nil
 }

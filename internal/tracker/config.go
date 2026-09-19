@@ -757,13 +757,31 @@ func LoadProjects(machinePath string) (Projects, error) {
 	return projects, nil
 }
 
-// RefuseLeftoverOfficeFile — отказ, если под корнем конфигурации лежит
-// projects.yaml. Проекты живут в projects.local.yaml, общие правила —
-// в roles/_base/base.yaml; файл, который раньше носил и то и другое,
-// не читается, и молча пройти мимо него значило бы запустить офис на
-// половине конфигурации: с проектами, но без правил, что в нём лежали.
-func RefuseLeftoverOfficeFile(configRoot string) error {
-	path := filepath.Join(configRoot, OfficeProjectsFile)
+// RefuseLeftoverOfficeFile — отказ, если лежит projects.yaml из раскладки
+// до переезда офиса в office/ (D1, docs/superpowers/specs/2026-09-18-office-dir-and-readme-design.md).
+// Проекты живут в projects.local.yaml, общие правила — в roles/_base/base.yaml;
+// файл, который раньше носил и то и другое, не читается, и молча пройти мимо
+// него значило бы запустить офис на половине конфигурации: с проектами, но
+// без правил, что в нём лежали.
+//
+// Проверяется office.Root — там же, где лежал файл до переезда, — и, в режиме
+// клона, ещё и office.Module: git mv унёс содержимое офиса на уровень ниже,
+// в <клон>/office/, а корень клона остался кандидатом на тот же легаси-файл,
+// потому что ничто больше не кладёт файлы из-под корня внутрь office/. Режим
+// поставки Module не задаёт — там второй проверки нет и не нужно: поставка
+// не собирается из клона, и корня, отдельного от office.Root, у неё нет.
+func RefuseLeftoverOfficeFile(office runner.Office) error {
+	if err := refuseLeftoverOfficeFileAt(office.Root); err != nil {
+		return err
+	}
+	if office.Source == runner.SourceClone && office.Module != "" {
+		return refuseLeftoverOfficeFileAt(office.Module)
+	}
+	return nil
+}
+
+func refuseLeftoverOfficeFileAt(dir string) error {
+	path := filepath.Join(dir, OfficeProjectsFile)
 	_, err := os.Stat(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):

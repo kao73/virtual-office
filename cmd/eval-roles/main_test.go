@@ -8,19 +8,19 @@ import (
 	"testing"
 )
 
-// withRoles делает root похожим на настоящий корень конфиг-репозитория —
-// officeRoot() требует roles/, иначе синтетический тестовый root отвергается
+// withEvals делает root похожим на настоящий корень репозитория —
+// repoRoot() требует evals/, иначе синтетический тестовый root отвергается
 // как непохожий на корень.
-func withRoles(t *testing.T, root string) {
+func withEvals(t *testing.T, root string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(root, "roles"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "evals"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestRunReportsZeroCasesFound(t *testing.T) {
 	root := t.TempDir()
-	withRoles(t, root)
+	withEvals(t, root)
 	t.Setenv("OFFICE_CONFIG_ROOT", root)
 
 	var stdout, stderr bytes.Buffer
@@ -40,7 +40,7 @@ func TestRunReportsZeroCasesFound(t *testing.T) {
 // проваливающихся кейсов печатает сводку, которая верно считает и те, и другие».
 func TestRunReportsMixOfPassingAndFailingCases(t *testing.T) {
 	root := t.TempDir()
-	withRoles(t, root)
+	withEvals(t, root)
 	seed := func(caseID, resultJSON string) {
 		dir := filepath.Join(root, "evals", "testrole", caseID)
 		if err := os.MkdirAll(filepath.Join(dir, "fixture"), 0o755); err != nil {
@@ -86,7 +86,7 @@ func TestRunReportsMixOfPassingAndFailingCases(t *testing.T) {
 // good-case вообще не получает строки PASS/FAIL.
 func TestRunAbortsWholeSweepOnOneBadCase(t *testing.T) {
 	root := t.TempDir()
-	withRoles(t, root)
+	withEvals(t, root)
 
 	goodDir := filepath.Join(root, "evals", "testrole", "good-case")
 	if err := os.MkdirAll(filepath.Join(goodDir, "fixture"), 0o755); err != nil {
@@ -123,22 +123,22 @@ func TestRunAbortsWholeSweepOnOneBadCase(t *testing.T) {
 	}
 }
 
-// Раньше OFFICE_CONFIG_ROOT без roles/ (или его отсутствие вовсе — см. тест
+// Раньше OFFICE_CONFIG_ROOT без evals/ (или его отсутствие вовсе — см. тест
 // ниже) молча приводил к "0 cases found" и коду 0 вместо жёсткой ошибки —
 // тот же класс беды, что уже закрыт для опечатки в --role/--case.
 func TestRunFailsLoudlyWhenConfigRootIsNotOfficeRepo(t *testing.T) {
-	root := t.TempDir() // без roles/
+	root := t.TempDir() // без evals/
 	t.Setenv("OFFICE_CONFIG_ROOT", root)
 
 	var stdout, stderr bytes.Buffer
 	if _, err := run(nil, &stdout, &stderr); err == nil {
-		t.Fatalf("OFFICE_CONFIG_ROOT без roles/ должен быть ошибкой; stdout=%s", stdout.String())
+		t.Fatalf("OFFICE_CONFIG_ROOT без evals/ должен быть ошибкой; stdout=%s", stdout.String())
 	}
 }
 
 // Без OFFICE_CONFIG_ROOT harness использует os.Getwd() — ровно сценарий
 // "cd internal && go run ../cmd/eval-roles" из ревью: запуск не из корня
-// конфиг-репозитория обязан провалиться, а не напечатать "0 cases found".
+// репозитория обязан провалиться, а не напечатать "0 cases found".
 func TestRunFailsLoudlyWhenGetwdIsNotOfficeRepo(t *testing.T) {
 	t.Setenv("OFFICE_CONFIG_ROOT", "") // не зависеть от окружения, в котором запущен сам go test
 	t.Chdir(t.TempDir())
@@ -153,7 +153,7 @@ func TestRunFailsLoudlyWhenGetwdIsNotOfficeRepo(t *testing.T) {
 // только работает на уровне отдельного вызова evaluateCase в run_test.go.
 func TestRunKeepFailedFlagPreservesFixtureDir(t *testing.T) {
 	root := t.TempDir()
-	withRoles(t, root)
+	withEvals(t, root)
 	dir := filepath.Join(root, "evals", "testrole", "fail-case")
 	if err := os.MkdirAll(filepath.Join(dir, "fixture"), 0o755); err != nil {
 		t.Fatal(err)
@@ -187,13 +187,36 @@ func TestRunRejectsCaseFlagWithoutRole(t *testing.T) {
 	}
 }
 
+// Корпус кейсов и каталог офиса — разные места, и пустой корпус обязан быть
+// отказом, а не зелёным нулём: запуск не из корня репозитория иначе молча
+// сообщал бы «кейсов нет», хотя они есть.
+//
+// OFFICE_CONFIG_ROOT расчищается так же, как в TestRunFailsLoudlyWhenGetwdIsNotOfficeRepo:
+// без этого разработчик, экспортировавший OFFICE_CONFIG_ROOT=<клон> в своём
+// шелле (docs/notes/followup-network-and-permissions.md), получил бы здесь
+// repoRoot(), указывающий на настоящий клон, — discoverCases нашёл бы все
+// golden-кейсы, и run() дошёл бы до evaluateCase: платные прогоны агента
+// из юнит-теста.
+func TestRunRefusesWithoutEvalsDir(t *testing.T) {
+	t.Setenv("OFFICE_CONFIG_ROOT", "")
+	t.Chdir(t.TempDir())
+	var out, errOut bytes.Buffer
+	code, err := run(nil, &out, &errOut)
+	if err == nil {
+		t.Fatalf("отказа нет, код %d, вывод %q", code, out.String())
+	}
+	if !strings.Contains(err.Error(), "evals") {
+		t.Errorf("отказ не называет корпус: %v", err)
+	}
+}
+
 // Опечатавшийся --role/--case, не совпавший ни с чем, обязан быть жёсткой
 // ошибкой, а не молчаливым зелёным выходом «0 cases found» — этот зелёный
 // выход зарезервирован за по-настоящему пустым деревом evals/ вообще без
 // применённых фильтров.
 func TestRunFailsWhenRoleFilterMatchesNothing(t *testing.T) {
 	root := t.TempDir()
-	withRoles(t, root)
+	withEvals(t, root)
 	t.Setenv("OFFICE_CONFIG_ROOT", root)
 
 	var stdout, stderr bytes.Buffer

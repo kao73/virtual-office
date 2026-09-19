@@ -15,7 +15,6 @@ bootstrap/jira/*.tar.gz
 docs/openspec/changes/**/.comet/
 # <<< Comet managed project state <<<
 # Кросс-собранные ограждения релиза: их кладёт scripts/build-validators.sh
-payload/validators/*
-!payload/validators/README.md
+office/validators/validate-result-*
 # Артефакты GoReleaser (scripts/release-snapshot.sh)
 dist/

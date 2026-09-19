@@ -1,4 +1,4 @@
-package office
+package release
 
 import (
 	"os"
@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// read — файл релизной обвязки из корня модуля.
+// read — файл релизной обвязки от корня репозитория.
 func read(t *testing.T, name string) string {
 	t.Helper()
-	raw, err := os.ReadFile(name)
+	raw, err := os.ReadFile(filepath.Join("..", "..", name))
 	if err != nil {
 		t.Fatalf("%s не прочитан: %v", name, err)
 	}
@@ -26,18 +26,19 @@ func read(t *testing.T, name string) string {
 // сторону: релиз соберётся и уедет, а установщик откажется его ставить.
 func TestReleasePlatformsAgree(t *testing.T) {
 	// Опорный список — имена файлов с директивами embed: без них сборки нет.
-	names, err := filepath.Glob("validators_*_*.go")
+	names, err := filepath.Glob(filepath.Join("..", "..", "office", "validators", "validators_*_*.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var want []string
 	for _, name := range names {
-		if strings.HasSuffix(name, "_test.go") { // validators_release_test.go — не платформа
+		base := filepath.Base(name)
+		if strings.HasSuffix(base, "_test.go") { // validators_release_test.go — не платформа
 			continue
 		}
-		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(name, "validators_"), ".go"), "_")
+		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(base, "validators_"), ".go"), "_")
 		if len(parts) != 2 {
-			t.Fatalf("имя %s не вида validators_<os>_<arch>.go", name)
+			t.Fatalf("имя %s не вида validators_<os>_<arch>.go", base)
 		}
 		want = append(want, parts[0]+"/"+parts[1])
 	}
@@ -168,20 +169,25 @@ func section(t *testing.T, config, key string) string {
 // и наличие, но не архитектуру, а в песочнице чужой чекер даёт код 126 —
 // который хук считает неблокирующим, и ограждение молча перестаёт ограждать.
 func TestEmbeddedValidatorsMatchTheirFile(t *testing.T) {
-	names, err := filepath.Glob("validators_*_*.go")
+	names, err := filepath.Glob(filepath.Join("..", "..", "office", "validators", "validators_*_*.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	embed := regexp.MustCompile(`payload/validators/validate-result-([a-z0-9]+)-([a-z0-9]+)`)
+	embed := regexp.MustCompile(`validate-result-([a-z0-9]+)-([a-z0-9]+)`)
 	for _, name := range names {
-		if strings.HasSuffix(name, "_test.go") {
+		base := filepath.Base(name)
+		if strings.HasSuffix(base, "_test.go") {
 			continue
 		}
-		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(name, "validators_"), ".go"), "_")
+		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(base, "validators_"), ".go"), "_")
 		own := parts[0] + "-" + parts[1]
-		found := embed.FindAllStringSubmatch(read(t, name), -1)
+		raw, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("%s не прочитан: %v", base, err)
+		}
+		found := embed.FindAllStringSubmatch(string(raw), -1)
 		if len(found) == 0 {
-			t.Errorf("%s не встраивает ни одного ограждения", name)
+			t.Errorf("%s не встраивает ни одного ограждения", base)
 			continue
 		}
 		var embedded []string
@@ -189,7 +195,7 @@ func TestEmbeddedValidatorsMatchTheirFile(t *testing.T) {
 			embedded = append(embedded, m[1]+"-"+m[2])
 		}
 		if !slices.Contains(embedded, own) {
-			t.Errorf("%s встраивает %v, но не ограждение своей платформы %s", name, embedded, own)
+			t.Errorf("%s встраивает %v, но не ограждение своей платформы %s", base, embedded, own)
 		}
 		// Песочница sbx — Linux той же архитектуры: на darwin прогон с
 		// бэкендом sbx просит ограждение linux/<arch>, и если его нет в
@@ -197,7 +203,7 @@ func TestEmbeddedValidatorsMatchTheirFile(t *testing.T) {
 		// здесь, а не в validators_release_test.go: тот под darwin и на
 		// Linux-раннере CI не исполняется никогда.
 		if sandbox := "linux-" + parts[1]; parts[0] != "linux" && !slices.Contains(embedded, sandbox) {
-			t.Errorf("%s встраивает %v, но не ограждение своей песочницы %s", name, embedded, sandbox)
+			t.Errorf("%s встраивает %v, но не ограждение своей песочницы %s", base, embedded, sandbox)
 		}
 	}
 }

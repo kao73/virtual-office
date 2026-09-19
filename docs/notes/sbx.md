@@ -317,7 +317,7 @@ matches both an allow and a deny rule, the request is blocked».
 - ~~Версия claude в образе задаётся sbx; как её закрепить — не разбирались.~~
   **Закрыто попутно, role-comet-native-workflow, задача 17.** Оператор печёт и
   закрепляет образ вручную, один раз на хосте (`office-claude-comet:<версия>`,
-  скрипт `bootstrap/sbx-kits/bake-comet-template.sh`, см. раздел ниже) — раннер
+  скрипт `office/sbx-kits/bake-comet-template.sh`, см. раздел ниже) — раннер
   об этом не знает, он просто зовёт `sbx create --template`, ожидая, что образ уже
   есть. Версия `claude` внутри него теперь тоже зафиксирована моментом печи, не
   «что сегодня отдаёт `sbx`». Открытый вопрос был про `comet`, а решение закрыло
@@ -379,8 +379,8 @@ different mechanism (`/home/agent/.local/bin/claude`, a symlink into
 ### Resolved: `sbx kit` bakes `comet` (and `openspec`) into a pinned template
 
 Recipe, validated live end-to-end (`sbx` v0.38.0) — implemented as
-`bootstrap/sbx-kits/comet-cli/` + `bootstrap/sbx-kits/bake-comet-template.sh`
-(`bootstrap/sbx-kits/README.md` has the operational how-to; this note keeps the why):
+`office/sbx-kits/comet-cli/` + `office/sbx-kits/bake-comet-template.sh`
+(`office/sbx-kits/README.md` has the operational how-to; this note keeps the why):
 
 1. `comet` is pure JS (`npm view @rpamis/comet@0.4.0-beta.18 os cpu` — empty; its own
    dependencies are all pure-JS packages too) — a tarball built on macOS runs fine
@@ -434,7 +434,7 @@ Recipe, validated live end-to-end (`sbx` v0.38.0) — implemented as
    step at all — back to 5–6 s, `comet`/`openspec` already present. The template
    lives only in this host's local Docker/`sbx` image store; it does not travel
    with the git repo. Each runner host bakes its own copy once
-   (`bootstrap/sbx-kits/bake-comet-template.sh`), the same one-time-per-host
+   (`office/sbx-kits/bake-comet-template.sh`), the same one-time-per-host
    category `sbx policy init deny-all` already is.
 6. **`comet native` does not need the other 9 skills the npm package ships**
    (`comet-any`, `comet-archive`, `comet-build`, `comet-classic`, `comet-design`,

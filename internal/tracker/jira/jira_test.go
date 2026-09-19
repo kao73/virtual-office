@@ -1360,7 +1360,7 @@ func TestSearchAllProjectStopsAfterTaskCap(t *testing.T) {
 // ни одного чужого бота, тип задачи по умолчанию. Тип связи, напротив,
 // включён — его заводит scripts/jira-setup.sh.
 func TestShippedTrackerConfigIsValid(t *testing.T) {
-	root := filepath.Join("..", "..", "..")
+	root := filepath.Join("..", "..", "..", "office")
 
 	cfg, err := LoadConfig(filepath.Join(root, ExampleFile))
 	if err != nil {

@@ -33,7 +33,8 @@ func stopHookCommand(t *testing.T, settings string) string {
 func realValidator(t *testing.T) string {
 	t.Helper()
 	t.Setenv(runner.HomeEnv, t.TempDir())
-	path, err := runner.EnsureValidator(runner.Office{Root: filepath.Join("..", "..", ".."), Source: runner.SourceClone}, runner.HostPlatform())
+	moduleRoot := filepath.Join("..", "..", "..")
+	path, err := runner.EnsureValidator(runner.Office{Root: filepath.Join(moduleRoot, "office"), Module: moduleRoot, Source: runner.SourceClone}, runner.HostPlatform())
 	if err != nil {
 		t.Fatalf("валидатор не собран: %v", err)
 	}
@@ -43,7 +44,7 @@ func realValidator(t *testing.T) string {
 // shipGuard подкладывает в фикстуру настоящий скрипт ограждения из репозитория.
 func shipGuard(t *testing.T, root string) {
 	t.Helper()
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "hooks", "require-result.sh"))
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "office", "hooks", "require-result.sh"))
 	if err != nil {
 		t.Fatalf("скрипт ограждения не прочитан: %v", err)
 	}
@@ -143,7 +144,7 @@ func TestStopHookNamesTheWayOut(t *testing.T) {
 	validator := realValidator(t)
 	dir := t.TempDir()
 
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "hooks", "require-result.sh"))
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "office", "hooks", "require-result.sh"))
 	if err != nil {
 		t.Fatalf("скрипт ограждения не прочитан: %v", err)
 	}
@@ -172,7 +173,7 @@ func TestStopHookNamesTheWayOut(t *testing.T) {
 // неисполняемого скрипта считался неблокирующей ошибкой, и агент уходил без результата.
 func TestStopHookBlocksWhenValidatorMissing(t *testing.T) {
 	dir := t.TempDir()
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "hooks", "require-result.sh"))
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "office", "hooks", "require-result.sh"))
 	if err != nil {
 		t.Fatalf("скрипт ограждения не прочитан: %v", err)
 	}

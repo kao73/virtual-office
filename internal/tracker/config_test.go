@@ -8,12 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 // Файлы графа и проектов лежат в конфиг-репозитории и едут в прод как есть.
 // Битый workflow.yaml иначе обнаружился бы в проде первым же tick'ом.
 func TestShippedConfigIsValid(t *testing.T) {
-	root := filepath.Join("..", "..")
+	root := filepath.Join("..", "..", "office")
 
 	wf, err := LoadWorkflow(filepath.Join(root, WorkflowFile))
 	if err != nil {
@@ -755,19 +757,19 @@ func TestTrackersInUse(t *testing.T) {
 	}
 }
 
-// projects.yaml из прежней раскладки под корнем конфигурации — отказ, а не
-// молча пропущенный файл: он носил и проекты, и общие правила, и оба адреса,
+// projects.yaml из прежней раскладки под корнем офиса — отказ, а не молча
+// пропущенный файл: он носил и проекты, и общие правила, и оба адреса,
 // куда они переехали, отказ называет.
 func TestRefuseLeftoverOfficeFile(t *testing.T) {
 	root := t.TempDir()
-	if err := RefuseLeftoverOfficeFile(root); err != nil {
+	if err := RefuseLeftoverOfficeFile(runner.Office{Root: root}); err != nil {
 		t.Errorf("без projects.yaml отказ не положен: %v", err)
 	}
 
 	if err := os.WriteFile(filepath.Join(root, OfficeProjectsFile), []byte("OFF:\n"), 0o644); err != nil {
 		t.Fatalf("projects.yaml не записан: %v", err)
 	}
-	err := RefuseLeftoverOfficeFile(root)
+	err := RefuseLeftoverOfficeFile(runner.Office{Root: root})
 	if err == nil {
 		t.Fatal("оставшийся projects.yaml пропущен молча")
 	}
@@ -775,6 +777,45 @@ func TestRefuseLeftoverOfficeFile(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("отказ не назвал %q: %v", want, err)
 		}
+	}
+}
+
+// В режиме клона office.Root — это <клон>/office (после переезда офиса, D1),
+// а не сам клон: легаси-файл, оставшийся под корнем клона (office.Module),
+// не лежит внутри office/ и первой проверкой не ловится. Без второй проверки
+// по Module этот тест красный — ровно то, что раньше проверяли только
+// в раскладке до переезда, когда Root и Module ещё совпадали.
+func TestRefuseLeftoverOfficeFileChecksCloneRootToo(t *testing.T) {
+	clone := t.TempDir()
+	root := filepath.Join(clone, "office")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("каталог офиса не создан: %v", err)
+	}
+	office := runner.Office{Root: root, Module: clone, Source: runner.SourceClone}
+
+	if err := RefuseLeftoverOfficeFile(office); err != nil {
+		t.Errorf("без projects.yaml отказ не положен: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(clone, OfficeProjectsFile), []byte("OFF:\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	err := RefuseLeftoverOfficeFile(office)
+	if err == nil {
+		t.Fatal("оставшийся под корнем клона projects.yaml пропущен молча")
+	}
+	for _, want := range []string{OfficeProjectsFile, ProjectsLocalFile, "roles/_base/base.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не назвал %q: %v", want, err)
+		}
+	}
+
+	// Файл из предыдущего шага остался под корнем клона; в режиме поставки
+	// Module пуст, и вторая проверка не выполняется — второй кандидат ей
+	// просто не задан.
+	payload := runner.Office{Root: root, Source: runner.SourcePayload}
+	if err := RefuseLeftoverOfficeFile(payload); err != nil {
+		t.Errorf("в режиме поставки Module пуст, вторая проверка не должна срабатывать: %v", err)
 	}
 }
 
@@ -917,7 +958,7 @@ func TestPRBranch(t *testing.T) {
 // иначе первый запуск у нового пользователя упрётся в контракт, который
 // образец сам же нарушает.
 func TestShippedProjectsExampleLoadsAfterFourEdits(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", ProjectsLocalExampleFile))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "office", ProjectsLocalExampleFile))
 	if err != nil {
 		t.Fatalf("%s не прочитан: %v", ProjectsLocalExampleFile, err)
 	}

@@ -136,7 +136,7 @@ type office struct {
 
 func newOffice(t *testing.T) *office {
 	t.Helper()
-	root := repoRoot(t)
+	root := officeRoot(t)
 
 	wf, err := tracker.LoadWorkflow(filepath.Join(root, tracker.WorkflowFile))
 	if err != nil {
@@ -269,11 +269,11 @@ func (o *office) tick(t *testing.T) bool {
 	return worked
 }
 
-func repoRoot(t *testing.T) string {
+func officeRoot(t *testing.T) string {
 	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
+	root, err := filepath.Abs(filepath.Join("..", "..", "office"))
 	if err != nil {
-		t.Fatalf("корень репозитория не определён: %v", err)
+		t.Fatalf("корень офиса не определён: %v", err)
 	}
 	return root
 }

@@ -13,10 +13,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// RolesDir — каталог с ролями внутри конфиг-репозитория.
+// RolesDir — каталог с ролями внутри офиса (Office.Root: в клоне — office/,
+// в поставке — распакованная версия ${OFFICE_HOME}/office/<версия>/).
 const RolesDir = "roles"
 
-// SkillsDir — каталог со скиллами внутри конфиг-репозитория.
+// SkillsDir — каталог со скиллами внутри офиса (Office.Root, см. RolesDir).
 const SkillsDir = "skills"
 
 // RoleFile — машиночитаемая спецификация роли.
@@ -50,7 +51,7 @@ type Role struct {
 	ResultFile string   `yaml:"result_file"`
 
 	dir        string // каталог роли; от него отсчитываются prompt и includes
-	configRoot string // корень конфиг-репозитория; от него отсчитываются skills и hooks
+	configRoot string // корень офиса (Office.Root, см. RolesDir); от него отсчитываются skills и hooks
 }
 
 type Tools struct {

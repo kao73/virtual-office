@@ -1,7 +1,8 @@
 # pr-converge adapter
 
 ## What CI proves
-- Nothing automatically. `.github/workflows/claude-review.yml` runs ONLY on manual `@claude` mention in a PR/issue comment — no push/PR-triggered job at all. `gh pr checks <N>` will report "no checks reported" even on a fully broken branch. The check set below is the real gate; a green PR page proves nothing on its own.
+- **Changed 2026-09-19:** `.github/workflows/ci.yml` now runs on every `pull_request` and on push to `master` — `go build ./...`, `go vet ./...`, `go test ./...` on `ubuntu-latest`. So `gh pr checks <N>` is finally meaningful, and a PR is the cheapest way to get the suite run on Linux (this repo is developed on darwin/arm64). It does NOT cover: `gofmt`, the `-tags release` build, `scripts/install-test.sh`, or a GoReleaser snapshot — the check set below is still the real gate.
+- `.github/workflows/claude-review.yml` still runs only on a manual `@claude` mention in a PR/issue comment.
 
 ## Checks
 | Command | Run from | Notes |
@@ -11,7 +12,7 @@
 | `go test ./...` | repo root | ~16 packages; all hermetic (fake HTTP servers / in-memory mock tracker) — no live network, nothing to exclude from a normal cycle |
 | `gofmt -l .` | repo root | must print nothing. (The old note about a "false positive" in `internal/pipeline/prpass_test.go` is obsolete since PR #11: it was gofmt's own doc-comment normalization `''`→`”` that nobody had applied; the PR applied it. A reviewer who flags that hunk as a "stray editor edit" is wrong — `gofmt -l` on `master` flagged the file, on the branch it is clean.) |
 | `sh scripts/install-test.sh` | repo root | five install.sh scenarios on a fake dist, ~1 s, no network. `INSTALL_SH=/bin/dash` / `INSTALL_SH=bash` runs install.sh under that shell — do both on darwin, where `sh` is bash but both Linux release targets have dash |
-| `sh scripts/build-validators.sh && go test -tags release .` | repo root | only when the PR touches `validators_*.go`, `payload.go`, `internal/runner/validator.go` or the release config; ~30 s; leaves `payload/validators/validate-result-*` (gitignored) — delete them afterwards |
+| `sh scripts/build-validators.sh && go test -tags release ./office/...` | repo root | only when the PR touches `office/validators/validators_*.go`, `office/payload.go`, `internal/runner/validator.go` or the release config; ~30 s; leaves `office/validators/validate-result-*` (gitignored) — delete them afterwards |
 
 No Makefile; no lint step beyond `go vet`.
 

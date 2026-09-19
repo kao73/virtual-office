@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	payload "github.com/kao73/virtual-office"
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
+	payload "github.com/kao73/virtual-office/office"
 )
 
 // Строка об источнике печатается **в момент разрешения пути**, а не в конце сборки.
@@ -55,19 +55,24 @@ func TestConfigSourcesPrintImmediately(t *testing.T) {
 	}
 }
 
-// fixtureRunner — временные корень конфигурации и хозяйство раннера.
-// Корень — git-репозиторий с одним коммитом: runner.ConfigSHA читает HEAD.
-// В нём копия поставляемого workflow.yaml; ролей нет — их читает tick,
-// а не конструктор. Оба пути уходят в окружение, откуда их берёт newOffices().
+// fixtureRunner — временные корень клона и хозяйство раннера. Корень —
+// git-репозиторий с одним коммитом: runner.ConfigSHA читает HEAD. В его
+// подкаталоге office/ (ResolveOffice.Root) — копия поставляемого
+// workflow.yaml; ролей нет — их читает tick, а не конструктор. Оба пути
+// уходят в окружение, откуда их берёт newOffices().
 func fixtureRunner(t *testing.T, projectsLocal string) (root, home string) {
 	t.Helper()
 	root, home = t.TempDir(), t.TempDir()
 
-	wf, err := os.ReadFile(filepath.Join("..", "..", tracker.WorkflowFile))
+	wf, err := os.ReadFile(filepath.Join("..", "..", "office", tracker.WorkflowFile))
 	if err != nil {
 		t.Fatalf("поставляемый граф не прочитан: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, tracker.WorkflowFile), wf, 0o644); err != nil {
+	officeDir := filepath.Join(root, runner.OfficeDir)
+	if err := os.MkdirAll(officeDir, 0o755); err != nil {
+		t.Fatalf("каталог офиса не создан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(officeDir, tracker.WorkflowFile), wf, 0o644); err != nil {
 		t.Fatalf("граф не скопирован: %v", err)
 	}
 	gitT(t, root, "init", "-q", "-b", "master")
@@ -233,7 +238,7 @@ func TestOfficesRejectTrackerFlag(t *testing.T) {
 // посреди сборки офисов.
 func TestNewOfficesRefusesLeftoverProjectsYAML(t *testing.T) {
 	root, _ := fixtureRunner(t, mockProject)
-	if err := os.WriteFile(filepath.Join(root, tracker.OfficeProjectsFile), []byte("OFF: {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, runner.OfficeDir, tracker.OfficeProjectsFile), []byte("OFF: {}\n"), 0o644); err != nil {
 		t.Fatalf("projects.yaml не записан: %v", err)
 	}
 	var out bytes.Buffer
@@ -252,6 +257,32 @@ func TestNewOfficesRefusesLeftoverProjectsYAML(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "workflow.yaml") {
 		t.Errorf("guard сработал после того, как конфигурация уже читалась:\n%s", out.String())
+	}
+}
+
+// Легаси-файл может остаться и под корнем клона, а не только внутри office/:
+// после переезда офиса (D1) ничто больше не кладёт файлы из-под корня внутрь
+// office/, так что git mv мог унести только сам офис, а забытый projects.yaml —
+// оставить лежать снаружи, на уровне fixtureRunner's root, а не root/office.
+// Без проверки office.Module внутри RefuseLeftoverOfficeFile этот тест красный.
+func TestNewOfficesRefusesLeftoverProjectsYAMLAtCloneRoot(t *testing.T) {
+	root, _ := fixtureRunner(t, mockProject)
+	if err := os.WriteFile(filepath.Join(root, tracker.OfficeProjectsFile), []byte("OFF: {}\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	var out bytes.Buffer
+
+	all, err := newOffices(flags("tick"), nil, &out)
+	if err == nil {
+		t.Fatal("оставшийся под корнем клона projects.yaml пропущен молча")
+	}
+	for _, want := range []string{tracker.ProjectsLocalFile, "roles/_base/base.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не назвал %q: %v", want, err)
+		}
+	}
+	if all != nil {
+		t.Error("при отказе guard'а офисы всё равно собраны")
 	}
 }
 
