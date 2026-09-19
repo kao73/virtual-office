@@ -19,27 +19,29 @@
                    └──────── возврат за планом ───────────┘
 ```
 
-`Backlog` — территория человека; `Done` — единственный терминальный статус,
-и попасть в него можно только через слияние pull request. Что делает каждая
-роль и как считаются круги возврата — [«Роли и путь задачи»](docs/guide/roles-and-flow.md).
+`Backlog` — территория человека; `Done` — единственный терминальный статус.
+Обычно единственный путь в него — слияние pull request; у проекта без
+`forge` проход вырождается — открывать pull request негде — и задача
+уходит в `Done` сразу, записью `pr-skipped`: слияние ветки, если оно будет,
+делает человек сам. Что делает каждая роль и как считаются круги возврата —
+[«Роли и путь задачи»](docs/guide/roles-and-flow.md).
 
 ## Установка
 
-Одной командой из релиза, без клона и без Go:
+**Тегов релиза пока нет** — ставится локальный снапшот:
 
 ```sh
-curl -fsSL https://github.com/kao73/virtual-office/releases/latest/download/install.sh | sh
+sh scripts/release-snapshot.sh
+OFFICE_INSTALL_FROM=dist sh install.sh
 runner init        # завести ${OFFICE_HOME} и положить образцы
 runner version     # что установлено и где лежит офис
 ```
 
 `install.sh` кладёт `runner` и `run-agent` в `${OFFICE_HOME:-~/.office}/bin`
-и говорит, лежит ли этот путь в `PATH`.
-
-**Тегов релиза пока нет**, и команда выше не сработает: качать с
-`releases/latest` нечего. Ставится локальный снапшот — `sh
-scripts/release-snapshot.sh`, затем `OFFICE_INSTALL_FROM=dist sh install.sh` —
-подробности и матрица платформ — в [«Быстром старте»](docs/guide/quickstart.md).
+и говорит, лежит ли этот путь в `PATH`. С первым тегом релиза установка
+станет одной командой из релиза (`curl -fsSL .../install.sh | sh`), без
+клона и без Go; подробности и матрица платформ —
+[docs/notes/install.md](docs/notes/install.md).
 
 ## Первая задача
 
