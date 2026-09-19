@@ -260,6 +260,32 @@ func TestNewOfficesRefusesLeftoverProjectsYAML(t *testing.T) {
 	}
 }
 
+// Легаси-файл может остаться и под корнем клона, а не только внутри office/:
+// после переезда офиса (D1) ничто больше не кладёт файлы из-под корня внутрь
+// office/, так что git mv мог унести только сам офис, а забытый projects.yaml —
+// оставить лежать снаружи, на уровне fixtureRunner's root, а не root/office.
+// Без проверки office.Module внутри RefuseLeftoverOfficeFile этот тест красный.
+func TestNewOfficesRefusesLeftoverProjectsYAMLAtCloneRoot(t *testing.T) {
+	root, _ := fixtureRunner(t, mockProject)
+	if err := os.WriteFile(filepath.Join(root, tracker.OfficeProjectsFile), []byte("OFF: {}\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	var out bytes.Buffer
+
+	all, err := newOffices(flags("tick"), nil, &out)
+	if err == nil {
+		t.Fatal("оставшийся под корнем клона projects.yaml пропущен молча")
+	}
+	for _, want := range []string{tracker.ProjectsLocalFile, "roles/_base/base.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("отказ не назвал %q: %v", want, err)
+		}
+	}
+	if all != nil {
+		t.Error("при отказе guard'а офисы всё равно собраны")
+	}
+}
+
 // releaseVersion подменяет версию, вшитую ldflags: раннер ведёт себя как
 // релиз v…, не будучи им собран.
 func releaseVersion(t *testing.T, v string) {

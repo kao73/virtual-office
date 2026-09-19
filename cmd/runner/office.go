@@ -54,7 +54,7 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 	sources := configSources{out: out}
 	sources.root(office)
 	// projects.yaml из прежней раскладки не читается — и не пропускается молча.
-	if err := tracker.RefuseLeftoverOfficeFile(office.Root); err != nil {
+	if err := tracker.RefuseLeftoverOfficeFile(office); err != nil {
 		return nil, err
 	}
 

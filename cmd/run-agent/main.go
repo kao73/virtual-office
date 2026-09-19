@@ -114,7 +114,7 @@ func execute() (int, error) {
 	// молча: тот же сторож, что и у runner, и стоит он до роли, а не под
 	// --project: дерево, которое runner отвергает, ручной запуск не должен
 	// принимать ни в одном режиме.
-	if err := tracker.RefuseLeftoverOfficeFile(office.Root); err != nil {
+	if err := tracker.RefuseLeftoverOfficeFile(office); err != nil {
 		return 0, err
 	}
 	role, err := runner.LoadRole(office.Root, *roleName)

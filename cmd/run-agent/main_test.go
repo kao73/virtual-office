@@ -367,6 +367,34 @@ func TestDryRunProjectFlagRefusesLeftoverProjectsYAML(t *testing.T) {
 	}
 }
 
+// Легаси-файл может остаться и под корнем клона (configRoot), а не только
+// внутри configRoot/office: после переезда офиса (D1) ничто больше не кладёт
+// файлы из-под корня внутрь office/, и забытый projects.yaml мог остаться
+// снаружи. office.Root у этого прогона — configRoot/office, а не сам
+// configRoot, так что без проверки office.Module внутри
+// tracker.RefuseLeftoverOfficeFile этот тест красный.
+func TestDryRunProjectFlagRefusesLeftoverProjectsYAMLAtCloneRoot(t *testing.T) {
+	bin := buildRunAgent(t)
+	workdir := gitRepo(t)
+	configRoot := syntheticRole(t, "")
+	if err := os.WriteFile(filepath.Join(configRoot, "projects.yaml"), []byte("OFFICE: {}\n"), 0o644); err != nil {
+		t.Fatalf("projects.yaml не записан: %v", err)
+	}
+	home := projectsLocal(t, "")
+	env := []string{"OFFICE_CONFIG_ROOT=" + configRoot, "OFFICE_HOME=" + home, "ANTHROPIC_API_KEY=ключ", "CLAUDE_CODE_OAUTH_TOKEN="}
+
+	args := []string{"--role", "test-role", "--workdir", workdir, "--task", taskFile(t), "--dry-run"}
+	code, out := runAgent(t, bin, env, args...)
+	if code != 2 {
+		t.Errorf("код %d, ожидался 2 (инфраструктурная беда); вывод: %s", code, out)
+	}
+	for _, want := range []string{"projects.local.yaml", "roles/_base/base.yaml"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("отказ не назвал %q: %s", want, out)
+		}
+	}
+}
+
 func taskFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "task.md")

@@ -190,7 +190,15 @@ func TestRunRejectsCaseFlagWithoutRole(t *testing.T) {
 // Корпус кейсов и каталог офиса — разные места, и пустой корпус обязан быть
 // отказом, а не зелёным нулём: запуск не из корня репозитория иначе молча
 // сообщал бы «кейсов нет», хотя они есть.
+//
+// OFFICE_CONFIG_ROOT расчищается так же, как в TestRunFailsLoudlyWhenGetwdIsNotOfficeRepo:
+// без этого разработчик, экспортировавший OFFICE_CONFIG_ROOT=<клон> в своём
+// шелле (docs/notes/followup-network-and-permissions.md), получил бы здесь
+// repoRoot(), указывающий на настоящий клон, — discoverCases нашёл бы все
+// golden-кейсы, и run() дошёл бы до evaluateCase: платные прогоны агента
+// из юнит-теста.
 func TestRunRefusesWithoutEvalsDir(t *testing.T) {
+	t.Setenv("OFFICE_CONFIG_ROOT", "")
 	t.Chdir(t.TempDir())
 	var out, errOut bytes.Buffer
 	code, err := run(nil, &out, &errOut)
