@@ -130,8 +130,9 @@ and its silent return.
 harness that walks the documented path in a scratch `${OFFICE_HOME}`, with no
 network and no paid run.
 
-1. fresh temporary `${OFFICE_HOME}`, `runner init`, assert the four files and
-   the `scheduler/` directory exist and the exit code is zero;
+1. fresh temporary `${OFFICE_HOME}`, `runner init`, assert all five files —
+   two configuration samples and three units — and the `scheduler/` directory
+   exist and the exit code is zero;
 2. create the bare client repository the tutorial creates;
 3. copy `projects.local.example.yaml` to its working name and edit exactly the
    four values the documentation says to edit — no more, which is the claim
