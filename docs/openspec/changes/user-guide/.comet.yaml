@@ -1,6 +1,6 @@
 workflow: full
 language: en
-phase: open
+phase: design
 context_compression: off
 build_mode: null
 build_pause: null
@@ -11,7 +11,7 @@ isolation: branch
 verify_mode: null
 auto_transition: true
 base_ref: 18d040cae170c325e1cac5f8608683795cf5a4f7
-design_doc: null
+design_doc: docs/superpowers/specs/2026-09-21-user-guide-design.md
 plan: null
 verify_result: pending
 verify_failures: 0
@@ -22,3 +22,9 @@ verified_at: null
 archive_confirmation: null
 archived: false
 bound_branch: comet/user-guide
+direct_override: null
+handoff_context: docs/openspec/changes/user-guide/.comet/handoff/design-context.json
+handoff_hash: 40471dc278f0c96ea416ec8c2c484b47cf213de7f2223c0e21932ca3b5a265ab
+classic_profile: full
+classic_migration: 1
+run_id: af990e7d-6088-48b8-ba6b-c783c604a959

@@ -104,11 +104,21 @@
 
 ## 7. Closing checks
 
-- [ ] 7.1 Walk every relative link in `README.md`, `docs/README.md`,
+- [ ] 7.1 Write `scripts/doc-recipe-test.sh` on the model of
+      `scripts/install-test.sh`: a scratch `${OFFICE_HOME}`, `runner init`, the
+      bare client repository, the example copied and edited in exactly the four
+      documented values, `runner mock add`, `runner ls`, and one
+      `runner tick --backend local` with a fake `claude` earlier on `PATH` that
+      writes the role's result file and exits zero. No network, no paid run.
+      Assert each step's exit code and that the task moved
+- [ ] 7.2 Run the harness against a deliberately broken recipe once — revert one
+      documented step, watch it fail, restore it — so that a passing run means
+      something
+- [ ] 7.3 Walk every relative link in `README.md`, `docs/README.md`,
       `docs/guide/*`, `docs/reference/*`, `docs/ONBOARDING.md`, `bootstrap/README.md`
       and `bootstrap/jira/README.md`, and confirm each target exists
-- [ ] 7.2 Run the recipes the documents give — `runner init` into a scratch
-      `${OFFICE_HOME}`, then the first-task sequence — and confirm each command
-      works as written, in order, from a clean state
-- [ ] 7.3 Run `gofmt -l .`, `go build ./...`, `go test ./...` and confirm the tree
-      is clean
+- [ ] 7.4 Read the parts the harness cannot check — the JIRA requirements against
+      `docs/notes/jira-setup.md` and the code, and the configuration reference
+      against `internal/tracker/config.go` and `grep -rn OFFICE_ --include='*.go'`
+- [ ] 7.5 Run `gofmt -l .`, `go build ./...`, `go test ./...` and
+      `sh scripts/doc-recipe-test.sh`, and confirm the tree is clean
