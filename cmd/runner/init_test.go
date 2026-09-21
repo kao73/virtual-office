@@ -33,12 +33,17 @@ func TestInitLaysOutFreshHome(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	slices.Sort(names)
-	want := []string{tracker.ProjectsLocalExampleFile, jira.ExampleFile}
-	slices.Sort(want)
-	if !slices.Equal(names, want) {
-		t.Errorf("в хозяйстве %v, ожидались ровно %v", names, want)
+	// Образцы конфигурации — файлы, задания планировщика — каталог: «ровно»
+	// осталось «ровно», просто список вырос на scheduler/. Убрать это
+	// утверждение значило бы остаться без единственной проверки, что init
+	// не кладёт в хозяйство ничего сверх обещанного.
+	wantFiles := []string{tracker.ProjectsLocalExampleFile, jira.ExampleFile}
+	wantTop := append(append([]string{}, wantFiles...), schedulerDir)
+	slices.Sort(wantTop)
+	if !slices.Equal(names, wantTop) {
+		t.Errorf("в хозяйстве %v, ожидались ровно %v", names, wantTop)
 	}
-	for _, name := range want {
+	for _, name := range wantFiles {
 		got, err := os.ReadFile(filepath.Join(home, name))
 		if err != nil {
 			t.Fatalf("%s не прочитан: %v", name, err)
@@ -51,9 +56,39 @@ func TestInitLaysOutFreshHome(t *testing.T) {
 			t.Errorf("%s отличается от образца в поставке", name)
 		}
 	}
+	// scheduler/ — ровно три задания, побайтно из поставки. Все три на любой
+	// платформе: машина, на которой юнит правят, не всегда та, на которой он
+	// работает, и выбирать по GOOS значило бы вешать теги сборки на данные.
+	schedEntries, err := os.ReadDir(filepath.Join(home, schedulerDir))
+	if err != nil {
+		t.Fatalf("%s не прочитан: %v", schedulerDir, err)
+	}
+	var schedNames []string
+	for _, e := range schedEntries {
+		schedNames = append(schedNames, e.Name())
+	}
+	slices.Sort(schedNames)
+	wantSched := append([]string{}, schedulerSamples...)
+	slices.Sort(wantSched)
+	if !slices.Equal(schedNames, wantSched) {
+		t.Errorf("в %s %v, ожидались ровно %v", schedulerDir, schedNames, wantSched)
+	}
+	for _, name := range wantSched {
+		got, err := os.ReadFile(filepath.Join(home, schedulerDir, name))
+		if err != nil {
+			t.Fatalf("%s не прочитан: %v", name, err)
+		}
+		exp, err := fs.ReadFile(payload.Payload, schedulerDir+"/"+name)
+		if err != nil {
+			t.Fatalf("%s не найден в поставке: %v", name, err)
+		}
+		if !bytes.Equal(got, exp) {
+			t.Errorf("%s отличается от образца в поставке", name)
+		}
+	}
 	printed := out.String()
-	if strings.Count(printed, "создан") != 2 {
-		t.Errorf("ожидались два «создан»:\n%s", printed)
+	if got := strings.Count(printed, "создан"); got != 5 {
+		t.Errorf("«создан» в выводе %d, ожидалось пять (два образца и три задания):\n%s", got, printed)
 	}
 	for _, want := range []string{tracker.ProjectsLocalFile, jira.TrackerFile, "дальше"} {
 		if !strings.Contains(printed, want) {
@@ -96,5 +131,42 @@ func TestInitLeavesConfiguredHomeAlone(t *testing.T) {
 	// jira.ExampleFile (единственный отсутствовавший образец) теперь существует
 	if _, err := os.Stat(filepath.Join(home, jira.ExampleFile)); err != nil {
 		t.Errorf("%s не создан: %v", jira.ExampleFile, err)
+	}
+}
+
+// Правленое задание переживает второй init: в нём уже стоят настоящая учётка
+// и путь, и переписать его значило бы снести настройку машины одной командой.
+func TestInitLeavesEditedSchedulerSampleAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(runner.HomeEnv, home)
+
+	var first bytes.Buffer
+	if err := initCommand(nil, &first); err != nil {
+		t.Fatalf("первый init отказал: %v", err)
+	}
+
+	edited := filepath.Join(home, schedulerDir, "office-runner.service")
+	body := "ExecStart=/home/owner/.office/bin/runner tick\n"
+	if err := os.WriteFile(edited, []byte(body), 0o644); err != nil {
+		t.Fatalf("%s не записан: %v", edited, err)
+	}
+
+	var second bytes.Buffer
+	if err := initCommand(nil, &second); err != nil { // nil error — код возврата 0
+		t.Fatalf("второй init отказал: %v", err)
+	}
+	got, err := os.ReadFile(edited)
+	if err != nil {
+		t.Fatalf("%s не прочитан: %v", edited, err)
+	}
+	if string(got) != body {
+		t.Errorf("правленое задание изменено: было %q, стало %q", body, got)
+	}
+	printed := second.String()
+	if !strings.Contains(printed, "оставлен") || !strings.Contains(printed, edited) {
+		t.Errorf("вывод не сообщает об оставленном задании:\n%s", printed)
+	}
+	if strings.Contains(printed, "создан") {
+		t.Errorf("второй init что-то создал:\n%s", printed)
 	}
 }

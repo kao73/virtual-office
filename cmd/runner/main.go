@@ -19,13 +19,13 @@ import (
 const usage = `runner — обвязка вокруг агента
 
   runner tick [--role R]        один цикл: взять не больше одной задачи и вернуть в граф
-  runner loop [--every 2m]      то же по расписанию, пока не остановят
+  runner loop [--every 2m] [--role R]   то же по расписанию, пока не остановят
   runner reap                   вернуть задачи с истёкшей арендой
   runner complete-splits        достроить и связать тикеты-детей подтверждённого split
   runner ls [--project P]       доска: где какая задача, кто её взял и сколько висит
   runner ledger [--since 24h]   расход: сколько прогонов и на сколько денег
   runner worktree <ls|rm> …     рабочие папки задач: что лежит и как убрать
-  runner init                   завести ${OFFICE_HOME} и положить образцы projects.local.example.yaml и tracker.example.yaml
+  runner init                   завести ${OFFICE_HOME}: образцы конфигурации и задания планировщика в scheduler/
   runner version                что установлено: личность раннера и каталог его офиса
   runner mock <add|ls|show|comment> …   файловый трекер для ручных сценариев
 
