@@ -1,7 +1,12 @@
 # Пример юнита systemd. Пути правь под машину.
 #
-# Кред агента и токен пуша подставляются из EnvironmentFile с правами 600;
-# секретов в самом юните нет и быть не должно.
+# EnvironmentFile необязателен (префикс `-`): файла может не быть вовсе, если
+# кред агента и токен пуша уже заданы иначе — `systemctl --user edit` этого
+# юнита, окружение пользовательского systemd (`systemctl --user import-environment`)
+# и так далее. Если завести файл `%h/.office/env` с правами 600, юнит его
+# подхватит. Без обоих способов раннер откажется сам и явно — см.
+# `docs/guide/machine-setup.md`, раздел «Креды». Секретов в самом юните нет
+# и быть не должно.
 
 [Unit]
 Description=Виртуальный офис: один цикл раннера
@@ -11,7 +16,7 @@ After=network-online.target
 Type=oneshot
 WorkingDirectory=%h/.office
 Environment=OFFICE_HOME=%h/.office
-EnvironmentFile=%h/.office/env
+EnvironmentFile=-%h/.office/env
 ExecStart=%h/.office/bin/runner tick
 # Остановка сигналом: идущий прогон агента прерывается, задачу вернёт reap
 # (bootstrap/README.md). Дожидаться конца прогона раннер пока не умеет.

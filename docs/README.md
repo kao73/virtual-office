@@ -27,7 +27,7 @@
 
 | Документ | О чём |
 |---|---|
-| [reference/configuration.md](reference/configuration.md) | две половины конфигурации, три слоя правил и что что перекрывает, переменные окружения |
+| [reference/configuration.md](reference/configuration.md) | две половины конфигурации, три слоя правил и что перекрывает, переменные окружения |
 | [reference/jira-requirements.md](reference/jira-requirements.md) | что офис требует от инстанса JIRA — каждое требование со способом проверить |
 | [contracts/tracker-protocol.md](contracts/tracker-protocol.md) | протокол трекера: аренда, комментарии, маркеры событий |
 | [contracts/agent-io.md](contracts/agent-io.md) | контракт «раннер ↔ агент»: что раннер кладёт в рабочую папку и чего ждёт обратно |

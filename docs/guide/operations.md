@@ -32,15 +32,15 @@ runner loop --every 2m       # цикл до сигнала, если плани
 
 ```sh
 # macOS, launchd
-cp "${OFFICE_HOME:-~/.office}/scheduler/local.office.runner.plist" ~/Library/LaunchAgents/
+cp "${OFFICE_HOME:-$HOME/.office}/scheduler/local.office.runner.plist" ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/local.office.runner.plist
 ```
 
 ```sh
 # Linux, systemd
 mkdir -p ~/.config/systemd/user
-cp "${OFFICE_HOME:-~/.office}/scheduler/office-runner.service" ~/.config/systemd/user/
-cp "${OFFICE_HOME:-~/.office}/scheduler/office-runner.timer"   ~/.config/systemd/user/
+cp "${OFFICE_HOME:-$HOME/.office}/scheduler/office-runner.service" ~/.config/systemd/user/
+cp "${OFFICE_HOME:-$HOME/.office}/scheduler/office-runner.timer"   ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now office-runner.timer
 ```
@@ -49,7 +49,8 @@ launchd останавливает задание сигналом `SIGTERM`: и
 прерывается, задачу вернёт `reap` (при `loop` он идёт каждым заходом). systemd
 вместо `loop` использует разовый запуск (`Type=oneshot`) под таймером —
 расписание уже умеет планировщик, дублировать его циклом внутри процесса
-незачем. Подробнее, что каждому из двух нужно и почему, — `bootstrap/README.md`.
+незачем. Подробнее, что каждому из двух нужно и почему, — `bootstrap/README.md`
+в репозитории.
 
 **Путь в образце ведёт к `${OFFICE_HOME}/bin/runner` — тому бинарнику, что
 кладёт `install.sh`, — а не к обёртке `./bin/runner` из клона.** Обёртка при
@@ -274,9 +275,11 @@ git-доступом, и роли он недоступен. Токен берё
   и почему их пять — `docs/notes/stage-5-config.md`, раздел «Пять отказов
   вместо доверия».
 
-Частые причины, которые из перечисленного выше не видны, — по заметкам:
+### Частые причины
 
-- агент не стартует вовсе, «нет кредa» — `docs/notes/auth.md`;
+Не видны из перечисленного выше — по заметкам:
+
+- агент не стартует вовсе, «нет креда» — `docs/notes/auth.md`;
 - сеть песочницы ведёт себя не так, как ждали, — `docs/notes/sbx.md`;
 - окно подписки «на исходе» или «исчерпано», а не бюджет, —
   `docs/notes/budgets.md`;

@@ -120,7 +120,7 @@ PY
 echo "инженерная доска:"
 board=$(board_id "$project board")
 if [ -z "$board" ]; then
-	echo "  доски «${project} board» нет — создайте проект по шаблону Kanban, см. docs/ONBOARDING.md (шаг Б2)" >&2
+	echo "  доски «${project} board» нет — создайте проект по шаблону Kanban, см. docs/ONBOARDING.md (шаг 5)" >&2
 	exit 2
 fi
 set_columns "$board" "$engineering"

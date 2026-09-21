@@ -10,7 +10,19 @@
 
 ## Установка
 
-Ставится офис без клона и без Go — одной командой из релиза:
+**Тегов релиза пока нет** — команда с `releases/latest` ниже вернёт 404.
+До первого тега ставится локальный снапшот:
+
+```sh
+sh scripts/release-snapshot.sh
+OFFICE_INSTALL_FROM=dist sh install.sh
+runner init        # завести ${OFFICE_HOME} и положить образцы
+runner version     # что установлено и где лежит офис
+```
+
+Снапшоту нужны клон репозитория и Go: `scripts/release-snapshot.sh` собирает
+дистрибутив через `go run` (goreleaser). С первым тегом релиза офис ставится
+без клона и без Go, одной командой:
 
 ```sh
 curl -fsSL https://github.com/kao73/virtual-office/releases/latest/download/install.sh | sh
@@ -21,10 +33,6 @@ runner version     # что установлено и где лежит офис
 `install.sh` кладёт `runner` и `run-agent` в `${OFFICE_HOME:-~/.office}/bin`,
 проверив контрольную сумму архива, и говорит, лежит ли этот каталог в `PATH`.
 Обновление — та же команда ещё раз и перезапуск цикла.
-
-Пока в репозитории нет ни одного тега релиза, качать с `releases/latest` нечего —
-ставится локальный снапшот: `sh scripts/release-snapshot.sh`, затем
-`OFFICE_INSTALL_FROM=dist sh install.sh`.
 
 Что где оказывается после установки и что чем перекрывается —
 [«Конфигурация»](../reference/configuration.md).
@@ -65,7 +73,7 @@ OFF:
 
 Обязательны `repo_url`, `default_branch`, `tracker`; `branch_prefix`,
 `worktree_root`, `forge`, `auto_merge`, `network`, `tools` — опциональны, у каждого
-своя строка-подсказка в образце (`internal/tracker/config.go`). Списка проектов
+своя строка-подсказка в образце (`internal/tracker/config.go` в репозитории). Списка проектов
 в репозитории офиса нет и не будет: чистая установка не тащит за собой чужие
 проекты.
 
