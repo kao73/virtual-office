@@ -1,11 +1,16 @@
 # Обвязка машины
 
-Здесь то, что стоит вокруг офиса на конкретной машине и в его поставку не входит:
-задания планировщика (ниже), локальная JIRA в контейнере (`jira/`) и образ
+Здесь объяснение того, что стоит вокруг офиса на конкретной машине: запуск
+раннера по расписанию (ниже), локальная JIRA в контейнере (`jira/`) и образ
 песочницы `sbx` с запечённым `comet`/`openspec` (`office/sbx-kits/`). Раннер про них не
 знает: с планировщиком он говорит через сигналы, с трекером — через адрес
 из `${OFFICE_HOME}/tracker.yaml`, а от песочницы просто ожидает, что нужный
 образ уже испечён.
+
+**Самих заданий планировщика здесь больше нет.** Они едут в поставке: в клоне
+это `office/scheduler/`, а на машине без клона их кладёт `runner init`
+в `${OFFICE_HOME}/scheduler/`. Копия одна, и она в поставке, — два образца
+одного юнита были бы двумя ответами на один вопрос.
 
 Порядок, в котором это заводят на новой машине, — `docs/ONBOARDING.md`.
 
@@ -23,8 +28,12 @@
 
 ### macOS, launchd
 
-`~/Library/LaunchAgents/local.office.runner.plist` — правь пути и загружай:
+Образец — `local.office.runner.plist`: в клоне `office/scheduler/`, на машине
+`${OFFICE_HOME}/scheduler/`. Правится в нём учётка в путях (`ВЛАДЕЛЕЦ`) и сам
+путь `${OFFICE_HOME}`, если он не дефолтный; после этого копируется в
+`~/Library/LaunchAgents/` и загружается:
 
+    cp "${OFFICE_HOME:-$HOME/.office}/scheduler/local.office.runner.plist" ~/Library/LaunchAgents/
     launchctl load ~/Library/LaunchAgents/local.office.runner.plist
     launchctl unload ~/Library/LaunchAgents/local.office.runner.plist
 
@@ -37,15 +46,26 @@ launchd останавливает задание сигналом SIGTERM: ра
 
 ### Linux, systemd
 
-Пара `office-runner.service` + `office-runner.timer`. Раннер работает
-разовым запуском (`Type=oneshot`), а расписание держит таймер:
+Пара `office-runner.service` + `office-runner.timer` — оттуда же,
+`office/scheduler/` в клоне и `${OFFICE_HOME}/scheduler/` на машине. Пути в них
+написаны через `%h`, так что править надо только `${OFFICE_HOME}`, если он
+не дефолтный. Раннер работает разовым запуском (`Type=oneshot`), а расписание
+держит таймер:
 
+    mkdir -p ~/.config/systemd/user
+    cp "${OFFICE_HOME:-$HOME/.office}/scheduler/office-runner.service" ~/.config/systemd/user/
+    cp "${OFFICE_HOME:-$HOME/.office}/scheduler/office-runner.timer"   ~/.config/systemd/user/
+    systemctl --user daemon-reload
     systemctl --user enable --now office-runner.timer
     systemctl --user list-timers office-runner.timer
 
 Разовый запуск вместо `loop` выбран намеренно: планировщик уже умеет расписание,
 и дублировать его циклом внутри процесса незачем. `loop` пригодится там, где
 планировщика нет вовсе.
+
+Ни один образец не сужает раннер до одной роли. `--role` у `tick` и `loop` есть,
+но образец с ним назвал бы одну роль из трёх, а две оставшиеся не запускались бы
+никогда — и конвейер не упал бы, а встал, ничего об этом не сказав.
 
 ### Проверить руками
 
