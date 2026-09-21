@@ -51,7 +51,9 @@ curl -fsS http://localhost:2990/jira/rest/api/2/serverInfo
 вида `curl -su admin:admin` она названа открытым текстом ровно поэтому;
 с настоящим паролем так не делайте.
 
-Дальше — проект и его настройка; порядок «сначала проект» обязателен, и почему —
+## Завести проект
+
+Порядок «сначала проект» обязателен, и почему —
 `docs/reference/jira-requirements.md`, раздел «Проект». Команды для этого
 инстанса:
 
@@ -82,7 +84,9 @@ scripts/jira-boards.sh   --url http://localhost:2990/jira --user admin --project
 нагрузочного прогона; флаги у него те же: `--url`, `--user`, `--password`,
 `--project`.
 
-Пробная задача проверяет workflow и права учётки на этом же проекте: заведите
+## Пробная задача
+
+Она проверяет workflow и права учётки на этом же проекте: заведите
 одну задачу — в интерфейсе или тем же REST — и переведите её в `Ready`.
 
 Проверка workflow: у задачи в `Ready` в списке переходов обязан быть `In Progress`.
@@ -102,6 +106,8 @@ curl -su admin:admin 'http://localhost:2990/jira/rest/api/2/issue/OFF-1/transiti
 Проверка: `curl -fsS -u admin:admin
 'http://localhost:2990/jira/rest/api/2/issue/OFF-1?fields=status'` показывает
 `Backlog`.
+
+Инстанс на этом можно остановить или снести:
 
 ```sh
 docker compose stop              # остановить, данные сохранить
@@ -123,7 +129,9 @@ JIRA_PORT=2991 JIRA_NAME=office-jira-live docker compose -p office-jira-live up 
 Тома у другого проекта compose свои, поэтому второй инстанс поднимается пустым —
 это и нужно, когда полигон отлажен, а вести надо чистый проект.
 
-Второй **проект** на уже настроенном инстансе — другой случай: контейнер и
+## Второй проект на одном инстансе
+
+Это другой случай: контейнер и
 инстанс те же, а `jira-workflow.sh` без указанной цели возьмёт первый
 непошаблонный workflow и уведёт правки не в тот проект. Назовите его явно:
 `scripts/jira-workflow.sh --url http://localhost:2990/jira --user admin --workflow '<имя>'`.
