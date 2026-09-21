@@ -651,7 +651,7 @@ Covers tasks.md 1.9, 1.10 (documentation half).
 - Consumes: from Task 1, the clone path `office/scheduler/`; from Task 2, the installed path `${OFFICE_HOME}/scheduler/`.
 - Produces: the canonical explanation of what launchd and systemd each need, cited by `docs/guide/operations.md` (Task 8) and `docs/ONBOARDING.md` (Task 11).
 
-- [ ] **Step 1: Rewrite the opening paragraph**
+- [x] **Step 1: Rewrite the opening paragraph**
 
 `bootstrap/README.md:1-10` currently reads
 
@@ -688,7 +688,7 @@ Replace with
 Порядок, в котором это заводят на новой машине, — `docs/ONBOARDING.md`.
 ```
 
-- [ ] **Step 2: Rewrite the launchd subsection**
+- [x] **Step 2: Rewrite the launchd subsection**
 
 `bootstrap/README.md:24-29` currently reads
 
@@ -718,7 +718,7 @@ Replace with
 
 Leave the paragraph about `SIGTERM` and `reap` (lines 31-36) unchanged.
 
-- [ ] **Step 3: Rewrite the systemd subsection**
+- [x] **Step 3: Rewrite the systemd subsection**
 
 `bootstrap/README.md:38-48` currently reads
 
@@ -763,13 +763,13 @@ Replace with
 никогда — и конвейер не упал бы, а встал, ничего об этом не сказав.
 ```
 
-- [ ] **Step 4: Check the file for surviving claims that the units live here**
+- [x] **Step 4: Check the file for surviving claims that the units live here**
 
 Run: `grep -n 'bootstrap/' bootstrap/README.md`
 
 Expected: no hit that names a `.plist`, `.service` or `.timer` under `bootstrap/`. If any remains, fix it. Then run `grep -rn 'bootstrap/local.office.runner.plist\|bootstrap/office-runner' -- . ':!docs/comet' ':!docs/superpowers/plans'` from the repo root: the only remaining hits should be in `docs/guide/operations.md` (fixed in Task 8) and `docs/openspec/changes/user-guide/` (the change's own artifacts, left alone).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bootstrap/README.md

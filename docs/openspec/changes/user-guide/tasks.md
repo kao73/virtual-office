@@ -25,7 +25,7 @@
 - [x] 1.8 Add `--role` to the `runner loop` line of the usage text in
       `cmd/runner/main.go:19`; both `tick` and `loop` accept it and only `tick`
       says so
-- [ ] 1.9 Rewrite `bootstrap/README.md` to explain what launchd and systemd each
+- [x] 1.9 Rewrite `bootstrap/README.md` to explain what launchd and systemd each
       need and why systemd is a oneshot under a timer, pointing at
       `office/scheduler/` for the files and at `runner init` for readers without a
       clone. Remove every claim that the units live in `bootstrap/`
