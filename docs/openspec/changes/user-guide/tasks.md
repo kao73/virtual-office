@@ -45,13 +45,13 @@
 - [x] 2.2 Verify every environment variable named in 2.1 against the code
       (`grep -rn OFFICE_ --include='*.go'`) and every layer claim against
       `internal/tracker/config.go`; a reference that is wrong is worse than absent
-- [ ] 2.3 Write `docs/reference/jira-requirements.md` for someone else's admin:
+- [x] 2.3 Write `docs/reference/jira-requirements.md` for someone else's admin:
       statuses the graph needs, the four custom fields and their types, the link
       type, `/myself`, and the token's push right — each stated as a requirement
       with a way to check it. Name `scripts/jira-setup.sh` as one way to satisfy
       them, not the only one. Source material is `docs/notes/jira-setup.md`
       sections «Учётки», «Поля аренды», «Workflow», and `docs/ONBOARDING.md` Б2–Б3
-- [ ] 2.4 Leave `docs/notes/jira-setup.md` in place as the explanation of why the
+- [x] 2.4 Leave `docs/notes/jira-setup.md` in place as the explanation of why the
       setup is shaped that way, and link it from 2.3
 
 ## 3. Polygon half out of ONBOARDING

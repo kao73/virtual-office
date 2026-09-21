@@ -951,7 +951,7 @@ Covers tasks.md 2.3, 2.4.
 | Доски и «ВНЕ КОЛОНОК» | `docs/ONBOARDING.md:243-247` and the symptom at `:614-618`; explanation in `docs/notes/jira-setup.md:44-94` |
 | Что нельзя сделать скриптом | `docs/ONBOARDING.md:587-600` (the four-row table), **minus** the «Память виртуалки Docker» row, which is polygon-only and already lives in `bootstrap/jira/README.md:63-89` |
 
-- [ ] **Step 1: Create the file with this skeleton**
+- [x] **Step 1: Create the file with this skeleton**
 
 ```markdown
 # Что офис требует от вашей JIRA
@@ -981,7 +981,7 @@ Covers tasks.md 2.3, 2.4.
 ## Один способ всё это получить
 ```
 
-- [ ] **Step 2: Write each requirement as «требование — как проверить»**
+- [x] **Step 2: Write each requirement as «требование — как проверить»**
 
 Every section is two things and nothing else: the requirement, and a command or observation that answers yes/no. Use the checks already proven on the polygon rather than inventing new ones:
 
@@ -1003,7 +1003,7 @@ curl -su "$JIRA_USER:$JIRA_PASSWORD" '<base_url>/rest/api/2/issue/<KEY>/transiti
 - **Доски.** Статус, не попавший ни в одну колонку, исчезает с доски вместе с задачами — офис при этом работает, а владельцу кажется, что нет. Проверка: открыть доску и увидеть задачу.
 - **Что нельзя сделать скриптом.** The three-row table (экран перехода `Office: Claim`, галочка «Allow all statuses to transition to this one», поле на карточке и быстрый фильтр по аренде), each with the reason from `docs/ONBOARDING.md:589-600`, and a pointer to `docs/notes/jira-setup.md`, разделы «Workflow для нескольких раннеров» и «Кто работает над задачей, если рабочего статуса нет».
 
-- [ ] **Step 3: Write the closing section that names the script as one way**
+- [x] **Step 3: Write the closing section that names the script as one way**
 
 ```markdown
 ## Один способ всё это получить
@@ -1022,13 +1022,13 @@ workflow приходится делать скриптом, хотя REST ег�
 Сам полигон в контейнере — `bootstrap/jira/README.md`.
 ```
 
-- [ ] **Step 4: Confirm `docs/notes/jira-setup.md` is untouched**
+- [x] **Step 4: Confirm `docs/notes/jira-setup.md` is untouched**
 
 Run: `git status --short docs/notes/jira-setup.md`
 
 Expected: no output. The note keeps its job — the explanation of why the setup is shaped that way — and the new document links to it, per tasks.md 2.4. Do not delete or trim it.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/reference/jira-requirements.md
