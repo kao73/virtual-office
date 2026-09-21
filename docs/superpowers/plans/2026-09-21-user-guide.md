@@ -1545,7 +1545,7 @@ Covers tasks.md 4.4.
 
 **Source material.** `docs/ONBOARDING.md` Б4 (335-400, the client repository) and Б7 (482-584, the four checks by rising cost). The ladder of four checks is good and survives intact — the same four, in the same order, for the same reasons. Only the commands change from `./bin/runner` to `runner`.
 
-- [ ] **Step 1: Create the file with this skeleton**
+- [x] **Step 1: Create the file with this skeleton**
 
 ```markdown
 # Завести проект
@@ -1562,7 +1562,7 @@ Covers tasks.md 4.4.
 ## Проверка: четыре по возрастанию цены
 ```
 
-- [ ] **Step 2: Transcribe «Репозиторий проекта-клиента» from Б4**
+- [x] **Step 2: Transcribe «Репозиторий проекта-клиента» from Б4**
 
 `docs/ONBOARDING.md:335-400`, transcribed whole. Three requirements, each with its check:
 1. the default branch matches `default_branch`, checked with `git -C … symbolic-ref --short HEAD`;
@@ -1571,7 +1571,7 @@ Covers tasks.md 4.4.
 
 Keep the bare-repo recipe verbatim (lines 344-355) — including the `rm -rf` first line that makes the recipe repeatable — and the paragraph explaining why `git add` is written out rather than `commit -am … --allow-empty`. Keep the closing note that a project without a forge is a legitimate and ordinary first case: the PR pass degenerates and takes the task to `Done` with a `pr-skipped` record.
 
-- [ ] **Step 3: Write «Запись о проекте» as a pointer, not a copy**
+- [x] **Step 3: Write «Запись о проекте» as a pointer, not a copy**
 
 The project entry itself is reference material and lives in `docs/reference/configuration.md` (Task 4) and in the shipped example. This section is three sentences and a link:
 
@@ -1594,7 +1594,7 @@ cp "${OFFICE_HOME:-$HOME/.office}/projects.local.example.yaml" \
 и в `${OFFICE_HOME}/tracker.example.yaml`.
 ```
 
-- [ ] **Step 4: Transcribe the four checks from Б7, intact**
+- [x] **Step 4: Transcribe the four checks from Б7, intact**
 
 `docs/ONBOARDING.md:482-584`, in the same order and with the same reasoning. Only these substitutions:
 - `./bin/runner` → `runner`, `./bin/run-agent` → `run-agent` throughout;
@@ -1610,17 +1610,17 @@ Keep, word for word, the things that are easy to lose:
 - the three `--dry-run` invocations and why `reviewer` needs `--base`;
 - the fourth check's fork: with a forge, with `auto_merge.enabled`, and without a forge.
 
-- [ ] **Step 5: Delete Б4 and Б7 from `docs/ONBOARDING.md`**
+- [x] **Step 5: Delete Б4 and Б7 from `docs/ONBOARDING.md`**
 
 Delete the `## Б4. Репозиторий проекта-клиента` section and the `## Б7. Проверка: четыре по возрастанию цены` section. Leave Б5, Б6 and the two tail sections for Task 11.
 
-- [ ] **Step 6: Verify the no-clone property**
+- [x] **Step 6: Verify the no-clone property**
 
 Run: `grep -n './bin/\|go test\|go build' docs/guide/project-setup.md`
 
 Expected: no hits.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add docs/guide/project-setup.md docs/ONBOARDING.md

@@ -76,7 +76,7 @@
 - [x] 4.3 Write the machine-preparation how-to from `docs/ONBOARDING.md` A1–A5
       (tools, credentials, sandbox network, the runner's home, the machine check),
       rewritten for a reader who installed from a release and has no clone
-- [ ] 4.4 Write the client-project how-to from `docs/ONBOARDING.md` Б4 and Б7 (the
+- [x] 4.4 Write the client-project how-to from `docs/ONBOARDING.md` Б4 and Б7 (the
       client repository, and the four checks by rising cost — the ladder is good
       and should survive intact)
 - [ ] 4.5 Reduce `docs/ONBOARDING.md` to its spine: the ordered checklist for
