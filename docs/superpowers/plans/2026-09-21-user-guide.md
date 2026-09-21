@@ -2025,7 +2025,7 @@ Covers tasks.md 6.1, 6.2.
 - Consumes: nothing.
 - Produces: the `docs/notes/stages/` directory named by `docs/README.md` (Task 12).
 
-- [ ] **Step 1: Move the five files**
+- [x] **Step 1: Move the five files**
 
 ```bash
 mkdir -p docs/notes/stages
@@ -2039,7 +2039,7 @@ git status --short
 
 Expected: five `R` entries. `docs/` now holds `DESIGN.md`, `ONBOARDING.md`, `README.md` and the five subdirectories.
 
-- [ ] **Step 2: Find every reference**
+- [x] **Step 2: Find every reference**
 
 Run:
 
@@ -2061,7 +2061,7 @@ docs/notes/aidlc-workflows-comparison.md:494
 docs/notes/aidlc-workflows-comparison.md:495
 ```
 
-- [ ] **Step 3: Fix them**
+- [x] **Step 3: Fix them**
 
 Since all three files live in `docs/notes/`, the reference from inside that directory is `stages/STAGE-N-….md`. Apply:
 
@@ -2074,13 +2074,13 @@ sed -i '' 's|docs/STAGE-|stages/STAGE-|g' \
 
 (on Linux, `sed -i` without the empty argument). Then re-run the grep from Step 2: expected no hits outside `docs/comet/archive/`.
 
-- [ ] **Step 4: Leave the Comet archive alone, and record why**
+- [x] **Step 4: Leave the Comet archive alone, and record why**
 
 Run: `grep -rn 'docs/STAGE-' docs/comet/archive/`
 
 Expected: four hits, in `2026-08-20-pr-pass/verification.md`, `2026-08-19-run-termination/brief.md`, `2026-08-21-config-per-machine/verification.md`, `2026-08-21-onboarding-doc/verification.md`. **Do not edit them.** Rewriting an archived verification report to keep a link alive falsifies the record of what was verified and when. This is stated in the proposal under «Known breakage, accepted»; tasks.md 6.2 asks for it to be recorded in the change's verification, which is the verify phase's job, not this plan's — leave a note in the commit message so the verifier can find it.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/notes/stages docs/notes/stage-5-config.md docs/notes/analyst-task-splitting.md docs/notes/aidlc-workflows-comparison.md

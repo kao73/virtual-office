@@ -98,8 +98,8 @@
 
 ## 6. Frozen stage plans out of the docs root
 
-- [ ] 6.1 `git mv docs/STAGE-*.md docs/notes/stages/` — five files, names unchanged
-- [ ] 6.2 Fix the references from `docs/notes/*` to the moved files; leave
+- [x] 6.1 `git mv docs/STAGE-*.md docs/notes/stages/` — five files, names unchanged
+- [x] 6.2 Fix the references from `docs/notes/*` to the moved files; leave
       `docs/comet/archive/*` untouched and record that in the change's verification
 
 ## 7. Closing checks
