@@ -104,14 +104,14 @@
 
 ## 7. Closing checks
 
-- [ ] 7.1 Write `scripts/doc-recipe-test.sh` on the model of
+- [x] 7.1 Write `scripts/doc-recipe-test.sh` on the model of
       `scripts/install-test.sh`: a scratch `${OFFICE_HOME}`, `runner init`, the
       bare client repository, the example copied and edited in exactly the four
       documented values, `runner mock add`, `runner ls`, and one
       `runner tick --backend local` with a fake `claude` earlier on `PATH` that
       writes the role's result file and exits zero. No network, no paid run.
       Assert each step's exit code and that the task moved
-- [ ] 7.2 Run the harness against a deliberately broken recipe once — revert one
+- [x] 7.2 Run the harness against a deliberately broken recipe once — revert one
       documented step, watch it fail, restore it — so that a passing run means
       something
 - [ ] 7.3 Walk every relative link in `README.md`, `docs/README.md`,

@@ -2127,13 +2127,13 @@ Two more things the harness must supply, which are easy to miss:
 - **A credential must be in the environment**, even though no real agent runs: `internal/adapters/claude/adapter.go:85` calls `credential()` (`:73`), which refuses the launch outright when neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN` is set. A fake value is fine.
 - **`OFFICE_CONFIG_ROOT` must point at the clone.** In payload mode the runner takes the `validate-result` guard from `office/validators/`, which is empty unless the binary was built with `-tags release` (`office/validators/validators_dev.go`, and `EnsureValidator` at `internal/runner/validator.go:55-80`). In clone mode it builds the guard with `go build`. `runner init` is unaffected either way — it reads the embedded payload in every mode, as its own comment states.
 
-- [ ] **Step 1: Read the model before writing**
+- [x] **Step 1: Read the model before writing**
 
 Run: `cat scripts/install-test.sh`
 
 Match its conventions exactly: `#!/bin/sh` (POSIX sh, not bash), a comment header that says what it proves and how to invoke it, `set -eu`, `root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"`, `work="$(mktemp -d)"` with `trap 'rm -rf "$work"' EXIT`, a one-line `fail()` helper, numbered `# N. …` section comments, `echo "ok: …"` after each passing step, and one summary line at the end.
 
-- [ ] **Step 2: Write `scripts/doc-recipe-test.sh`**
+- [x] **Step 2: Write `scripts/doc-recipe-test.sh`**
 
 ```sh
 #!/bin/sh
@@ -2258,7 +2258,7 @@ echo "ok: тик провёл задачу из Analysis в Ready"
 echo "все пять шагов рецепта прошли"
 ```
 
-- [ ] **Step 3: Make it executable and run it**
+- [x] **Step 3: Make it executable and run it**
 
 ```bash
 chmod 0755 scripts/doc-recipe-test.sh
@@ -2276,7 +2276,7 @@ ok: тик провёл задачу из Analysis в Ready
 все пять шагов рецепта прошли
 ```
 
-- [ ] **Step 4: If step 5 does not pass, degrade deliberately — do not weaken the assertion**
+- [x] **Step 4: If step 5 does not pass, degrade deliberately — do not weaken the assertion**
 
 The design's Risks section allows exactly one fallback and no other. If the fake `claude` turns out to need more than a result file, and one round of reading the failure in `"$work/out-tick"` does not settle it:
 
@@ -2293,7 +2293,7 @@ The design's Risks section allows exactly one fallback and no other. If the fake
 
 Record in the commit message *what* the fake turned out to need. Do not loosen the assertion to «tick exited zero» — an assertion that passes when the recipe is broken is worse than a missing one.
 
-- [ ] **Step 5: Break the recipe on purpose and watch the harness fail (tasks.md 7.2)**
+- [x] **Step 5: Break the recipe on purpose and watch the harness fail (tasks.md 7.2)**
 
 A passing run means nothing until you have seen a failing one. Revert exactly one documented edit: in the `sed` of section 3, change
 
@@ -2316,7 +2316,7 @@ Expected: the run stops at section 3 or 4 —
 
 Either failure is the harness doing its job. **Restore the line to `mock` and re-run to green before continuing.**
 
-- [ ] **Step 6: List the new check in `docs/guide/development.md`**
+- [x] **Step 6: List the new check in `docs/guide/development.md`**
 
 In the `## Проверки` code block (`docs/guide/development.md:9-17`), add after the `install-test.sh` line:
 
@@ -2337,7 +2337,7 @@ and after the paragraph about `install-test.sh` (which ends at line 42), add:
 init` не создаёт.
 ```
 
-- [ ] **Step 7: Run the full triad plus the new harness**
+- [x] **Step 7: Run the full triad plus the new harness**
 
 ```bash
 gofmt -l .
@@ -2348,7 +2348,7 @@ sh scripts/doc-recipe-test.sh
 
 Expected: all clean.
 
-- [ ] **Step 8: Commit the script and the documentation separately**
+- [x] **Step 8: Commit the script and the documentation separately**
 
 ```bash
 git add scripts/doc-recipe-test.sh
