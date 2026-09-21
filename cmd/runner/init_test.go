@@ -15,8 +15,9 @@ import (
 	payload "github.com/kao73/virtual-office/office"
 )
 
-// Свежая машина: каталога нет — появляется ровно с двумя образцами, слово
-// в слово из поставки, и с подсказкой, куда их копировать.
+// Свежая машина: каталога нет — появляется с двумя образцами конфигурации
+// и каталогом scheduler/ на три задания планировщика, слово в слово из
+// поставки, и с подсказкой, куда их копировать.
 func TestInitLaysOutFreshHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "office-home") // ещё не существует
 	t.Setenv(runner.HomeEnv, home)
