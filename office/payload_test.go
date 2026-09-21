@@ -12,7 +12,7 @@ import (
 // payloadDirs и payloadFiles повторяют директиву embed в payload.go нарочно:
 // разошлись — тест скажет.
 var (
-	payloadDirs  = []string{"roles", "skills", "hooks", "sbx-kits"}
+	payloadDirs  = []string{"roles", "skills", "hooks", "sbx-kits", "scheduler"}
 	payloadFiles = []string{"workflow.yaml", "budgets.yaml", "tracker.example.yaml", "projects.local.example.yaml"}
 )
 
@@ -61,6 +61,9 @@ func TestPayloadNamesTheEssentials(t *testing.T) {
 		"hooks/require-result.sh", "hooks/debug-env.sh",
 		"skills/comet/scripts/comet-hook-router.mjs",
 		"sbx-kits/bake-comet-template.sh", "sbx-kits/comet-cli/spec.yaml",
+		"scheduler/local.office.runner.plist",
+		"scheduler/office-runner.service",
+		"scheduler/office-runner.timer",
 	}
 	roles, err := os.ReadDir("roles")
 	if err != nil {
@@ -150,5 +153,29 @@ func TestPayloadMirrorsOfficeDirectory(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("каталог офиса не обойдён: %v", err)
+	}
+}
+
+// Ни один образец задания не сужает раннер до одной роли. Образец с --role
+// называет одну роль из трёх, и две оставшиеся не запускаются никогда:
+// конвейер не падает, а встаёт, и сказать об этом некому. Читается поставка,
+// а не диск: копия в ${OFFICE_HOME}/scheduler/ побайтно равна поставке
+// (cmd/runner/init_test.go), а в клоне поставка равна каталогу office/
+// (TestPayloadMirrorsOfficeDirectory выше) — значит один источник накрывает
+// обоих читателей из сценария спецификации.
+func TestSchedulerSamplesDoNotPinRole(t *testing.T) {
+	units := []string{
+		"scheduler/local.office.runner.plist",
+		"scheduler/office-runner.service",
+		"scheduler/office-runner.timer",
+	}
+	for _, name := range units {
+		raw, err := fs.ReadFile(Payload, name)
+		if err != nil {
+			t.Fatalf("%s не найден в поставке: %v", name, err)
+		}
+		if bytes.Contains(raw, []byte("--role")) {
+			t.Errorf("%s передаёт раннеру --role: две роли из трёх не запустятся", name)
+		}
 	}
 }

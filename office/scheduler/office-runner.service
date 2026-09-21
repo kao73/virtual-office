@@ -12,7 +12,7 @@ Type=oneshot
 WorkingDirectory=%h/.office
 Environment=OFFICE_HOME=%h/.office
 EnvironmentFile=%h/.office/env
-ExecStart=%h/.office/bin/runner tick --role implementer
+ExecStart=%h/.office/bin/runner tick
 # Остановка сигналом: идущий прогон агента прерывается, задачу вернёт reap
 # (bootstrap/README.md). Дожидаться конца прогона раннер пока не умеет.
 KillSignal=SIGTERM

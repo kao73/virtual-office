@@ -16,7 +16,7 @@ import "embed"
 // Прав у embed.FS нет: биты исполняемости восстанавливает распаковка
 // по shebang (internal/office).
 //
-//go:embed all:roles all:skills all:hooks all:sbx-kits
+//go:embed all:roles all:skills all:hooks all:sbx-kits all:scheduler
 //go:embed workflow.yaml budgets.yaml tracker.example.yaml projects.local.example.yaml
 var Payload embed.FS
 

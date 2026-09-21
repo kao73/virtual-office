@@ -14,8 +14,6 @@
   <array>
     <string>/Users/ВЛАДЕЛЕЦ/.office/bin/runner</string>
     <string>loop</string>
-    <string>--role</string>
-    <string>implementer</string>
     <string>--every</string>
     <string>2m</string>
   </array>
