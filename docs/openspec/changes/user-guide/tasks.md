@@ -56,11 +56,11 @@
 
 ## 3. Polygon half out of ONBOARDING
 
-- [ ] 3.1 Move the container-JIRA material from `docs/ONBOARDING.md` Б1–Б2 into
+- [x] 3.1 Move the container-JIRA material from `docs/ONBOARDING.md` Б1–Б2 into
       `bootstrap/jira/README.md`, which already documents the container; keep that
       file's existing sections and fold the new material in rather than appending
       a second account of the same thing
-- [ ] 3.2 Replace `bootstrap/jira/README.md`'s two pointers at
+- [x] 3.2 Replace `bootstrap/jira/README.md`'s two pointers at
       `docs/ONBOARDING.md` (lines 10 and 69) — the material they point at now lives
       in this file
 

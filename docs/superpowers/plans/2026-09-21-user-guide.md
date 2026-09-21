@@ -1062,13 +1062,13 @@ Covers tasks.md 3.1, 3.2.
 - Consumes: from Task 5, `docs/reference/jira-requirements.md` as the destination for the non-polygon half of the same sections.
 - Produces: `bootstrap/jira/README.md` as the single account of the container.
 
-- [ ] **Step 1: Read the destination before moving anything**
+- [x] **Step 1: Read the destination before moving anything**
 
 Run: `cat bootstrap/jira/README.md`
 
 Note its existing sections: «Сначала SDK» (13), «Поднять» (32), «Второй инстанс рядом» (48), «Три вещи, о которых лучше знать заранее» (63), «Почему так, а не иначе» (90). The three warnings in ONBOARDING Б1 (licence lives three days, ~6 GiB of VM memory, death by OOM looks like a live container) are **already** in «Три вещи, о которых лучше знать заранее». Fold, do not append: a second account of the same thing is exactly what this task exists to prevent.
 
-- [ ] **Step 2: Move the material that is genuinely only in ONBOARDING**
+- [x] **Step 2: Move the material that is genuinely only in ONBOARDING**
 
 From `docs/ONBOARDING.md:167-206` (Б1), the only things `bootstrap/jira/README.md` does not already say are:
 1. the SDK check as a checkbox — `ls bootstrap/jira/sdk/atlassian-plugin-sdk-8.2.10` shows `bin`, `repository` and `apache-maven-3.9.5`;
@@ -1080,7 +1080,7 @@ Add (1) as a verification line at the end of «Сначала SDK», and (2)–(
 
 From `docs/ONBOARDING.md:207-293` (Б2), move to `bootstrap/jira/README.md` only what is polygon-specific: that the local instance's admin credentials are `admin:admin` and that `curl -su admin:admin` is written that way **because** it is the local polygon's account, printed in this very README — «с настоящим паролем так не делайте» (`docs/ONBOARDING.md:263-266`). Everything else in Б2 — the Kanban template, the mandatory order, the three scripts, the trial task, the `--workflow` flag for a second project — is instance setup, and it went to `docs/reference/jira-requirements.md` in Task 5. Delete it from ONBOARDING rather than copying it a third time.
 
-- [ ] **Step 3: Replace the two pointers back at ONBOARDING**
+- [x] **Step 3: Replace the two pointers back at ONBOARDING**
 
 `bootstrap/jira/README.md:10` currently reads
 
@@ -1110,17 +1110,17 @@ Replace with
 ещё раз. Стоит это
 ```
 
-- [ ] **Step 4: Cut the moved material out of `docs/ONBOARDING.md`**
+- [x] **Step 4: Cut the moved material out of `docs/ONBOARDING.md`**
 
 Delete `docs/ONBOARDING.md` lines 163-293 (Б1, Б2 and «Пробная задача»). Do not renumber or restructure the rest yet — Task 11 rewrites the whole document into a spine, and doing it twice wastes a review.
 
-- [ ] **Step 5: Check nothing now claims ONBOARDING owns the container**
+- [x] **Step 5: Check nothing now claims ONBOARDING owns the container**
 
 Run: `grep -n 'ONBOARDING' bootstrap/jira/README.md`
 
 Expected: exactly one hit, the line from Step 3.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add bootstrap/jira/README.md docs/ONBOARDING.md
