@@ -2,7 +2,7 @@
 
 Записка по прямой просьбе владельца — не относится ни к одному этапу и не входит
 в план ни одного из них. Сравнивает архитектуру этого репозитория (пять
-сделанных этапов, `docs/DESIGN.md`, `docs/STAGE-1…5-*.md`, ретро в
+сделанных этапов, `docs/DESIGN.md`, `stages/STAGE-1…5-*.md`, ретро в
 `docs/notes/stage-*-retro.md`, контракты в `docs/contracts/`, `roles/*/role.md`)
 с открытым продуктом AWS Labs `aidlc-workflows` (https://github.com/awslabs/aidlc-workflows,
 ветка `main`, версия движка на момент чтения — 2.9.0).
@@ -100,7 +100,7 @@ reviewer-агента + отдельный Composer-агент
 которых у нас нет вовсе и не планировалось (`docs/DESIGN.md` §3, план MVP
 ограничен одним репо и одним трекером).
 
-Отдельно стоит развести термины: `docs/STAGE-4-analyst-questions.md`, раздел
+Отдельно стоит развести термины: `stages/STAGE-4-analyst-questions.md`, раздел
 «Ориентир на будущее», и `docs/DESIGN.md` §4 говорят про фазы **Comet Native**
 (`open/design → build → verify → archive`) — это отдельный, не связанный
 с AWS вендоренный скилл (`skills/comet-native/`), которым наши роли пользуются
@@ -488,11 +488,11 @@ CI на сам проект).
 - `docs/DESIGN.md` — §1, §2.1, §2.4–§2.8, §3, §4, §5
 - `README.md`
 - `CLAUDE.md`
-- `docs/STAGE-1-agent-runtime.md`
-- `docs/STAGE-2-runner-tracker.md`
-- `docs/STAGE-3-reviewer-budgets.md`
-- `docs/STAGE-4-analyst-questions.md`
-- `docs/STAGE-5-first-live.md`
+- `stages/STAGE-1-agent-runtime.md`
+- `stages/STAGE-2-runner-tracker.md`
+- `stages/STAGE-3-reviewer-budgets.md`
+- `stages/STAGE-4-analyst-questions.md`
+- `stages/STAGE-5-first-live.md`
 - `docs/notes/stage-1-retro.md`
 - `docs/notes/stage-2-retro.md`
 - `docs/notes/stage-3-retro.md`
