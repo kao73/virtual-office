@@ -29,7 +29,7 @@
       need and why systemd is a oneshot under a timer, pointing at
       `office/scheduler/` for the files and at `runner init` for readers without a
       clone. Remove every claim that the units live in `bootstrap/`
-- [ ] 1.10 Run `gofmt -l .`, `go build ./...` and `go test ./...`; commit code and
+- [x] 1.10 Run `gofmt -l .`, `go build ./...` and `go test ./...`; commit code and
       sample moves together, documentation separately
 
 ## 2. Reference documents
