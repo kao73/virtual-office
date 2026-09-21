@@ -10,9 +10,7 @@
 
 `runner loop` — не демон и не supervisor: он не следит за собой, не
 перезапускается и не держит состояния между циклами (`cmd/runner/main.go`).
-Поднимать и ронять его должен системный планировщик — примеры для macOS
-и Linux лежат в `bootstrap/` вместе с объяснением, что и почему
-(`bootstrap/README.md`).
+Поднимать и ронять его должен системный планировщик.
 
 ```sh
 runner reap                  # вернуть задачи с истёкшей арендой
@@ -21,21 +19,42 @@ runner loop --every 2m       # цикл до сигнала, если плани
 
 ### launchd (macOS) и systemd (Linux)
 
-`bootstrap/local.office.runner.plist` и пара `bootstrap/office-runner.service` +
-`bootstrap/office-runner.timer` — рабочие образцы, оба задают одно и то же:
-рабочий каталог, кред агента, каталог хозяйства и лог. launchd останавливает
-задание сигналом `SIGTERM`: идущий прогон агента прерывается, задачу вернёт
-`reap` (при `loop` он идёт каждым заходом). systemd вместо `loop` использует
-разовый запуск (`Type=oneshot`) под таймером — расписание уже умеет
-планировщик, дублировать его циклом внутри процесса незачем.
+Образцы уже лежат на машине: `runner init` кладёт их в
+`${OFFICE_HOME}/scheduler/` — `local.office.runner.plist` для launchd и пару
+`office-runner.service` + `office-runner.timer` для systemd. Все три на любой
+платформе: машина, на которой юнит правят, не всегда та, на которой он
+работает. В клоне те же файлы лежат в `office/scheduler/`.
 
-**Меняя образец под свою машину, укажите путь к `${OFFICE_HOME}/bin/runner` —
-тот бинарник, что кладёт `install.sh`, — а не к обёртке `./bin/runner` из
-клона.** Обёртка при каждом запуске собирает раннер заново (`go build`)
-и требует Go и сам клон на диске; заданию планировщика это ни к чему, ему
-нужен готовый бинарник. Файлы-образцы в репозитории уже показывают этот путь
-плейсхолдером (`~/.office/bin/runner`, `ВЛАДЕЛЕЦ`/`%h` в примерах) — под свою
-машину останется поправить учётку и сам путь `OFFICE_HOME`, если он не дефолтный.
+Правится в образце две вещи: учётка в путях (`ВЛАДЕЛЕЦ` у launchd; у systemd её
+подставляет `%h`) и сам путь `${OFFICE_HOME}`, если он не дефолтный. Ни одного
+`--role` в образцах нет и быть не должно: он сузил бы раннер до одной роли
+из трёх, и две оставшиеся не запускались бы никогда.
+
+```sh
+# macOS, launchd
+cp "${OFFICE_HOME:-~/.office}/scheduler/local.office.runner.plist" ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/local.office.runner.plist
+```
+
+```sh
+# Linux, systemd
+mkdir -p ~/.config/systemd/user
+cp "${OFFICE_HOME:-~/.office}/scheduler/office-runner.service" ~/.config/systemd/user/
+cp "${OFFICE_HOME:-~/.office}/scheduler/office-runner.timer"   ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now office-runner.timer
+```
+
+launchd останавливает задание сигналом `SIGTERM`: идущий прогон агента
+прерывается, задачу вернёт `reap` (при `loop` он идёт каждым заходом). systemd
+вместо `loop` использует разовый запуск (`Type=oneshot`) под таймером —
+расписание уже умеет планировщик, дублировать его циклом внутри процесса
+незачем. Подробнее, что каждому из двух нужно и почему, — `bootstrap/README.md`.
+
+**Путь в образце ведёт к `${OFFICE_HOME}/bin/runner` — тому бинарнику, что
+кладёт `install.sh`, — а не к обёртке `./bin/runner` из клона.** Обёртка при
+каждом запуске собирает раннер заново (`go build`) и требует Go и сам клон
+на диске; заданию планировщика это ни к чему, ему нужен готовый бинарник.
 
 ### Доска (`runner ls`)
 
@@ -147,8 +166,7 @@ run-agent --role implementer --workdir /tmp/task-123 --task /tmp/task.md
 
 Из клона сборки не требуется — обёртки `bin/run-agent`/`bin/runner` собирают
 бинарник в `${OFFICE_HOME}/bin/run-agent-dev` (`runner-dev`) и запускают его
-через `exec`, а не `go run`: подробности —
-[«Путь из клона»](quickstart.md#путь-из-клона) в быстром старте.
+через `exec`, а не `go run`.
 
 Смотреть, что агент делает прямо сейчас:
 
@@ -177,6 +195,7 @@ ${OFFICE_HOME:-~/.office}/
 ├── projects.local.yaml             где проекты на этой машине
 ├── tracker.yaml                    подключение к JIRA: адрес, учётки, поля
 ├── budgets.yaml                    перекрытие пределов, необязательное
+├── scheduler/                      образцы заданий планировщика: launchd и systemd
 ├── repos/<проект>.git              bare-клон: ветки, объекты, ссылки origin
 ├── worktrees/<проект>/<KEY>/       рабочая папка задачи
 ├── office/<версия>/                распакованный офис этой версии: роли, скиллы, хуки, кит; не правится обновлением
@@ -186,10 +205,12 @@ ${OFFICE_HOME:-~/.office}/
                                     и bin/run-agent; eval-roles (без -dev — не часть install.sh) от bin/eval-roles
 ```
 
-`runner init` создаёт только сам каталог и два образца
-(`projects.local.example.yaml`, `tracker.example.yaml`) прямо в его корне;
-`office/<версия>/`, `repos/`, `worktrees/`, `runs/` и `ledger.jsonl` появляются
-по факту первого настоящего прогона.
+`runner init` создаёт сам каталог, два образца конфигурации
+(`projects.local.example.yaml`, `tracker.example.yaml`) в его корне и
+`scheduler/` с тремя заданиями планировщика; `office/<версия>/`, `repos/`,
+`worktrees/`, `runs/` и `ledger.jsonl` появляются по факту первого настоящего
+прогона. Уже лежащий файл init не трогает никогда — ни образец, ни правленое
+задание.
 
 Worktree переживает прогон: после `reap` или ответа человека задача
 возвращается к той же незаконченной работе. Убирает его системный проход,
