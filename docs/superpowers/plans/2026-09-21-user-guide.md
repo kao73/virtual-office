@@ -1652,7 +1652,7 @@ Covers tasks.md 4.5, 4.6.
 - Consumes: `docs/guide/machine-setup.md` (Task 9), `docs/guide/project-setup.md` (Task 10), `docs/reference/configuration.md` (Task 4), `docs/reference/jira-requirements.md` (Task 5), `bootstrap/jira/README.md` (Task 6).
 - Produces: the ordered checklist that `README.md` (Task 13), `bootstrap/README.md`, `bootstrap/jira/README.md` and `docs/guide/quickstart.md` all keep pointing at. **The path does not change** — it is the most likely externally linked document after README.
 
-- [ ] **Step 1: Disperse what is left**
+- [x] **Step 1: Disperse what is left**
 
 Three pieces remain in the file and must land somewhere before the rewrite:
 
@@ -1671,7 +1671,7 @@ And the tail, «Когда что-то пошло не так» (601-635), four 
 | «`connection reset by peer` на `localhost:2990`» | already in `bootstrap/jira/README.md`; delete |
 | «В метке прогона `config:…-dirty`» and «Раннер отказался стартовать» | **move into `docs/guide/operations.md`**, section «Когда что-то пошло не так», as two new numbered entries after the existing five — that section is the office's troubleshooting index and these two are not JIRA-specific |
 
-- [ ] **Step 2: Add the two symptoms to `docs/guide/operations.md`**
+- [x] **Step 2: Add the two symptoms to `docs/guide/operations.md`**
 
 In `docs/guide/operations.md`, section «Когда что-то пошло не так», after the existing numbered list (which ends at item 5, «Тикет»), insert:
 
@@ -1688,7 +1688,7 @@ In `docs/guide/operations.md`, section «Когда что-то пошло не 
    вместо доверия».
 ```
 
-- [ ] **Step 3: Rewrite `docs/ONBOARDING.md` whole**
+- [x] **Step 3: Rewrite `docs/ONBOARDING.md` whole**
 
 Replace the entire file with this. Each step is one sentence and a link to the document that owns it; nothing here repeats what it links to.
 
@@ -1750,7 +1750,7 @@ Replace the entire file with this. Each step is one sentence and a link to the d
 так»](guide/operations.md#когда-что-то-пошло-не-так).
 ```
 
-- [ ] **Step 4: Check the spine's own claim — no step needs a clone, Go, or reading source**
+- [x] **Step 4: Check the spine's own claim — no step needs a clone, Go, or reading source**
 
 This is tasks.md 4.6. Walk the chain from README through every document a step links to and confirm each instruction can be carried out with `runner`/`run-agent` from a release install:
 
@@ -1767,7 +1767,7 @@ Expected hits, and only these:
 
 Anything else is a step the target reader cannot perform: fix it in place.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/ONBOARDING.md docs/guide/operations.md

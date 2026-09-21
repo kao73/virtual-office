@@ -79,11 +79,11 @@
 - [x] 4.4 Write the client-project how-to from `docs/ONBOARDING.md` Б4 and Б7 (the
       client repository, and the four checks by rising cost — the ladder is good
       and should survive intact)
-- [ ] 4.5 Reduce `docs/ONBOARDING.md` to its spine: the ordered checklist for
+- [x] 4.5 Reduce `docs/ONBOARDING.md` to its spine: the ordered checklist for
       putting the office on a real project, each step a sentence and a link to the
       document that owns it. Keep the path — README, `bootstrap/README.md`,
       `bootstrap/jira/README.md` and `quickstart.md` all point at it
-- [ ] 4.6 Check the whole user path against the spec's own claim: no step requires
+- [x] 4.6 Check the whole user path against the spec's own claim: no step requires
       a clone, Go, or reading source
 
 ## 5. Index and README
