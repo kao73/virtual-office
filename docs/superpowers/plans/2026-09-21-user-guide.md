@@ -1240,7 +1240,7 @@ Covers tasks.md 4.2.
 - Consumes: from Task 2, the layout `${OFFICE_HOME}/scheduler/{local.office.runner.plist,office-runner.service,office-runner.timer}`; from Task 3, `bootstrap/README.md` as the explanation.
 - Produces: nothing later tasks depend on beyond the link Task 16 walks.
 
-- [ ] **Step 1: Replace the «По расписанию» opening**
+- [x] **Step 1: Replace the «По расписанию» opening**
 
 `docs/guide/operations.md:9-20` currently reads
 
@@ -1274,7 +1274,7 @@ runner loop --every 2m       # цикл до сигнала, если плани
 ```
 ```
 
-- [ ] **Step 2: Replace the launchd/systemd subsection**
+- [x] **Step 2: Replace the launchd/systemd subsection**
 
 `docs/guide/operations.md:22-38` currently reads
 
@@ -1341,7 +1341,7 @@ launchd останавливает задание сигналом `SIGTERM`: и
 на диске; заданию планировщика это ни к чему, ему нужен готовый бинарник.
 ```
 
-- [ ] **Step 3: Add `scheduler/` to the `${OFFICE_HOME}` tree**
+- [x] **Step 3: Add `scheduler/` to the `${OFFICE_HOME}` tree**
 
 `docs/guide/operations.md:175-187` draws the home. Insert a line after `budgets.yaml`:
 
@@ -1369,13 +1369,13 @@ with
 задание.
 ```
 
-- [ ] **Step 4: Check no claim about `bootstrap/` survives here**
+- [x] **Step 4: Check no claim about `bootstrap/` survives here**
 
 Run: `grep -n 'bootstrap' docs/guide/operations.md`
 
 Expected: exactly one hit, the `bootstrap/README.md` reference added in Step 2.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/guide/operations.md

@@ -69,7 +69,7 @@
 - [x] 4.1 Purify `docs/guide/quickstart.md` into a tutorial: one path that works,
       no alternatives, no explanation of why. Move the explanatory passages to
       `docs/guide/roles-and-flow.md` or drop them where the link suffices
-- [ ] 4.2 Rewrite the «По расписанию» section of `docs/guide/operations.md` around
+- [x] 4.2 Rewrite the «По расписанию» section of `docs/guide/operations.md` around
       `${OFFICE_HOME}/scheduler/`: the files are already on the reader's machine
       after `runner init`, and the edit is the account and the path. Remove the
       claim that samples live in `bootstrap/`
