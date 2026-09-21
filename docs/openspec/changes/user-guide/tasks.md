@@ -10,19 +10,19 @@
       a new top-level entry needs its own directive — and add a case to
       `office/payload_test.go` asserting the three unit files are readable from
       `Payload`
-- [ ] 1.4 Write the failing test first in `cmd/runner/init_test.go`: a fresh
+- [x] 1.4 Write the failing test first in `cmd/runner/init_test.go`: a fresh
       `${OFFICE_HOME}` contains `scheduler/` with exactly the three unit files, and
       a second `runner init` over an edited `scheduler/office-runner.service`
       leaves it byte-identical. Run it, see it fail
-- [ ] 1.5 Extend `cmd/runner/init.go` to write `${OFFICE_HOME}/scheduler/` from the
+- [x] 1.5 Extend `cmd/runner/init.go` to write `${OFFICE_HOME}/scheduler/` from the
       payload under the same never-overwrite rule as the two configuration samples,
       and to name the created files in its output. Run the tests, see them pass
-- [ ] 1.6 Update the existing `runner init` tests that assert a fresh home contains
+- [x] 1.6 Update the existing `runner init` tests that assert a fresh home contains
       *exactly* the two configuration samples — the assertion is now wrong, and it
       must widen rather than be deleted
 - [x] 1.7 Add a test that no shipped unit file contains `--role`, so the defect
       cannot come back silently
-- [ ] 1.8 Add `--role` to the `runner loop` line of the usage text in
+- [x] 1.8 Add `--role` to the `runner loop` line of the usage text in
       `cmd/runner/main.go:19`; both `tick` and `loop` accept it and only `tick`
       says so
 - [ ] 1.9 Rewrite `bootstrap/README.md` to explain what launchd and systemd each

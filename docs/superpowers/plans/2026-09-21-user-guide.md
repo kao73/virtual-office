@@ -277,7 +277,7 @@ Covers tasks.md 1.4, 1.5, 1.6, 1.8, 1.10 (Go half).
 - Consumes: from Task 1, the payload paths `scheduler/local.office.runner.plist`, `scheduler/office-runner.service`, `scheduler/office-runner.timer`.
 - Produces: `${OFFICE_HOME}/scheduler/` containing byte-identical copies of the three units; the package-level identifiers `schedulerDir string`, `schedulerSamples []string` and `place(out io.Writer, payloadPath, dst string) error` in `package main` of `cmd/runner`. Task 15's harness asserts the five files exist after `runner init`.
 
-- [ ] **Step 1: Widen the "exactly two samples" assertion in the fresh-home test**
+- [x] **Step 1: Widen the "exactly two samples" assertion in the fresh-home test**
 
 `cmd/runner/init_test.go:31-40` currently reads
 
@@ -322,7 +322,7 @@ Then, at `cmd/runner/init_test.go:41`, the byte-comparison loop `for _, name := 
 
 leaving its body untouched.
 
-- [ ] **Step 2: Widen the "создан" count in the same test**
+- [x] **Step 2: Widen the "создан" count in the same test**
 
 `cmd/runner/init_test.go:54-57` currently reads
 
@@ -342,7 +342,7 @@ Replace with
 	}
 ```
 
-- [ ] **Step 3: Add the scheduler assertions to the fresh-home test**
+- [x] **Step 3: Add the scheduler assertions to the fresh-home test**
 
 Immediately after the widened `wantFiles` byte-comparison loop (i.e. before `printed := out.String()`), insert:
 
@@ -379,7 +379,7 @@ Immediately after the widened `wantFiles` byte-comparison loop (i.e. before `pri
 	}
 ```
 
-- [ ] **Step 4: Add the "an edited unit survives a second init" test**
+- [x] **Step 4: Add the "an edited unit survives a second init" test**
 
 Append to `cmd/runner/init_test.go` (this is the delta spec's third scenario):
 
@@ -422,7 +422,7 @@ func TestInitLeavesEditedSchedulerSampleAlone(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Run the tests and see them fail**
+- [x] **Step 5: Run the tests and see them fail**
 
 Run: `go test ./cmd/runner/ -run 'TestInit' -v`
 
@@ -435,7 +435,7 @@ Expected: FAIL — `schedulerDir` and `schedulerSamples` are undefined, so the p
 
 This is the failing state the design asks for. Do not touch `init.go` before you have seen it.
 
-- [ ] **Step 6: Extract the `place` helper in `cmd/runner/init.go`**
+- [x] **Step 6: Extract the `place` helper in `cmd/runner/init.go`**
 
 Insert after `writeAndClose` (i.e. after `cmd/runner/init.go:34`):
 
@@ -484,7 +484,7 @@ func place(out io.Writer, payloadPath, dst string) error {
 }
 ```
 
-- [ ] **Step 7: Rewrite the placement loops in `initCommand`**
+- [x] **Step 7: Rewrite the placement loops in `initCommand`**
 
 `cmd/runner/init.go:61-83` currently holds the inlined loop. Replace everything from `for _, s := range samples {` through its closing `}` (line 83) with:
 
@@ -513,7 +513,7 @@ func place(out io.Writer, payloadPath, dst string) error {
 	}
 ```
 
-- [ ] **Step 8: Add the second closing stanza**
+- [x] **Step 8: Add the second closing stanza**
 
 `cmd/runner/init.go:84-88` currently ends the function with
 
@@ -544,7 +544,7 @@ Replace with
 	return nil
 ```
 
-- [ ] **Step 9: Update the doc comment on `initCommand`**
+- [x] **Step 9: Update the doc comment on `initCommand`**
 
 `cmd/runner/init.go:36-39` says "каталог `${OFFICE_HOME}` и два образца". Change that first paragraph to
 
@@ -558,13 +558,13 @@ Replace with
 
 Leave the second paragraph (lines 41-44, about working files never being touched) exactly as it is.
 
-- [ ] **Step 10: Run the tests and see them pass**
+- [x] **Step 10: Run the tests and see them pass**
 
 Run: `go test ./cmd/runner/ -run 'TestInit' -v`
 
 Expected: PASS for `TestInitLaysOutFreshHome`, `TestInitLeavesConfiguredHomeAlone`, `TestInitLeavesEditedSchedulerSampleAlone`.
 
-- [ ] **Step 11: Fix the usage text in `cmd/runner/main.go`**
+- [x] **Step 11: Fix the usage text in `cmd/runner/main.go`**
 
 Two lines of the `usage` const are now wrong. Line 22 currently reads
 
@@ -590,7 +590,7 @@ Replace with
   runner init                   завести ${OFFICE_HOME}: образцы конфигурации и задания планировщика в scheduler/
 ```
 
-- [ ] **Step 12: Run the triad**
+- [x] **Step 12: Run the triad**
 
 Run:
 
@@ -602,7 +602,7 @@ go test ./...
 
 Expected: `gofmt -l .` prints nothing; build and tests pass.
 
-- [ ] **Step 13: Eyeball the real output once**
+- [x] **Step 13: Eyeball the real output once**
 
 Run:
 
@@ -612,7 +612,7 @@ OFFICE_HOME="$(mktemp -d)/office" go run ./cmd/runner init
 
 Expected: five `создан` lines (two in the home root, three under `scheduler/`), then the `cp …` stanza for the two configuration samples, then the scheduler stanza. Confirm the paths printed are absolute and point inside the temporary home.
 
-- [ ] **Step 14: Commit**
+- [x] **Step 14: Commit**
 
 ```bash
 git add cmd/runner/init.go cmd/runner/init_test.go cmd/runner/main.go
