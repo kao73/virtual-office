@@ -809,7 +809,7 @@ Covers tasks.md 2.1, 2.2.
 | Какой файл читается откуда | `internal/runner/office.go:104-140` (`ResolveOffice`, four branches) and `docs/guide/operations.md:173-192` (the `${OFFICE_HOME}` tree) |
 | Переменные окружения | the grep in Step 2 below |
 
-- [ ] **Step 1: Create the directory and the skeleton**
+- [x] **Step 1: Create the directory and the skeleton**
 
 Create `docs/reference/configuration.md` with exactly these headings, in this order:
 
@@ -834,7 +834,7 @@ Write the body under each heading from the source map above. Hard rules for the 
 - `defaults` accepts only `network` and `tools` (`defaultsKeys`, `internal/tracker/config.go:642`); anything else is a refusal naming the project, the key and the file.
 - The four office-resolution branches, first match wins: `OFFICE_CONFIG_ROOT` → клон и его commit; версия из ldflags → релиз; `vcs.revision` из build info → сборка из клона без обёртки; иначе отказ.
 
-- [ ] **Step 2: Establish the environment-variable list against the code, not from memory**
+- [x] **Step 2: Establish the environment-variable list against the code, not from memory**
 
 Run:
 
@@ -862,7 +862,7 @@ The answer these produce, and which the document must match exactly:
 - `OFFICE_BACKEND` is **not** read by the runner. It is read only by `scripts/smoke.sh:35`. Write it as such: «читает только `scripts/smoke.sh`; сам раннер бэкенд берёт из флага `--backend`». Do not imply the runner honours it.
 - `OFFICE_VERSION` and `OFFICE_INVOCATION_DIR` are real and were not in the proposal's list. Include them; a reference that omits a variable the reader will meet is the same failure as one that invents a variable.
 
-- [ ] **Step 3: Verify every layer claim against the loader**
+- [x] **Step 3: Verify every layer claim against the loader**
 
 Run: `sed -n '630,760p' internal/tracker/config.go`
 
@@ -876,7 +876,7 @@ Read it and confirm, line by line, each of these sentences before it goes into t
 
 Fix the document text for anything that does not match. A reference that is wrong is worse than absent.
 
-- [ ] **Step 4: Write the closing "where the keys live" section**
+- [x] **Step 4: Write the closing "where the keys live" section**
 
 ```markdown
 ## Ключи: где искать
@@ -896,7 +896,7 @@ Fix the document text for anything that does not match. A reference that is wron
 и расходится всегда то, которое не едет вместе с кодом.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/reference/configuration.md

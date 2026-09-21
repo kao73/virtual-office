@@ -34,7 +34,7 @@
 
 ## 2. Reference documents
 
-- [ ] 2.1 Write `docs/reference/configuration.md`: the three layers
+- [x] 2.1 Write `docs/reference/configuration.md`: the three layers
       (`roles/_base/base.yaml` → project entry in `projects.local.yaml` →
       `defaults`) and which wins; the environment variables (`OFFICE_HOME`,
       `OFFICE_CONFIG_ROOT`, `OFFICE_BACKEND`, `OFFICE_INSTALL_FROM`, the credential
@@ -42,7 +42,7 @@
       read from where and how `OFFICE_CONFIG_ROOT` changes that. Link
       `office/tracker.example.yaml` and `office/projects.local.example.yaml` as the
       authority on individual keys instead of restating them
-- [ ] 2.2 Verify every environment variable named in 2.1 against the code
+- [x] 2.2 Verify every environment variable named in 2.1 against the code
       (`grep -rn OFFICE_ --include='*.go'`) and every layer claim against
       `internal/tracker/config.go`; a reference that is wrong is worse than absent
 - [ ] 2.3 Write `docs/reference/jira-requirements.md` for someone else's admin:
