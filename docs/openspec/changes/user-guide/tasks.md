@@ -91,7 +91,7 @@
 - [x] 5.1 Write `docs/README.md`: every document listed with the job it does —
       tutorial, how-to, reference, explanation — and `notes/` named as a dated
       journal that is outside the scheme
-- [ ] 5.2 Move the platform list into the install section of `README.md`
+- [x] 5.2 Move the platform list into the install section of `README.md`
       (checklist item 11), name the channel for problem reports (item 14): Issues
       are disabled on purpose, one maintainer, vulnerabilities to `SECURITY.md`,
       and update the «Документация» section to point at `docs/README.md`

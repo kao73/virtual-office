@@ -1917,7 +1917,7 @@ Covers tasks.md 5.2.
 >
 > **14. У читателя есть названный канал для сообщения о проблеме.** Нет: `has_issues=false` (Issues выключены коммитом f1b2b48 «drop Issues (unused)»), `has_discussions=false`, чата нет. Единственный названный канал — приватный security-репорт в `SECURITY.md`. У всех двенадцати эталонов есть хотя бы один публичный канал. Это решение владельца, но в публичном README его стоит назвать явно, иначе отсутствие канала читается как недосмотр.
 
-- [ ] **Step 1: Move the platform list into «Установка»**
+- [x] **Step 1: Move the platform list into «Установка»**
 
 `README.md:108` currently reads
 
@@ -1940,7 +1940,7 @@ Then shorten the existing paragraph at `README.md:40-44` so it does not repeat t
 одной командой из релиза (`curl -fsSL .../install.sh | sh`), без клона и без Go.
 ```
 
-- [ ] **Step 2: Point «Документация» at the index**
+- [x] **Step 2: Point «Документация» at the index**
 
 `README.md:122-134` currently lists eight bullets. Replace the whole section with
 
@@ -1958,7 +1958,7 @@ Then shorten the existing paragraph at `README.md:40-44` so it does not repeat t
 
 The full list now lives in the index; keeping a second copy here is the duplication this change exists to remove.
 
-- [ ] **Step 3: Name the channel for problem reports**
+- [x] **Step 3: Name the channel for problem reports**
 
 Replace `README.md:136-140`, currently
 
@@ -1987,13 +1987,13 @@ with
 Лицензия — [MIT](LICENSE).
 ```
 
-- [ ] **Step 4: Check the «Требования» table still makes sense without the platform line**
+- [x] **Step 4: Check the «Требования» table still makes sense without the platform line**
 
 Run: `sed -n '95,110p' README.md`
 
 Confirm the table survives and reads correctly, and that `Go 1.26+ | только для сборки из исходников` is still there — it is true and belongs in Требования, not in Установка.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md
