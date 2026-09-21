@@ -1,12 +1,12 @@
 ## 1. Scheduler samples: one home, no pinned role
 
-- [ ] 1.1 Create `office/scheduler/` and move `bootstrap/local.office.runner.plist`,
+- [x] 1.1 Create `office/scheduler/` and move `bootstrap/local.office.runner.plist`,
       `bootstrap/office-runner.service` and `bootstrap/office-runner.timer` into it
       with `git mv`, so history follows the files
-- [ ] 1.2 Remove `--role implementer` from the launchd `ProgramArguments` array and
+- [x] 1.2 Remove `--role implementer` from the launchd `ProgramArguments` array and
       from the systemd `ExecStart` line; confirm by reading both files that the
       remaining invocation is `loop`/`tick` with no role flag
-- [ ] 1.3 Add `all:scheduler` to the `//go:embed` directive in `office/payload.go` —
+- [x] 1.3 Add `all:scheduler` to the `//go:embed` directive in `office/payload.go` —
       a new top-level entry needs its own directive — and add a case to
       `office/payload_test.go` asserting the three unit files are readable from
       `Payload`
@@ -20,7 +20,7 @@
 - [ ] 1.6 Update the existing `runner init` tests that assert a fresh home contains
       *exactly* the two configuration samples — the assertion is now wrong, and it
       must widen rather than be deleted
-- [ ] 1.7 Add a test that no shipped unit file contains `--role`, so the defect
+- [x] 1.7 Add a test that no shipped unit file contains `--role`, so the defect
       cannot come back silently
 - [ ] 1.8 Add `--role` to the `runner loop` line of the usage text in
       `cmd/runner/main.go:19`; both `tick` and `loop` accept it and only `tick`

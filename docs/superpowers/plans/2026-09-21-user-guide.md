@@ -47,7 +47,7 @@ Covers tasks.md 1.1, 1.2, 1.3, 1.7.
 - Consumes: nothing from earlier tasks.
 - Produces: the payload paths `scheduler/local.office.runner.plist`, `scheduler/office-runner.service`, `scheduler/office-runner.timer`, readable through `payload.Payload` (`github.com/kao73/virtual-office/office`, `var Payload embed.FS`). Task 2 reads exactly those three paths.
 
-- [ ] **Step 1: Move the three files with `git mv`**
+- [x] **Step 1: Move the three files with `git mv`**
 
 ```bash
 mkdir -p office/scheduler
@@ -59,7 +59,7 @@ git status --short
 
 Expected: three `R` (rename) entries and nothing else. `bootstrap/` now holds only `README.md` and `jira/`.
 
-- [ ] **Step 2: Run the payload tests and watch the mirror test fail**
+- [x] **Step 2: Run the payload tests and watch the mirror test fail**
 
 Run: `go test ./office/ -run TestPayloadMirrorsOfficeDirectory -v`
 
@@ -71,7 +71,7 @@ office/scheduler/local.office.runner.plist лежит в office/, но не ед
 
 That test (`office/payload_test.go:111`) walks `office/` on disk and demands every file be in `Payload`. It is the existing guard that a new top-level entry needs its own embed directive.
 
-- [ ] **Step 3: Add the embed directive**
+- [x] **Step 3: Add the embed directive**
 
 In `office/payload.go`, change line 19 from
 
@@ -87,13 +87,13 @@ to
 
 `all:` rather than plain `scheduler`: the directory has no `_`- or `.`-prefixed entry today, but the comment right above the directive warns that embed silently skips such paths without it, and a sample that silently stops shipping is the exact failure this change exists to remove.
 
-- [ ] **Step 4: Run the mirror test again**
+- [x] **Step 4: Run the mirror test again**
 
 Run: `go test ./office/ -run TestPayloadMirrorsOfficeDirectory -v`
 
 Expected: PASS.
 
-- [ ] **Step 5: Teach `payload_test.go` about the new directory**
+- [x] **Step 5: Teach `payload_test.go` about the new directory**
 
 `office/payload_test.go:15` currently reads
 
@@ -121,7 +121,7 @@ and in `TestPayloadNamesTheEssentials` (`office/payload_test.go:59-64`) extend `
 	}
 ```
 
-- [ ] **Step 6: Write the failing test that no shipped unit pins a role**
+- [x] **Step 6: Write the failing test that no shipped unit pins a role**
 
 Append to `office/payload_test.go`:
 
@@ -153,7 +153,7 @@ func TestSchedulerSamplesDoNotPinRole(t *testing.T) {
 
 `bytes` and `io/fs` are already imported by this file (`office/payload_test.go:4,5`); add nothing.
 
-- [ ] **Step 7: Run it and watch it fail**
+- [x] **Step 7: Run it and watch it fail**
 
 Run: `go test ./office/ -run TestSchedulerSamplesDoNotPinRole -v`
 
@@ -166,7 +166,7 @@ scheduler/office-runner.service передаёт раннеру --role: две �
 
 (the `.timer` has no invocation at all and must already pass).
 
-- [ ] **Step 8: Strip `--role implementer` from the launchd sample**
+- [x] **Step 8: Strip `--role implementer` from the launchd sample**
 
 In `office/scheduler/local.office.runner.plist`, the `ProgramArguments` array currently reads
 
@@ -194,7 +194,7 @@ Replace it with
   </array>
 ```
 
-- [ ] **Step 9: Strip `--role implementer` from the systemd sample**
+- [x] **Step 9: Strip `--role implementer` from the systemd sample**
 
 In `office/scheduler/office-runner.service`, line 15 currently reads
 
@@ -210,7 +210,7 @@ ExecStart=%h/.office/bin/runner tick
 
 Nothing else in the two units changes: the systemd side stays `Type=oneshot` under a timer, the launchd side stays a `loop`, and the reasoning for that asymmetry stays in `bootstrap/README.md` where it already is.
 
-- [ ] **Step 10: Fix the one stale cross-reference inside the unit**
+- [x] **Step 10: Fix the one stale cross-reference inside the unit**
 
 `office/scheduler/office-runner.service` lines 16-17 say
 
@@ -221,13 +221,13 @@ Nothing else in the two units changes: the systemd side stays `Type=oneshot` und
 
 The reference is still correct — `bootstrap/README.md` keeps the explanation — so leave those two lines exactly as they are. This step exists so you do not "helpfully" retarget the comment at `office/scheduler/`: the explanation does not move, only the files do.
 
-- [ ] **Step 11: Run the whole payload package**
+- [x] **Step 11: Run the whole payload package**
 
 Run: `go test ./office/ -v`
 
 Expected: PASS, including `TestSchedulerSamplesDoNotPinRole`, `TestPayloadNamesTheEssentials`, `TestPayloadCarriesEveryFileOnDisk`, `TestPayloadMirrorsOfficeDirectory`, `TestExecutablePayloadFilesStartWithShebang`.
 
-- [ ] **Step 12: Run the triad**
+- [x] **Step 12: Run the triad**
 
 Run:
 
@@ -239,7 +239,7 @@ go test ./...
 
 Expected: `gofmt -l .` prints nothing; build and tests pass.
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 git add office/payload.go office/payload_test.go office/scheduler
