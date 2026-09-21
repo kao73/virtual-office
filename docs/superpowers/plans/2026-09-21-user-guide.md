@@ -1153,14 +1153,14 @@ Covers tasks.md 4.1.
 
 **The rule being applied.** A tutorial is one path that works. No alternatives, no "you could also", no explanation of why. Where the explanation is worth keeping, it moves to `docs/guide/roles-and-flow.md` (explanation) or `docs/reference/configuration.md` (reference, Task 4). Where a link suffices, drop the prose and link.
 
-- [ ] **Step 1: Delete the alternative paths**
+- [x] **Step 1: Delete the alternative paths**
 
 Remove these passages from `docs/guide/quickstart.md`:
 - lines 41-43 («Всё ниже написано командой `runner …`… см. [«Путь из клона»]») — the pointer to the alternative;
 - lines 195-213, the whole section «## Путь из клона». It is a contributor's concern and `docs/guide/development.md` already owns it (`## Где что лежит`, and the wrapper explanation). Replace both with nothing: `development.md` is linked from `docs/README.md` and from README.
 - lines 117-120 («Роль можно вызвать и по одной… Задача, заведённая сразу в `Ready`…») — a second path through the same tutorial.
 
-- [ ] **Step 2: Move the explanatory passages to `docs/guide/roles-and-flow.md`**
+- [x] **Step 2: Move the explanatory passages to `docs/guide/roles-and-flow.md`**
 
 Three passages in the tutorial explain rather than instruct. Move them, verbatim where they still read correctly, into `docs/guide/roles-and-flow.md`:
 
@@ -1172,7 +1172,7 @@ Three passages in the tutorial explain rather than instruct. Move them, verbatim
 
 In the tutorial, replace each with the single instruction that remains plus a link — e.g. after the four `runner tick` calls, one line: «Что именно делает один тик — [«Роли и путь задачи»](roles-and-flow.md#что-делает-один-тик).»
 
-- [ ] **Step 3: Replace the install block's explanation with the release path and a link**
+- [x] **Step 3: Replace the install block's explanation with the release path and a link**
 
 `docs/guide/quickstart.md:21-35` explains the payload, the update semantics and the missing-tag situation. Keep only what the reader must do; move the rest behind links:
 
@@ -1189,7 +1189,7 @@ In the tutorial, replace each with the single instruction that remains plus a li
 [«Конфигурация»](../reference/configuration.md).
 ```
 
-- [ ] **Step 4: Point the JIRA section at the new reference instead of ONBOARDING**
+- [x] **Step 4: Point the JIRA section at the new reference instead of ONBOARDING**
 
 `docs/guide/quickstart.md:181-193` currently sends the reader to `docs/ONBOARDING.md` and `docs/notes/jira-setup.md`. Replace the two pointers with:
 
@@ -1203,13 +1203,13 @@ JIRA»](../reference/jira-requirements.md); в каком порядке это 
 
 Keep line 6's existing pointer at `docs/ONBOARDING.md` — the tutorial is allowed to say what it is not.
 
-- [ ] **Step 5: Read the result end to end and check the tutorial property**
+- [x] **Step 5: Read the result end to end and check the tutorial property**
 
 Run: `cat docs/guide/quickstart.md`
 
 Confirm by reading: exactly one path; no sentence beginning «Можно и…», «Роль можно вызвать и…», «У разработчика… путь другой»; every «почему» either gone or behind a link. The document should be roughly 120-140 lines, down from 213.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/guide/quickstart.md docs/guide/roles-and-flow.md
