@@ -1408,7 +1408,7 @@ Covers tasks.md 4.3.
 
 **Source material.** `docs/ONBOARDING.md` A1 (39-70), A2 (71-102), A3 (103-122), A4 (123-138), A5 (139-160), transcribed and rewritten for a reader who installed from a release. Everything there is correct except the assumptions it makes about a clone; those are what changes.
 
-- [ ] **Step 1: Create the file with this skeleton**
+- [x] **Step 1: Create the file with this skeleton**
 
 ```markdown
 # Подготовка машины
@@ -1431,7 +1431,7 @@ Covers tasks.md 4.3.
 ## Проверка машины
 ```
 
-- [ ] **Step 2: Transcribe «Инструменты» with the clone assumptions removed**
+- [x] **Step 2: Transcribe «Инструменты» with the clone assumptions removed**
 
 From A1 (`docs/ONBOARDING.md:39-70`), keep as checkboxes:
 - `git` 2.32+ — with the reason unchanged: the bare-clone recipe passes the branch name as protocol-v2 «unborn HEAD», which git learned in 2.32, and on an older one `push origin master` hits a mismatch.
@@ -1444,15 +1444,15 @@ From A1 (`docs/ONBOARDING.md:39-70`), keep as checkboxes:
 
 Keep the verification paragraph, adjusted: `git --version`, `python3 --version`, `docker info`, and for `sbx` the real check — `sbx policy ls` answers `401 Unauthorized` without a login and prints rules with one, because `--help` works either way.
 
-- [ ] **Step 3: Transcribe «Креды» unchanged**
+- [x] **Step 3: Transcribe «Креды» unchanged**
 
 A2 (`docs/ONBOARDING.md:71-102`) needs no rewriting: both credentials live in the environment and only there. Transcribe it whole — the two agent variables and that `ANTHROPIC_API_KEY` wins when both are set, `GITHUB_TOKEN` and that its scope is checked later against a named repository, the `[ -n "$VAR" ] && echo есть` check, and the warning that a command line is visible in `ps`. Keep the link to `docs/notes/auth.md`.
 
-- [ ] **Step 4: Transcribe «Сеть песочниц» unchanged**
+- [x] **Step 4: Transcribe «Сеть песочниц» unchanged**
 
 A3 (`docs/ONBOARDING.md:103-122`) is machine setup and is already release-neutral. Transcribe whole, including `sbx policy rm network --id default-allow-all`, the `sbx policy check network example.com --json` verification returning `"allowed": false`, and how to put it back.
 
-- [ ] **Step 5: Rewrite «Хозяйство раннера» around `runner init`**
+- [x] **Step 5: Rewrite «Хозяйство раннера» around `runner init`**
 
 A4 (`docs/ONBOARDING.md:123-138`) tells the reader to `mkdir -p`. That is now wrong in the sense that matters — `runner init` does it and more:
 
@@ -1476,7 +1476,7 @@ runner init
 что чем перекрывается — [«Конфигурация»](../reference/configuration.md).
 ```
 
-- [ ] **Step 6: Rewrite «Проверка машины» without `go test`**
+- [x] **Step 6: Rewrite «Проверка машины» without `go test`**
 
 A5 (`docs/ONBOARDING.md:139-160`) opens with `go test ./...`, which a release reader cannot run. Replace the three checks with:
 
@@ -1502,17 +1502,17 @@ A5 (`docs/ONBOARDING.md:139-160`) opens with `go test ./...`, which a release re
 отказа `2`, «запускать было нечем». Это правильное поведение, а не поломка.
 ```
 
-- [ ] **Step 7: Delete Дорожка А from `docs/ONBOARDING.md`**
+- [x] **Step 7: Delete Дорожка А from `docs/ONBOARDING.md`**
 
 Delete `docs/ONBOARDING.md` lines 37-160 (the `# Дорожка А. Новая машина` heading through the end of A5). Leave the rest for Task 11.
 
-- [ ] **Step 8: Verify the no-clone property of this document**
+- [x] **Step 8: Verify the no-clone property of this document**
 
 Run: `grep -n 'go test\|go build\|go version\|\./bin/\|клон' docs/guide/machine-setup.md`
 
 Expected: the only hits are the one sentence saying Go is needed solely to build from source, pointing at `development.md`. Anything else is a step the target reader cannot perform.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add docs/guide/machine-setup.md docs/ONBOARDING.md
