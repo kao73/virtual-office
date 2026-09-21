@@ -88,7 +88,7 @@
 
 ## 5. Index and README
 
-- [ ] 5.1 Write `docs/README.md`: every document listed with the job it does —
+- [x] 5.1 Write `docs/README.md`: every document listed with the job it does —
       tutorial, how-to, reference, explanation — and `notes/` named as a dated
       journal that is outside the scheme
 - [ ] 5.2 Move the platform list into the install section of `README.md`

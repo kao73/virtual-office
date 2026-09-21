@@ -1804,7 +1804,7 @@ Covers tasks.md 5.1.
 
 **Note on ordering.** `docs/notes/stages/` (Task 14) does not exist yet. Write the index now describing the layout as it will be after Task 14, and Task 16's link walk will catch it if Task 14 is skipped. If you are executing tasks strictly in order, run Task 14 before Task 16 regardless.
 
-- [ ] **Step 1: Write the file**
+- [x] **Step 1: Write the file**
 
 Create `docs/README.md`:
 
@@ -1866,7 +1866,7 @@ Create `docs/README.md`:
 предложения, спецификации, планы и отчёты о проверке. Тоже вне схемы.
 ```
 
-- [ ] **Step 2: Check every link in the index resolves**
+- [x] **Step 2: Check every link in the index resolves**
 
 Run:
 
@@ -1878,7 +1878,7 @@ done
 
 Expected: no output. (`notes/stages/` is named in prose, not as a link, so Task 14's ordering cannot break this check.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/README.md
