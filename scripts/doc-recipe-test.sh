@@ -7,6 +7,11 @@
 #
 #   sh scripts/doc-recipe-test.sh
 #
+# Гоняется через OFFICE_CONFIG_ROOT (клон), а не путём релизной поставки —
+# это единственный режим, в котором ограждение validate-result собирается
+# без -tags release. Значит, харнесс доказывает путь разработки, а не путь
+# установленного релиза: office-init и распакованный бинарник им не пройдены.
+#
 # Агент подменён: на PATH кладётся поддельный `claude`, который пишет
 # .agent/result.json и выходит нулём. Этого довольно — результат раннер читает
 # из рабочей папки (internal/runner/agentio.go, ReadResult), а цену и причину
@@ -111,6 +116,7 @@ JSON
 exit 0
 FAKE
 chmod 0755 "$fakebin/claude"
+[ -x "$fakebin/claude" ] || fail "поддельный claude не создан или не исполняем: $fakebin/claude"
 
 PATH="$fakebin:$PATH" "$runner" tick --backend local > "$work/out-tick" 2>&1 \
   || fail "tick: $(cat "$work/out-tick")"
