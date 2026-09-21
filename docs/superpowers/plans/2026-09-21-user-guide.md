@@ -2391,7 +2391,7 @@ Covers tasks.md 7.3, 7.4, 7.5.
 - Consumes: every artifact from Tasks 1-15.
 - Produces: a tree that passes `gofmt`, `go build`, `go test` and `sh scripts/doc-recipe-test.sh`, with every relative link in the user path resolving.
 
-- [ ] **Step 1: Walk every relative link in the user path (tasks.md 7.3)**
+- [x] **Step 1: Walk every relative link in the user path (tasks.md 7.3)**
 
 ```bash
 for f in README.md docs/README.md docs/ONBOARDING.md docs/guide/*.md docs/reference/*.md \
@@ -2408,7 +2408,7 @@ done
 
 Expected: no output. Fix every hit at its source — a broken link in the document that is supposed to be the reader's entry point is the failure this change exists to remove.
 
-- [ ] **Step 2: Walk the bare-path references too**
+- [x] **Step 2: Walk the bare-path references too**
 
 Markdown links are not the only way these documents point at files; many say `` `docs/notes/jira-setup.md` `` in backticks. Check those:
 
@@ -2423,7 +2423,7 @@ grep -rhno '`[a-zA-Z0-9_./-]*\.\(md\|yaml\|sh\|go\|plist\|service\|timer\)`' \
 
 Expected: the only survivors should be paths that are deliberately relative to something else (e.g. `role.yaml`, `role.md`, `spec.yaml` named without a directory) or files inside `${OFFICE_HOME}` that do not exist in the repository (`projects.local.yaml`, `tracker.yaml`, `budgets.yaml`, `ledger.jsonl`, `runner.log`, `env`). Every other miss is a real break: fix it.
 
-- [ ] **Step 3: Re-read the two references against the code (tasks.md 7.4)**
+- [x] **Step 3: Re-read the two references against the code (tasks.md 7.4)**
 
 The harness cannot check prose. Read these with the code open beside them:
 
@@ -2436,7 +2436,7 @@ Against `docs/reference/configuration.md`: every variable named in the document 
 
 Then read `docs/reference/jira-requirements.md` against `docs/notes/jira-setup.md` (sections «Учётки», «Поля аренды», «Workflow»), `office/workflow.yaml:23` and `office/tracker.example.yaml:66-96`: the eight statuses, the four field names and their types, the label, and the link type `Depends` must all match. A reference that is wrong is worse than absent.
 
-- [ ] **Step 4: Confirm nothing still points at the old unit locations**
+- [x] **Step 4: Confirm nothing still points at the old unit locations**
 
 ```bash
 grep -rn 'bootstrap/local.office.runner.plist\|bootstrap/office-runner' \
@@ -2447,7 +2447,7 @@ grep -rn 'bootstrap/local.office.runner.plist\|bootstrap/office-runner' \
 
 Expected: no output.
 
-- [ ] **Step 5: Run the full check set (tasks.md 7.5)**
+- [x] **Step 5: Run the full check set (tasks.md 7.5)**
 
 ```bash
 gofmt -l .
@@ -2459,11 +2459,11 @@ git status --short
 
 Expected: `gofmt -l .` silent; build and tests pass; the harness prints its five `ok:` lines and the summary; `git status --short` shows only the `tasks.md` ticks from the next step (everything else is committed).
 
-- [ ] **Step 6: Tick the 31 boxes in the change's task ledger**
+- [x] **Step 6: Tick the 31 boxes in the change's task ledger**
 
 Edit `docs/openspec/changes/user-guide/tasks.md`, changing each `- [ ]` to `- [x]`. All 31 are covered by Tasks 1-15 of this plan; if any is not, stop and say so rather than ticking it.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add docs/openspec/changes/user-guide/tasks.md
@@ -2482,7 +2482,7 @@ MSG
 )"
 ```
 
-- [ ] **Step 8: Report, do not push**
+- [x] **Step 8: Report, do not push**
 
 `master` is protected and nothing in this plan pushes. Report the branch state — commit count, the four check results verbatim — and stop.
 

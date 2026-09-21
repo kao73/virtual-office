@@ -114,11 +114,11 @@
 - [x] 7.2 Run the harness against a deliberately broken recipe once — revert one
       documented step, watch it fail, restore it — so that a passing run means
       something
-- [ ] 7.3 Walk every relative link in `README.md`, `docs/README.md`,
+- [x] 7.3 Walk every relative link in `README.md`, `docs/README.md`,
       `docs/guide/*`, `docs/reference/*`, `docs/ONBOARDING.md`, `bootstrap/README.md`
       and `bootstrap/jira/README.md`, and confirm each target exists
-- [ ] 7.4 Read the parts the harness cannot check — the JIRA requirements against
+- [x] 7.4 Read the parts the harness cannot check — the JIRA requirements against
       `docs/notes/jira-setup.md` and the code, and the configuration reference
       against `internal/tracker/config.go` and `grep -rn OFFICE_ --include='*.go'`
-- [ ] 7.5 Run `gofmt -l .`, `go build ./...`, `go test ./...` and
+- [x] 7.5 Run `gofmt -l .`, `go build ./...`, `go test ./...` and
       `sh scripts/doc-recipe-test.sh`, and confirm the tree is clean
