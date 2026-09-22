@@ -45,6 +45,10 @@ systemctl --user daemon-reload
 systemctl --user enable --now office-runner.timer
 ```
 
+Пользовательский systemd без `loginctl enable-linger $USER` останавливается
+с выходом из сессии — таймер переживёт разлогин и перезагрузку, только если
+linger включён; офис задуман работать без присмотра.
+
 launchd останавливает задание сигналом `SIGTERM`: идущий прогон агента
 прерывается, задачу вернёт `reap` (при `loop` он идёт каждым заходом). systemd
 вместо `loop` использует разовый запуск (`Type=oneshot`) под таймером —
