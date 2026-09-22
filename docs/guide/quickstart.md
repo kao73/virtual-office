@@ -37,7 +37,7 @@ runner version     # что установлено и где лежит офис
 Что где оказывается после установки и что чем перекрывается —
 [«Конфигурация»](../reference/configuration.md).
 
-Агенту нужен кредит: `ANTHROPIC_API_KEY` или `CLAUDE_CODE_OAUTH_TOKEN`
+Агенту нужен кред: `ANTHROPIC_API_KEY` или `CLAUDE_CODE_OAUTH_TOKEN`
 в окружении, оба пути описаны в `docs/notes/auth.md`. Без него дальше первого
 настоящего прогона не уйти.
 

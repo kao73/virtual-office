@@ -37,8 +37,8 @@
 `~/Library/LaunchAgents/` и загружается:
 
     cp "${OFFICE_HOME:-$HOME/.office}/scheduler/local.office.runner.plist" ~/Library/LaunchAgents/
-    launchctl load ~/Library/LaunchAgents/local.office.runner.plist
-    launchctl unload ~/Library/LaunchAgents/local.office.runner.plist
+    launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/local.office.runner.plist
+    launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/local.office.runner.plist
 
 launchd останавливает задание сигналом SIGTERM: раннер не начинает ни следующий
 офис, ни следующий заход, а идущий прогон агента прерывает — дожидаться его
@@ -53,7 +53,10 @@ launchd останавливает задание сигналом SIGTERM: ра
 `office/scheduler/` в клоне и `${OFFICE_HOME}/scheduler/` на машине. Пути в них
 написаны через `%h`, так что править надо только `${OFFICE_HOME}`, если он
 не дефолтный. Раннер работает разовым запуском (`Type=oneshot`), а расписание
-держит таймер:
+держит таймер; сам запуск — три строки `ExecStart` подряд, `reap`, `tick`
+и `complete-splits`, тот же заход, что делает `loop` сам, — одного `tick`
+было бы мало: задача, у которой раннера убили посреди прогона, осталась бы
+арендованной навсегда, а подтверждённый split — без детей:
 
     mkdir -p ~/.config/systemd/user
     cp "${OFFICE_HOME:-$HOME/.office}/scheduler/office-runner.service" ~/.config/systemd/user/

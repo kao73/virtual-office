@@ -58,8 +58,8 @@ git clone -q /tmp/client.git /tmp/client
 git -C /tmp/client -c user.name=you -c user.email=you@local commit -q --allow-empty -m init
 git -C /tmp/client push -q origin master
 
-cp ${OFFICE_HOME:-~/.office}/projects.local.example.yaml \
-   ${OFFICE_HOME:-~/.office}/projects.local.yaml
+cp "${OFFICE_HOME:-$HOME/.office}/projects.local.example.yaml" \
+   "${OFFICE_HOME:-$HOME/.office}/projects.local.yaml"
 # в копии: ключ проекта → OFF, repo_url → /tmp/client.git,
 # default_branch → master, tracker → mock
 

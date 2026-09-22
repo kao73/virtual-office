@@ -33,7 +33,7 @@ runner loop --every 2m       # цикл до сигнала, если плани
 ```sh
 # macOS, launchd
 cp "${OFFICE_HOME:-$HOME/.office}/scheduler/local.office.runner.plist" ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/local.office.runner.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/local.office.runner.plist
 ```
 
 ```sh
@@ -53,7 +53,11 @@ launchd останавливает задание сигналом `SIGTERM`: и
 прерывается, задачу вернёт `reap` (при `loop` он идёт каждым заходом). systemd
 вместо `loop` использует разовый запуск (`Type=oneshot`) под таймером —
 расписание уже умеет планировщик, дублировать его циклом внутри процесса
-незачем. Подробнее, что каждому из двух нужно и почему, — `bootstrap/README.md`:
+незачем; юнит зовёт `reap`, `tick` и `complete-splits` подряд тремя строками
+`ExecStart` — тот же заход, что делает `loop` сам. Один голый `tick` этого
+не даёт: задача, у которой раннера убили посреди прогона, осталась бы
+арендованной навсегда, а подтверждённый split — без детей. Подробнее, что
+каждому из двух нужно и почему, — `bootstrap/README.md`:
 <https://github.com/kao73/virtual-office/blob/master/bootstrap/README.md>.
 
 **Путь в образце ведёт к `${OFFICE_HOME}/bin/runner` — тому бинарнику, что
