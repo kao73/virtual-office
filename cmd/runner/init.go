@@ -63,17 +63,38 @@ func place(out io.Writer, payloadPath, dst string) error {
 	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	switch {
 	case errors.Is(err, fs.ErrExist):
+		// Не обычный файл на месте образца — не наша правка и не чужой
+		// правленый юнит, а что-то третье (каталог, сокет...). «Оставлен»
+		// сказал бы про него то же самое, что про честно правленый файл.
+		info, statErr := os.Lstat(dst)
+		if statErr != nil {
+			return fmt.Errorf("%s занят, но не читается: %w", dst, statErr)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s занят не обычным файлом (%s) — уберите вручную и повторите init", dst, info.Mode())
+		}
 		fmt.Fprintf(out, "оставлен %s\n", dst)
 		return nil
 	case err != nil:
 		return fmt.Errorf("образец не записан: %w", err)
 	}
 	if err := writeAndClose(f, raw); err != nil {
-		os.Remove(dst) // недописанный образец не должен сойти за оставленный
-		return fmt.Errorf("образец %s не записан: %w", dst, err)
+		return cleanupPartialWrite(dst, err)
 	}
 	fmt.Fprintf(out, "создан   %s\n", dst)
 	return nil
+}
+
+// cleanupPartialWrite убирает недописанный образец после неудачной записи.
+// Ошибку самого Remove не глотаем: не убравшийся огрызок на следующем init
+// попадёт в ветку fs.ErrExist и сойдёт за оставленный — вторая беда спрячется
+// за первой, а разбираться придётся с отказавшим юнитом планировщика, а не
+// с исходной причиной.
+func cleanupPartialWrite(dst string, writeErr error) error {
+	if rmErr := os.Remove(dst); rmErr != nil {
+		return fmt.Errorf("образец %s не записан (%w), и недописанный файл не убран (%v) — уберите его вручную и повторите init", dst, writeErr, rmErr)
+	}
+	return fmt.Errorf("образец %s не записан: %w", dst, writeErr)
 }
 
 // initCommand заводит хозяйство раннера: каталог ${OFFICE_HOME}, два образца

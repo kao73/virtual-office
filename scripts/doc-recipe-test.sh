@@ -60,24 +60,31 @@ echo "ok: runner init"
 # 2. Репозиторий проекта-клиента — тот же рецепт, что в README: пустого мало,
 # ветку задачи раннер ответвляет от origin/<default_branch>.
 client="$work/client.git"
-git init -q --bare -b master "$client"
-git clone -q "$client" "$work/client"
-git -C "$work/client" -c user.name=you -c user.email=you@local commit -q --allow-empty -m init
-git -C "$work/client" push -q origin master
+git init -q --bare -b master "$client" || fail "git init --bare не задался"
+git clone -q "$client" "$work/client" || fail "git clone не задался"
+git -C "$work/client" -c user.name=you -c user.email=you@local commit -q --allow-empty -m init \
+  || fail "коммит в клиенте не задался"
+git -C "$work/client" push -q origin master || fail "push в client.git не задался"
 echo "ok: репозиторий клиента"
 
 # 3. Образец под рабочим именем и ровно четыре правки — это и есть проверяемое
 # утверждение: образец обещает, что больше править нечего.
 example="$home/projects.local.example.yaml"
 cfg="$home/projects.local.yaml"
-cp "$example" "$cfg"
+cp "$example" "$cfg" || fail "образец projects.local.example.yaml не скопирован"
 sed -e 's|^PROJ:|OFF:|' \
     -e "s|^  repo_url: .*|  repo_url: $client|" \
     -e 's|^  default_branch: .*|  default_branch: master|' \
     -e 's|^  tracker: .*|  tracker: mock|' \
     "$cfg" > "$cfg.new"
-mv "$cfg.new" "$cfg"
-edits="$(diff "$example" "$cfg" | grep -c '^<' || :)"
+mv "$cfg.new" "$cfg" || fail "правки projects.local.yaml не сохранены"
+# diff внутри пайпа под set -eu: пайп берёт код возврата у grep, а не у diff,
+# и «0 совпадений» (не найден правленый паттерн) выглядела бы неотличимо от
+# «diff сам отказал» (код 2 — не тот файл, нет доступа). Разводим коды разных
+# бед: diff_status — только для diff, edits — только для содержимого diff.
+diff "$example" "$cfg" > "$work/diff.out" 2>&1 && diff_status=0 || diff_status=$?
+[ "$diff_status" -le 1 ] || fail "diff между $example и $cfg отказал (код $diff_status): $(cat "$work/diff.out")"
+edits=$(grep -c '^<' "$work/diff.out" || :)
 [ "$edits" = 4 ] || fail "правок в projects.local.yaml $edits, документация обещает четыре"
 echo "ok: образец проектов правится четырьмя значениями"
 
@@ -104,7 +111,14 @@ cat > "$fakebin/claude" <<'FAKE'
 # questions только у needs_human и split, blocker только у blocked.
 # next_owner именно implementer: у analyst'а карта by_next_owner названа явно,
 # и значение вне карты уехало бы к человеку, а не в Ready (office/workflow.yaml).
-cat > /dev/null                     # промпт приходит на stdin, читать его нечем
+#
+# Аргументы и stdin не подделка ради подделки, а проверка контракта: реальный
+# раннер зовёт claude с десятком флагов и шлёт промпт в stdin, а не позиционным
+# аргументом (internal/adapters/claude/adapter.go). Пустой вызов — регресс
+# в сборке argv, а не рабочий сценарий, и молчать о нём harness не должен.
+[ "$#" -gt 0 ] || { echo "поддельный claude: вызван без аргументов" >&2; exit 1; }
+prompt="$(cat)"
+[ -n "$prompt" ] || { echo "поддельный claude: пустой stdin (промпт не пришёл)" >&2; exit 1; }
 mkdir -p .agent
 cat > .agent/result.json <<'JSON'
 {

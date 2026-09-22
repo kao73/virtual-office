@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -169,5 +170,79 @@ func TestInitLeavesEditedSchedulerSampleAlone(t *testing.T) {
 	}
 	if strings.Contains(printed, "создан") {
 		t.Errorf("второй init что-то создал:\n%s", printed)
+	}
+}
+
+// Запись оборвалась (место кончилось, права отозвали) — огрызок убирается,
+// а отказ называет исходную причину, а не молчит о ней.
+func TestCleanupPartialWriteRemovesFile(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "office-runner.service")
+	if err := os.WriteFile(dst, []byte("огрызок"), 0o644); err != nil {
+		t.Fatalf("%s не записан: %v", dst, err)
+	}
+	writeErr := errors.New("нет места")
+
+	err := cleanupPartialWrite(dst, writeErr)
+	if err == nil || !errors.Is(err, writeErr) {
+		t.Fatalf("отказ не называет исходную причину: %v", err)
+	}
+	if strings.Contains(err.Error(), "не убран") {
+		t.Errorf("Remove сам не отказывал, а отказ говорит обратное: %v", err)
+	}
+	if _, statErr := os.Stat(dst); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Errorf("огрызок не убран: %v", statErr)
+	}
+}
+
+// Вторая беда (Remove тоже не вышел) не должна прятаться за первой: иначе
+// огрызок на следующем init попадёт в ветку fs.ErrExist и сойдёт за оставленный.
+func TestCleanupPartialWriteReportsRemoveFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root игнорирует права каталога — убрать файл получится всё равно")
+	}
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "office-runner.service")
+	if err := os.WriteFile(dst, []byte("огрызок"), 0o644); err != nil {
+		t.Fatalf("%s не записан: %v", dst, err)
+	}
+	// Удаление файла требует права записи на каталог, а не на сам файл.
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatalf("права каталога не изменены: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) }) // иначе t.TempDir() не уберёт за собой
+
+	writeErr := errors.New("нет места")
+	err := cleanupPartialWrite(dst, writeErr)
+	if err == nil {
+		t.Fatalf("Remove должен был отказать под read-only каталогом")
+	}
+	if !errors.Is(err, writeErr) || !strings.Contains(err.Error(), "не убран") {
+		t.Errorf("отказ не называет обе беды — запись и уборку: %v", err)
+	}
+	if _, statErr := os.Stat(dst); statErr != nil {
+		t.Errorf("файл, который не убрался, должен остаться на месте: %v", statErr)
+	}
+}
+
+// Каталог на месте образца — не наша правка и не чужой правленый юнит,
+// а что-то третье. «Оставлен» сказал бы про него то же, что про честный файл.
+func TestPlaceRejectsNonRegularExisting(t *testing.T) {
+	home := t.TempDir()
+	dst := filepath.Join(home, jira.ExampleFile)
+	if err := os.Mkdir(dst, 0o755); err != nil {
+		t.Fatalf("%s не создан: %v", dst, err)
+	}
+
+	var out bytes.Buffer
+	err := place(&out, jira.ExampleFile, dst)
+	if err == nil {
+		t.Fatalf("place не отказал на каталоге вместо образца")
+	}
+	if strings.Contains(out.String(), "оставлен") {
+		t.Errorf("каталог выдан за оставленный образец: %s", out.String())
+	}
+	info, statErr := os.Stat(dst)
+	if statErr != nil || !info.IsDir() {
+		t.Errorf("каталог на месте образца тронут: %v, %v", info, statErr)
 	}
 }
