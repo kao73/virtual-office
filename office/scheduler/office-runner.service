@@ -26,9 +26,15 @@ EnvironmentFile=-%h/.office/env
 # reap — задача, у которой раннера убили посреди прогона (перезагрузка,
 # OOM, systemctl stop), осталась бы арендованной навсегда; без
 # complete-splits дважды подтверждённый split аналитика не заводит детей.
-ExecStart=%h/.office/bin/runner reap
-ExecStart=%h/.office/bin/runner tick
-ExecStart=%h/.office/bin/runner complete-splits
+#
+# Префикс `-` на всех трёх: cycle() у loop ошибку каждого шага печатает
+# и идёт дальше, а не останавливает заход, — «следующий заход может пройти»
+# (тот же комментарий у cycle). Без префикса systemd после первой же
+# неудачной строки ExecStart молча не запускает оставшиеся, и отказавший
+# reap снёс бы tick так же, как раньше это делало его отсутствие вовсе.
+ExecStart=-%h/.office/bin/runner reap
+ExecStart=-%h/.office/bin/runner tick
+ExecStart=-%h/.office/bin/runner complete-splits
 # Остановка сигналом: идущий прогон агента прерывается, следующий заход
 # вернёт задачу через reap (см.
 # https://github.com/kao73/virtual-office/blob/master/bootstrap/README.md).
