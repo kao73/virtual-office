@@ -79,7 +79,7 @@ func place(out io.Writer, payloadPath, dst string) error {
 		fmt.Fprintf(out, "оставлен %s\n", dst)
 		return nil
 	case err != nil:
-		return fmt.Errorf("образец не записан: %w", err)
+		return fmt.Errorf("образец %s не записан: %w", dst, err)
 	}
 	if err := writeAndClose(f, raw); err != nil {
 		return cleanupPartialWrite(dst, err)
@@ -95,7 +95,10 @@ func place(out io.Writer, payloadPath, dst string) error {
 // с исходной причиной.
 func cleanupPartialWrite(dst string, writeErr error) error {
 	if rmErr := os.Remove(dst); rmErr != nil {
-		return fmt.Errorf("образец %s не записан (%w), и недописанный файл не убран (%v) — уберите его вручную и повторите init", dst, writeErr, rmErr)
+		// %w у обеих: errors.Is/As должны доставать и запись, и уборку,
+		// а не только ту, что досталась первому %w, — это же неудобство
+		// cleanupPartialWrite и чинит.
+		return fmt.Errorf("образец %s не записан (%w), и недописанный файл не убран (%w) — уберите его вручную и повторите init", dst, writeErr, rmErr)
 	}
 	return fmt.Errorf("образец %s не записан: %w", dst, writeErr)
 }

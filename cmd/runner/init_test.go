@@ -219,6 +219,12 @@ func TestCleanupPartialWriteReportsRemoveFailure(t *testing.T) {
 	if !errors.Is(err, writeErr) || !strings.Contains(err.Error(), "не убран") {
 		t.Errorf("отказ не называет обе беды — запись и уборку: %v", err)
 	}
+	// Обе беды — оба %w: errors.Is должен доставать и запись (writeErr выше),
+	// и саму ошибку Remove (permission denied на read-only каталоге), а не
+	// только ту, что досталась первому %w.
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("отказ Remove не достаётся через errors.Is: %v", err)
+	}
 	if _, statErr := os.Stat(dst); statErr != nil {
 		t.Errorf("файл, который не убрался, должен остаться на месте: %v", statErr)
 	}
