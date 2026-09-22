@@ -2,6 +2,7 @@
 change: user-guide
 design-doc: docs/superpowers/specs/2026-09-21-user-guide-design.md
 base-ref: 47bbd733baf53f8eeca54c46418a748675fc3171
+archived-with: 2026-09-22-user-guide
 ---
 
 # user-guide Implementation Plan

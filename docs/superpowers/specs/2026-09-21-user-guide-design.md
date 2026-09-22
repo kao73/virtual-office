@@ -2,6 +2,8 @@
 comet_change: user-guide
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-22-user-guide
+status: final
 ---
 
 # user-guide — technical design
