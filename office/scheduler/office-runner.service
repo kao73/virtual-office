@@ -6,11 +6,12 @@
 # и так далее. Если завести файл `%h/.office/env` с правами 600, юнит его
 # подхватит. Без обоих способов раннер откажется сам и явно — но не при
 # старте юнита, а на первом же прогоне: пустая очередь этого не покажет,
-# `Type=oneshot` выходит нулём и без задачи. См. `docs/guide/machine-setup.md`,
+# `Type=oneshot` выходит нулём и без задачи. См.
+# https://github.com/kao73/virtual-office/blob/master/docs/guide/machine-setup.md,
 # раздел «Креды». Секретов в самом юните нет и быть не должно.
 
 [Unit]
-Description=Виртуальный офис: один цикл раннера
+Description=Виртуальный офис: один заход цикла раннера
 After=network-online.target
 
 [Service]
@@ -18,8 +19,19 @@ Type=oneshot
 WorkingDirectory=%h/.office
 Environment=OFFICE_HOME=%h/.office
 EnvironmentFile=-%h/.office/env
+# Три строки, не одна: заход цикла — reap → tick → complete-splits
+# (cmd/runner/offices.go, cycle), и один только tick пропускает первый и
+# последний шаги. На launchd их даёт loop сам; здесь Type=oneshot умеет
+# несколько ExecStart подряд, и это тот же порядок. Реже одного tick без
+# reap — задача, у которой раннера убили посреди прогона (перезагрузка,
+# OOM, systemctl stop), осталась бы арендованной навсегда; без
+# complete-splits дважды подтверждённый split аналитика не заводит детей.
+ExecStart=%h/.office/bin/runner reap
 ExecStart=%h/.office/bin/runner tick
-# Остановка сигналом: идущий прогон агента прерывается, задачу вернёт reap
-# (bootstrap/README.md). Дожидаться конца прогона раннер пока не умеет.
+ExecStart=%h/.office/bin/runner complete-splits
+# Остановка сигналом: идущий прогон агента прерывается, следующий заход
+# вернёт задачу через reap (см.
+# https://github.com/kao73/virtual-office/blob/master/bootstrap/README.md).
+# Дожидаться конца прогона раннер пока не умеет.
 KillSignal=SIGTERM
 TimeoutStopSec=90

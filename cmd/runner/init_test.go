@@ -246,3 +246,31 @@ func TestPlaceRejectsNonRegularExisting(t *testing.T) {
 		t.Errorf("каталог на месте образца тронут: %v, %v", info, statErr)
 	}
 }
+
+// Симлинк на обычный файл — правдоподобная раскладка (общий юнит подложен
+// ссылкой на весь парк машин), а не что-то третье вроде каталога или сокета:
+// он проходит через Stat, а не отвергается наравне с ними (Lstat отверг бы).
+func TestPlaceAcceptsSymlinkToRegularFile(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(t.TempDir(), "shared-unit")
+	body := "правленый где-то ещё, сюда подложен ссылкой\n"
+	if err := os.WriteFile(target, []byte(body), 0o644); err != nil {
+		t.Fatalf("%s не записан: %v", target, err)
+	}
+	dst := filepath.Join(home, jira.ExampleFile)
+	if err := os.Symlink(target, dst); err != nil {
+		t.Fatalf("симлинк %s не создан: %v", dst, err)
+	}
+
+	var out bytes.Buffer
+	if err := place(&out, jira.ExampleFile, dst); err != nil {
+		t.Fatalf("place отказал на симлинке к обычному файлу: %v", err)
+	}
+	if !strings.Contains(out.String(), "оставлен") {
+		t.Errorf("вывод не сообщает об оставленном образце: %s", out.String())
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || string(got) != body {
+		t.Errorf("цель симлинка тронута: %q, %v", got, err)
+	}
+}

@@ -280,7 +280,8 @@ func completeSplitsCommand(args []string, out io.Writer) error {
 // loopCommand гоняет цикл по расписанию, пока не остановят сигналом.
 //
 // Это не демон: он не следит за собой и не перезапускается. Запускать его
-// должен cron, launchd или systemd-timer — примеры в bootstrap/.
+// должен cron, launchd или systemd-timer — образцы кладёт `runner init`
+// в ${OFFICE_HOME}/scheduler/ (в клоне — office/scheduler/).
 func loopCommand(args []string, out io.Writer) error {
 	fs := flags("loop")
 	role := fs.String("role", "", "роль из workflow.yaml; без неё — по циклу на каждую роль")
