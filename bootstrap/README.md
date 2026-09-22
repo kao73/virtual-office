@@ -69,6 +69,11 @@ launchd останавливает задание сигналом SIGTERM: ра
 
 ### Проверить руками
 
-    ./bin/runner tick --role implementer     # один цикл
+    ./bin/runner tick                        # один цикл, все роли по очереди
     ./bin/runner reap                        # вернуть задачи с истёкшей арендой
     ./bin/runner loop --every 2m             # цикл до Ctrl+C
+
+Прогнать вручную одну-единственную роль, не трогая расписание и не касаясь
+двух остальных, — отдельной командой:
+
+    ./bin/runner tick --role implementer     # один цикл, только implementer
