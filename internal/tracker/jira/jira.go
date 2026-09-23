@@ -163,7 +163,7 @@ type Fields struct {
 // «этого поля нет» и «поле есть, но не того типа» — разные беды, и обе
 // должны остаться видны, а не слиться в одно «JIRA не в порядке».
 type FieldCheck struct {
-	Config       string // "owner", "run_id", "lease_until", "attempts" — имя в Fields
+	Config       string // "agent_owner", "run_id", "lease_until", "attempts" — ключ в fields.* tracker.yaml
 	ID           string // настроенный customfield_NNNNN
 	Present      bool
 	ExpectedType string
@@ -177,7 +177,7 @@ type FieldCheck struct {
 // Значения — JIRA REST v2 schema.type; сверено с локальным полигоном JIRA
 // Server 8.13, см. docs/superpowers/plans/2026-09-23-doctor.md, Task 3.
 var expectedFieldTypes = map[string]string{
-	"owner":       "string",
+	"agent_owner": "string",
 	"run_id":      "string",
 	"lease_until": "datetime",
 	"attempts":    "number",
@@ -395,12 +395,14 @@ func (t *Tracker) CheckFields() ([]FieldCheck, error) {
 	}
 
 	configured := map[string]string{
-		"owner": t.cfg.Fields.Owner, "run_id": t.cfg.Fields.RunID,
+		"agent_owner": t.cfg.Fields.Owner, "run_id": t.cfg.Fields.RunID,
 		"lease_until": t.cfg.Fields.LeaseUntil, "attempts": t.cfg.Fields.Attempts,
 	}
 	// Порядок стабильный: иначе печать doctor'а прыгала бы между прогонами
-	// без единой причины.
-	names := []string{"owner", "run_id", "lease_until", "attempts"}
+	// без единой причины. Ключи — те же, что в fields.* tracker.yaml
+	// (LoadConfig проверяет ими же), чтобы finding jira:field:agent_owner
+	// назвал ключ, который человек реально найдёт в своём файле.
+	names := []string{"agent_owner", "run_id", "lease_until", "attempts"}
 	checks := make([]FieldCheck, 0, len(names))
 	for _, name := range names {
 		id := configured[name]

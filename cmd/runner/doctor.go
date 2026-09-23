@@ -8,7 +8,7 @@
 // check-id находок, по стадиям: tool:<имя>, sbx:network, office:stale-snapshots,
 // config:home, config:projects.local.yaml, skip:project-dependent, config:tracker.yaml,
 // skip:jira, cred:<ПЕРЕМЕННАЯ>, jira:reachability, jira:account, jira:fields (весь
-// GET /field упал), jira:field:<owner|run_id|lease_until|attempts>, jira:link-type,
+// GET /field упал), jira:field:<agent_owner|run_id|lease_until|attempts>, jira:link-type,
 // jira:workflow:<проект>:<роль>, skip:workflow:<проект>.
 package main
 
@@ -277,8 +277,15 @@ func checkWorkflow(trk jiraChecker, project, role, workingStatus string) finding
 // простого текста).
 func doctorCommand(args []string, out io.Writer) error {
 	fs := flags("doctor")
-	backend := fs.String("backend", runagent.BackendLocal, "бэкенд агента: sbx или local — какие проверки бэкенда включать")
+	backend := fs.String("backend", runagent.DefaultBackend, "бэкенд агента: sbx или local — какие проверки бэкенда включать")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	// Опечатка в --backend не должна тихо читаться как local: та же
+	// проверка, что держит newOffices (cmd/runner/office.go) под всеми
+	// остальными подкомандами, — не своя, чтобы имена бэкендов не разошлись
+	// в двух местах. Сама Sandboxes здесь не нужна, только её ошибка.
+	if _, err := runagent.SandboxesOf(*backend); err != nil {
 		return err
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -47,8 +48,11 @@ func TestDoctorReportsToolPresence(t *testing.T) {
 	withLookPath(t, "git", "claude")
 	fixtureRunner(t, mockProject)
 
+	// --backend local: тест про git/claude, не про sbx-бэкенд по умолчанию
+	// (Finding 2) — с ним отсутствующий на этой машине sbx дал бы tool:sbx
+	// fail и уронил бы доктора мимо темы теста.
 	var out bytes.Buffer
-	if err := doctorCommand(nil, &out); err != nil {
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
 		t.Fatalf("доктор отказал на исправной машине: %v\n%s", err, out.String())
 	}
 	for _, want := range []string{findingPrefix("ok", "tool:git"), findingPrefix("ok", "tool:claude")} {
@@ -62,8 +66,11 @@ func TestDoctorNamesEachMissingToolWithoutStoppingAtFirst(t *testing.T) {
 	withLookPath(t /* ни одного инструмента */)
 	fixtureRunner(t, mockProject)
 
+	// --backend local: тест про git/claude конкретно, sbx-бэкенд по
+	// умолчанию (Finding 2) тут ни при чём — пин делает это явным, а не
+	// побочным эффектом того, что sbx и так отсутствует.
 	var out bytes.Buffer
-	err := doctorCommand(nil, &out)
+	err := doctorCommand([]string{"--backend", "local"}, &out)
 	if err == nil {
 		t.Fatal("отсутствующие инструменты не провалили доктора")
 	}
@@ -90,6 +97,40 @@ func TestDoctorChecksSbxToolOnlyOnSbxBackend(t *testing.T) {
 	err := doctorCommand([]string{"--backend", "sbx"}, &outSbx)
 	if err == nil || !strings.Contains(outSbx.String(), findingPrefix("fail", "tool:sbx")) {
 		t.Errorf("sbx-бэкенд не проверил отсутствующий sbx: %v\n%s", err, outSbx.String())
+	}
+}
+
+// TestDoctorRejectsUnknownBackend — опечатка в --backend (например,
+// "sbxx") не должна тихо читаться как local и не проверять песочницу
+// вовсе: runner tick --backend sbxx на этом же имени отказывает через
+// runagent.SandboxesOf, и doctor обязан вести себя так же, а не иначе.
+func TestDoctorRejectsUnknownBackend(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	fixtureRunner(t, mockProject)
+
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "bogus"}, &out)
+	if err == nil {
+		t.Fatal("неизвестный бэкенд должен быть отказом, а не тихим local")
+	}
+	if out.Len() != 0 {
+		t.Errorf("доктор не должен печатать находки при неизвестном --backend:\n%s", out.String())
+	}
+}
+
+// TestDoctorDefaultBackendIsSbx — регрессия ревью на Finding 2: без
+// --backend доктор обязан проверять то же самое, что и голый runner tick
+// (sbx), а не тихо откатываться к local. До этого фикса --backend по
+// умолчанию был local, и эта проверка ловит именно возврат к старому
+// умолчанию, а не только текущее значение runagent.DefaultBackend.
+func TestDoctorDefaultBackendIsSbx(t *testing.T) {
+	withLookPath(t, "git", "claude") // sbx намеренно отсутствует
+	fixtureRunner(t, mockProject)
+
+	var out bytes.Buffer
+	err := doctorCommand(nil, &out)
+	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "tool:sbx")) {
+		t.Errorf("бэкенд по умолчанию должен быть sbx: %v\n%s", err, out.String())
 	}
 }
 
@@ -154,8 +195,9 @@ func TestDoctorReportsStaleSnapshotsInPayloadMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// --backend local: тест про office:stale-snapshots, не про sbx.
 	var out bytes.Buffer
-	if err := doctorCommand(nil, &out); err != nil {
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
 		t.Fatalf("устаревшие снапшоты не должны ронять доктора: %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), findingPrefix("warn", "office:stale-snapshots")) ||
@@ -173,8 +215,9 @@ func TestDoctorStaleSnapshotsNotApplicableInCloneMode(t *testing.T) {
 	withLookPath(t, "git", "claude")
 	fixtureRunner(t, mockProject) // задаёт OFFICE_CONFIG_ROOT -> режим клона
 
+	// --backend local: тест про режим клона office:stale-snapshots, не про sbx.
 	var out bytes.Buffer
-	if err := doctorCommand(nil, &out); err != nil {
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
 		t.Fatalf("режим клона не должен ронять доктора: %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), findingPrefix("ok", "office:stale-snapshots")) {
@@ -186,8 +229,9 @@ func TestDoctorStaleSnapshotsOkWhenOfficeDirMissing(t *testing.T) {
 	withLookPath(t, "git", "claude")
 	payloadFixture(t, "v0.9.0") // office/ ещё не создан — как сразу после runner init
 
+	// --backend local: тест про office:stale-snapshots, не про sbx.
 	var out bytes.Buffer
-	if err := doctorCommand(nil, &out); err != nil {
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
 		t.Fatalf("свежая машина без office/ не должна ронять доктора: %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), findingPrefix("ok", "office:stale-snapshots")+" нет") {
@@ -202,8 +246,9 @@ func TestDoctorFreshOfficeWithoutProjectsFileStillReportsIndependentChecks(t *te
 		t.Fatalf("файл не убран: %v", err)
 	}
 
+	// --backend local: тест про отсутствующий projects.local.yaml, не про sbx.
 	var out bytes.Buffer
-	err := doctorCommand(nil, &out)
+	err := doctorCommand([]string{"--backend", "local"}, &out)
 	if err == nil {
 		t.Fatal("отсутствующий projects.local.yaml должен быть fatal")
 	}
@@ -224,8 +269,9 @@ func TestDoctorMockOnlyOfficeSkipsJiraEntirelyWithoutTrackerFile(t *testing.T) {
 	withLookPath(t, "git", "claude")
 	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n") // ни одного jira-проекта, tracker.yaml на диске нет
 
+	// --backend local: тест про mock-only офис/tracker.yaml, не про sbx.
 	var out bytes.Buffer
-	if err := doctorCommand(nil, &out); err != nil {
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
 		t.Fatalf("mock-only офис не должен отказывать: %v\n%s", err, out.String())
 	}
 	printed := out.String()
@@ -239,8 +285,9 @@ func TestDoctorChecksCometToolOnlyWhenForgeConfigured(t *testing.T) {
 	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
 		"  default_branch: master\n  forge: github\n")
 
+	// --backend local: тест про tool:comet/forge, не про sbx.
 	var out bytes.Buffer
-	err := doctorCommand(nil, &out)
+	err := doctorCommand([]string{"--backend", "local"}, &out)
 	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "tool:comet")) {
 		t.Errorf("forge-проект должен требовать comet: %v\n%s", err, out.String())
 	}
@@ -292,8 +339,9 @@ func TestDoctorMalformedTrackerYamlIsolatesOnlyDependentChecks(t *testing.T) {
 		t.Fatalf("сломанный tracker.yaml не записан: %v", err)
 	}
 
+	// --backend local: тест про сломанный tracker.yaml, не про sbx.
 	var out bytes.Buffer
-	err := doctorCommand(nil, &out)
+	err := doctorCommand([]string{"--backend", "local"}, &out)
 	if err == nil {
 		t.Fatal("сломанный tracker.yaml должен быть fatal")
 	}
@@ -344,7 +392,7 @@ func TestCheckAccountWrapsMismatchAsFail(t *testing.T) {
 func TestCheckFieldsNamesMissingFieldByConfigAndID(t *testing.T) {
 	findings := checkFields(&fakeJiraChecker{fields: []jira.FieldCheck{
 		{Config: "lease_until", ID: "customfield_10003", Present: false, ExpectedType: "datetime"},
-		{Config: "owner", ID: "customfield_10001", Present: true, ExpectedType: "string", ActualType: "string"},
+		{Config: "agent_owner", ID: "customfield_10001", Present: true, ExpectedType: "string", ActualType: "string"},
 	}})
 	var lease finding
 	for _, f := range findings {
@@ -464,13 +512,22 @@ func TestDoctorFullSuccessPathExitsZero(t *testing.T) {
 	t.Setenv("JIRA_PASSWORD", "секрет")
 
 	var out bytes.Buffer
-	if err := doctorCommand(nil, &out); err != nil {
+	// --backend local, явно: полный счастливый путь по JIRA — про трекер, не
+	// про бэкенд, а --backend по умолчанию теперь sbx (Finding 2) и на машине
+	// без sbx уронил бы этот тест находкой tool:sbx, которая ему не по теме.
+	// Поведение default-бэкенда отдельно проверяет TestDoctorDefaultBackendIsSbx.
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
 		t.Fatalf("доктор отказал на счастливом пути: %v\n%s", err, out.String())
 	}
 	for _, want := range []string{
 		"tool:git", "tool:claude", "cred:JIRA_USER", "cred:JIRA_PASSWORD",
-		"jira:account", "jira:field:owner", "jira:field:run_id",
+		"jira:account", "jira:field:agent_owner", "jira:field:run_id",
 		"jira:field:lease_until", "jira:field:attempts", "jira:link-type",
+		// Регрессия ревью: удаление checkWorkflow-цикла в doctorCommand не
+		// ловил ни один тест — go test ./cmd/runner/... всё равно проходил.
+		// VO/implementer — из jiraProject+mockProject'ного office/workflow.yaml
+		// фикстуры (единственная роль с рабочим статусом, InProgress).
+		"jira:workflow:VO:implementer",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("нет строки про %s:\n%s", want, out.String())
@@ -491,36 +548,19 @@ func TestDoctorLocalBackendOmitsSbxChecks(t *testing.T) {
 	}
 }
 
-func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
-	withLookPath(t, "git", "claude")
-	var requests []struct {
-		method string
-		path   string
-	}
-	handler := doctorJiraHandler(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, struct {
-			method string
-			path   string
-		}{r.Method, r.URL.Path})
-		handler(w, r)
-	}))
-	t.Cleanup(server.Close)
-	_, home := fixtureRunner(t, mockProject+jiraProject)
-	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML(server.URL)), 0o644); err != nil {
-		t.Fatalf("tracker.yaml не записан: %v", err)
-	}
-	t.Setenv("JIRA_USER", "office")
-	t.Setenv("JIRA_PASSWORD", "секрет")
+// recordedRequest — метод и путь одного запроса к тестовому серверу JIRA;
+// именованный тип нужен затем, чтобы assertNoMutatingRequests был один
+// на оба варианта теста (clone и payload), а не копией цикла в каждом.
+type recordedRequest struct {
+	method string
+	path   string
+}
 
-	before, err := os.ReadDir(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	if err := doctorCommand(nil, &out); err != nil {
-		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
-	}
+// assertNoMutatingRequests — общая часть обоих вариантов
+// TestDoctorMakesNoMutatingRequestsOrWrites: доктору разрешён только
+// read-only HTTP (GET и POST на /search — это JQL, а не запись).
+func assertNoMutatingRequests(t *testing.T, requests []recordedRequest) {
+	t.Helper()
 	for _, req := range requests {
 		// PUT, DELETE, PATCH запрещены — это мутирующие операции.
 		if req.method == http.MethodPut || req.method == http.MethodDelete || req.method == http.MethodPatch {
@@ -531,12 +571,108 @@ func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
 			t.Errorf("доктор отправил POST %s — POST разрешён только для /rest/api/2/search", req.path)
 		}
 	}
-	after, err := os.ReadDir(home)
+}
+
+// dirSnapshot — путь, размер и mtime каждого файла и каталога под root, одной
+// строкой на запись. len(os.ReadDir(root)) до/после (прежняя версия этого
+// теста) ловил только смену числа записей верхнего уровня — не правку
+// содержимого существующего файла и не запись вглубь дерева (office/, bin/,
+// runs/). filepath.WalkDir здесь обходит каждый уровень, так что новый,
+// изменённый или пропавший путь где угодно в дереве превращает before в
+// другую строку, чем after.
+//
+// WalkDir гарантированно обходит в лексическом порядке (godoc), поэтому
+// сортировать строки отдельно не нужно — снимок детерминирован сам по себе.
+func dirSnapshot(t *testing.T, root string) string {
+	t.Helper()
+	var lines []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		kind := "file"
+		if info.IsDir() {
+			kind = "dir"
+		}
+		lines = append(lines, fmt.Sprintf("%s\t%s\t%d\t%d", kind, rel, info.Size(), info.ModTime().UnixNano()))
+		return nil
+	})
 	if err != nil {
+		t.Fatalf("снимок %s не построен: %v", root, err)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	var requests []recordedRequest
+	handler := doctorJiraHandler(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, recordedRequest{r.Method, r.URL.Path})
+		handler(w, r)
+	}))
+	t.Cleanup(server.Close)
+	_, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	before := dirSnapshot(t, home)
+	// --backend local: тест про побочные эффекты JIRA-пути, не про sbx —
+	// sbx по умолчанию (Finding 2) на машине без sbx дал бы tool:sbx fail
+	// и уронил бы доктора до сравнения снимков.
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
+	}
+	assertNoMutatingRequests(t, requests)
+	after := dirSnapshot(t, home)
+	if before != after {
+		t.Errorf("под ${OFFICE_HOME} что-то изменилось:\nбыло:\n%s\nстало:\n%s", before, after)
+	}
+}
+
+// TestDoctorMakesNoWritesInPayloadMode — тот же вопрос, что у предыдущего
+// теста, но в режиме поставки (fixtureRunner задаёт OFFICE_CONFIG_ROOT и
+// проверяет только клон): checkStaleOfficeSnapshots читает дерево
+// ${OFFICE_HOME}/office/<версия>/ только в режиме поставки
+// (payloadFixture, без OFFICE_CONFIG_ROOT) — os.ReadDir каталога версий и
+// dirSize по каждому чужому снапшоту. Без этого варианта именно то место,
+// где доктор реально ходит по файловой системе, не было прикрыто вовсе.
+func TestDoctorMakesNoWritesInPayloadMode(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	home := payloadFixture(t, "v0.9.0")
+	officeDir := filepath.Join(home, runner.OfficeDir)
+	for _, v := range []string{"v0.9.0", "v0.8.0", "v0.7.0"} {
+		if err := os.MkdirAll(filepath.Join(officeDir, v), 0o755); err != nil {
+			t.Fatalf("снапшот %s не создан: %v", v, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(officeDir, "v0.8.0", "workflow.yaml"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if len(after) != len(before) {
-		t.Errorf("под ${OFFICE_HOME} появились новые файлы: было %d, стало %d", len(before), len(after))
+
+	before := dirSnapshot(t, home)
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
+	}
+	after := dirSnapshot(t, home)
+	if before != after {
+		t.Errorf("режим поставки: под ${OFFICE_HOME} что-то изменилось:\nбыло:\n%s\nстало:\n%s", before, after)
 	}
 }
 
@@ -570,8 +706,11 @@ func TestDoctorSingleFatalCredentialFailureAmongPassesExits2(t *testing.T) {
 	// JIRA_REVIEWER_PASSWORD нарочно не задан — единственная сломанная проверка;
 	// доктор открывает трекер под общей учёткой, и её кред цел.
 
+	// --backend local: подсчёт держится ровно на одном протухшем креде;
+	// sbx по умолчанию (Finding 2) на машине без sbx добавил бы ещё один
+	// fail и сломал бы точное "doctor: 1 check(s) failed".
 	var out bytes.Buffer
-	err := doctorCommand(nil, &out)
+	err := doctorCommand([]string{"--backend", "local"}, &out)
 	if err == nil || err.Error() != "doctor: 1 check(s) failed" {
 		t.Fatalf("доктор не отказал ровно на одном протухшем креде: %v", err)
 	}

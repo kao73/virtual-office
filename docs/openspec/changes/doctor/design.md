@@ -52,9 +52,11 @@ design reuses rather than reimplements:
 ### Command shape
 `cmd/runner/doctor.go` adds `doctorCommand(args []string, out io.Writer)
 error`, wired into `main.go`'s switch as `case "doctor"`. It takes the same
-`--backend` flag the other commands accept (default `local`), used only to
-decide whether the `sbx` tool and the sandbox-network check apply — it
-performs no sandboxed exec itself. No `--role`, no `--json`.
+`--backend` flag the other commands accept (default `sbx`, same as `tick`,
+`loop`, `reap` and the rest — a bare `runner doctor` previews exactly what
+a bare `runner tick` would need), used only to decide whether the `sbx`
+tool and the sandbox-network check apply — it performs no sandboxed exec
+itself. No `--role`, no `--json`.
 
 Each check is a small `func() finding` that never returns early on
 failure — `doctorCommand` runs all of them, prints one line per check
