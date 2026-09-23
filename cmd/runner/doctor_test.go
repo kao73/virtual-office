@@ -539,3 +539,71 @@ func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
 		t.Errorf("под ${OFFICE_HOME} появились новые файлы: было %d, стало %d", len(before), len(after))
 	}
 }
+
+// doctorTrackerYAMLWithReviewerRole — как doctorTrackerYAML, плюс роль
+// reviewer со своей парой учётки: нужна, чтобы протухшая переменная одной
+// роли не задевала общую учётку, которой доктор открывает трекер.
+func doctorTrackerYAMLWithReviewerRole(baseURL string) string {
+	return "base_url: " + baseURL + "\nauth: { mode: basic }\n" +
+		"accounts:\n" +
+		"  default: { user_env: JIRA_USER, secret_env: JIRA_PASSWORD }\n" +
+		"  roles:\n" +
+		"    reviewer: { user_env: JIRA_REVIEWER_USER, secret_env: JIRA_REVIEWER_PASSWORD }\n" +
+		"status_map: { Ready: Ready, InProgress: In Progress, Review: Review, Blocked: Blocked }\n" +
+		"fields:\n  agent_owner: customfield_10001\n  run_id: customfield_10002\n" +
+		"  lease_until: customfield_10003\n  attempts: customfield_10004\n" +
+		"human_flag_label: office-waits-human\n" +
+		"depends_on_link: Depends\n"
+}
+
+func TestDoctorSingleFatalCredentialFailureAmongPassesExits2(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	server := httptest.NewServer(doctorJiraHandler(t))
+	t.Cleanup(server.Close)
+	_, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAMLWithReviewerRole(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	t.Setenv("JIRA_REVIEWER_USER", "office-reviewer")
+	// JIRA_REVIEWER_PASSWORD нарочно не задан — единственная сломанная проверка;
+	// доктор открывает трекер под общей учёткой, и её кред цел.
+
+	var out bytes.Buffer
+	err := doctorCommand(nil, &out)
+	if err == nil || err.Error() != "doctor: 1 check(s) failed" {
+		t.Fatalf("доктор не отказал ровно на одном протухшем креде: %v", err)
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "cred:JIRA_REVIEWER_PASSWORD") {
+		t.Errorf("протухший кред не назван:\n%s", printed)
+	}
+	for _, want := range []string{"jira:account", "jira:link-type", "cred:JIRA_USER", "cred:JIRA_PASSWORD"} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("прочие проверки не выполнены при одном отказе (%s):\n%s", want, printed)
+		}
+	}
+}
+
+func TestDoctorOnlyNonFatalFindingsExitsZero(t *testing.T) {
+	withLookPath(t, "git", "claude", "sbx")
+	withSbxNotice(t, "сеть машины открыта: example.com разрешён базовой политикой.", nil)
+	home := payloadFixture(t, "v0.9.0")
+	officeDir := filepath.Join(home, runner.OfficeDir)
+	for _, v := range []string{"v0.9.0", "v0.8.0"} {
+		if err := os.MkdirAll(filepath.Join(officeDir, v), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "sbx"}, &out); err != nil {
+		t.Fatalf("только некритичные находки не должны ронять доктора: %v\n%s", err, out.String())
+	}
+	printed := out.String()
+	if !strings.Contains(printed, findingPrefix("warn", "sbx:network")) ||
+		!strings.Contains(printed, findingPrefix("warn", "office:stale-snapshots")) {
+		t.Errorf("некритичные находки не напечатаны:\n%s", printed)
+	}
+}
