@@ -3,7 +3,7 @@
 - [x] 1.1 Add `FieldCheck` type and `(*Tracker) CheckFields() ([]FieldCheck, error)` to `internal/tracker/jira/jira.go`: one `GET /field`, matched against `cfg.Fields`'s four `customfield_*` ids and an expected-type table kept next to the `Fields` struct.
 - [x] 1.2 Add `(*Tracker) CheckLinkType() error`: one `GET /issueLinkType`, checks `cfg.DependsOnLink` (when non-empty) names an existing type; no-op when empty.
 - [x] 1.3 Unit tests for both against the package's existing fake JIRA server, covering: field present with right type, field present with wrong type, field absent, link type present, link type absent, `DependsOnLink` empty (skipped, not failed).
-- [ ] 1.4 Verify both against the local JIRA Server 8.13 polygon; record the actual `GET /field` and `GET /issueLinkType` response shapes in a doc comment the way `LinkDependsOn` already records its own empirical correction, and adjust the expected-type table if 8.13 differs from the assumed JIRA REST v2 shape.
+- [x] 1.4 Verify both against the local JIRA Server 8.13 polygon; record the actual `GET /field` and `GET /issueLinkType` response shapes in a doc comment the way `LinkDependsOn` already records its own empirical correction, and adjust the expected-type table if 8.13 differs from the assumed JIRA REST v2 shape.
 
 ## 2. `runner doctor` command
 
