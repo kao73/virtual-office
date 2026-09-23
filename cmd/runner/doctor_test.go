@@ -493,10 +493,16 @@ func TestDoctorLocalBackendOmitsSbxChecks(t *testing.T) {
 
 func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
 	withLookPath(t, "git", "claude")
-	var methods []string
+	var requests []struct {
+		method string
+		path   string
+	}
 	handler := doctorJiraHandler(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		methods = append(methods, r.Method)
+		requests = append(requests, struct {
+			method string
+			path   string
+		}{r.Method, r.URL.Path})
 		handler(w, r)
 	}))
 	t.Cleanup(server.Close)
@@ -515,9 +521,14 @@ func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
 	if err := doctorCommand(nil, &out); err != nil {
 		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
 	}
-	for _, m := range methods {
-		if m != http.MethodGet {
-			t.Errorf("доктор отправил %s — трекер не должен меняться", m)
+	for _, req := range requests {
+		// PUT, DELETE, PATCH запрещены — это мутирующие операции.
+		if req.method == http.MethodPut || req.method == http.MethodDelete || req.method == http.MethodPatch {
+			t.Errorf("доктор отправил %s %s — это мутирующая операция", req.method, req.path)
+		}
+		// POST разрешён только для /search — это read-only JQL операция в JIRA.
+		if req.method == http.MethodPost && req.path != "/rest/api/2/search" {
+			t.Errorf("доктор отправил POST %s — POST разрешён только для /rest/api/2/search", req.path)
 		}
 	}
 	after, err := os.ReadDir(home)
