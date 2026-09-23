@@ -24,5 +24,5 @@
 
 ## 4. Docs
 
-- [ ] 4.1 README: mention `runner doctor` where `runner init`/`runner version` are already documented.
-- [ ] 4.2 `docs/notes/install.md`: add the addendum resolving the deferred `office ls`/`office prune` decision (per design.md's Migration Plan — listing now, deletion command later on demand).
+- [x] 4.1 README: mention `runner doctor` where `runner init`/`runner version` are already documented.
+- [x] 4.2 `docs/notes/install.md`: add the addendum resolving the deferred `office ls`/`office prune` decision (per design.md's Migration Plan — listing now, deletion command later on demand).
