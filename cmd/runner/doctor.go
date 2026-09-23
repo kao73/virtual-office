@@ -354,17 +354,6 @@ func doctorCommand(args []string, out io.Writer) error {
 	}
 	report(checkLinkType(trk, cfg.DependsOnLink))
 
-	workingStatuses, workflowErr := loadWorkingStatuses(office, officeErr)
-	for _, key := range jiraProjects.Keys() {
-		if workflowErr != nil {
-			report(finding{"skip:workflow:" + key, "warn", "проверка workflow пропущена: " + workflowErr.Error()})
-			continue
-		}
-		for _, role := range slices.Sorted(maps.Keys(workingStatuses)) {
-			report(checkWorkflow(trk, key, role, workingStatuses[role]))
-		}
-	}
-
 	return concludeExit(out, findings)
 }
 

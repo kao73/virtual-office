@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -401,5 +404,127 @@ func TestLoadWorkingStatusesPropagatesResolveError(t *testing.T) {
 	sentinel := errors.New("нет личности раннера")
 	if _, err := loadWorkingStatuses(runner.Office{}, sentinel); !errors.Is(err, sentinel) {
 		t.Errorf("ошибка резолва не дошла: %v", err)
+	}
+}
+
+// doctorTrackerYAML — tracker.yaml полное настолько, чтобы CheckAccount,
+// CheckFields и CheckLinkType все нашли то, что ищут: отдельно от
+// office_test.go's trackerYAML(), которое depends_on_link не настраивает
+// и статус InProgress не переводит.
+func doctorTrackerYAML(baseURL string) string {
+	return "base_url: " + baseURL + "\nauth: { mode: basic }\n" +
+		"accounts:\n  default: { user_env: JIRA_USER, secret_env: JIRA_PASSWORD }\n" +
+		"status_map: { Ready: Ready, InProgress: In Progress, Review: Review, Blocked: Blocked }\n" +
+		"fields:\n  agent_owner: customfield_10001\n  run_id: customfield_10002\n" +
+		"  lease_until: customfield_10003\n  attempts: customfield_10004\n" +
+		"human_flag_label: office-waits-human\n" +
+		"depends_on_link: Depends\n"
+}
+
+// doctorJiraHandler — минимальный сервер JIRA для доктора: /myself, /field,
+// /issueLinkType с ответами, совпадающими с doctorTrackerYAML, и пустой
+// /search (задач в рабочем статусе ещё нет — законный результат). Любой
+// другой запрос — ошибка теста: доктор не должен звать ничего лишнего.
+func doctorJiraHandler(t *testing.T) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/rest/api/2/myself":
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "office"})
+		case "/rest/api/2/field":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"id": "customfield_10001", "schema": map[string]any{"type": "string"}},
+				{"id": "customfield_10002", "schema": map[string]any{"type": "string"}},
+				{"id": "customfield_10003", "schema": map[string]any{"type": "datetime"}},
+				{"id": "customfield_10004", "schema": map[string]any{"type": "number"}},
+			})
+		case "/rest/api/2/issueLinkType":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issueLinkTypes": []map[string]any{{"name": "Depends"}},
+			})
+		case "/rest/api/2/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issues": []any{}})
+		default:
+			t.Errorf("доктор: неожиданный запрос %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}
+}
+
+func TestDoctorFullSuccessPathExitsZero(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	server := httptest.NewServer(doctorJiraHandler(t))
+	t.Cleanup(server.Close)
+	_, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	var out bytes.Buffer
+	if err := doctorCommand(nil, &out); err != nil {
+		t.Fatalf("доктор отказал на счастливом пути: %v\n%s", err, out.String())
+	}
+	for _, want := range []string{
+		"tool:git", "tool:claude", "cred:JIRA_USER", "cred:JIRA_PASSWORD",
+		"jira:account", "jira:field:owner", "jira:field:run_id",
+		"jira:field:lease_until", "jira:field:attempts", "jira:link-type",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("нет строки про %s:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestDoctorLocalBackendOmitsSbxChecks(t *testing.T) {
+	withLookPath(t, "git", "claude") // sbx намеренно отсутствует
+	fixtureRunner(t, mockProject)
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "tool:sbx") || strings.Contains(out.String(), "sbx:network") {
+		t.Errorf("бэкенд local не должен упоминать sbx:\n%s", out.String())
+	}
+}
+
+func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	var methods []string
+	handler := doctorJiraHandler(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		handler(w, r)
+	}))
+	t.Cleanup(server.Close)
+	_, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	before, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := doctorCommand(nil, &out); err != nil {
+		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
+	}
+	for _, m := range methods {
+		if m != http.MethodGet {
+			t.Errorf("доктор отправил %s — трекер не должен меняться", m)
+		}
+	}
+	after, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("под ${OFFICE_HOME} появились новые файлы: было %d, стало %d", len(before), len(after))
 	}
 }
