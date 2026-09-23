@@ -11,7 +11,7 @@
 #
 # Дальше по порядку: jira-workflow.sh правит workflow ЭТОГО проекта, jira-boards.sh
 # раскладывает доски. Проверки к каждому шагу — docs/ONBOARDING.md, дорожка
-# «новый проект».
+# «Проект».
 #
 #   scripts/jira-setup.sh [--url http://localhost:2990/jira] [--user admin] [--password admin]
 #
@@ -186,7 +186,7 @@ else
 fi
 
 echo
-echo "готово. Дальше — jira-workflow.sh и jira-boards.sh: docs/ONBOARDING.md, шаг Б2"
+echo "готово. Дальше — jira-workflow.sh и jira-boards.sh: docs/ONBOARDING.md, шаг 5"
 echo "поля для \${OFFICE_HOME}/tracker.yaml (образец — tracker.example.yaml в репозитории):"
 echo "  agent_owner: $owner_id"
 echo "  run_id:      $run_id"

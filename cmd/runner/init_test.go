@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,8 +16,9 @@ import (
 	payload "github.com/kao73/virtual-office/office"
 )
 
-// Свежая машина: каталога нет — появляется ровно с двумя образцами, слово
-// в слово из поставки, и с подсказкой, куда их копировать.
+// Свежая машина: каталога нет — появляется с двумя образцами конфигурации
+// и каталогом scheduler/ на три задания планировщика, слово в слово из
+// поставки, и с подсказкой, куда их копировать.
 func TestInitLaysOutFreshHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "office-home") // ещё не существует
 	t.Setenv(runner.HomeEnv, home)
@@ -33,12 +35,17 @@ func TestInitLaysOutFreshHome(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	slices.Sort(names)
-	want := []string{tracker.ProjectsLocalExampleFile, jira.ExampleFile}
-	slices.Sort(want)
-	if !slices.Equal(names, want) {
-		t.Errorf("в хозяйстве %v, ожидались ровно %v", names, want)
+	// Образцы конфигурации — файлы, задания планировщика — каталог: «ровно»
+	// осталось «ровно», просто список вырос на scheduler/. Убрать это
+	// утверждение значило бы остаться без единственной проверки, что init
+	// не кладёт в хозяйство ничего сверх обещанного.
+	wantFiles := []string{tracker.ProjectsLocalExampleFile, jira.ExampleFile}
+	wantTop := append(append([]string{}, wantFiles...), schedulerDir)
+	slices.Sort(wantTop)
+	if !slices.Equal(names, wantTop) {
+		t.Errorf("в хозяйстве %v, ожидались ровно %v", names, wantTop)
 	}
-	for _, name := range want {
+	for _, name := range wantFiles {
 		got, err := os.ReadFile(filepath.Join(home, name))
 		if err != nil {
 			t.Fatalf("%s не прочитан: %v", name, err)
@@ -51,9 +58,39 @@ func TestInitLaysOutFreshHome(t *testing.T) {
 			t.Errorf("%s отличается от образца в поставке", name)
 		}
 	}
+	// scheduler/ — ровно три задания, побайтно из поставки. Все три на любой
+	// платформе: машина, на которой юнит правят, не всегда та, на которой он
+	// работает, и выбирать по GOOS значило бы вешать теги сборки на данные.
+	schedEntries, err := os.ReadDir(filepath.Join(home, schedulerDir))
+	if err != nil {
+		t.Fatalf("%s не прочитан: %v", schedulerDir, err)
+	}
+	var schedNames []string
+	for _, e := range schedEntries {
+		schedNames = append(schedNames, e.Name())
+	}
+	slices.Sort(schedNames)
+	wantSched := append([]string{}, schedulerSamples...)
+	slices.Sort(wantSched)
+	if !slices.Equal(schedNames, wantSched) {
+		t.Errorf("в %s %v, ожидались ровно %v", schedulerDir, schedNames, wantSched)
+	}
+	for _, name := range wantSched {
+		got, err := os.ReadFile(filepath.Join(home, schedulerDir, name))
+		if err != nil {
+			t.Fatalf("%s не прочитан: %v", name, err)
+		}
+		exp, err := fs.ReadFile(payload.Payload, schedulerDir+"/"+name)
+		if err != nil {
+			t.Fatalf("%s не найден в поставке: %v", name, err)
+		}
+		if !bytes.Equal(got, exp) {
+			t.Errorf("%s отличается от образца в поставке", name)
+		}
+	}
 	printed := out.String()
-	if strings.Count(printed, "создан") != 2 {
-		t.Errorf("ожидались два «создан»:\n%s", printed)
+	if got := strings.Count(printed, "создан"); got != 5 {
+		t.Errorf("«создан» в выводе %d, ожидалось пять (два образца и три задания):\n%s", got, printed)
 	}
 	for _, want := range []string{tracker.ProjectsLocalFile, jira.TrackerFile, "дальше"} {
 		if !strings.Contains(printed, want) {
@@ -96,5 +133,150 @@ func TestInitLeavesConfiguredHomeAlone(t *testing.T) {
 	// jira.ExampleFile (единственный отсутствовавший образец) теперь существует
 	if _, err := os.Stat(filepath.Join(home, jira.ExampleFile)); err != nil {
 		t.Errorf("%s не создан: %v", jira.ExampleFile, err)
+	}
+}
+
+// Правленое задание переживает второй init: в нём уже стоят настоящая учётка
+// и путь, и переписать его значило бы снести настройку машины одной командой.
+func TestInitLeavesEditedSchedulerSampleAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(runner.HomeEnv, home)
+
+	var first bytes.Buffer
+	if err := initCommand(nil, &first); err != nil {
+		t.Fatalf("первый init отказал: %v", err)
+	}
+
+	edited := filepath.Join(home, schedulerDir, "office-runner.service")
+	body := "ExecStart=/home/owner/.office/bin/runner tick\n"
+	if err := os.WriteFile(edited, []byte(body), 0o644); err != nil {
+		t.Fatalf("%s не записан: %v", edited, err)
+	}
+
+	var second bytes.Buffer
+	if err := initCommand(nil, &second); err != nil { // nil error — код возврата 0
+		t.Fatalf("второй init отказал: %v", err)
+	}
+	got, err := os.ReadFile(edited)
+	if err != nil {
+		t.Fatalf("%s не прочитан: %v", edited, err)
+	}
+	if string(got) != body {
+		t.Errorf("правленое задание изменено: было %q, стало %q", body, got)
+	}
+	printed := second.String()
+	if !strings.Contains(printed, "оставлен") || !strings.Contains(printed, edited) {
+		t.Errorf("вывод не сообщает об оставленном задании:\n%s", printed)
+	}
+	if strings.Contains(printed, "создан") {
+		t.Errorf("второй init что-то создал:\n%s", printed)
+	}
+}
+
+// Запись оборвалась (место кончилось, права отозвали) — огрызок убирается,
+// а отказ называет исходную причину, а не молчит о ней.
+func TestCleanupPartialWriteRemovesFile(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "office-runner.service")
+	if err := os.WriteFile(dst, []byte("огрызок"), 0o644); err != nil {
+		t.Fatalf("%s не записан: %v", dst, err)
+	}
+	writeErr := errors.New("нет места")
+
+	err := cleanupPartialWrite(dst, writeErr)
+	if err == nil || !errors.Is(err, writeErr) {
+		t.Fatalf("отказ не называет исходную причину: %v", err)
+	}
+	if strings.Contains(err.Error(), "не убран") {
+		t.Errorf("Remove сам не отказывал, а отказ говорит обратное: %v", err)
+	}
+	if _, statErr := os.Stat(dst); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Errorf("огрызок не убран: %v", statErr)
+	}
+}
+
+// Вторая беда (Remove тоже не вышел) не должна прятаться за первой: иначе
+// огрызок на следующем init попадёт в ветку fs.ErrExist и сойдёт за оставленный.
+func TestCleanupPartialWriteReportsRemoveFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root игнорирует права каталога — убрать файл получится всё равно")
+	}
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "office-runner.service")
+	if err := os.WriteFile(dst, []byte("огрызок"), 0o644); err != nil {
+		t.Fatalf("%s не записан: %v", dst, err)
+	}
+	// Удаление файла требует права записи на каталог, а не на сам файл.
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatalf("права каталога не изменены: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) }) // иначе t.TempDir() не уберёт за собой
+
+	writeErr := errors.New("нет места")
+	err := cleanupPartialWrite(dst, writeErr)
+	if err == nil {
+		t.Fatalf("Remove должен был отказать под read-only каталогом")
+	}
+	if !errors.Is(err, writeErr) || !strings.Contains(err.Error(), "не убран") {
+		t.Errorf("отказ не называет обе беды — запись и уборку: %v", err)
+	}
+	// Обе беды — оба %w: errors.Is должен доставать и запись (writeErr выше),
+	// и саму ошибку Remove (permission denied на read-only каталоге), а не
+	// только ту, что досталась первому %w.
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("отказ Remove не достаётся через errors.Is: %v", err)
+	}
+	if _, statErr := os.Stat(dst); statErr != nil {
+		t.Errorf("файл, который не убрался, должен остаться на месте: %v", statErr)
+	}
+}
+
+// Каталог на месте образца — не наша правка и не чужой правленый юнит,
+// а что-то третье. «Оставлен» сказал бы про него то же, что про честный файл.
+func TestPlaceRejectsNonRegularExisting(t *testing.T) {
+	home := t.TempDir()
+	dst := filepath.Join(home, jira.ExampleFile)
+	if err := os.Mkdir(dst, 0o755); err != nil {
+		t.Fatalf("%s не создан: %v", dst, err)
+	}
+
+	var out bytes.Buffer
+	err := place(&out, jira.ExampleFile, dst)
+	if err == nil {
+		t.Fatalf("place не отказал на каталоге вместо образца")
+	}
+	if strings.Contains(out.String(), "оставлен") {
+		t.Errorf("каталог выдан за оставленный образец: %s", out.String())
+	}
+	info, statErr := os.Stat(dst)
+	if statErr != nil || !info.IsDir() {
+		t.Errorf("каталог на месте образца тронут: %v, %v", info, statErr)
+	}
+}
+
+// Симлинк на обычный файл — правдоподобная раскладка (общий юнит подложен
+// ссылкой на весь парк машин), а не что-то третье вроде каталога или сокета:
+// он проходит через Stat, а не отвергается наравне с ними (Lstat отверг бы).
+func TestPlaceAcceptsSymlinkToRegularFile(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(t.TempDir(), "shared-unit")
+	body := "правленый где-то ещё, сюда подложен ссылкой\n"
+	if err := os.WriteFile(target, []byte(body), 0o644); err != nil {
+		t.Fatalf("%s не записан: %v", target, err)
+	}
+	dst := filepath.Join(home, jira.ExampleFile)
+	if err := os.Symlink(target, dst); err != nil {
+		t.Fatalf("симлинк %s не создан: %v", dst, err)
+	}
+
+	var out bytes.Buffer
+	if err := place(&out, jira.ExampleFile, dst); err != nil {
+		t.Fatalf("place отказал на симлинке к обычному файлу: %v", err)
+	}
+	if !strings.Contains(out.String(), "оставлен") {
+		t.Errorf("вывод не сообщает об оставленном образце: %s", out.String())
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || string(got) != body {
+		t.Errorf("цель симлинка тронута: %q, %v", got, err)
 	}
 }

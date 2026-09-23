@@ -1,8 +1,9 @@
 name: CI
 
-# Гоняется на каждый PR и на push в master: build + vet + test. Отдельно от
-# release.yml, который собирает GoReleaser только по тегу v* — здесь только
-# быстрая проверка, что ветка вообще собирается и проходит тесты.
+# Гоняется на каждый PR и на push в master: build + vet + test + документированный
+# рецепт (scripts/doc-recipe-test.sh). Отдельно от release.yml, который собирает
+# GoReleaser только по тегу v* — здесь только быстрая проверка, что ветка вообще
+# собирается, проходит тесты и не ломает путь из README/quickstart.md.
 
 on:
   pull_request:
@@ -28,3 +29,4 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
+      - run: sh scripts/doc-recipe-test.sh

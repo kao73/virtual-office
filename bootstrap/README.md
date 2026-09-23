@@ -1,11 +1,19 @@
 # Обвязка машины
 
-Здесь то, что стоит вокруг офиса на конкретной машине и в его поставку не входит:
-задания планировщика (ниже), локальная JIRA в контейнере (`jira/`) и образ
+Здесь объяснение того, что стоит вокруг офиса на конкретной машине: запуск
+раннера по расписанию (ниже), локальная JIRA в контейнере (`jira/`) и образ
 песочницы `sbx` с запечённым `comet`/`openspec` (`office/sbx-kits/`). Раннер про них не
 знает: с планировщиком он говорит через сигналы, с трекером — через адрес
 из `${OFFICE_HOME}/tracker.yaml`, а от песочницы просто ожидает, что нужный
 образ уже испечён.
+
+**Самих заданий планировщика здесь больше нет.** Они едут в поставке: в клоне
+это `office/scheduler/`, а на машине без клона их кладёт `runner init`
+в `${OFFICE_HOME}/scheduler/`. Источник один — поставка: два образца
+одного юнита были бы двумя ответами на один вопрос. На диске после первого
+настоящего прогона файл будет лежать и второй раз, в `${OFFICE_HOME}/office/<версия>/scheduler/`
+(слепок поставки этой версии) — но его не правят и не ставят в планировщик,
+рабочая копия только одна, в `${OFFICE_HOME}/scheduler/`.
 
 Порядок, в котором это заводят на новой машине, — `docs/ONBOARDING.md`.
 
@@ -18,15 +26,22 @@
 
 Секретов в этих файлах нет и быть не должно. `CLAUDE_CODE_OAUTH_TOKEN` (или
 `ANTHROPIC_API_KEY`) и `GITHUB_TOKEN` подставляются из окружения, которое готовит
-администратор машины: `launchctl setenv`, `systemctl edit`, файл с правами 600 —
+администратор машины: `launchctl setenv`, `systemctl --user edit`, файл с правами 600 —
 что угодно, кроме репозитория.
 
 ### macOS, launchd
 
-`~/Library/LaunchAgents/local.office.runner.plist` — правь пути и загружай:
+Образец — `local.office.runner.plist`: в клоне `office/scheduler/`, на машине
+`${OFFICE_HOME}/scheduler/`. Правится в нём учётка в путях (`ВЛАДЕЛЕЦ`) и сам
+путь `${OFFICE_HOME}`, если он не дефолтный; после этого копируется в
+`~/Library/LaunchAgents/` и загружается:
 
-    launchctl load ~/Library/LaunchAgents/local.office.runner.plist
-    launchctl unload ~/Library/LaunchAgents/local.office.runner.plist
+    cp "${OFFICE_HOME:-$HOME/.office}/scheduler/local.office.runner.plist" ~/Library/LaunchAgents/
+    launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/local.office.runner.plist
+
+Снять с расписания — `bootout` вместо `bootstrap`, та же строка целиком:
+
+    launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/local.office.runner.plist
 
 launchd останавливает задание сигналом SIGTERM: раннер не начинает ни следующий
 офис, ни следующий заход, а идущий прогон агента прерывает — дожидаться его
@@ -37,9 +52,19 @@ launchd останавливает задание сигналом SIGTERM: ра
 
 ### Linux, systemd
 
-Пара `office-runner.service` + `office-runner.timer`. Раннер работает
-разовым запуском (`Type=oneshot`), а расписание держит таймер:
+Пара `office-runner.service` + `office-runner.timer` — оттуда же,
+`office/scheduler/` в клоне и `${OFFICE_HOME}/scheduler/` на машине. Пути в них
+написаны через `%h`, так что править надо только `${OFFICE_HOME}`, если он
+не дефолтный. Раннер работает разовым запуском (`Type=oneshot`), а расписание
+держит таймер; сам запуск — три строки `ExecStart` подряд, `reap`, `tick`
+и `complete-splits`, тот же заход, что делает `loop` сам, — одного `tick`
+было бы мало: задача, у которой раннера убили посреди прогона, осталась бы
+арендованной навсегда, а подтверждённый split — без детей:
 
+    mkdir -p ~/.config/systemd/user
+    cp "${OFFICE_HOME:-$HOME/.office}/scheduler/office-runner.service" ~/.config/systemd/user/
+    cp "${OFFICE_HOME:-$HOME/.office}/scheduler/office-runner.timer"   ~/.config/systemd/user/
+    systemctl --user daemon-reload
     systemctl --user enable --now office-runner.timer
     systemctl --user list-timers office-runner.timer
 
@@ -47,8 +72,17 @@ launchd останавливает задание сигналом SIGTERM: ра
 и дублировать его циклом внутри процесса незачем. `loop` пригодится там, где
 планировщика нет вовсе.
 
+Ни один образец не сужает раннер до одной роли. `--role` у `tick` и `loop` есть,
+но образец с ним назвал бы одну роль из трёх, а две оставшиеся не запускались бы
+никогда — и конвейер не упал бы, а встал, ничего об этом не сказав.
+
 ### Проверить руками
 
-    ./bin/runner tick --role implementer     # один цикл
+    ./bin/runner tick                        # один цикл, все роли по очереди
     ./bin/runner reap                        # вернуть задачи с истёкшей арендой
     ./bin/runner loop --every 2m             # цикл до Ctrl+C
+
+Прогнать вручную одну-единственную роль, не трогая расписание и не касаясь
+двух остальных, — отдельной командой:
+
+    ./bin/runner tick --role implementer     # один цикл, только implementer

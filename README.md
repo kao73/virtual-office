@@ -37,17 +37,20 @@ runner init        # завести ${OFFICE_HOME} и положить обра�
 runner version     # что установлено и где лежит офис
 ```
 
-`install.sh` кладёт `runner` и `run-agent` в `${OFFICE_HOME:-~/.office}/bin`
-и говорит, лежит ли этот путь в `PATH`. С первым тегом релиза установка
-станет одной командой из релиза (`curl -fsSL .../install.sh | sh`), без
-клона и без Go; подробности и матрица платформ —
+Платформы релиза: `darwin/arm64`, `linux/amd64`, `linux/arm64`. Полная матрица —
 [docs/notes/install.md](docs/notes/install.md).
+
+`install.sh` кладёт `runner` и `run-agent` в `${OFFICE_HOME:-$HOME/.office}/bin`,
+проверив контрольную сумму архива, и говорит, лежит ли этот путь в `PATH`.
+С первым тегом релиза установка станет одной командой из релиза
+(`curl -fsSL .../install.sh | sh`), без клона и без Go. Подробности —
+[«Быстрый старт», «Установка»](docs/guide/quickstart.md#установка).
 
 ## Первая задача
 
-На файловом трекере `mock`, без JIRA. `runner init` кладёт только образцы —
-нужен ещё репозиторий-цель (годится пустой локальный) и запись о нём
-в `${OFFICE_HOME}/projects.local.yaml`, которого пока нет:
+На файловом трекере `mock`, без JIRA. `runner init` кладёт образцы, а не
+рабочие файлы, — нужен ещё репозиторий-цель (годится пустой локальный) и
+запись о нём в `${OFFICE_HOME}/projects.local.yaml`, которого пока нет:
 
 ```sh
 git init --bare -b master /tmp/client.git
@@ -55,8 +58,8 @@ git clone -q /tmp/client.git /tmp/client
 git -C /tmp/client -c user.name=you -c user.email=you@local commit -q --allow-empty -m init
 git -C /tmp/client push -q origin master
 
-cp ${OFFICE_HOME:-~/.office}/projects.local.example.yaml \
-   ${OFFICE_HOME:-~/.office}/projects.local.yaml
+cp "${OFFICE_HOME:-$HOME/.office}/projects.local.example.yaml" \
+   "${OFFICE_HOME:-$HOME/.office}/projects.local.yaml"
 # в копии: ключ проекта → OFF, repo_url → /tmp/client.git,
 # default_branch → master, tracker → mock
 
@@ -105,8 +108,6 @@ runner ls     # что происходит с задачей прямо сей�
 | `claude` (Claude Code CLI) | сам агент; нужен только бэкенду `local` |
 | Go 1.26+ | только для сборки из исходников |
 
-Платформы релиза: `darwin/arm64`, `linux/amd64`, `linux/arm64`.
-
 ## Ограничения
 
 - **Не демон.** `runner loop` не следит за собой и не перезапускается —
@@ -121,20 +122,23 @@ runner ls     # что происходит с задачей прямо сей�
 
 ## Документация
 
-- [docs/guide/quickstart.md](docs/guide/quickstart.md) — от установки до первой задачи, с вопросами и JIRA;
-- [docs/guide/roles-and-flow.md](docs/guide/roles-and-flow.md) — что делает каждая роль и как задача идёт по графу;
-- [docs/guide/operations.md](docs/guide/operations.md) — расписание, доска и расход, ручной запуск роли,
-  хозяйство `${OFFICE_HOME}`;
-- [docs/guide/development.md](docs/guide/development.md) — проверки, golden-кейсы, релиз, карта репозитория;
-- [docs/DESIGN.md](docs/DESIGN.md) — архитектурные решения и их причины;
-- [docs/contracts/](docs/contracts/) — контракты трекера, ввода-вывода агента, разрешений песочницы;
-- [docs/ONBOARDING.md](docs/ONBOARDING.md) — чек-лист внедрения на боевой проект, от чистой машины
-  до открытого pull request;
-- [docs/notes/](docs/notes/) — рабочие заметки: авторизация, устройство песочницы, бюджеты,
-  результаты прогонов и ретроспективы этапов.
+- [docs/README.md](docs/README.md) — **указатель**: каждый документ и работа,
+  которую он делает;
+- [docs/guide/quickstart.md](docs/guide/quickstart.md) — от установки до первой
+  задачи, проведённой тремя ролями;
+- [docs/ONBOARDING.md](docs/ONBOARDING.md) — порядок внедрения на боевой проект,
+  десять шагов со ссылками;
+- [docs/DESIGN.md](docs/DESIGN.md) — архитектурные решения и их причины.
 
-## Статус и лицензия
+## Статус, обратная связь и лицензия
 
 Пятый этап сдан и проверен дважды на живом проекте — подробности и то, что
 не доделано, — [docs/notes/stage-5-retro.md](docs/notes/stage-5-retro.md).
-Лицензия — [MIT](LICENSE). Как сообщить об уязвимости — [SECURITY.md](SECURITY.md).
+
+**Issues выключены намеренно, и это не недосмотр.** Сопровождающий один,
+публичной очереди он не потянет, и пустая очередь хуже отсутствующей. Канал
+один и он приватный: об уязвимости — по [SECURITY.md](SECURITY.md), там же
+сказано про область и про то, что SLA нет. Всё остальное — форк и своя ветка:
+репозиторий открыт, лицензия это позволяет.
+
+Лицензия — [MIT](LICENSE).

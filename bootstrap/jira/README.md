@@ -7,8 +7,9 @@ Jira Software 8.13.19 на Atlassian Plugin SDK: инстанс, на котор
 Это обвязка машины, а не часть офиса: раннер про контейнер не знает ничего
 и разговаривает с любым инстансом по адресу из `${OFFICE_HOME}/tracker.yaml`.
 
-Порядок настройки — `docs/ONBOARDING.md`, дорожка «новый проект». Здесь только
-сам контейнер.
+Здесь сам контейнер. Что офис требует от любого инстанса JIRA, полигонного или
+чужого, — `docs/reference/jira-requirements.md`; порядок, в котором это
+проходят, — `docs/ONBOARDING.md`.
 
 ## Сначала SDK
 
@@ -29,6 +30,9 @@ cd -                                     # обратно в корень офи
 Версия важна: `8.2.10` знает Jira 8.13. Ссылка «последний SDK» с marketplace
 отдаёт девятую ветку, и она не подойдёт.
 
+Без него сборка образа падает на `COPY sdk/…` на первом же шаге — команда `ls`
+выше это и проверяет (из корня офиса — `ls bootstrap/jira/sdk/atlassian-plugin-sdk-8.2.10`).
+
 ## Поднять
 
 ```sh
@@ -37,8 +41,73 @@ docker compose logs -f           # ждать «jira started successfully»
 curl -fsS http://localhost:2990/jira/rest/api/2/serverInfo
 ```
 
-Готовность видно и по `docker compose ps`: `healthy` значит, что `serverInfo`
-отвечает. Адрес — `http://localhost:2990/jira`, учётка `admin`/`admin`.
+Готовность видно и по `docker compose ps` (из корня офиса — `docker compose
+-p office-jira ps`: имя проекта задано в самом `compose.yaml`, и по нему
+инстанс находится из любого каталога): `healthy` значит, что `serverInfo`
+отвечает и возвращает JSON с версией `8.13.19`. Пока он молчит, `ps` держит
+статус `starting` — healthcheck терпит его двадцать минут, а измеренный первый
+запуск занял около пятнадцати. Адрес — `http://localhost:2990/jira`, учётка
+`admin`/`admin` — это учётка именно этого локального инстанса, и в примерах
+вида `curl -su admin:admin` она названа открытым текстом ровно поэтому;
+с настоящим паролем так не делайте.
+
+## Завести проект
+
+Порядок «сначала проект» обязателен, и почему —
+`docs/reference/jira-requirements.md`, раздел «Проект». Команды для этого
+инстанса:
+
+```sh
+curl -su admin:admin -H 'Content-Type: application/json' -X POST \
+  -d '{"key":"OFF","name":"Мой проект","lead":"admin",
+       "projectTypeKey":"software",
+       "projectTemplateKey":"com.pyxis.greenhopper.jira:gh-kanban-template"}' \
+  http://localhost:2990/jira/rest/api/2/project
+```
+
+Проверка: `curl -fsS -u admin:admin
+'http://localhost:2990/jira/rest/api/2/project/OFF'` отвечает JSON, а не `404`.
+
+Затем три скрипта подряд, в этом порядке:
+
+```sh
+export JIRA_PASSWORD=admin           # скрипты читают его сами; в ps он не светится
+scripts/jira-setup.sh    --url http://localhost:2990/jira --user admin
+scripts/jira-workflow.sh --url http://localhost:2990/jira --user admin
+scripts/jira-boards.sh   --url http://localhost:2990/jira --user admin --project OFF
+```
+
+Что каждый заводит и как проверить результат — `docs/reference/jira-requirements.md`:
+статусы, переходы, четыре поля аренды, тип связи «зависит от», доски и учётки —
+всё описано там же, по разделам с теми же названиями. Четвёртый скрипт того же
+семейства, `scripts/jira-tasks.sh`, в заходе не участвует — он заводит очередь
+нагрузочного прогона; флаги у него те же: `--url`, `--user`, `--password`,
+`--project`.
+
+## Пробная задача
+
+Она проверяет workflow и права учётки на этом же проекте: заведите
+одну задачу — в интерфейсе или тем же REST — и переведите её в `Ready`.
+
+Проверка workflow: у задачи в `Ready` в списке переходов обязан быть `In Progress`.
+
+```sh
+curl -su admin:admin 'http://localhost:2990/jira/rest/api/2/issue/OFF-1/transitions' |
+  python3 -c "import json,sys; print([t['to']['name'] for t in json.load(sys.stdin)['transitions']])"
+```
+
+Проверка досок: откройте обе — инженерную и человеческую — и убедитесь, что
+задача на них видна. Права учётки
+роли проверяются тем же тикетом — `docs/reference/jira-requirements.md`, раздел
+«Учётки»; уберите задачу из `Ready` только после этой проверки, переходами
+`Ready → Blocked → Backlog`, чтобы её не подобрал холостой прогон раннера:
+`Ready` — это очередь разработчика, а `Backlog` офис не читает вовсе.
+
+Проверка: `curl -fsS -u admin:admin
+'http://localhost:2990/jira/rest/api/2/issue/OFF-1?fields=status'` показывает
+`Backlog`.
+
+Инстанс на этом можно остановить или снести:
 
 ```sh
 docker compose stop              # остановить, данные сохранить
@@ -60,15 +129,25 @@ JIRA_PORT=2991 JIRA_NAME=office-jira-live docker compose -p office-jira-live up 
 Тома у другого проекта compose свои, поэтому второй инстанс поднимается пустым —
 это и нужно, когда полигон отлажен, а вести надо чистый проект.
 
+## Второй проект на одном инстансе
+
+Это другой случай: контейнер и
+инстанс те же, а `jira-workflow.sh` без указанной цели возьмёт первый
+непошаблонный workflow и уведёт правки не в тот проект. Назовите его явно:
+`scripts/jira-workflow.sh --url http://localhost:2990/jira --user admin --workflow '<имя>'`.
+
 ## Три вещи, о которых лучше знать заранее
 
 **Лицензия живёт трое суток.** Девелоперская лицензия приезжает внутри артефакта
 `jira-plugin-test-resources-8.13.19` уже в базе H2, и срок считается не от даты
 артефакта, а от того, когда ключ попал в инстанс. Перезапуск контейнера его
 не переставляет, поэтому `restart` ничего не продлевает. Продление — `down -v`
-и настройка заново, то есть все скрипты из `ONBOARDING.md` ещё раз. Стоит это
+и настройка заново, то есть все скрипты из `docs/reference/jira-requirements.md`
+ещё раз. Стоит это
 дороже, чем кажется: `down -v` сносит оба тома, включая `maven-repo`, — значит,
-повторится и первый запуск с перекачкой артефактов.
+повторится и первый запуск с перекачкой артефактов. Идентификаторы четырёх
+полей аренды при этом тоже заведутся новые — значит, и
+`${OFFICE_HOME}/tracker.yaml` придётся поправить.
 
 **Памяти нужно ~6 ГиБ свободных, и предел контейнера этого не гарантирует.**
 `mem_limit` — потолок, а не бронь: инстанс убивало по памяти и с четырьмя
