@@ -8,8 +8,8 @@ status: final
 
 # `runner doctor` — Technical Design
 
-Capability spec: `docs/openspec/changes/doctor/specs/office-doctor/spec.md`.
-Open-phase framework: `docs/openspec/changes/doctor/design.md`. This
+Capability spec: `docs/openspec/changes/archive/2026-09-23-doctor/specs/office-doctor/spec.md`.
+Open-phase framework: `docs/openspec/changes/archive/2026-09-23-doctor/design.md`. This
 document deepens that framework into implementation-level design; it does
 not restate proposal.md's motivation or the spec's normative requirements.
 

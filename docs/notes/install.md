@@ -522,7 +522,7 @@ rm -rf "$OFFICE_HOME"; rm -rf dist; rm -f payload/validators/validate-result-*
 
 Пункт из списка выше — «`${OFFICE_HOME}/office/` только растёт... решение
 о команде — вместе с `runner doctor`» — решён: `runner doctor`
-(`docs/openspec/changes/doctor/`) умеет ровно вторую половину — посчитать
+(`docs/openspec/changes/archive/2026-09-23-doctor/`) умеет ровно вторую половину — посчитать
 и показать устаревшие снапшоты (находка `office:stale-snapshots`: сколько
 их и сколько суммарно занимают), не удаляя ничего. Отдельной команды
 `runner office prune` в этом изменении нет и не появляется сама собой:
