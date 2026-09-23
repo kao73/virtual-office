@@ -19,6 +19,34 @@ network policy, and SHALL NOT create, delete, or modify any file under
 - **THEN** no task in that JIRA project changes status, gains a comment, or
   gains a link, and no file under `${OFFICE_HOME}` is created or modified
 
+### Requirement: A broken configuration file isolates only the checks that depend on it
+`runner doctor` SHALL treat a missing or malformed `projects.local.yaml` or
+`tracker.yaml` as a single named finding, not as a crash and not as
+silence about the rest. Checks that do not depend on the broken file
+(tool presence for tools whose requirement does not depend on project
+data, stale office snapshot listing, sandbox network policy) SHALL still
+run and be reported. Checks that do depend on the broken file (project-
+conditional tool presence, credential presence, every JIRA check) SHALL
+be skipped, and `runner doctor` SHALL say they were skipped and why,
+rather than omitting them silently.
+
+#### Scenario: A fresh office right after `runner init` gets a usable report
+- **WHEN** `${OFFICE_HOME}` has no `projects.local.yaml` yet (the sample
+  has not been copied to its working name)
+- **THEN** `runner doctor` reports `git` and `claude` presence, the stale
+  office snapshot finding, and the sandbox network finding (when
+  applicable), reports `projects.local.yaml` missing as one finding
+  naming the file, and says that project-dependent checks were skipped
+  because of it — it does not stop after the first line of output
+
+#### Scenario: A malformed `tracker.yaml` does not silence unrelated projects
+- **WHEN** `projects.local.yaml` loads successfully and names a project
+  with `tracker: jira`, but `${OFFICE_HOME}/tracker.yaml` fails to parse
+- **THEN** `runner doctor` reports every check that does not need
+  `tracker.yaml` (tools, stale snapshots, sandbox network), reports
+  `tracker.yaml` as one named finding, and says credential and JIRA
+  checks were skipped because of it
+
 ### Requirement: `runner doctor` reports tool and credential presence
 `runner doctor` SHALL check that every external tool the office pipeline
 shells out to is resolvable on `PATH`, and that every credential
