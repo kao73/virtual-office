@@ -11,6 +11,7 @@ import (
 
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
+	"github.com/kao73/virtual-office/internal/tracker/jira"
 )
 
 // withLookPath подменяет lookPath на предсказуемый список инструментов — без
@@ -238,5 +239,70 @@ func TestDoctorChecksCometToolOnlyWhenForgeConfigured(t *testing.T) {
 	err := doctorCommand(nil, &out)
 	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "tool:comet")) {
 		t.Errorf("forge-проект должен требовать comet: %v\n%s", err, out.String())
+	}
+}
+
+func TestCheckCredentialsNamesUnsetVariableWithoutItsValue(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет-которого-не-должно-быть-в-выводе")
+	accounts := jira.Accounts{Default: jira.Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_MISSING"}}
+
+	findings := checkCredentials(accounts)
+	var missing finding
+	for _, f := range findings {
+		if f.check == "cred:JIRA_MISSING" {
+			missing = f
+		}
+	}
+	if missing.level != "fail" {
+		t.Fatalf("незаданная переменная не отмечена как fail: %+v", missing)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.msg, "секрет-которого-не-должно-быть-в-выводе") {
+			t.Error("значение креда попало в вывод")
+		}
+	}
+}
+
+func TestCheckCredentialsDedupsSharedAccount(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	accounts := jira.Accounts{
+		Default: jira.Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+		Roles: map[string]jira.Account{
+			"reviewer":    {UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}, // та же пара
+			"implementer": {UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+		},
+	}
+
+	findings := checkCredentials(accounts)
+	if len(findings) != 2 { // JIRA_USER + JIRA_PASSWORD, один раз каждая
+		t.Errorf("общая учётка проверена не один раз: %+v", findings)
+	}
+}
+
+func TestDoctorMalformedTrackerYamlIsolatesOnlyDependentChecks(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	_, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte("это: не: tracker.yaml: {{{"), 0o644); err != nil {
+		t.Fatalf("сломанный tracker.yaml не записан: %v", err)
+	}
+
+	var out bytes.Buffer
+	err := doctorCommand(nil, &out)
+	if err == nil {
+		t.Fatal("сломанный tracker.yaml должен быть fatal")
+	}
+	printed := out.String()
+	for _, want := range []string{
+		findingPrefix("ok", "tool:git"), findingPrefix("ok", "tool:claude"), "office:stale-snapshots",
+		findingPrefix("fail", "config:tracker.yaml"), findingPrefix("warn", "skip:jira"),
+	} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("нет строки про %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "jira:") || strings.Contains(printed, "cred:") {
+		t.Errorf("проверки credential/JIRA не должны были запуститься:\n%s", printed)
 	}
 }

@@ -17,15 +17,18 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 
 	"github.com/kao73/virtual-office/internal/adapters/claude"
 	"github.com/kao73/virtual-office/internal/backends/sbx"
 	"github.com/kao73/virtual-office/internal/runagent"
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
+	"github.com/kao73/virtual-office/internal/tracker/jira"
 )
 
 // finding — одна строка отчёта: что проверялось, чем кончилось, что сказать
@@ -140,6 +143,37 @@ func checkStaleOfficeSnapshots(o runner.Office, resolveErr error) finding {
 		fmt.Sprintf("устаревших снапшотов: %d, суммарно %s — убрать руками: rm -r %s/<версия>", n, size(total), officeDir)}
 }
 
+// checkCredentials — по одной находке на переменную окружения каждой учётки
+// tracker.yaml (default и все roles), без повторов: учётка-дубликат
+// (например, роль без своей пары UserEnv/SecretEnv, разделяющая общую)
+// называется один раз, а не по разу на каждую роль — иначе один незаданный
+// секрет выглядел бы как несколько разных бед.
+func checkCredentials(a jira.Accounts) []finding {
+	seen := map[jira.Account]bool{}
+	var out []finding
+	check := func(acc jira.Account) {
+		if seen[acc] {
+			return
+		}
+		seen[acc] = true
+		for _, v := range []string{acc.UserEnv, acc.SecretEnv} {
+			if v == "" {
+				continue
+			}
+			if _, ok := os.LookupEnv(v); ok {
+				out = append(out, finding{"cred:" + v, "ok", "задана"})
+			} else {
+				out = append(out, finding{"cred:" + v, "fail", "не задана"})
+			}
+		}
+	}
+	check(a.Default)
+	for _, role := range slices.Sorted(maps.Keys(a.Roles)) {
+		check(a.Roles[role])
+	}
+	return out
+}
+
 // doctorCommand — точка входа подкоманды. Флагов кроме --backend нет: ни
 // --role (доктор не привязан к роли), ни --json (спецификация требует
 // простого текста).
@@ -197,6 +231,18 @@ func doctorCommand(args []string, out io.Writer) error {
 	jiraProjects := projects.For("jira")
 	if len(jiraProjects) == 0 {
 		return concludeExit(out, findings)
+	}
+
+	// Stage 3 — tracker.yaml, только когда хоть один проект назвал jira.
+	cfg, err := jira.LoadConfig(filepath.Join(home, jira.TrackerFile))
+	if err != nil {
+		report(finding{"config:tracker.yaml", "fail", err.Error()})
+		report(finding{"skip:jira", "warn", "cred/JIRA-проверки пропущены: tracker.yaml не загрузился"})
+		return concludeExit(out, findings)
+	}
+
+	for _, f := range checkCredentials(cfg.Accounts) {
+		report(f)
 	}
 
 	return concludeExit(out, findings)
