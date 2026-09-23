@@ -25,6 +25,7 @@ import (
 	"github.com/kao73/virtual-office/internal/backends/sbx"
 	"github.com/kao73/virtual-office/internal/runagent"
 	"github.com/kao73/virtual-office/internal/runner"
+	"github.com/kao73/virtual-office/internal/tracker"
 )
 
 // finding — одна строка отчёта: что проверялось, чем кончилось, что сказать
@@ -168,6 +169,35 @@ func doctorCommand(args []string, out io.Writer) error {
 	// для workflow.yaml.
 	office, officeErr := runner.ResolveOffice(runner.Resolve{})
 	report(checkStaleOfficeSnapshots(office, officeErr))
+
+	// Stage 2 — projects.local.yaml. Отказ здесь не крашит доктора и не
+	// молчит о непроверенном: он называет файл и говорит, что зависящие от
+	// него проверки пропущены — ровно то, что видит человек сразу после
+	// runner init, пока не переименовал образец.
+	home, err := runner.Home()
+	if err != nil {
+		report(finding{"config:home", "fail", err.Error()})
+		return concludeExit(out, findings)
+	}
+	projects, err := tracker.LoadProjects(filepath.Join(home, tracker.ProjectsLocalFile))
+	if err != nil {
+		report(finding{"config:projects.local.yaml", "fail", err.Error()})
+		report(finding{"skip:project-dependent", "warn",
+			"tool(comet)/cred/JIRA-проверки пропущены: projects.local.yaml не загрузился"})
+		return concludeExit(out, findings)
+	}
+
+	for _, key := range projects.Keys() {
+		if projects[key].Forge != "" {
+			report(checkTool("comet"))
+			break
+		}
+	}
+
+	jiraProjects := projects.For("jira")
+	if len(jiraProjects) == 0 {
+		return concludeExit(out, findings)
+	}
 
 	return concludeExit(out, findings)
 }

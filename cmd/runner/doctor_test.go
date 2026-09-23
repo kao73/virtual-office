@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kao73/virtual-office/internal/runner"
+	"github.com/kao73/virtual-office/internal/tracker"
 )
 
 // withLookPath подменяет lookPath на предсказуемый список инструментов — без
@@ -186,5 +187,56 @@ func TestDoctorStaleSnapshotsOkWhenOfficeDirMissing(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), findingPrefix("ok", "office:stale-snapshots")+" нет") {
 		t.Errorf("свежий office/ должен читаться как «нет», не как отказ:\n%s", out.String())
+	}
+}
+
+func TestDoctorFreshOfficeWithoutProjectsFileStillReportsIndependentChecks(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	_, home := fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n")
+	if err := os.Remove(filepath.Join(home, tracker.ProjectsLocalFile)); err != nil {
+		t.Fatalf("файл не убран: %v", err)
+	}
+
+	var out bytes.Buffer
+	err := doctorCommand(nil, &out)
+	if err == nil {
+		t.Fatal("отсутствующий projects.local.yaml должен быть fatal")
+	}
+	printed := out.String()
+	for _, want := range []string{
+		findingPrefix("ok", "tool:git"), findingPrefix("ok", "tool:claude"),
+		"office:stale-snapshots",
+		findingPrefix("fail", "config:projects.local.yaml"),
+		findingPrefix("warn", "skip:project-dependent"),
+	} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("нет строки про %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestDoctorMockOnlyOfficeSkipsJiraEntirelyWithoutTrackerFile(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n") // ни одного jira-проекта, tracker.yaml на диске нет
+
+	var out bytes.Buffer
+	if err := doctorCommand(nil, &out); err != nil {
+		t.Fatalf("mock-only офис не должен отказывать: %v\n%s", err, out.String())
+	}
+	printed := out.String()
+	if strings.Contains(printed, "tracker.yaml") || strings.Contains(printed, "jira:") {
+		t.Errorf("mock-only офис не должен трогать jira/tracker.yaml:\n%s", printed)
+	}
+}
+
+func TestDoctorChecksCometToolOnlyWhenForgeConfigured(t *testing.T) {
+	withLookPath(t, "git", "claude") // comet намеренно отсутствует
+	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
+		"  default_branch: master\n  forge: github\n")
+
+	var out bytes.Buffer
+	err := doctorCommand(nil, &out)
+	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "tool:comet")) {
+		t.Errorf("forge-проект должен требовать comet: %v\n%s", err, out.String())
 	}
 }
