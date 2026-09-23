@@ -8,7 +8,7 @@
 ## 2. `runner doctor` command
 
 - [x] 2.1 Add `cmd/runner/doctor.go`: `doctorCommand(args []string, out io.Writer) error`, `--backend` flag (default `local`), no `--role`, no `--json`.
-- [ ] 2.2 Tool presence: `git`/`claude` unconditional, `sbx` when `--backend sbx`, `comet` when any project's `Forge != ""`; each via `exec.LookPath`, reported by name.
+- [x] 2.2 Tool presence: `git`/`claude` unconditional, `sbx` when `--backend sbx`, `comet` when any project's `Forge != ""`; each via `exec.LookPath`, reported by name.
 - [ ] 2.3 Credential presence: for each distinct account in `tracker.yaml`'s `Accounts` (`Default` + `Roles`, deduplicated), when at least one project uses `tracker: jira`, check `UserEnv`/`SecretEnv` are set via `os.LookupEnv`; report the variable name only.
 - [ ] 2.4 JIRA reachability: call `Tracker.CheckAccount()`, `CheckFields()`, `CheckLinkType()` once per distinct JIRA instance; call `Tracker.CheckWorkflow(project, workingStatus)` per project using `tracker: jira`. Skip all JIRA checks and the `tracker.yaml` requirement entirely when no project uses `tracker: jira`.
 - [x] 2.5 Sandbox network: call `sbx.BasePolicy{}.Notice()` when `--backend sbx` and the `sbx` tool is present; print as a `warn` finding when non-empty.
@@ -18,7 +18,7 @@
 ## 3. Tests
 
 - [ ] 3.1 `cmd/runner/doctor_test.go`: each check's pass/fail path with fakes/stubs (no live network), asserting per-check lines are printed for every check regardless of earlier failures, and the exit-triggering error's count matches the number of fatal failures.
-- [ ] 3.2 Scenario test: mock-only `projects.local.yaml` (no `tracker.yaml` on disk) — doctor runs clean without requiring or reading `tracker.yaml`.
+- [x] 3.2 Scenario test: mock-only `projects.local.yaml` (no `tracker.yaml` on disk) — doctor runs clean without requiring or reading `tracker.yaml`.
 - [ ] 3.3 Scenario test: `--backend local` — no `sbx` tool check, no sandbox-network finding, even when `sbx` is absent from `PATH`.
 - [ ] 3.4 Live run against the JIRA Server 8.13 polygon (manual or scripted, matching how `docs/notes/install.md` verified `install`) covering a clean pass and at least one deliberately broken `customfield_*`.
 
