@@ -227,6 +227,51 @@ func checkLinkType(trk jiraChecker, dependsOnLink string) finding {
 	return finding{"jira:link-type", "ok", "присутствует: " + dependsOnLink}
 }
 
+// loadWorkingStatuses читает workflow.yaml офиса (не ${OFFICE_HOME} — граф
+// один на всех проектов, отсюда office.Root) и отдаёт рабочий статус каждой
+// роли, у которой он есть. Сегодня это только implementer/"InProgress"
+// (office/workflow.yaml), но doctor не должен знать имя роли — узнать об
+// этом положено графу, не коду.
+func loadWorkingStatuses(o runner.Office, resolveErr error) (map[string]string, error) {
+	if resolveErr != nil {
+		return nil, resolveErr
+	}
+	workflow, err := tracker.LoadWorkflow(filepath.Join(o.Root, tracker.WorkflowFile))
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, role := range workflow.Order() {
+		flow, err := workflow.Role(role)
+		if err != nil {
+			continue // тот же граф уже прошёл validate() при загрузке — сюда не дойдёт
+		}
+		if flow.Working != "" {
+			out[role] = flow.Working
+		}
+	}
+	return out, nil
+}
+
+// checkWorkflow — обёртка над Tracker.CheckWorkflow для одной пары (проект,
+// роль). В отличие от internal/pipeline, который зовёт её раз за процесс и
+// только после захвата, доктор зовёт её сразу — задачи в рабочем статусе
+// может не быть, и это не беда, а «нечего показать образцом» (ok, не fail).
+func checkWorkflow(trk jiraChecker, project, role, workingStatus string) finding {
+	id := fmt.Sprintf("jira:workflow:%s:%s", project, role)
+	check, err := trk.CheckWorkflow(project, workingStatus)
+	switch {
+	case err != nil:
+		return finding{id, "warn", "проверка workflow не выполнена: " + err.Error()}
+	case check.Sample == "":
+		return finding{id, "ok", "нет образца в статусе " + workingStatus}
+	case check.SelfEntry:
+		return finding{id, "warn", "workflow допускает двух владельцев: в " + workingStatus + " есть переход из него самого"}
+	default:
+		return finding{id, "ok", "единоличный переход в " + workingStatus}
+	}
+}
+
 // doctorCommand — точка входа подкоманды. Флагов кроме --backend нет: ни
 // --role (доктор не привязан к роли), ни --json (спецификация требует
 // простого текста).
@@ -308,6 +353,17 @@ func doctorCommand(args []string, out io.Writer) error {
 		report(f)
 	}
 	report(checkLinkType(trk, cfg.DependsOnLink))
+
+	workingStatuses, workflowErr := loadWorkingStatuses(office, officeErr)
+	for _, key := range jiraProjects.Keys() {
+		if workflowErr != nil {
+			report(finding{"skip:workflow:" + key, "warn", "проверка workflow пропущена: " + workflowErr.Error()})
+			continue
+		}
+		for _, role := range slices.Sorted(maps.Keys(workingStatuses)) {
+			report(checkWorkflow(trk, key, role, workingStatuses[role]))
+		}
+	}
 
 	return concludeExit(out, findings)
 }

@@ -367,3 +367,39 @@ func TestCheckLinkTypeFailsWhenAbsent(t *testing.T) {
 		t.Errorf("отсутствующий тип связи должен быть fail: %+v", f)
 	}
 }
+
+func TestCheckWorkflowWarnsOnSelfEntryWithoutFailing(t *testing.T) {
+	f := checkWorkflow(&fakeJiraChecker{workflow: map[string]tracker.WorkflowCheck{
+		"VO|InProgress": {Sample: "VO-3", SelfEntry: true},
+	}}, "VO", "implementer", "InProgress")
+	if f.level != "warn" {
+		t.Errorf("двух владельцев не должно быть fatal: %+v", f)
+	}
+}
+
+func TestCheckWorkflowOkWithoutSample(t *testing.T) {
+	f := checkWorkflow(&fakeJiraChecker{}, "VO", "implementer", "InProgress")
+	if f.level != "ok" {
+		t.Errorf("нечего проверять — не отказ: %+v", f)
+	}
+}
+
+func TestLoadWorkingStatusesReadsShippedWorkflow(t *testing.T) {
+	root, _ := fixtureRunner(t, mockProject)
+	o := runner.Office{Root: filepath.Join(root, runner.OfficeDir)}
+
+	statuses, err := loadWorkingStatuses(o, nil)
+	if err != nil {
+		t.Fatalf("workflow.yaml не прочитан: %v", err)
+	}
+	if statuses["implementer"] != "InProgress" {
+		t.Errorf("рабочий статус implementer не найден: %+v", statuses)
+	}
+}
+
+func TestLoadWorkingStatusesPropagatesResolveError(t *testing.T) {
+	sentinel := errors.New("нет личности раннера")
+	if _, err := loadWorkingStatuses(runner.Office{}, sentinel); !errors.Is(err, sentinel) {
+		t.Errorf("ошибка резолва не дошла: %v", err)
+	}
+}
