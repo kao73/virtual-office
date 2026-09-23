@@ -1,10 +1,10 @@
 workflow: full
 language: en
-phase: build
+phase: verify
 context_compression: off
-build_mode: direct
+build_mode: subagent-driven-development
 build_pause: null
-subagent_dispatch: null
+subagent_dispatch: confirmed
 tdd_mode: tdd
 review_mode: standard
 isolation: branch
