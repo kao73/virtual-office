@@ -11,7 +11,7 @@
 - [ ] 2.2 Tool presence: `git`/`claude` unconditional, `sbx` when `--backend sbx`, `comet` when any project's `Forge != ""`; each via `exec.LookPath`, reported by name.
 - [ ] 2.3 Credential presence: for each distinct account in `tracker.yaml`'s `Accounts` (`Default` + `Roles`, deduplicated), when at least one project uses `tracker: jira`, check `UserEnv`/`SecretEnv` are set via `os.LookupEnv`; report the variable name only.
 - [ ] 2.4 JIRA reachability: call `Tracker.CheckAccount()`, `CheckFields()`, `CheckLinkType()` once per distinct JIRA instance; call `Tracker.CheckWorkflow(project, workingStatus)` per project using `tracker: jira`. Skip all JIRA checks and the `tracker.yaml` requirement entirely when no project uses `tracker: jira`.
-- [ ] 2.5 Sandbox network: call `sbx.BasePolicy{}.Notice()` when `--backend sbx` and the `sbx` tool is present; print as a `warn` finding when non-empty.
+- [x] 2.5 Sandbox network: call `sbx.BasePolicy{}.Notice()` when `--backend sbx` and the `sbx` tool is present; print as a `warn` finding when non-empty.
 - [ ] 2.6 Stale office snapshots: when `runner.ResolveOffice(runner.Resolve{}).Source == runner.SourcePayload`, list `${OFFICE_HOME}/office/` entries other than the current identity's directory, sum their size, report as a `warn` finding.
 - [x] 2.7 Wire `case "doctor":` into `main.go`'s switch and its `usage` string; return `fmt.Errorf("doctor: %d check(s) failed", n)` when any fatal check failed, `nil` otherwise (fatal = tool/credential/JIRA-reachability failures; `warn` findings never contribute to `n`).
 
