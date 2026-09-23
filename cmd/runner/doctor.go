@@ -13,13 +13,18 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/kao73/virtual-office/internal/adapters/claude"
 	"github.com/kao73/virtual-office/internal/backends/sbx"
 	"github.com/kao73/virtual-office/internal/runagent"
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 // finding — одна строка отчёта: что проверялось, чем кончилось, что сказать
@@ -74,6 +79,66 @@ func checkSandboxNetwork() finding {
 	return finding{"sbx:network", "warn", notice}
 }
 
+// dirSize — суммарный размер файлов в каталоге. Ошибку обхода не поднимаем:
+// размер — справка человеку, а не то, ради чего стоит ронять весь отчёт
+// (тот же выбор, что у internal/workspace.measure).
+func dirSize(dir string) int64 {
+	var total int64
+	_ = filepath.WalkDir(dir, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil //nolint:nilerr // недочитанный путь просто не считаем
+		}
+		if info, err := entry.Info(); err == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// checkStaleOfficeSnapshots перечисляет ${OFFICE_HOME}/office/<версия>/, кроме
+// той, которую резолвит бегущий бинарник, и не трогает ни одну: удаление —
+// решение человека, docs/notes/install.md, «runner doctor резолвит office
+// ls/prune».
+//
+// o/resolveErr — результат уже сделанного в начале doctorCommand
+// runner.ResolveOffice(runner.Resolve{}): он нужен и здесь, и (Task 10) для
+// workflow.yaml, и второй раз его звать незачем.
+func checkStaleOfficeSnapshots(o runner.Office, resolveErr error) finding {
+	if resolveErr != nil || o.Source != runner.SourcePayload {
+		// В режиме клона версий на диске не бывает вовсе — не отказ, а
+		// «вопрос не о клоне». Отказ ResolveOffice сюда же: без личности
+		// раннера сказать, что считать «текущей» версией, всё равно нечем.
+		return finding{"office:stale-snapshots", "ok", "неприменимо (режим клона/разработки)"}
+	}
+	officeDir := filepath.Dir(o.Root)
+	current := filepath.Base(o.Root)
+	entries, err := os.ReadDir(officeDir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// Свежий office/: `runner init` его не создаёт, первая распаковка —
+		// при первом реальном прогоне. Не найти каталога — не беда, а «ещё
+		// нечего перечислять».
+		return finding{"office:stale-snapshots", "ok", "нет"}
+	case err != nil:
+		return finding{"office:stale-snapshots", "fail", err.Error()}
+	}
+	var n int
+	var total int64
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == current {
+			continue
+		}
+		n++
+		total += dirSize(filepath.Join(officeDir, e.Name()))
+	}
+	if n == 0 {
+		return finding{"office:stale-snapshots", "ok", "нет"}
+	}
+	return finding{"office:stale-snapshots", "warn",
+		fmt.Sprintf("устаревших снапшотов: %d, суммарно %s — убрать руками: rm -r %s/<версия>", n, size(total), officeDir)}
+}
+
 // doctorCommand — точка входа подкоманды. Флагов кроме --backend нет: ни
 // --role (доктор не привязан к роли), ни --json (спецификация требует
 // простого текста).
@@ -96,6 +161,13 @@ func doctorCommand(args []string, out io.Writer) error {
 			report(checkSandboxNetwork())
 		}
 	}
+
+	// runner.Resolve{} — нулевое значение, то есть Unpack: false: доктор не
+	// распаковывает и не создаёт файлов — спецификация требует нулевых
+	// побочных эффектов. office/officeErr используются здесь и (Task 10)
+	// для workflow.yaml.
+	office, officeErr := runner.ResolveOffice(runner.Resolve{})
+	report(checkStaleOfficeSnapshots(office, officeErr))
 
 	return concludeExit(out, findings)
 }

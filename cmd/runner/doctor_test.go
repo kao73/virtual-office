@@ -3,9 +3,13 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kao73/virtual-office/internal/runner"
 )
 
 // withLookPath подменяет lookPath на предсказуемый список инструментов — без
@@ -128,5 +132,59 @@ func TestDoctorSkipsSandboxNetworkOnLocalBackend(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "sbx:network") {
 		t.Errorf("local всё равно упомянул sbx:network:\n%s", out.String())
+	}
+}
+
+func TestDoctorReportsStaleSnapshotsInPayloadMode(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	home := payloadFixture(t, "v0.9.0")
+	officeDir := filepath.Join(home, runner.OfficeDir)
+	for _, v := range []string{"v0.9.0", "v0.8.0", "v0.7.0"} {
+		if err := os.MkdirAll(filepath.Join(officeDir, v), 0o755); err != nil {
+			t.Fatalf("снапшот %s не создан: %v", v, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(officeDir, "v0.8.0", "workflow.yaml"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := doctorCommand(nil, &out); err != nil {
+		t.Fatalf("устаревшие снапшоты не должны ронять доктора: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), findingPrefix("warn", "office:stale-snapshots")) ||
+		!strings.Contains(out.String(), "устаревших снапшотов: 2") {
+		t.Errorf("не найдены два устаревших снапшота:\n%s", out.String())
+	}
+	for _, v := range []string{"v0.9.0", "v0.8.0", "v0.7.0"} {
+		if _, err := os.Stat(filepath.Join(officeDir, v)); err != nil {
+			t.Errorf("снапшот %s пропал — доктор должен быть read-only: %v", v, err)
+		}
+	}
+}
+
+func TestDoctorStaleSnapshotsNotApplicableInCloneMode(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	fixtureRunner(t, mockProject) // задаёт OFFICE_CONFIG_ROOT -> режим клона
+
+	var out bytes.Buffer
+	if err := doctorCommand(nil, &out); err != nil {
+		t.Fatalf("режим клона не должен ронять доктора: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), findingPrefix("ok", "office:stale-snapshots")) {
+		t.Errorf("режим клона не отмечен как неприменимый:\n%s", out.String())
+	}
+}
+
+func TestDoctorStaleSnapshotsOkWhenOfficeDirMissing(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	payloadFixture(t, "v0.9.0") // office/ ещё не создан — как сразу после runner init
+
+	var out bytes.Buffer
+	if err := doctorCommand(nil, &out); err != nil {
+		t.Fatalf("свежая машина без office/ не должна ронять доктора: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), findingPrefix("ok", "office:stale-snapshots")+" нет") {
+		t.Errorf("свежий office/ должен читаться как «нет», не как отказ:\n%s", out.String())
 	}
 }
