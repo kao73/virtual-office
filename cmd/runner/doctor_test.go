@@ -82,3 +82,51 @@ func TestDoctorChecksSbxToolOnlyOnSbxBackend(t *testing.T) {
 		t.Errorf("sbx-бэкенд не проверил отсутствующий sbx: %v\n%s", err, outSbx.String())
 	}
 }
+
+// withSbxNotice подменяет sbxNotice: BasePolicy.run приватен пакету sbx,
+// и подменить настоящий вызов sbx нечем иначе.
+func withSbxNotice(t *testing.T, notice string, err error) {
+	t.Helper()
+	prev := sbxNotice
+	sbxNotice = func() (string, error) { return notice, err }
+	t.Cleanup(func() { sbxNotice = prev })
+}
+
+func TestDoctorReportsOpenSandboxNetworkAsWarnNotFail(t *testing.T) {
+	withLookPath(t, "git", "claude", "sbx")
+	withSbxNotice(t, "сеть машины открыта: example.com разрешён базовой политикой.", nil)
+	fixtureRunner(t, mockProject)
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "sbx"}, &out); err != nil {
+		t.Fatalf("открытая сеть не должна ронять доктора: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), findingPrefix("warn", "sbx:network")) {
+		t.Errorf("открытая сеть не отмечена как warn:\n%s", out.String())
+	}
+}
+
+func TestDoctorSkipsSandboxNetworkWhenSbxToolMissing(t *testing.T) {
+	withLookPath(t, "git", "claude") // sbx отсутствует
+	fixtureRunner(t, mockProject)
+
+	var out bytes.Buffer
+	_ = doctorCommand([]string{"--backend", "sbx"}, &out)
+	if strings.Contains(out.String(), "sbx:network") {
+		t.Errorf("без sbx нечем было спрашивать сеть:\n%s", out.String())
+	}
+}
+
+func TestDoctorSkipsSandboxNetworkOnLocalBackend(t *testing.T) {
+	withLookPath(t, "git", "claude", "sbx")
+	withSbxNotice(t, "сеть машины открыта", nil)
+	fixtureRunner(t, mockProject)
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("local не должен спрашивать сеть песочницы: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "sbx:network") {
+		t.Errorf("local всё равно упомянул sbx:network:\n%s", out.String())
+	}
+}

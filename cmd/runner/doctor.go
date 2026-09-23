@@ -46,6 +46,34 @@ func checkTool(name string) finding {
 	return finding{"tool:" + name, "ok", "найден"}
 }
 
+// sbxNotice — sbx.BasePolicy{}.Notice() за переменной: BasePolicy.run
+// приватен пакету sbx, и его нечем подменить снаружи. Тот же приём, что
+// у lookPath.
+var sbxNotice = func() (string, error) { return sbx.BasePolicy{}.Notice() }
+
+// toolPresent — правда, если утилита резолвится на PATH. checkTool
+// превращает то же самое в finding; сеть песочницы находке не нужна,
+// только факт присутствия.
+func toolPresent(name string) bool {
+	_, err := lookPath(name)
+	return err == nil
+}
+
+// checkSandboxNetwork сообщает про базовую политику сети машины — тем же
+// вопросом, что задаёт раннер перед прогоном в песочнице
+// (internal/backends/sbx.BasePolicy). Открытая сеть — находка, не отказ:
+// спецификация прямо запрещает ронять doctor только из-за неё.
+func checkSandboxNetwork() finding {
+	notice, err := sbxNotice()
+	if err != nil {
+		return finding{"sbx:network", "warn", "базовая политика не прочитана: " + err.Error()}
+	}
+	if notice == "" {
+		return finding{"sbx:network", "ok", "закрыта"}
+	}
+	return finding{"sbx:network", "warn", notice}
+}
+
 // doctorCommand — точка входа подкоманды. Флагов кроме --backend нет: ни
 // --role (доктор не привязан к роли), ни --json (спецификация требует
 // простого текста).
@@ -64,6 +92,9 @@ func doctorCommand(args []string, out io.Writer) error {
 	report(checkTool(claude.Executable))
 	if *backend == "sbx" {
 		report(checkTool(sbx.Executable))
+		if toolPresent(sbx.Executable) {
+			report(checkSandboxNetwork())
+		}
 	}
 
 	return concludeExit(out, findings)
