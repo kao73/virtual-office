@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -304,5 +305,65 @@ func TestDoctorMalformedTrackerYamlIsolatesOnlyDependentChecks(t *testing.T) {
 	}
 	if strings.Contains(printed, "jira:") || strings.Contains(printed, "cred:") {
 		t.Errorf("проверки credential/JIRA не должны были запуститься:\n%s", printed)
+	}
+}
+
+// fakeJiraChecker — минимальная подделка jiraChecker: подделка отвечает на
+// четыре вопроса напрямую, без HTTP-сервера. Полный tracker.Tracker (с
+// Claim/Comment/Transition) доктору не нужен — он бы значил побочные
+// эффекты, которые спецификация запрещает.
+type fakeJiraChecker struct {
+	accountErr  error
+	fields      []jira.FieldCheck
+	fieldsErr   error
+	linkErr     error
+	workflow    map[string]tracker.WorkflowCheck
+	workflowErr error
+}
+
+func (f *fakeJiraChecker) CheckAccount() error                     { return f.accountErr }
+func (f *fakeJiraChecker) CheckFields() ([]jira.FieldCheck, error) { return f.fields, f.fieldsErr }
+func (f *fakeJiraChecker) CheckLinkType() error                    { return f.linkErr }
+func (f *fakeJiraChecker) CheckWorkflow(project, workingStatus string) (tracker.WorkflowCheck, error) {
+	if f.workflowErr != nil {
+		return tracker.WorkflowCheck{}, f.workflowErr
+	}
+	return f.workflow[project+"|"+workingStatus], nil
+}
+
+func TestCheckAccountWrapsMismatchAsFail(t *testing.T) {
+	f := checkAccount(&fakeJiraChecker{accountErr: errors.New("учётка office не совпадает с server")})
+	if f.level != "fail" || !strings.Contains(f.msg, "server") {
+		t.Errorf("несовпадение учётки не отражено: %+v", f)
+	}
+}
+
+func TestCheckFieldsNamesMissingFieldByConfigAndID(t *testing.T) {
+	findings := checkFields(&fakeJiraChecker{fields: []jira.FieldCheck{
+		{Config: "lease_until", ID: "customfield_10003", Present: false, ExpectedType: "datetime"},
+		{Config: "owner", ID: "customfield_10001", Present: true, ExpectedType: "string", ActualType: "string"},
+	}})
+	var lease finding
+	for _, f := range findings {
+		if f.check == "jira:field:lease_until" {
+			lease = f
+		}
+	}
+	if lease.level != "fail" || !strings.Contains(lease.msg, "customfield_10003") || !strings.Contains(lease.msg, "lease_until") {
+		t.Errorf("пропавшее поле не названо ни именем, ни id: %+v", lease)
+	}
+}
+
+func TestCheckLinkTypeSkippedWhenNotConfigured(t *testing.T) {
+	f := checkLinkType(&fakeJiraChecker{linkErr: errors.New("не должен был позваться")}, "")
+	if f.level != "ok" {
+		t.Errorf("пустой depends_on_link должен быть ok без вызова: %+v", f)
+	}
+}
+
+func TestCheckLinkTypeFailsWhenAbsent(t *testing.T) {
+	f := checkLinkType(&fakeJiraChecker{linkErr: errors.New(`issueLinkType "Depends" не найден`)}, "Depends")
+	if f.level != "fail" {
+		t.Errorf("отсутствующий тип связи должен быть fail: %+v", f)
 	}
 }

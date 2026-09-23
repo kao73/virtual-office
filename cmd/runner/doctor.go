@@ -174,6 +174,59 @@ func checkCredentials(a jira.Accounts) []finding {
 	return out
 }
 
+// jiraChecker — то немногое, что нужно доктору от *jira.Tracker: не весь
+// tracker.Tracker (Claim/Comment/Transition и остальное были бы побочными
+// эффектами, которые спецификация запрещает), а ровно четыре read-only
+// метода. Узкий интерфейс — ради теста: подделке не нужно изображать
+// HTTP-сервер, только эти четыре ответа.
+type jiraChecker interface {
+	CheckAccount() error
+	CheckFields() ([]jira.FieldCheck, error)
+	CheckLinkType() error
+	CheckWorkflow(project, workingStatus string) (tracker.WorkflowCheck, error)
+}
+
+var _ jiraChecker = (*jira.Tracker)(nil)
+
+func checkAccount(trk jiraChecker) finding {
+	if err := trk.CheckAccount(); err != nil {
+		return finding{"jira:account", "fail", err.Error()}
+	}
+	return finding{"jira:account", "ok", "учётка подтверждена"}
+}
+
+func checkFields(trk jiraChecker) []finding {
+	checks, err := trk.CheckFields()
+	if err != nil {
+		return []finding{{"jira:fields", "fail", err.Error()}}
+	}
+	out := make([]finding, 0, len(checks))
+	for _, c := range checks {
+		id := "jira:field:" + c.Config
+		switch {
+		case !c.Present:
+			out = append(out, finding{id, "fail",
+				fmt.Sprintf("%s (fields.%s) не найдено на инстансе", c.ID, c.Config)})
+		case c.ActualType != c.ExpectedType:
+			out = append(out, finding{id, "fail",
+				fmt.Sprintf("%s (fields.%s): тип %s, ожидался %s", c.ID, c.Config, c.ActualType, c.ExpectedType)})
+		default:
+			out = append(out, finding{id, "ok", fmt.Sprintf("%s: %s", c.ID, c.ActualType)})
+		}
+	}
+	return out
+}
+
+func checkLinkType(trk jiraChecker, dependsOnLink string) finding {
+	if dependsOnLink == "" {
+		return finding{"jira:link-type", "ok", "depends_on_link не настроен, проверка пропущена"}
+	}
+	if err := trk.CheckLinkType(); err != nil {
+		return finding{"jira:link-type", "fail", err.Error()}
+	}
+	return finding{"jira:link-type", "ok", "присутствует: " + dependsOnLink}
+}
+
 // doctorCommand — точка входа подкоманды. Флагов кроме --backend нет: ни
 // --role (доктор не привязан к роли), ни --json (спецификация требует
 // простого текста).
@@ -244,6 +297,17 @@ func doctorCommand(args []string, out io.Writer) error {
 	for _, f := range checkCredentials(cfg.Accounts) {
 		report(f)
 	}
+
+	trk, err := jira.Open(cfg)
+	if err != nil {
+		report(finding{"jira:reachability", "fail", err.Error()})
+		return concludeExit(out, findings)
+	}
+	report(checkAccount(trk))
+	for _, f := range checkFields(trk) {
+		report(f)
+	}
+	report(checkLinkType(trk, cfg.DependsOnLink))
 
 	return concludeExit(out, findings)
 }
