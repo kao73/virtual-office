@@ -38,6 +38,9 @@
 
     cp "${OFFICE_HOME:-$HOME/.office}/scheduler/local.office.runner.plist" ~/Library/LaunchAgents/
     launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/local.office.runner.plist
+
+Снять с расписания — `bootout` вместо `bootstrap`, та же строка целиком:
+
     launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/local.office.runner.plist
 
 launchd останавливает задание сигналом SIGTERM: раннер не начинает ни следующий
