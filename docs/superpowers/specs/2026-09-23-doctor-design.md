@@ -2,6 +2,8 @@
 comet_change: doctor
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-23-doctor
+status: final
 ---
 
 # `runner doctor` — Technical Design
