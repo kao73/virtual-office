@@ -46,6 +46,11 @@ type fakeJira struct {
 	// ловит исходящие POST /issueLink этого же трекера.
 	remoteIssuelinks []any
 
+	// remoteFields — то, что отдаёт GET /field: список полей живого инстанса.
+	// nil — сервер отвечает пустым списком, то есть ни один customfield_* не
+	// существует.
+	remoteFields []fakeField
+
 	// verifyRunID подменяет run_id при перечитывании после захвата: так выглядит
 	// проигранная гонка, ради которой сверка и делается.
 	verifyRunID string
@@ -126,6 +131,12 @@ type fakeIssue struct {
 	fields map[string]any
 }
 
+// fakeField — одна запись ответа GET /field.
+type fakeField struct {
+	id     string
+	schema string // schema.type; пусто — как у части системных полей без схемы
+}
+
 // fakeAttachment — вложение, принятое через POST /issue/{key}/attachments.
 type fakeAttachment struct {
 	id, name string
@@ -199,6 +210,13 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/rest/api/2/myself":
 		write(map[string]any{"name": "office", "displayName": "Офис"})
+
+	case r.URL.Path == "/rest/api/2/field" && r.Method == http.MethodGet:
+		list := make([]any, 0, len(f.remoteFields))
+		for _, rf := range f.remoteFields {
+			list = append(list, map[string]any{"id": rf.id, "schema": map[string]any{"type": rf.schema}})
+		}
+		write(list)
 
 	case r.URL.Path == "/rest/api/2/search":
 		f.lastJQL, _ = body["jql"].(string)
@@ -1631,6 +1649,80 @@ func TestCheckWorkflowWithoutSampleTask(t *testing.T) {
 	}
 	if check.Sample != "" || check.SelfEntry {
 		t.Errorf("проверка отчиталась, не найдя задачи: %+v", check)
+	}
+}
+
+func TestCheckFieldsAllPresentWithRightType(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.remoteFields = []fakeField{
+		{id: "customfield_10001", schema: "string"},
+		{id: "customfield_10002", schema: "string"},
+		{id: "customfield_10003", schema: "datetime"},
+		{id: "customfield_10004", schema: "number"},
+	}
+
+	checks, err := tr.CheckFields()
+	if err != nil {
+		t.Fatalf("проверка полей не выполнена: %v", err)
+	}
+	if len(checks) != 4 {
+		t.Fatalf("проверок %d, ожидалось 4: %+v", len(checks), checks)
+	}
+	for _, c := range checks {
+		if !c.Present || c.ActualType != c.ExpectedType {
+			t.Errorf("поле %s не совпало: %+v", c.Config, c)
+		}
+	}
+}
+
+func TestCheckFieldsWrongType(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.remoteFields = []fakeField{
+		{id: "customfield_10001", schema: "string"},
+		{id: "customfield_10002", schema: "string"},
+		{id: "customfield_10003", schema: "string"}, // ожидался datetime
+		{id: "customfield_10004", schema: "number"},
+	}
+
+	checks, err := tr.CheckFields()
+	if err != nil {
+		t.Fatalf("проверка полей не выполнена: %v", err)
+	}
+	var lease FieldCheck
+	for _, c := range checks {
+		if c.Config == "lease_until" {
+			lease = c
+		}
+	}
+	if !lease.Present || lease.ActualType != "string" || lease.ExpectedType != "datetime" {
+		t.Errorf("несовпадение типа не замечено: %+v", lease)
+	}
+}
+
+func TestCheckFieldsAbsent(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.remoteFields = []fakeField{
+		{id: "customfield_10001", schema: "string"},
+		{id: "customfield_10002", schema: "string"},
+		// customfield_10003 (lease_until) отсутствует на инстансе
+		{id: "customfield_10004", schema: "number"},
+	}
+
+	checks, err := tr.CheckFields()
+	if err != nil {
+		t.Fatalf("проверка полей не выполнена: %v", err)
+	}
+	var lease FieldCheck
+	for _, c := range checks {
+		if c.Config == "lease_until" {
+			lease = c
+		}
+	}
+	if lease.Present || lease.ActualType != "" {
+		t.Errorf("отсутствующее поле не замечено: %+v", lease)
+	}
+	if lease.ID != "customfield_10003" {
+		t.Errorf("id настроенного поля не сохранён: %+v", lease)
 	}
 }
 
