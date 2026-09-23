@@ -45,7 +45,7 @@ func findingPrefix(level, check string) string {
 }
 
 func TestDoctorReportsToolPresence(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, mockProject)
 
 	// --backend local: тест про git/claude, не про sbx-бэкенд по умолчанию
@@ -82,7 +82,7 @@ func TestDoctorNamesEachMissingToolWithoutStoppingAtFirst(t *testing.T) {
 }
 
 func TestDoctorChecksSbxToolOnlyOnSbxBackend(t *testing.T) {
-	withLookPath(t, "git", "claude") // sbx отсутствует
+	withLookPath(t, "git", "claude", "go", "comet") // sbx отсутствует
 	fixtureRunner(t, mockProject)
 
 	var outLocal bytes.Buffer
@@ -144,7 +144,7 @@ func withSbxNotice(t *testing.T, notice string, err error) {
 }
 
 func TestDoctorReportsOpenSandboxNetworkAsWarnNotFail(t *testing.T) {
-	withLookPath(t, "git", "claude", "sbx")
+	withLookPath(t, "git", "claude", "sbx", "go", "comet")
 	withSbxNotice(t, "сеть машины открыта: example.com разрешён базовой политикой.", nil)
 	fixtureRunner(t, mockProject)
 
@@ -169,7 +169,7 @@ func TestDoctorSkipsSandboxNetworkWhenSbxToolMissing(t *testing.T) {
 }
 
 func TestDoctorSkipsSandboxNetworkOnLocalBackend(t *testing.T) {
-	withLookPath(t, "git", "claude", "sbx")
+	withLookPath(t, "git", "claude", "sbx", "go", "comet")
 	withSbxNotice(t, "сеть машины открыта", nil)
 	fixtureRunner(t, mockProject)
 
@@ -183,7 +183,7 @@ func TestDoctorSkipsSandboxNetworkOnLocalBackend(t *testing.T) {
 }
 
 func TestDoctorReportsStaleSnapshotsInPayloadMode(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "comet")
 	home := payloadFixture(t, "v0.9.0")
 	officeDir := filepath.Join(home, runner.OfficeDir)
 	for _, v := range []string{"v0.9.0", "v0.8.0", "v0.7.0"} {
@@ -212,7 +212,7 @@ func TestDoctorReportsStaleSnapshotsInPayloadMode(t *testing.T) {
 }
 
 func TestDoctorStaleSnapshotsNotApplicableInCloneMode(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, mockProject) // задаёт OFFICE_CONFIG_ROOT -> режим клона
 
 	// --backend local: тест про режим клона office:stale-snapshots, не про sbx.
@@ -226,7 +226,7 @@ func TestDoctorStaleSnapshotsNotApplicableInCloneMode(t *testing.T) {
 }
 
 func TestDoctorStaleSnapshotsOkWhenOfficeDirMissing(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "comet")
 	payloadFixture(t, "v0.9.0") // office/ ещё не создан — как сразу после runner init
 
 	// --backend local: тест про office:stale-snapshots, не про sbx.
@@ -266,7 +266,7 @@ func TestDoctorFreshOfficeWithoutProjectsFileStillReportsIndependentChecks(t *te
 }
 
 func TestDoctorMockOnlyOfficeSkipsJiraEntirelyWithoutTrackerFile(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n  default_branch: master\n") // ни одного jira-проекта, tracker.yaml на диске нет
 
 	// --backend local: тест про mock-only офис/tracker.yaml, не про sbx.
@@ -280,8 +280,26 @@ func TestDoctorMockOnlyOfficeSkipsJiraEntirelyWithoutTrackerFile(t *testing.T) {
 	}
 }
 
-func TestDoctorChecksCometToolOnlyWhenForgeConfigured(t *testing.T) {
-	withLookPath(t, "git", "claude") // comet намеренно отсутствует
+// TestDoctorChecksCometToolForAnyProjectRegardlessOfForge — регрессия ревью:
+// comet раньше проверялся только когда у проекта настроен forge, но
+// internal/pipeline/prpass.go зовёт archiveIfReady (а значит и comet) что для
+// forge=="" ветки, что для forge!="" — открытие PR идёт после архивирования в
+// обоих случаях. Оба текущих полигона этого самого репозитория — без forge,
+// то есть старая проверка не ловила самый частый случай.
+func TestDoctorChecksCometToolForAnyProjectRegardlessOfForge(t *testing.T) {
+	withLookPath(t, "git", "claude", "go") // comet намеренно отсутствует
+	fixtureRunner(t, mockProject)          // без forge
+
+	// --backend local: тест про tool:comet, не про sbx.
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "local"}, &out)
+	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "tool:comet")) {
+		t.Errorf("проект без forge тоже должен требовать comet: %v\n%s", err, out.String())
+	}
+}
+
+func TestDoctorChecksCometToolWhenForgeConfigured(t *testing.T) {
+	withLookPath(t, "git", "claude", "go") // comet намеренно отсутствует
 	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
 		"  default_branch: master\n  forge: github\n")
 
@@ -501,7 +519,7 @@ func doctorJiraHandler(t *testing.T) http.HandlerFunc {
 }
 
 func TestDoctorFullSuccessPathExitsZero(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "go", "comet")
 	server := httptest.NewServer(doctorJiraHandler(t))
 	t.Cleanup(server.Close)
 	_, home := fixtureRunner(t, mockProject+jiraProject)
@@ -536,7 +554,7 @@ func TestDoctorFullSuccessPathExitsZero(t *testing.T) {
 }
 
 func TestDoctorLocalBackendOmitsSbxChecks(t *testing.T) {
-	withLookPath(t, "git", "claude") // sbx намеренно отсутствует
+	withLookPath(t, "git", "claude", "go", "comet") // sbx намеренно отсутствует
 	fixtureRunner(t, mockProject)
 
 	var out bytes.Buffer
@@ -615,7 +633,7 @@ func dirSnapshot(t *testing.T, root string) string {
 }
 
 func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "go", "comet")
 	var requests []recordedRequest
 	handler := doctorJiraHandler(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -653,7 +671,7 @@ func TestDoctorMakesNoMutatingRequestsOrWrites(t *testing.T) {
 // dirSize по каждому чужому снапшоту. Без этого варианта именно то место,
 // где доктор реально ходит по файловой системе, не было прикрыто вовсе.
 func TestDoctorMakesNoWritesInPayloadMode(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "comet")
 	home := payloadFixture(t, "v0.9.0")
 	officeDir := filepath.Join(home, runner.OfficeDir)
 	for _, v := range []string{"v0.9.0", "v0.8.0", "v0.7.0"} {
@@ -693,7 +711,7 @@ func doctorTrackerYAMLWithReviewerRole(baseURL string) string {
 }
 
 func TestDoctorSingleFatalCredentialFailureAmongPassesExits2(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "go", "comet")
 	server := httptest.NewServer(doctorJiraHandler(t))
 	t.Cleanup(server.Close)
 	_, home := fixtureRunner(t, mockProject+jiraProject)
@@ -726,7 +744,7 @@ func TestDoctorSingleFatalCredentialFailureAmongPassesExits2(t *testing.T) {
 }
 
 func TestDoctorOnlyNonFatalFindingsExitsZero(t *testing.T) {
-	withLookPath(t, "git", "claude", "sbx")
+	withLookPath(t, "git", "claude", "sbx", "comet")
 	withSbxNotice(t, "сеть машины открыта: example.com разрешён базовой политикой.", nil)
 	home := payloadFixture(t, "v0.9.0")
 	officeDir := filepath.Join(home, runner.OfficeDir)
@@ -744,5 +762,308 @@ func TestDoctorOnlyNonFatalFindingsExitsZero(t *testing.T) {
 	if !strings.Contains(printed, findingPrefix("warn", "sbx:network")) ||
 		!strings.Contains(printed, findingPrefix("warn", "office:stale-snapshots")) {
 		t.Errorf("некритичные находки не напечатаны:\n%s", printed)
+	}
+}
+
+// TestDoctorResolveFailureIsFatalNotOk — регрессия ревью: отказ
+// runner.ResolveOffice раньше читался внутри checkStaleOfficeSnapshots как
+// тот же самый "режим клона/разработки", что и легитимный клон — доктор
+// печатал ok и выходил 0 на битом OFFICE_CONFIG_ROOT, хотя `runner version`
+// на той же самой машине с тем же самым отказом отказывает и выходит 2.
+func TestDoctorResolveFailureIsFatalNotOk(t *testing.T) {
+	withLookPath(t, "git", "claude", "comet")
+	badRoot := t.TempDir() // не git-репозиторий: ConfigSHA откажет
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte(mockProject), 0o644); err != nil {
+		t.Fatalf("projects.local.yaml не записан: %v", err)
+	}
+	t.Setenv(runner.ConfigRootEnv, badRoot)
+	t.Setenv(runner.HomeEnv, home)
+
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "local"}, &out)
+	if err == nil {
+		t.Fatal("битый OFFICE_CONFIG_ROOT должен быть fatal, как у runner version")
+	}
+	printed := out.String()
+	if !strings.Contains(printed, findingPrefix("fail", "office:resolve")) {
+		t.Errorf("отказ резолва не назван office:resolve fail:\n%s", printed)
+	}
+	if strings.Contains(printed, "office:stale-snapshots") {
+		t.Errorf("stale-snapshots не должен печататься при отказе резолва — резолв уже провален:\n%s", printed)
+	}
+}
+
+// TestDoctorStaleSnapshotsUnreadableDirIsWarnNotFatal — регрессия ревью:
+// ошибка чтения ${OFFICE_HOME}/office/ (права, ENOTDIR — не "каталога нет")
+// печаталась как fail и в одиночку роняла доктора до exit 2, хотя
+// спецификация прямо перечисляет stale-snapshots среди находок, которые
+// код возврата не должны менять.
+func TestDoctorStaleSnapshotsUnreadableDirIsWarnNotFatal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root игнорирует права каталога — отказа чтения не будет")
+	}
+	withLookPath(t, "git", "claude", "comet")
+	home := payloadFixture(t, "v0.9.0")
+	officeDir := filepath.Join(home, runner.OfficeDir)
+	if err := os.MkdirAll(filepath.Join(officeDir, "v0.9.0"), 0o755); err != nil {
+		t.Fatalf("текущая версия не создана: %v", err)
+	}
+	if err := os.Chmod(officeDir, 0o000); err != nil {
+		t.Fatalf("права office/ не изменены: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(officeDir, 0o755) }) // иначе t.TempDir() не уберёт за собой
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("нечитаемый office/ не должен быть фатальным сам по себе: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), findingPrefix("warn", "office:stale-snapshots")) {
+		t.Errorf("ошибка чтения office/ должна быть warn, не fail:\n%s", out.String())
+	}
+}
+
+// TestCheckCredentialsRejectsEmptyButSetVariable — регрессия ревью:
+// os.LookupEnv говорит "есть" и для `export X=` (пустое значение), хотя
+// jira.OpenAs (internal/tracker/jira/jira.go) такое значение трактует как
+// отсутствие креда.
+func TestCheckCredentialsRejectsEmptyButSetVariable(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "") // задана переменной, но пусто
+	accounts := jira.Accounts{Default: jira.Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"}}
+
+	findings := checkCredentials(accounts)
+	var secret finding
+	for _, f := range findings {
+		if f.check == "cred:JIRA_PASSWORD" {
+			secret = f
+		}
+	}
+	if secret.level != "fail" {
+		t.Errorf("пустое значение переменной принято за заданное: %+v", secret)
+	}
+}
+
+// TestCheckCredentialsNamesUnconfiguredHalfOfRoleAccount — регрессия
+// ревью: LoadConfig проверяет accounts.default целиком, но не
+// accounts.roles.*, так что роль с user_env без своего secret_env (или
+// наоборот) грузится без единой находки о пропавшей половине — и
+// jira.OpenAs на такой роли ушла бы за секретом в переменную с пустым
+// именем.
+func TestCheckCredentialsNamesUnconfiguredHalfOfRoleAccount(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	accounts := jira.Accounts{
+		Default: jira.Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+		Roles: map[string]jira.Account{
+			"reviewer": {UserEnv: "JIRA_REVIEWER_USER"}, // secret_env забыт
+		},
+	}
+
+	findings := checkCredentials(accounts)
+	var secretHalf finding
+	for _, f := range findings {
+		if f.check == "cred:reviewer.secret_env" {
+			secretHalf = f
+		}
+	}
+	if secretHalf.level != "fail" {
+		t.Errorf("незаполненная половина учётки роли не названа: %+v", findings)
+	}
+}
+
+// TestCheckFieldsWrapsTransportErrorAsSingleFinding — GET /field, упавший
+// целиком, отдаёт одну находку jira:fields, а не молчит и не путает её
+// с "поле не найдено".
+func TestCheckFieldsWrapsTransportErrorAsSingleFinding(t *testing.T) {
+	findings := checkFields(&fakeJiraChecker{fieldsErr: errors.New("GET /field: соединение разорвано")})
+	if len(findings) != 1 || findings[0].check != "jira:fields" || findings[0].level != "fail" {
+		t.Errorf("транспортная ошибка полей не завёрнута в одну находку: %+v", findings)
+	}
+}
+
+// TestCheckWorkflowWarnsWhenTransportFails — свой отказ trk.CheckWorkflow
+// (не путать с отказом чтения workflow.yaml самим доктором) должен остаться
+// некритичной находкой, как и прочие workflow-варианты.
+func TestCheckWorkflowWarnsWhenTransportFails(t *testing.T) {
+	f := checkWorkflow(&fakeJiraChecker{workflowErr: errors.New("GET /search: таймаут")}, "VO", "implementer", "InProgress")
+	if f.level != "warn" {
+		t.Errorf("отказ самого запроса workflow не должен быть fatal: %+v", f)
+	}
+}
+
+// TestDoctorJiraOpenFailureEmitsSkipFinding — регрессия ревью: отказ
+// jira.Open (конфигурация, не сеть — реальная недоступность инстанса
+// проявляется как jira:account) ронял account/fields/link-type/workflow
+// молча, без единой находки о том, что они пропущены — в отличие от двух
+// соседних стадий (projects.local.yaml, tracker.yaml) той же функции.
+func TestDoctorJiraOpenFailureEmitsSkipFinding(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	_, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML("jira.example.com")), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "local"}, &out)
+	if err == nil {
+		t.Fatal("base_url без схемы должен быть fatal")
+	}
+	printed := out.String()
+	if !strings.Contains(printed, findingPrefix("fail", "jira:reachability")) {
+		t.Errorf("jira:reachability не назван:\n%s", printed)
+	}
+	if !strings.Contains(printed, findingPrefix("warn", "skip:jira-checks")) {
+		t.Errorf("пропущенные проверки не названы:\n%s", printed)
+	}
+	// findingPrefix, не голая подстрока: сама строка skip:jira-checks
+	// перечисляет "jira:account/fields/link-type/workflow" в своём тексте,
+	// и голый strings.Contains(printed, "jira:account") совпал бы с ней же.
+	for _, unwanted := range []string{
+		findingPrefix("ok", "jira:account"), findingPrefix("fail", "jira:account"),
+		findingPrefix("ok", "jira:field:agent_owner"), findingPrefix("fail", "jira:field:agent_owner"),
+		findingPrefix("ok", "jira:link-type"), findingPrefix("fail", "jira:link-type"),
+	} {
+		if strings.Contains(printed, unwanted) {
+			t.Errorf("проверки после неоткрытого трекера не должны были запуститься (%q):\n%s", unwanted, printed)
+		}
+	}
+}
+
+// TestDoctorWorkflowLoadFailureEmitsSkipFindingPerProject — регрессия
+// ревью: это прямой близнец бага, который команда уже ловила руками
+// однажды (удаление checkWorkflow-цикла не проваливало ни один тест) — но
+// на стороне ИЗОЛЯЦИИ отказа, не успеха: до этого теста ни один тест не
+// приводил doctorCommand к workflowErr != nil от начала до конца.
+func TestDoctorWorkflowLoadFailureEmitsSkipFindingPerProject(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	server := httptest.NewServer(doctorJiraHandler(t))
+	t.Cleanup(server.Close)
+	root, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	// ResolveOffice по-прежнему проходит (личность раннера цела) — ломается
+	// только чтение графа: tracker.LoadWorkflow, а не ResolveOffice.
+	workflowPath := filepath.Join(root, runner.OfficeDir, tracker.WorkflowFile)
+	if err := os.WriteFile(workflowPath, []byte("это: не: граф: {{{"), 0o644); err != nil {
+		t.Fatalf("workflow.yaml не сломан: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("skip:workflow — не критично, доктор не должен отказывать: %v\n%s", err, out.String())
+	}
+	printed := out.String()
+	if !strings.Contains(printed, findingPrefix("warn", "skip:workflow:VO")) {
+		t.Errorf("пропуск workflow-проверки для VO не назван:\n%s", printed)
+	}
+	for _, want := range []string{"jira:account", "jira:field:agent_owner", "jira:link-type"} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("проверки, не зависящие от workflow.yaml, должны были выполниться (%s):\n%s", want, printed)
+		}
+	}
+}
+
+// TestDoctorMalformedProjectsLocalYamlIsolatesOnlyDependentChecks —
+// регрессия ревью: только "файла нет" было проверено для
+// projects.local.yaml, хотя спецификация явно требует того же поведения
+// и для "не разобрался" — как у tracker.yaml
+// (TestDoctorMalformedTrackerYamlIsolatesOnlyDependentChecks).
+func TestDoctorMalformedProjectsLocalYamlIsolatesOnlyDependentChecks(t *testing.T) {
+	withLookPath(t, "git", "claude", "go")
+	_, home := fixtureRunner(t, mockProject)
+	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte("это: не: projects: {{{"), 0o644); err != nil {
+		t.Fatalf("сломанный projects.local.yaml не записан: %v", err)
+	}
+
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "local"}, &out)
+	if err == nil {
+		t.Fatal("сломанный projects.local.yaml должен быть fatal")
+	}
+	printed := out.String()
+	for _, want := range []string{
+		findingPrefix("ok", "tool:git"), findingPrefix("ok", "tool:claude"), "office:stale-snapshots",
+		findingPrefix("fail", "config:projects.local.yaml"), findingPrefix("warn", "skip:project-dependent"),
+	} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("нет строки про %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "tool:comet") || strings.Contains(printed, "jira:") {
+		t.Errorf("проекто-зависимые проверки не должны были запуститься:\n%s", printed)
+	}
+}
+
+// TestDoctorStaleTrackerYamlIgnoredWhenNoJiraProject — регрессия ревью:
+// только "оба файла отсутствуют" было проверено; проект, переключённый на
+// mock, но оставивший старый tracker.yaml на диске, не должен внезапно
+// получить попытку его прочитать.
+func TestDoctorStaleTrackerYamlIgnoredWhenNoJiraProject(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	_, home := fixtureRunner(t, mockProject) // ни одного jira-проекта
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte("это: не: tracker: {{{"), 0o644); err != nil {
+		t.Fatalf("оставшийся tracker.yaml не записан: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("оставшийся tracker.yaml не должен трогаться без jira-проекта: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "tracker.yaml") || strings.Contains(out.String(), "jira:") {
+		t.Errorf("оставшийся tracker.yaml не должен был прочитаться:\n%s", out.String())
+	}
+}
+
+// TestDoctorRejectsRoleFlag и TestDoctorRejectsJSONFlag — регрессия ревью:
+// спецификация явно требует отказывать эти два флага, но до этих тестов
+// это держалось только на побочном эффекте flag.ContinueOnError, без
+// единого теста, который заметил бы, если кто-то однажды их всё-таки заведёт.
+func TestDoctorRejectsRoleFlag(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	fixtureRunner(t, mockProject)
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--role", "implementer"}, &out); err == nil {
+		t.Error("--role должен быть отказом: спецификация запрещает doctor'у эту привязку")
+	}
+}
+
+func TestDoctorRejectsJSONFlag(t *testing.T) {
+	withLookPath(t, "git", "claude")
+	fixtureRunner(t, mockProject)
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--json"}, &out); err == nil {
+		t.Error("--json должен быть отказом: спецификация требует простого текста")
+	}
+}
+
+// TestDoctorConfigHomeFailureIsFatalAndNamesSkip — регрессия ревью:
+// config:home не сопровождался находкой skip:, в отличие от двух других
+// стадий этой же функции с тем же самым классом отказа (файл конфигурации
+// не прочитан → зависящие проверки пропущены).
+func TestDoctorConfigHomeFailureIsFatalAndNamesSkip(t *testing.T) {
+	withLookPath(t, "git", "claude", "go")
+	fixtureRunner(t, mockProject) // резолв офиса (клон) не завязан на OFFICE_HOME
+	t.Setenv(runner.HomeEnv, "")
+	t.Setenv("HOME", "")
+
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "local"}, &out)
+	if err == nil {
+		t.Fatal("недоступный OFFICE_HOME должен быть fatal")
+	}
+	printed := out.String()
+	if !strings.Contains(printed, findingPrefix("fail", "config:home")) {
+		t.Errorf("config:home не назван:\n%s", printed)
+	}
+	if !strings.Contains(printed, findingPrefix("warn", "skip:project-dependent")) {
+		t.Errorf("пропуск зависящих проверок не назван:\n%s", printed)
 	}
 }

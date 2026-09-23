@@ -51,6 +51,10 @@ type fakeJira struct {
 	// существует.
 	remoteFields []fakeField
 
+	// failField — GET /field отвечает 500 вместо списка: транспортная беда,
+	// отдельная от "поле не найдено" (remoteFields без нужного id).
+	failField bool
+
 	// remoteLinkTypes — имена, которые отдаёт GET /issueLinkType. nil — пустой
 	// список: искомый тип связи не существует.
 	remoteLinkTypes []string
@@ -216,6 +220,10 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(map[string]any{"name": "office", "displayName": "Офис"})
 
 	case r.URL.Path == "/rest/api/2/field" && r.Method == http.MethodGet:
+		if f.failField {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		list := make([]any, 0, len(f.remoteFields))
 		for _, rf := range f.remoteFields {
 			list = append(list, map[string]any{"id": rf.id, "schema": map[string]any{"type": rf.schema}})
@@ -1734,6 +1742,19 @@ func TestCheckFieldsAbsent(t *testing.T) {
 	}
 	if lease.ID != "customfield_10003" {
 		t.Errorf("id настроенного поля не сохранён: %+v", lease)
+	}
+}
+
+// TestCheckFieldsPropagatesTransportError — GET /field, упавший целиком
+// (сеть, 5xx), не то же самое, что "поле не найдено": это отдельная беда,
+// и CheckFields обязан отдать её вызывающему, а не подмешать в список
+// FieldCheck пустыми значениями.
+func TestCheckFieldsPropagatesTransportError(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.failField = true
+
+	if _, err := tr.CheckFields(); err == nil {
+		t.Error("транспортная ошибка GET /field не дошла до вызывающего")
 	}
 }
 
