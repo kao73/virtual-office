@@ -211,7 +211,7 @@ run-agent validate-result /tmp/task-123/.agent/result.json
 ## Хозяйство `${OFFICE_HOME}`
 
 ```
-${OFFICE_HOME:-~/.office}/
+${OFFICE_HOME:-$HOME/.office}/
 ├── projects.local.yaml             где проекты на этой машине
 ├── tracker.yaml                    подключение к JIRA: адрес, учётки, поля
 ├── budgets.yaml                    перекрытие пределов, необязательное
@@ -266,7 +266,7 @@ git-доступом, и роли он недоступен. Токен берё
 
 1. **Лог самого планировщика**, если задание идёт по расписанию, а не руками:
    `journalctl --user -u office-runner.service` на systemd,
-   `${OFFICE_HOME:-~/.office}/runner.log` на launchd (путь задаёт сам plist,
+   `${OFFICE_HOME:-$HOME/.office}/runner.log` на launchd (путь задаёт сам plist,
    `StandardOutPath`/`StandardErrorPath`). Заход, до которого не дошло дело
    («нет креда», отказ конфигурации) виден только здесь — доска и тикет
    показывают состояние задач, а не то, состоялся ли заход вообще.

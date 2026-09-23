@@ -40,7 +40,7 @@ runner version     # что установлено и где лежит офис
 Платформы релиза: `darwin/arm64`, `linux/amd64`, `linux/arm64`. Полная матрица —
 [docs/notes/install.md](docs/notes/install.md).
 
-`install.sh` кладёт `runner` и `run-agent` в `${OFFICE_HOME:-~/.office}/bin`,
+`install.sh` кладёт `runner` и `run-agent` в `${OFFICE_HOME:-$HOME/.office}/bin`,
 проверив контрольную сумму архива, и говорит, лежит ли этот путь в `PATH`.
 С первым тегом релиза установка станет одной командой из релиза
 (`curl -fsSL .../install.sh | sh`), без клона и без Go. Подробности —

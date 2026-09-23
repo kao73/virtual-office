@@ -26,7 +26,7 @@
 
 Секретов в этих файлах нет и быть не должно. `CLAUDE_CODE_OAUTH_TOKEN` (или
 `ANTHROPIC_API_KEY`) и `GITHUB_TOKEN` подставляются из окружения, которое готовит
-администратор машины: `launchctl setenv`, `systemctl edit`, файл с правами 600 —
+администратор машины: `launchctl setenv`, `systemctl --user edit`, файл с правами 600 —
 что угодно, кроме репозитория.
 
 ### macOS, launchd
