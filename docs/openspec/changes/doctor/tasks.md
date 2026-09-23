@@ -17,9 +17,9 @@
 
 ## 3. Tests
 
-- [ ] 3.1 `cmd/runner/doctor_test.go`: each check's pass/fail path with fakes/stubs (no live network), asserting per-check lines are printed for every check regardless of earlier failures, and the exit-triggering error's count matches the number of fatal failures.
+- [x] 3.1 `cmd/runner/doctor_test.go`: each check's pass/fail path with fakes/stubs (no live network), asserting per-check lines are printed for every check regardless of earlier failures, and the exit-triggering error's count matches the number of fatal failures.
 - [x] 3.2 Scenario test: mock-only `projects.local.yaml` (no `tracker.yaml` on disk) — doctor runs clean without requiring or reading `tracker.yaml`.
-- [ ] 3.3 Scenario test: `--backend local` — no `sbx` tool check, no sandbox-network finding, even when `sbx` is absent from `PATH`.
+- [x] 3.3 Scenario test: `--backend local` — no `sbx` tool check, no sandbox-network finding, even when `sbx` is absent from `PATH`.
 - [ ] 3.4 Live run against the JIRA Server 8.13 polygon (manual or scripted, matching how `docs/notes/install.md` verified `install`) covering a clean pass and at least one deliberately broken `customfield_*`.
 
 ## 4. Docs
