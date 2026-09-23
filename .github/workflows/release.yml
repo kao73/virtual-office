@@ -38,7 +38,7 @@ jobs:
       - run: sh scripts/install-test.sh
       # Релизная сборка несёт настоящие ограждения: собрать их и проверить
       # под тегом release, а не только скомпилировать в GoReleaser.
-      - run: sh scripts/build-validators.sh && go test -tags release .
+      - run: sh scripts/build-validators.sh && go test -tags release ./office/validators/...
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: v2.18.2  # тот же пин, что в scripts/release-snapshot.sh
