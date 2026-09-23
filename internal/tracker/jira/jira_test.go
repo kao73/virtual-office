@@ -51,6 +51,10 @@ type fakeJira struct {
 	// существует.
 	remoteFields []fakeField
 
+	// remoteLinkTypes — имена, которые отдаёт GET /issueLinkType. nil — пустой
+	// список: искомый тип связи не существует.
+	remoteLinkTypes []string
+
 	// verifyRunID подменяет run_id при перечитывании после захвата: так выглядит
 	// проигранная гонка, ради которой сверка и делается.
 	verifyRunID string
@@ -217,6 +221,13 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			list = append(list, map[string]any{"id": rf.id, "schema": map[string]any{"type": rf.schema}})
 		}
 		write(list)
+
+	case r.URL.Path == "/rest/api/2/issueLinkType" && r.Method == http.MethodGet:
+		types := make([]any, 0, len(f.remoteLinkTypes))
+		for _, name := range f.remoteLinkTypes {
+			types = append(types, map[string]any{"name": name})
+		}
+		write(map[string]any{"issueLinkTypes": types})
 
 	case r.URL.Path == "/rest/api/2/search":
 		f.lastJQL, _ = body["jql"].(string)
@@ -1723,6 +1734,37 @@ func TestCheckFieldsAbsent(t *testing.T) {
 	}
 	if lease.ID != "customfield_10003" {
 		t.Errorf("id настроенного поля не сохранён: %+v", lease)
+	}
+}
+
+// fixture() задаёт DependsOnLink: "Depends" (см. её тело).
+func TestCheckLinkTypePresent(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.remoteLinkTypes = []string{"Blocks", "Depends"}
+
+	if err := tr.CheckLinkType(); err != nil {
+		t.Errorf("существующий тип связи не принят: %v", err)
+	}
+}
+
+func TestCheckLinkTypeAbsent(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.remoteLinkTypes = []string{"Blocks"}
+
+	err := tr.CheckLinkType()
+	if err == nil || !strings.Contains(err.Error(), "Depends") {
+		t.Errorf("отсутствующий тип связи не назван: %v", err)
+	}
+}
+
+func TestCheckLinkTypeSkippedWhenEmpty(t *testing.T) {
+	tr, fake := fixtureWithoutDependsOnLink(t)
+
+	if err := tr.CheckLinkType(); err != nil {
+		t.Errorf("пустой depends_on_link должен молча пропускаться: %v", err)
+	}
+	if slices.Contains(fake.hitPaths, "/rest/api/2/issueLinkType") {
+		t.Error("пустой depends_on_link не должен звать инстанс")
 	}
 }
 

@@ -413,6 +413,30 @@ func (t *Tracker) CheckFields() ([]FieldCheck, error) {
 	return checks, nil
 }
 
+// CheckLinkType сверяет depends_on_link с типами связей живого инстанса.
+// Поле необязательное (см. его доккомент у Config.DependsOnLink) — пустое
+// имя не беда, а «эта возможность не настроена», и отказывать здесь не на
+// что.
+func (t *Tracker) CheckLinkType() error {
+	if t.cfg.DependsOnLink == "" {
+		return nil
+	}
+	var resp struct {
+		IssueLinkTypes []struct {
+			Name string `json:"name"`
+		} `json:"issueLinkTypes"`
+	}
+	if err := t.call(http.MethodGet, "/issueLinkType", nil, &resp); err != nil {
+		return err
+	}
+	for _, lt := range resp.IssueLinkTypes {
+		if lt.Name == t.cfg.DependsOnLink {
+			return nil
+		}
+	}
+	return fmt.Errorf("issueLinkType %q (depends_on_link) не найден на инстансе", t.cfg.DependsOnLink)
+}
+
 // searchProject — поиск по проекту, отличающий незнакомый проект от прочих бед.
 // Одна страница: годится там, где решение принимает первый подходящий
 // кандидат, а не весь список (ListExpired, CheckWorkflow, FindByMarker) —
