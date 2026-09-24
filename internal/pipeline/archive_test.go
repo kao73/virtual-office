@@ -213,9 +213,9 @@ func TestArchiveIfReadySkipsWhenStageNotReady(t *testing.T) {
 // (tasks.md 1.1), а не повод никогда не открывать pull request.
 func TestArchiveIfReadyIsNonBlockingWithoutComet(t *testing.T) {
 	o := newOffice(t)
-	old := cometExecutable
-	cometExecutable = "comet-not-installed-in-tests"
-	t.Cleanup(func() { cometExecutable = old })
+	old := CometExecutable
+	CometExecutable = "comet-not-installed-in-tests"
+	t.Cleanup(func() { CometExecutable = old })
 	task := o.approved(t, "OFF-1")
 
 	ok, err := o.archiveIfReady(task, o.Projects["OFF"])

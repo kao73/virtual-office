@@ -69,8 +69,10 @@ variable, only whether it is set.
   reporting any variable's value
 
 ### Requirement: `runner doctor` checks JIRA reachability and shape for jira projects
-For each distinct tracker instance named by a project with `tracker: jira`,
-`runner doctor` SHALL check: that the instance is reachable and the
+An office has a single `tracker.yaml`, shared by every project that names
+`tracker: jira` — there is no per-project instance. When at least one
+project does, `runner doctor` SHALL check, once, against that instance:
+that it is reachable and the
 configured account's identity matches what the instance reports for
 `/myself`; that each `customfield_*` configured in `tracker.yaml`'s
 `fields` exists on the instance and carries the expected type; and that

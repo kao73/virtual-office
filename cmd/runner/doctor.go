@@ -6,9 +6,10 @@
 // список и печатают его целиком, даже когда сами отказали на середине.
 //
 // check-id находок, по стадиям: tool:<имя>, sbx:network, office:resolve,
-// office:stale-snapshots, config:home, config:projects.local.yaml,
-// skip:project-dependent, config:tracker.yaml, skip:jira,
-// cred:<ПЕРЕМЕННАЯ|роль.user_env|роль.secret_env>, jira:reachability,
+// skip:office-dependent, office:stale-snapshots, config:home,
+// config:projects.local.yaml, skip:project-dependent, cred:GITHUB_TOKEN,
+// config:tracker.yaml, skip:jira,
+// cred:<ПЕРЕМЕННАЯ|роль.user_env|роль.secret_env>, jira:open,
 // skip:jira-checks, jira:account, jira:fields (весь GET /field упал),
 // jira:field:<agent_owner|run_id|lease_until|attempts>, jira:link-type,
 // jira:workflow:<проект>:<роль>, skip:workflow:<проект>.
@@ -24,9 +25,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/kao73/virtual-office/internal/adapters/claude"
 	"github.com/kao73/virtual-office/internal/backends/sbx"
+	"github.com/kao73/virtual-office/internal/forge"
+	"github.com/kao73/virtual-office/internal/pipeline"
 	"github.com/kao73/virtual-office/internal/runagent"
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
@@ -43,7 +47,7 @@ type finding struct {
 }
 
 // lookPath — exec.LookPath за переменной: тест подменяет её, не трогая
-// настоящий PATH машины. Тот же приём, что у cometExecutable в
+// настоящий PATH машины. Тот же приём, что у pipeline.CometExecutable в
 // internal/pipeline/archive.go, только здесь подменяется сам поиск,
 // а не имя утилиты.
 var lookPath = exec.LookPath
@@ -61,14 +65,6 @@ func checkTool(name string) finding {
 // приватен пакету sbx, и его нечем подменить снаружи. Тот же приём, что
 // у lookPath.
 var sbxNotice = func() (string, error) { return sbx.BasePolicy{}.Notice() }
-
-// toolPresent — правда, если утилита резолвится на PATH. checkTool
-// превращает то же самое в finding; сеть песочницы находке не нужна,
-// только факт присутствия.
-func toolPresent(name string) bool {
-	_, err := lookPath(name)
-	return err == nil
-}
 
 // checkSandboxNetwork сообщает про базовую политику сети машины — тем же
 // вопросом, что задаёт раннер перед прогоном в песочнице
@@ -185,10 +181,18 @@ func checkCredentials(a jira.Accounts) []finding {
 	seen := map[jira.Account]bool{}
 	var out []finding
 	check := func(label string, acc jira.Account) {
-		if seen[acc] {
-			return
+		// Дедуп — только для настоящей общей учётки (непустой acc): два
+		// разных пустых Account{} (обе половины не настроены) — это две
+		// РАЗНЫЕ беды с одинаковым нулевым значением, а не одна и та же
+		// учётка. Без этой оговорки roles: {analyst: {}, reviewer: {}}
+		// назвал бы только analyst, а про reviewer — ни слова, хотя он
+		// сломан ровно так же (регрессия внешнего ревью).
+		if acc != (jira.Account{}) {
+			if seen[acc] {
+				return
+			}
+			seen[acc] = true
 		}
-		seen[acc] = true
 		for _, field := range []struct{ key, env string }{
 			{"user_env", acc.UserEnv},
 			{"secret_env", acc.SecretEnv},
@@ -256,7 +260,11 @@ func checkFields(trk jiraChecker) []finding {
 
 func checkLinkType(trk jiraChecker, dependsOnLink string) finding {
 	if dependsOnLink == "" {
-		return finding{"jira:link-type", "ok", "depends_on_link не настроен, проверка пропущена"}
+		// warn, не ok: поле необязательное, но без него связи «зависит от»
+		// работать не будут (LinkDependsOn откажет в настоящем прогоне) —
+		// молчаливое "ok" прятало бы это от человека, который завёл split,
+		// но забыл настроить depends_on_link.
+		return finding{"jira:link-type", "warn", "depends_on_link не настроен — связи «зависит от» работать не будут"}
 	}
 	if err := trk.CheckLinkType(); err != nil {
 		return finding{"jira:link-type", "fail", err.Error()}
@@ -333,8 +341,11 @@ func doctorCommand(args []string, out io.Writer) error {
 	report(checkTool("git"))
 	report(checkTool(claude.Executable))
 	if *backend == "sbx" {
-		report(checkTool(sbx.Executable))
-		if toolPresent(sbx.Executable) {
+		// Один checkTool: второй lookPath на то же самое имя ничего не
+		// узнал бы заново — level уже несёт ответ.
+		sbxTool := checkTool(sbx.Executable)
+		report(sbxTool)
+		if sbxTool.level == "ok" {
 			report(checkSandboxNetwork())
 		}
 	}
@@ -353,6 +364,8 @@ func doctorCommand(args []string, out io.Writer) error {
 	office, officeErr := runner.ResolveOffice(runner.Resolve{})
 	if officeErr != nil {
 		report(finding{"office:resolve", "fail", officeErr.Error()})
+		report(finding{"skip:office-dependent", "warn",
+			"office:stale-snapshots/tool:go пропущены: личность офиса не резолвится"})
 	} else {
 		report(checkStaleOfficeSnapshots(office))
 		if office.Source == runner.SourceClone {
@@ -395,7 +408,37 @@ func doctorCommand(args []string, out io.Writer) error {
 	// Безусловно, не под "если проектов больше нуля": LoadProjects выше уже
 	// отказал бы на пустом projects.local.yaml («не называет ни одного
 	// проекта») раньше, чем выполнение дошло бы сюда.
-	report(checkTool("comet"))
+	//
+	// pipeline.CometExecutable, не строковый литерал: то же самое имя, что
+	// реально вызывает archiveIfReady — разойдись оно, доктор проверял бы
+	// не то, что нужно раннеру.
+	report(checkTool(pipeline.CometExecutable))
+
+	// GITHUB_TOKEN — без него forge.NewGitHub вовсе не соберётся
+	// (internal/forge/github.go: "без него офис не откроет pull request"),
+	// а без него же credentialArgs (internal/workspace/workspace.go) молча
+	// не подложит credential-хелпер для пуша по HTTPS — тогда пуш уйдёт на
+	// системные git-креды, которых на CI-машине обычно нет. Первое —
+	// фатально для forge-проекта, второе — предупреждение для проекта без
+	// forge, но с https:// repo_url (по ssh системные креды и так нужны, и
+	// GITHUB_TOKEN тут ни при чём).
+	var needsToken, needsHTTPSPush bool
+	for _, key := range projects.Keys() {
+		switch p := projects[key]; {
+		case p.Forge != "":
+			needsToken = true
+		case strings.HasPrefix(p.RepoURL, "https://"):
+			needsHTTPSPush = true
+		}
+	}
+	switch {
+	case os.Getenv(forge.TokenEnv) != "" && (needsToken || needsHTTPSPush):
+		report(finding{"cred:" + forge.TokenEnv, "ok", "задана"})
+	case needsToken:
+		report(finding{"cred:" + forge.TokenEnv, "fail", "не задана: forge-проект не откроет pull request"})
+	case needsHTTPSPush:
+		report(finding{"cred:" + forge.TokenEnv, "warn", "не задана: пуш по HTTPS уйдёт на системные git-креды"})
+	}
 
 	jiraProjects := projects.For("jira")
 	if len(jiraProjects) == 0 {
@@ -420,17 +463,19 @@ func doctorCommand(args []string, out io.Writer) error {
 	var trk jiraChecker
 	trk, err = jira.Open(cfg)
 	if err != nil {
-		report(finding{"jira:reachability", "fail", err.Error()})
-		// jira.Open — чтение tracker.yaml (base_url, auth.mode, статус-карта,
-		// секрет в окружении), не сетевой запрос: настоящая недоступность
-		// инстанса всплывёт как jira:account ниже. Здесь она не может, а
-		// падение сюда роняет account/fields/link-type/workflow разом — та
-		// же изоляция, что у config:tracker.yaml и config:projects.local.yaml
-		// выше: назвать, что пропущено, а не промолчать.
+		// jira:open, не jira:reachability: jira.Open — чтение tracker.yaml
+		// (base_url, auth.mode, статус-карта, секрет в окружении), не
+		// сетевой запрос — настоящая недоступность инстанса всплывёт как
+		// jira:account ниже, а не здесь. Падение сюда роняет
+		// account/fields/link-type/workflow разом — та же изоляция, что у
+		// config:tracker.yaml и config:projects.local.yaml выше: назвать,
+		// что пропущено, а не промолчать.
+		report(finding{"jira:open", "fail", err.Error()})
 		report(finding{"skip:jira-checks", "warn",
 			"jira:account/fields/link-type/workflow пропущены: трекер не открыт"})
 		return concludeExit(out, findings)
 	}
+	report(finding{"jira:open", "ok", "трекер открыт"})
 	report(checkAccount(trk))
 	for _, f := range checkFields(trk) {
 		report(f)
@@ -440,7 +485,17 @@ func doctorCommand(args []string, out io.Writer) error {
 	workingStatuses, workflowErr := loadWorkingStatuses(office, officeErr)
 	for _, key := range jiraProjects.Keys() {
 		if workflowErr != nil {
-			report(finding{"skip:workflow:" + key, "warn", "проверка workflow пропущена: " + workflowErr.Error()})
+			// В режиме поставки ResolveOffice(Resolve{}) не распаковывает
+			// (Unpack: false) — на свежем офисе, ещё ни разу не тикнувшем,
+			// office/<версия>/workflow.yaml на диске просто нет, и это
+			// не беда графа, а «ещё нечего проверять». Отличаем это от
+			// настоящего отказа разбора, а не отдаём сырой путь ОС в
+			// сообщении, которое человек прочтёт как «граф сломан».
+			msg := "проверка workflow пропущена: " + workflowErr.Error()
+			if errors.Is(workflowErr, fs.ErrNotExist) {
+				msg = "проверка workflow пропущена: офис ещё не распакован (ни одного реального прогона не было)"
+			}
+			report(finding{"skip:workflow:" + key, "warn", msg})
 			continue
 		}
 		for _, role := range slices.Sorted(maps.Keys(workingStatuses)) {
@@ -470,5 +525,5 @@ func concludeExit(out io.Writer, findings []finding) error {
 	if failed == 0 {
 		return nil
 	}
-	return fmt.Errorf("doctor: %d check(s) failed", failed)
+	return fmt.Errorf("doctor: отказавших проверок: %d", failed)
 }

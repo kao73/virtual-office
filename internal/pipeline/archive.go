@@ -14,15 +14,18 @@ import (
 	"github.com/kao73/virtual-office/internal/workspace"
 )
 
-// cometExecutable — CLI Comet Native в PATH раннера. Архивирование — код
+// CometExecutable — CLI Comet Native в PATH раннера. Архивирование — код
 // раннера (см. openPR в prpass.go), а не роли: оно бежит на машине/хосте, где
 // крутится office, а не в песочнице агента — отдельное требование к
 // хозяйству раннера, ещё не решённое (docs/notes/sbx.md, tasks.md 1.1).
+// Экспортирован: cmd/runner/doctor.go проверяет присутствие того же самого
+// имени на PATH, тем же приёмом, что и claude.Executable/sbx.Executable —
+// имя не должно разойтись в двух местах.
 //
 // var, а не const: тесты подменяют его на заведомо отсутствующее имя, чтобы
 // проверить, что недостающая зависимость не блокирует PR-проход, не трогая
 // PATH целиком — Ensure/Push этой же функции нужен настоящий git.
-var cometExecutable = "comet"
+var CometExecutable = "comet"
 
 // archiveReadyStage — значение data.loop.stage изменения Comet Native, при
 // котором reviewer уже передал прошедший final-result и Archive можно
@@ -218,7 +221,7 @@ func cometNativeStatus(dir, name string) (cometStatus, error) {
 
 // runComet выполняет comet в рабочей папке задачи и возвращает stdout.
 func runComet(dir string, args ...string) (string, error) {
-	cmd := exec.Command(cometExecutable, args...)
+	cmd := exec.Command(CometExecutable, args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

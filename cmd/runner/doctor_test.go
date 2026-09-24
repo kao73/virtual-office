@@ -351,7 +351,7 @@ func TestCheckCredentialsDedupsSharedAccount(t *testing.T) {
 }
 
 func TestDoctorMalformedTrackerYamlIsolatesOnlyDependentChecks(t *testing.T) {
-	withLookPath(t, "git", "claude")
+	withLookPath(t, "git", "claude", "go", "comet")
 	_, home := fixtureRunner(t, mockProject+jiraProject)
 	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte("это: не: tracker.yaml: {{{"), 0o644); err != nil {
 		t.Fatalf("сломанный tracker.yaml не записан: %v", err)
@@ -372,8 +372,11 @@ func TestDoctorMalformedTrackerYamlIsolatesOnlyDependentChecks(t *testing.T) {
 			t.Errorf("нет строки про %q:\n%s", want, printed)
 		}
 	}
-	if strings.Contains(printed, "jira:") || strings.Contains(printed, "cred:") {
-		t.Errorf("проверки credential/JIRA не должны были запуститься:\n%s", printed)
+	// cred:JIRA*, не голое "cred:": cred:GITHUB_TOKEN — про PR-проход
+	// (projects.local.yaml), не про сломанный tracker.yaml, и ему положено
+	// напечататься даже здесь.
+	if strings.Contains(printed, "jira:") || strings.Contains(printed, "cred:JIRA") {
+		t.Errorf("проверки credential/JIRA, зависящие от tracker.yaml, не должны были запуститься:\n%s", printed)
 	}
 }
 
@@ -423,10 +426,15 @@ func TestCheckFieldsNamesMissingFieldByConfigAndID(t *testing.T) {
 	}
 }
 
-func TestCheckLinkTypeSkippedWhenNotConfigured(t *testing.T) {
+// TestCheckLinkTypeWarnsWhenNotConfiguredWithoutCallingTracker — регрессия
+// внешнего ревью: пустой depends_on_link раньше отчитывался как ok, хотя
+// связи «зависит от» без него не работают (LinkDependsOn откажет в
+// настоящем прогоне) — warn честнее, а не звать трекер он по-прежнему не
+// должен.
+func TestCheckLinkTypeWarnsWhenNotConfiguredWithoutCallingTracker(t *testing.T) {
 	f := checkLinkType(&fakeJiraChecker{linkErr: errors.New("не должен был позваться")}, "")
-	if f.level != "ok" {
-		t.Errorf("пустой depends_on_link должен быть ok без вызова: %+v", f)
+	if f.level != "warn" {
+		t.Errorf("пустой depends_on_link должен быть warn, не ok, но без вызова трекера: %+v", f)
 	}
 }
 
@@ -726,10 +734,10 @@ func TestDoctorSingleFatalCredentialFailureAmongPassesExits2(t *testing.T) {
 
 	// --backend local: подсчёт держится ровно на одном протухшем креде;
 	// sbx по умолчанию (Finding 2) на машине без sbx добавил бы ещё один
-	// fail и сломал бы точное "doctor: 1 check(s) failed".
+	// fail и сломал бы точное "doctor: отказавших проверок: 1".
 	var out bytes.Buffer
 	err := doctorCommand([]string{"--backend", "local"}, &out)
-	if err == nil || err.Error() != "doctor: 1 check(s) failed" {
+	if err == nil || err.Error() != "doctor: отказавших проверок: 1" {
 		t.Fatalf("доктор не отказал ровно на одном протухшем креде: %v", err)
 	}
 	printed := out.String()
@@ -789,7 +797,14 @@ func TestDoctorResolveFailureIsFatalNotOk(t *testing.T) {
 	if !strings.Contains(printed, findingPrefix("fail", "office:resolve")) {
 		t.Errorf("отказ резолва не назван office:resolve fail:\n%s", printed)
 	}
-	if strings.Contains(printed, "office:stale-snapshots") {
+	if !strings.Contains(printed, findingPrefix("warn", "skip:office-dependent")) {
+		t.Errorf("пропуск office-зависимых проверок не назван:\n%s", printed)
+	}
+	// findingPrefix, не голая подстрока: сообщение skip:office-dependent само
+	// упоминает "office:stale-snapshots" в тексте, и strings.Contains
+	// совпал бы с ним же, а не с отдельной строкой находки.
+	if strings.Contains(printed, findingPrefix("ok", "office:stale-snapshots")) ||
+		strings.Contains(printed, findingPrefix("warn", "office:stale-snapshots")) {
 		t.Errorf("stale-snapshots не должен печататься при отказе резолва — резолв уже провален:\n%s", printed)
 	}
 }
@@ -912,8 +927,8 @@ func TestDoctorJiraOpenFailureEmitsSkipFinding(t *testing.T) {
 		t.Fatal("base_url без схемы должен быть fatal")
 	}
 	printed := out.String()
-	if !strings.Contains(printed, findingPrefix("fail", "jira:reachability")) {
-		t.Errorf("jira:reachability не назван:\n%s", printed)
+	if !strings.Contains(printed, findingPrefix("fail", "jira:open")) {
+		t.Errorf("jira:open не назван:\n%s", printed)
 	}
 	if !strings.Contains(printed, findingPrefix("warn", "skip:jira-checks")) {
 		t.Errorf("пропущенные проверки не названы:\n%s", printed)
@@ -1065,5 +1080,118 @@ func TestDoctorConfigHomeFailureIsFatalAndNamesSkip(t *testing.T) {
 	}
 	if !strings.Contains(printed, findingPrefix("warn", "skip:project-dependent")) {
 		t.Errorf("пропуск зависящих проверок не назван:\n%s", printed)
+	}
+}
+
+// TestDoctorGithubTokenFatalForForgeProject — регрессия внешнего ревью:
+// GITHUB_TOKEN не проверялся вовсе, хотя internal/forge/github.go
+// отказывает без него ("без него офис не откроет pull request") — forge-
+// проект без токена узнавал бы об этом только в настоящем прогоне.
+func TestDoctorGithubTokenFatalForForgeProject(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
+		"  default_branch: master\n  forge: github\n")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "local"}, &out)
+	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "cred:GITHUB_TOKEN")) {
+		t.Errorf("forge-проект без GITHUB_TOKEN должен быть fatal: %v\n%s", err, out.String())
+	}
+}
+
+// TestDoctorGithubTokenWarnForHTTPSProjectWithoutForge — тот же токен нужен
+// credentialArgs (internal/workspace/workspace.go) для пуша по HTTPS даже
+// без forge; без него пуш уйдёт на системные git-креды — предупреждение,
+// не отказ: по ssh их и так достаточно, а HTTPS без токена иногда работает
+// (публичный репозиторий, готовый .netrc).
+func TestDoctorGithubTokenWarnForHTTPSProjectWithoutForge(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	fixtureRunner(t, mockProject) // https://, без forge
+	t.Setenv("GITHUB_TOKEN", "")
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("HTTPS без GITHUB_TOKEN — предупреждение, не отказ: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), findingPrefix("warn", "cred:GITHUB_TOKEN")) {
+		t.Errorf("предупреждение про GITHUB_TOKEN не напечатано:\n%s", out.String())
+	}
+}
+
+func TestDoctorGithubTokenOkWhenSet(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	fixtureRunner(t, mockProject)
+	t.Setenv("GITHUB_TOKEN", "секрет")
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("заданный GITHUB_TOKEN не должен ронять доктора: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), findingPrefix("ok", "cred:GITHUB_TOKEN")) {
+		t.Errorf("заданный GITHUB_TOKEN должен быть ok:\n%s", out.String())
+	}
+}
+
+// TestCheckCredentialsNamesEachUnconfiguredRoleSeparately — регрессия
+// внешнего ревью: дедуп по значению jira.Account считал две РАЗНЫЕ роли,
+// у которых обе половины учётки просто не настроены (одинаковый нулевой
+// jira.Account{}), одной и той же общей учёткой — называлась только первая
+// по алфавиту, вторая пропадала молча.
+func TestCheckCredentialsNamesEachUnconfiguredRoleSeparately(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	accounts := jira.Accounts{
+		Default: jira.Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+		Roles: map[string]jira.Account{
+			"analyst":  {}, // обе половины не настроены
+			"reviewer": {}, // тоже — но это ДРУГАЯ беда, не общая с analyst учётка
+		},
+	}
+
+	findings := checkCredentials(accounts)
+	for _, role := range []string{"analyst", "reviewer"} {
+		found := false
+		for _, f := range findings {
+			if f.check == "cred:"+role+".user_env" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("роль %s не названа отдельно от других таких же пустых: %+v", role, findings)
+		}
+	}
+}
+
+// TestDoctorWorkflowNotYetUnpackedNamesItClearlyNotRawPath — регрессия
+// внешнего ревью: на свежепоставленном офисе, который ни разу не тикнул,
+// ResolveOffice(Resolve{}) (Unpack: false) не распаковывает
+// office/<версия>/ — workflow.yaml там ещё нет, и человек в главном
+// сценарии команды («поставили офис, ещё не тикали») видел бы сырой путь
+// ОС вместо объяснения.
+func TestDoctorWorkflowNotYetUnpackedNamesItClearlyNotRawPath(t *testing.T) {
+	withLookPath(t, "git", "claude", "comet")
+	server := httptest.NewServer(doctorJiraHandler(t))
+	t.Cleanup(server.Close)
+	home := payloadFixture(t, "v0.9.0") // office/v0.9.0/ ещё не распакован
+	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte(mockProject+jiraProject), 0o644); err != nil {
+		t.Fatalf("projects.local.yaml не переписан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("нераспакованный офис не критичен сам по себе: %v\n%s", err, out.String())
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "офис ещё не распакован") {
+		t.Errorf("сообщение не объясняет причину человеку:\n%s", printed)
+	}
+	if strings.Contains(printed, "no such file or directory") {
+		t.Errorf("сырой путь ОС не должен был попасть в вывод:\n%s", printed)
 	}
 }
