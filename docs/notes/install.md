@@ -517,3 +517,17 @@ rm -rf "$OFFICE_HOME"; rm -rf dist; rm -f payload/validators/validate-result-*
   без `office/<версия>/`) и `internal/backends/sbx/sbx.go` (путь к bake только
   клоновый), `internal/tracker/config.go` (`LoadProjects` не упоминает
   `runner init`). Править вместе с user-guide.
+
+## `runner doctor` резолвит office ls/prune (2026-09-23)
+
+Пункт из списка выше — «`${OFFICE_HOME}/office/` только растёт... решение
+о команде — вместе с `runner doctor`» — решён: `runner doctor`
+(`docs/openspec/changes/archive/2026-09-23-doctor/`) умеет ровно вторую половину — посчитать
+и показать устаревшие снапшоты (находка `office:stale-snapshots`: сколько
+их и сколько суммарно занимают), не удаляя ничего. Отдельной команды
+`runner office prune` в этом изменении нет и не появляется сама собой:
+разбор — [Design Doc, Migration
+Plan](../superpowers/specs/2026-09-23-doctor-design.md#migration-plan) —
+листинг сейчас, удаление отдельной командой по запросу, когда кто-то
+реально воспользуется листингом и попросит второй шаг. Чистка руками
+осталась той же: `rm -r ${OFFICE_HOME}/office/<версия>`.

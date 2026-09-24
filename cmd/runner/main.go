@@ -26,6 +26,7 @@ const usage = `runner — обвязка вокруг агента
   runner ledger [--since 24h]   расход: сколько прогонов и на сколько денег
   runner worktree <ls|rm> …     рабочие папки задач: что лежит и как убрать
   runner init                   завести ${OFFICE_HOME}: образцы конфигурации и задания планировщика в scheduler/
+  runner doctor [--backend sbx|local]   диагностика без побочных эффектов: инструменты, креды, форма JIRA, сеть песочницы, старые снапшоты офиса
   runner version                что установлено: личность раннера и каталог его офиса
   runner mock <add|ls|show|comment> …   файловый трекер для ручных сценариев
 
@@ -67,6 +68,8 @@ func execute(args []string) error {
 		return worktreeCommand(args[1:], os.Stdout)
 	case "init":
 		return initCommand(args[1:], os.Stdout)
+	case "doctor":
+		return doctorCommand(args[1:], os.Stdout)
 	case "version":
 		return versionCommand(args[1:], os.Stdout)
 	case "mock":

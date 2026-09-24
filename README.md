@@ -34,6 +34,7 @@
 sh scripts/release-snapshot.sh
 OFFICE_INSTALL_FROM=dist sh install.sh
 runner init        # завести ${OFFICE_HOME} и положить образцы
+runner doctor      # диагностика без побочных эффектов: инструменты, креды, JIRA, песочница, старые снапшоты
 runner version     # что установлено и где лежит офис
 ```
 

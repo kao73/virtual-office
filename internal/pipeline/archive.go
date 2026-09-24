@@ -14,15 +14,22 @@ import (
 	"github.com/kao73/virtual-office/internal/workspace"
 )
 
-// cometExecutable — CLI Comet Native в PATH раннера. Архивирование — код
+// CometExecutable — CLI Comet Native в PATH раннера. Архивирование — код
 // раннера (см. openPR в prpass.go), а не роли: оно бежит на машине/хосте, где
 // крутится office, а не в песочнице агента — отдельное требование к
 // хозяйству раннера, ещё не решённое (docs/notes/sbx.md, tasks.md 1.1).
-//
-// var, а не const: тесты подменяют его на заведомо отсутствующее имя, чтобы
-// проверить, что недостающая зависимость не блокирует PR-проход, не трогая
-// PATH целиком — Ensure/Push этой же функции нужен настоящий git.
-var cometExecutable = "comet"
+// Экспортирован: cmd/runner/doctor.go проверяет присутствие того же самого
+// имени на PATH, тем же приёмом, что и claude.Executable/sbx.Executable —
+// имя не должно разойтись в двух местах. const, как и они — читающему извне
+// пакету незачем иметь возможность его подменить.
+const CometExecutable = "comet"
+
+// cometExecutable — то же самое имя, но var: archive_test.go подменяет его
+// на заведомо отсутствующее, чтобы проверить, что недостающая зависимость
+// не блокирует PR-проход, не трогая настоящий PATH целиком — Ensure/Push
+// этой же функции нужен настоящий git. runComet зовёт эту переменную, не
+// константу выше.
+var cometExecutable = CometExecutable
 
 // archiveReadyStage — значение data.loop.stage изменения Comet Native, при
 // котором reviewer уже передал прошедший final-result и Archive можно

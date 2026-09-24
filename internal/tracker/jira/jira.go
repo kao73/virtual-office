@@ -158,6 +158,31 @@ type Fields struct {
 	Attempts   string `yaml:"attempts"`
 }
 
+// FieldCheck — один настроенный customfield_*, сверенный со схемой полей
+// живого инстанса. doctor печатает по одной находке на каждое поле:
+// «этого поля нет» и «поле есть, но не того типа» — разные беды, и обе
+// должны остаться видны, а не слиться в одно «JIRA не в порядке».
+type FieldCheck struct {
+	Config       string // "agent_owner", "run_id", "lease_until", "attempts" — ключ в fields.* tracker.yaml
+	ID           string // настроенный customfield_NNNNN
+	Present      bool
+	ExpectedType string
+	ActualType   string // пусто, если Present == false
+}
+
+// expectedFieldTypes — тип, который поле обязано иметь на инстансе. Живёт
+// рядом с Fields: новое поле, заведённое там, без пары здесь не должно тихо
+// остаться непроверяемым.
+//
+// Значения — JIRA REST v2 schema.type; сверено с локальным полигоном JIRA
+// Server 8.13, см. docs/superpowers/plans/2026-09-23-doctor.md, Task 3.
+var expectedFieldTypes = map[string]string{
+	"agent_owner": "string",
+	"run_id":      "string",
+	"lease_until": "datetime",
+	"attempts":    "number",
+}
+
 // Tracker — трекер поверх JIRA.
 type Tracker struct {
 	cfg    Config
@@ -349,6 +374,69 @@ func (t *Tracker) CheckWorkflow(project, workingStatus string) (tracker.Workflow
 		}
 	}
 	return check, nil
+}
+
+// CheckFields сверяет четыре customfield_*, настроенных в fields, со схемой
+// живого инстанса: одним GET, а не четырьмя — /field отдаёт все поля разом,
+// и по конфигурации их не больше полудюжины.
+func (t *Tracker) CheckFields() ([]FieldCheck, error) {
+	var remote []struct {
+		ID     string `json:"id"`
+		Schema struct {
+			Type string `json:"type"`
+		} `json:"schema"`
+	}
+	if err := t.call(http.MethodGet, "/field", nil, &remote); err != nil {
+		return nil, err
+	}
+	byID := make(map[string]string, len(remote))
+	for _, f := range remote {
+		byID[f.ID] = f.Schema.Type
+	}
+
+	configured := map[string]string{
+		"agent_owner": t.cfg.Fields.Owner, "run_id": t.cfg.Fields.RunID,
+		"lease_until": t.cfg.Fields.LeaseUntil, "attempts": t.cfg.Fields.Attempts,
+	}
+	// Порядок стабильный: иначе печать doctor'а прыгала бы между прогонами
+	// без единой причины. Ключи — те же, что в fields.* tracker.yaml
+	// (LoadConfig проверяет ими же), чтобы finding jira:field:agent_owner
+	// назвал ключ, который человек реально найдёт в своём файле.
+	names := []string{"agent_owner", "run_id", "lease_until", "attempts"}
+	checks := make([]FieldCheck, 0, len(names))
+	for _, name := range names {
+		id := configured[name]
+		actual, present := byID[id]
+		checks = append(checks, FieldCheck{
+			Config: name, ID: id, Present: present,
+			ExpectedType: expectedFieldTypes[name], ActualType: actual,
+		})
+	}
+	return checks, nil
+}
+
+// CheckLinkType сверяет depends_on_link с типами связей живого инстанса.
+// Поле необязательное (см. его доккомент у Config.DependsOnLink) — пустое
+// имя не беда, а «эта возможность не настроена», и отказывать здесь не на
+// что.
+func (t *Tracker) CheckLinkType() error {
+	if t.cfg.DependsOnLink == "" {
+		return nil
+	}
+	var resp struct {
+		IssueLinkTypes []struct {
+			Name string `json:"name"`
+		} `json:"issueLinkTypes"`
+	}
+	if err := t.call(http.MethodGet, "/issueLinkType", nil, &resp); err != nil {
+		return err
+	}
+	for _, lt := range resp.IssueLinkTypes {
+		if lt.Name == t.cfg.DependsOnLink {
+			return nil
+		}
+	}
+	return fmt.Errorf("issueLinkType %q (depends_on_link) не найден на инстансе", t.cfg.DependsOnLink)
 }
 
 // searchProject — поиск по проекту, отличающий незнакомый проект от прочих бед.
