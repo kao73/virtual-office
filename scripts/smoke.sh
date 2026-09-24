@@ -349,25 +349,37 @@ PY
 	git -C "$dir" -c user.email=smoke@example.test -c user.name=smoke commit -q -m "среднее по списку"
 }
 
-# ChangeDir ручного прогона: ключа задачи у run-agent нет, и каталог зовётся _manual.
-change_dir=docs/changes/_manual
-
 # assert_plan — то, что обязано быть верно после честного прогона аналитика.
+# Каталог изменения Comet Native называет сама роль (`comet native new <name>`),
+# заранее имя не угадать — оно читается из закоммиченного .comet/current-change.json
+# (office/roles/analyst/role.md, «Как коммитить»). Файлы плана — brief.md и
+# specs/<capability>/spec.md; tasks.md изменения Comet Native не пишут вовсе
+# (docs/contracts/agent-io.md, «Каталог изменения»).
 assert_plan() {
-	local dir=$1 tracked missing outside
+	local dir=$1 name change_dir tracked missing spec_count outside
+
+	name=$(jq -r '.change // empty' "$dir/.comet/current-change.json" 2>/dev/null)
+	if [ -z "$name" ] || ! git -C "$dir" ls-files --error-unmatch .comet/current-change.json >/dev/null 2>&1; then
+		bad "не закоммичен .comet/current-change.json — имя изменения Comet Native неизвестно"
+		return
+	fi
+	change_dir="docs/comet/changes/$name"
 
 	tracked=$(git -C "$dir" ls-files "$change_dir" | tr '\n' ' ')
 	missing=""
-	for name in brief.md design.md tasks.md; do
-		case "$tracked" in *"$change_dir/$name"*) ;; *) missing="$missing $name" ;; esac
-	done
+	case "$tracked" in *"$change_dir/brief.md"*) ;; *) missing="brief.md" ;; esac
+	spec_count=$(git -C "$dir" ls-files "$change_dir/specs" | grep -c '/spec\.md$')
+	[ "$spec_count" -gt 0 ] || missing="$missing specs/*/spec.md"
 	[ -z "$missing" ] && ok "план в git целиком: $tracked" || bad "не закоммичено:$missing"
 
-	# Работа вне каталога изменения — то, чего роль не должна мочь вовсе:
-	# инструмент правки выдан ей на один каталог.
+	# Работа вне каталога изменения — то, чего роль не должна мочь вовсе, кроме
+	# двух файлов состояния Comet Native, заводимых при первом изменении в
+	# рабочей папке (.comet/config.yaml, .comet/current-change.json — тот же
+	# role.md, исключение из общего правила названо явно).
 	outside=$(git -C "$dir" diff --name-only "$(git -C "$dir" rev-list --max-parents=0 HEAD)" HEAD |
-		grep -v "^$change_dir/" | tr '\n' ' ')
-	[ -z "$outside" ] && ok "вне каталога изменения ничего не закоммичено" ||
+		grep -v "^$change_dir/" | grep -v '^\.comet/config\.yaml$' | grep -v '^\.comet/current-change\.json$' |
+		tr '\n' ' ')
+	[ -z "$outside" ] && ok "вне каталога изменения ничего лишнего не закоммичено" ||
 		bad "закоммичено вне каталога:$outside"
 
 	local dirty
@@ -405,7 +417,9 @@ case_plan() {
 	assert_common "$dir"
 
 	echo "  --- план ---"
-	sed 's/^/  /' "$dir/$change_dir/tasks.md" 2>/dev/null
+	local plan_name
+	plan_name=$(jq -r '.change // empty' "$dir/.comet/current-change.json" 2>/dev/null)
+	[ -n "$plan_name" ] && sed 's/^/  /' "$dir/docs/comet/changes/$plan_name/brief.md" 2>/dev/null
 }
 
 # Ограждение молчит на счастливом пути, и его отказ беззвучен: код, отличный
