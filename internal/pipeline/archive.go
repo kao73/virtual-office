@@ -29,7 +29,7 @@ const CometExecutable = "comet"
 // не блокирует PR-проход, не трогая настоящий PATH целиком — Ensure/Push
 // этой же функции нужен настоящий git. runComet зовёт эту переменную, не
 // константу выше.
-var cometExecutable string = CometExecutable
+var cometExecutable = CometExecutable
 
 // archiveReadyStage — значение data.loop.stage изменения Comet Native, при
 // котором reviewer уже передал прошедший final-result и Archive можно

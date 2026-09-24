@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kao73/virtual-office/internal/forge"
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/jira"
@@ -38,10 +39,32 @@ func withLookPath(t *testing.T, present ...string) {
 }
 
 // findingPrefix — начало строки, которую печатает concludeExit для находки
-// с данным уровнем и check-id. Используется вместо руками посчитанных
-// пробелов и не зависит от того, что именно написано в msg.
+// с данным уровнем и check-id: уровень, поле шириной 4 (единственное
+// действительно фиксированное — "ok"/"fail"/"warn" короче), один пробел,
+// сырой check-id без выравнивающих пробелов после. concludeExit сам
+// довыравнивает check-id до ширины самого длинного в конкретном прогоне
+// (jira:workflow:<проект>:<роль> растёт вместе с ключом проекта), так что
+// фиксированную ширину здесь предполагать нельзя — а без неё эта строка
+// всё равно остаётся точным префиксом настоящей строки находки и не
+// зависит от того, что написано в msg или в чужом check-id.
 func findingPrefix(level, check string) string {
-	return fmt.Sprintf("%-4s %-32s", level, check)
+	return fmt.Sprintf("%-4s %s", level, check)
+}
+
+// findingMessage — точный msg находки с данным level/check в printed
+// выводе (первые два whitespace-разделённых токена строки), или "" и
+// false, если такой строки нет. Нужен там, где мало знать, что находка
+// есть, — важен и её текст, а строить его руками через findingPrefix+" "+…
+// сломалось бы о динамическую ширину колонки check-id в concludeExit.
+func findingMessage(t *testing.T, printed, level, check string) (string, bool) {
+	t.Helper()
+	for _, line := range strings.Split(printed, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == level && fields[1] == check {
+			return strings.Join(fields[2:], " "), true
+		}
+	}
+	return "", false
 }
 
 func TestDoctorReportsToolPresence(t *testing.T) {
@@ -234,8 +257,8 @@ func TestDoctorStaleSnapshotsOkWhenOfficeDirMissing(t *testing.T) {
 	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
 		t.Fatalf("свежая машина без office/ не должна ронять доктора: %v\n%s", err, out.String())
 	}
-	if !strings.Contains(out.String(), findingPrefix("ok", "office:stale-snapshots")+" нет") {
-		t.Errorf("свежий office/ должен читаться как «нет», не как отказ:\n%s", out.String())
+	if msg, ok := findingMessage(t, out.String(), "ok", "office:stale-snapshots"); !ok || msg != "нет" {
+		t.Errorf("свежий office/ должен читаться как «нет», не как отказ (%q):\n%s", msg, out.String())
 	}
 }
 
@@ -1091,7 +1114,7 @@ func TestDoctorGithubTokenFatalForForgeProject(t *testing.T) {
 	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
 		"  default_branch: master\n  forge: github\n")
-	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv(forge.TokenEnv, "")
 
 	var out bytes.Buffer
 	err := doctorCommand([]string{"--backend", "local"}, &out)
@@ -1108,7 +1131,7 @@ func TestDoctorGithubTokenFatalForForgeProject(t *testing.T) {
 func TestDoctorGithubTokenWarnForHTTPSProjectWithoutForge(t *testing.T) {
 	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, mockProject) // https://, без forge
-	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv(forge.TokenEnv, "")
 
 	var out bytes.Buffer
 	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
@@ -1122,7 +1145,7 @@ func TestDoctorGithubTokenWarnForHTTPSProjectWithoutForge(t *testing.T) {
 func TestDoctorGithubTokenOkWhenSet(t *testing.T) {
 	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, mockProject)
-	t.Setenv("GITHUB_TOKEN", "секрет")
+	t.Setenv(forge.TokenEnv, "секрет")
 
 	var out bytes.Buffer
 	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
@@ -1277,7 +1300,7 @@ func TestDoctorReportsUnknownForgeKind(t *testing.T) {
 	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
 		"  default_branch: master\n  forge: gitlab\n")
-	t.Setenv("GITHUB_TOKEN", "токен") // даже с токеном неизвестный forge — беда
+	t.Setenv(forge.TokenEnv, "токен") // даже с токеном неизвестный forge — беда
 
 	var out bytes.Buffer
 	err := doctorCommand([]string{"--backend", "local"}, &out)
@@ -1293,11 +1316,42 @@ func TestDoctorReportsUnparseableRepoURLForForgeProject(t *testing.T) {
 	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, "OFF:\n  repo_url: https://example.test\n  tracker: mock\n"+
 		"  default_branch: master\n  forge: github\n")
-	t.Setenv("GITHUB_TOKEN", "токен")
+	t.Setenv(forge.TokenEnv, "токен")
 
 	var out bytes.Buffer
 	err := doctorCommand([]string{"--backend", "local"}, &out)
 	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "forge:OFF")) {
 		t.Errorf("неразбираемый repo_url должен быть fatal: %v\n%s", err, out.String())
+	}
+}
+
+// TestDoctorColumnWidthScalesWithLongProjectKey — регрессия внешнего
+// ревью (круг 3): захардкоженная ширина колонки check-id (сперва 28, потом
+// 32) рвалась ровно на ключах проекта такой длины — jira:workflow:<проект>:<роль>
+// склеивался с сообщением без разделяющего пробела. concludeExit теперь
+// считает ширину из самих находок, так что "PLATFORM" (длиннее "VO",
+// которым покрыты прочие тесты) обязан пройти без повторения бага.
+func TestDoctorColumnWidthScalesWithLongProjectKey(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	server := httptest.NewServer(doctorJiraHandler(t))
+	t.Cleanup(server.Close)
+	longJiraProject := "PLATFORM:\n  repo_url: https://example.test/p.git\n  tracker: jira\n  default_branch: master\n"
+	_, home := fixtureRunner(t, mockProject+longJiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
+	}
+	msg, ok := findingMessage(t, out.String(), "ok", "jira:workflow:PLATFORM:implementer")
+	if !ok {
+		t.Fatalf("находка для длинного ключа проекта не распознана как отдельная строка:\n%s", out.String())
+	}
+	if !strings.HasPrefix(msg, "нет образца") {
+		t.Errorf("сообщение повреждено — check-id склеился с msg без пробела: %q", msg)
 	}
 }

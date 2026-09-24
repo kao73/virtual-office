@@ -47,9 +47,10 @@ type finding struct {
 }
 
 // lookPath — exec.LookPath за переменной: тест подменяет её, не трогая
-// настоящий PATH машины. Тот же приём, что у pipeline.CometExecutable в
-// internal/pipeline/archive.go, только здесь подменяется сам поиск,
-// а не имя утилиты.
+// настоящий PATH машины. Тот же приём, что у приватной pipeline.cometExecutable
+// в internal/pipeline/archive.go (не у экспортированной pipeline.CometExecutable —
+// это const, её не подменить), только здесь подменяется сам поиск, а не имя
+// утилиты.
 var lookPath = exec.LookPath
 
 // checkTool сообщает, резолвится ли утилита на PATH — по имени, а не единым
@@ -383,14 +384,14 @@ func doctorCommand(args []string, out io.Writer) error {
 	if err != nil {
 		report(finding{"config:home", "fail", err.Error()})
 		report(finding{"skip:project-dependent", "warn",
-			"tool(comet)/cred/JIRA-проверки пропущены: OFFICE_HOME не определён"})
+			"tool(comet)/forge/cred/JIRA-проверки пропущены: OFFICE_HOME не определён"})
 		return concludeExit(out, findings)
 	}
 	projects, err := tracker.LoadProjects(filepath.Join(home, tracker.ProjectsLocalFile))
 	if err != nil {
 		report(finding{"config:projects.local.yaml", "fail", err.Error()})
 		report(finding{"skip:project-dependent", "warn",
-			"tool(comet)/cred/JIRA-проверки пропущены: projects.local.yaml не загрузился"})
+			"tool(comet)/forge/cred/JIRA-проверки пропущены: projects.local.yaml не загрузился"})
 		return concludeExit(out, findings)
 	}
 
@@ -415,11 +416,13 @@ func doctorCommand(args []string, out io.Writer) error {
 	// GITHUB_TOKEN — без него forge.NewGitHub вовсе не соберётся
 	// (internal/forge/github.go: "без него офис не откроет pull request"),
 	// а без него же credentialArgs (internal/workspace/workspace.go) молча
-	// не подложит credential-хелпер для пуша по HTTPS — тогда пуш уйдёт на
-	// системные git-креды, которых на CI-машине обычно нет. Первое —
-	// фатально для forge-проекта, второе — предупреждение для проекта без
-	// forge, но с https:// repo_url (по ssh системные креды и так нужны, и
-	// GITHUB_TOKEN тут ни при чём).
+	// не подложит credential-хелпер для пуша по HTTP(S) — тогда пуш уйдёт на
+	// системные git-креды, которых на CI-машине обычно нет. credentialArgs
+	// подкладывает хелпер по одному наличию токена, безотносительно схемы —
+	// http:// (полигон без TLS — не небылица) нуждается в нём так же, как
+	// https://. Первое — фатально для forge-проекта, второе —
+	// предупреждение для проекта без forge, но с http(s):// repo_url (по
+	// ssh системные креды и так нужны, и GITHUB_TOKEN тут ни при чём).
 	// Незнакомый forge и неразбираемый repo_url — та же самая ранняя
 	// проверка, что делает forgesOf (cmd/runner/office.go) и NewGitHub
 	// (internal/forge/github.go) перед настоящим прогоном: forgesOf
@@ -438,7 +441,7 @@ func doctorCommand(args []string, out io.Writer) error {
 			if _, err := forge.ParseRepo(p.RepoURL); err != nil {
 				report(finding{"forge:" + key, "fail", err.Error()})
 			}
-		case strings.HasPrefix(p.RepoURL, "https://"):
+		case strings.HasPrefix(p.RepoURL, "https://") || strings.HasPrefix(p.RepoURL, "http://"):
 			needsHTTPSPush = true
 		}
 	}
@@ -448,7 +451,7 @@ func doctorCommand(args []string, out io.Writer) error {
 	case needsToken:
 		report(finding{"cred:" + forge.TokenEnv, "fail", "не задана: forge-проект не откроет pull request"})
 	case needsHTTPSPush:
-		report(finding{"cred:" + forge.TokenEnv, "warn", "не задана: пуш по HTTPS уйдёт на системные git-креды"})
+		report(finding{"cred:" + forge.TokenEnv, "warn", "не задана: пуш по HTTP(S) уйдёт на системные git-креды"})
 	}
 
 	jiraProjects := projects.For("jira")
@@ -526,13 +529,20 @@ func doctorCommand(args []string, out io.Writer) error {
 // если среди них есть что-то кроме ok/warn: warn ни на что не влияет, ok —
 // тоже, а fail (или любой прочий уровень) — отказ.
 func concludeExit(out io.Writer, findings []finding) error {
+	// Ширина колонки — не константа: jira:workflow:<проект>:<роль> растёт
+	// вместе с ключом проекта из projects.local.yaml, который доктор только
+	// что прочитал (PLATFORM длиннее VO). Захардкоженная ширина каждый раз
+	// чинит только сегодняшний самый длинный check-id, а не сам класс —
+	// считаем её из того, что реально попало в findings.
+	width := 4 // не меньше самого короткого уровня ("fail")
+	for _, f := range findings {
+		if len(f.check) > width {
+			width = len(f.check)
+		}
+	}
 	var failed int
 	for _, f := range findings {
-		// %-32s, не %-28s: jira:workflow:<проект>:<роль> с ролью
-		// implementer (самой длинной сегодня) уже не влезает в 28 без
-		// пробела перед сообщением — а именно эти строки человек и читает
-		// после живого прогона.
-		fmt.Fprintf(out, "%-4s %-32s %s\n", f.level, f.check, f.msg)
+		fmt.Fprintf(out, "%-4s %-*s %s\n", f.level, width, f.check, f.msg)
 		// Fail-closed: только "ok" и "warn" — опознанные неопасные уровни;
 		// всё прочее (опечатка в литерале level, будущий четвёртый уровень
 		// без обновления этой проверки) обязано считаться отказом, а не
