@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kao73/virtual-office/internal/forge"
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 	payload "github.com/kao73/virtual-office/office"
@@ -82,6 +83,11 @@ func fixtureRunner(t *testing.T, projectsLocal string) (root, home string) {
 	}
 	t.Setenv("OFFICE_CONFIG_ROOT", root)
 	t.Setenv("OFFICE_HOME", home)
+	// GITHUB_TOKEN — по умолчанию не задана: доктор её проверяет
+	// (cmd/runner/doctor.go), и тест не должен зависеть от того, задана ли
+	// она в окружении, где его гоняют (например, автоматически на CI) —
+	// тест хочет либо явно заданное, либо явно пустое значение.
+	t.Setenv(forge.TokenEnv, "")
 	return root, home
 }
 
@@ -302,6 +308,7 @@ func payloadFixture(t *testing.T, version string) (home string) {
 	home = t.TempDir()
 	t.Setenv(runner.HomeEnv, home)
 	t.Setenv(runner.ConfigRootEnv, "")
+	t.Setenv(forge.TokenEnv, "") // см. fixtureRunner — тест не должен зависеть от окружения машины
 	releaseVersion(t, version)
 	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte(mockProject), 0o644); err != nil {
 		t.Fatalf("projects.local.yaml не записан: %v", err)

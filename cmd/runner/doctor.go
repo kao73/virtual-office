@@ -7,8 +7,8 @@
 //
 // check-id находок, по стадиям: tool:<имя>, sbx:network, office:resolve,
 // skip:office-dependent, office:stale-snapshots, config:home,
-// config:projects.local.yaml, skip:project-dependent, cred:GITHUB_TOKEN,
-// config:tracker.yaml, skip:jira,
+// config:projects.local.yaml, skip:project-dependent, forge:<проект>,
+// cred:GITHUB_TOKEN, config:tracker.yaml, skip:jira,
 // cred:<ПЕРЕМЕННАЯ|роль.user_env|роль.secret_env>, jira:open,
 // skip:jira-checks, jira:account, jira:fields (весь GET /field упал),
 // jira:field:<agent_owner|run_id|lease_until|attempts>, jira:link-type,
@@ -165,34 +165,28 @@ func checkStaleOfficeSnapshots(o runner.Office) finding {
 }
 
 // checkCredentials — по одной находке на переменную окружения каждой учётки
-// tracker.yaml (default и все roles), без повторов: учётка-дубликат
-// (например, роль без своей пары UserEnv/SecretEnv, разделяющая общую)
-// называется один раз, а не по разу на каждую роль — иначе один незаданный
-// секрет выглядел бы как несколько разных бед.
+// tracker.yaml (default и все roles). Две находки печатаются по-разному:
+// cred:<ПЕРЕМЕННАЯ> — настоящая общая переменная (несколько ролей делят
+// одну и ту же секрет-пару), и дедуп здесь оправдан — иначе один незаданный
+// секрет выглядел бы как несколько разных бед; cred:<роль>.<половина> —
+// адресована конкретной роли с незаполненной половиной учётки (LoadConfig
+// проверяет только accounts.default целиком, не accounts.roles.*, так что
+// роль с одним user_env без secret_env, или наоборот, законно грузится), и
+// дедупить её нельзя вовсе — у каждой роли своя половина, даже если у двух
+// разных ролей она текстуально одинаково пуста.
+//
+// Дедуп поэтому не по значению jira.Account (было бы неверно: две РАЗНЫЕ
+// роли с одинаковым текстом — не обязательно одна и та же беда), а по уже
+// напечатанному имени переменной — это единственное, что действительно
+// либо общее, либо нет.
 //
 // Переменная, заданная пустым значением (`export X=`), — не задана по сути:
 // os.LookupEnv сказал бы "есть", хотя jira.OpenAs (internal/tracker/jira/jira.go)
-// её значение потом трактует ровно как отсутствие. Роль с настроенным
-// user_env, но без своего secret_env (или наоборот) — не тихий пропуск: сама
-// возможность завести половину учётки существует (LoadConfig проверяет
-// только accounts.default целиком, не accounts.roles.*), и OpenAs на такой
-// роли ушёл бы за секретом в переменную с пустым именем.
+// её значение потом трактует ровно как отсутствие.
 func checkCredentials(a jira.Accounts) []finding {
-	seen := map[jira.Account]bool{}
+	reported := map[string]bool{} // cred:<ПЕРЕМЕННАЯ>, уже напечатанные
 	var out []finding
 	check := func(label string, acc jira.Account) {
-		// Дедуп — только для настоящей общей учётки (непустой acc): два
-		// разных пустых Account{} (обе половины не настроены) — это две
-		// РАЗНЫЕ беды с одинаковым нулевым значением, а не одна и та же
-		// учётка. Без этой оговорки roles: {analyst: {}, reviewer: {}}
-		// назвал бы только analyst, а про reviewer — ни слова, хотя он
-		// сломан ровно так же (регрессия внешнего ревью).
-		if acc != (jira.Account{}) {
-			if seen[acc] {
-				return
-			}
-			seen[acc] = true
-		}
 		for _, field := range []struct{ key, env string }{
 			{"user_env", acc.UserEnv},
 			{"secret_env", acc.SecretEnv},
@@ -201,6 +195,10 @@ func checkCredentials(a jira.Accounts) []finding {
 				out = append(out, finding{"cred:" + label + "." + field.key, "fail", field.key + " не настроен"})
 				continue
 			}
+			if reported[field.env] {
+				continue
+			}
+			reported[field.env] = true
 			if os.Getenv(field.env) != "" {
 				out = append(out, finding{"cred:" + field.env, "ok", "задана"})
 			} else {
@@ -365,7 +363,7 @@ func doctorCommand(args []string, out io.Writer) error {
 	if officeErr != nil {
 		report(finding{"office:resolve", "fail", officeErr.Error()})
 		report(finding{"skip:office-dependent", "warn",
-			"office:stale-snapshots/tool:go пропущены: личность офиса не резолвится"})
+			"office:stale-snapshots (в режиме клона — и tool:go) пропущены: личность офиса не резолвится"})
 	} else {
 		report(checkStaleOfficeSnapshots(office))
 		if office.Source == runner.SourceClone {
@@ -422,11 +420,24 @@ func doctorCommand(args []string, out io.Writer) error {
 	// фатально для forge-проекта, второе — предупреждение для проекта без
 	// forge, но с https:// repo_url (по ssh системные креды и так нужны, и
 	// GITHUB_TOKEN тут ни при чём).
+	// Незнакомый forge и неразбираемый repo_url — та же самая ранняя
+	// проверка, что делает forgesOf (cmd/runner/office.go) и NewGitHub
+	// (internal/forge/github.go) перед настоящим прогоном: forgesOf
+	// валит tick целиком на forge=="gitlab", NewGitHub разбирает repo_url
+	// заранее по той же причине ("узнать в середине прохода было бы
+	// поздно") — без этой проверки здесь доктор напечатал бы cred:GITHUB_TOKEN
+	// ok и вышел 0 на конфигурации, которая тут же завалит tick.
 	var needsToken, needsHTTPSPush bool
 	for _, key := range projects.Keys() {
 		switch p := projects[key]; {
+		case p.Forge != "" && p.Forge != forge.Kind:
+			report(finding{"forge:" + key, "fail",
+				fmt.Sprintf("forge=%q, известен только %s", p.Forge, forge.Kind)})
 		case p.Forge != "":
 			needsToken = true
+			if _, err := forge.ParseRepo(p.RepoURL); err != nil {
+				report(finding{"forge:" + key, "fail", err.Error()})
+			}
 		case strings.HasPrefix(p.RepoURL, "https://"):
 			needsHTTPSPush = true
 		}
@@ -488,11 +499,16 @@ func doctorCommand(args []string, out io.Writer) error {
 			// В режиме поставки ResolveOffice(Resolve{}) не распаковывает
 			// (Unpack: false) — на свежем офисе, ещё ни разу не тикнувшем,
 			// office/<версия>/workflow.yaml на диске просто нет, и это
-			// не беда графа, а «ещё нечего проверять». Отличаем это от
-			// настоящего отказа разбора, а не отдаём сырой путь ОС в
-			// сообщении, которое человек прочтёт как «граф сломан».
+			// не беда графа, а «ещё нечего проверять». office.Source ==
+			// SourcePayload — обязательное условие: в режиме клона
+			// (OFFICE_CONFIG_ROOT) версий на диске не бывает вовсе,
+			// ResolveOffice существование <root>/office не проверяет, и
+			// тот же самый fs.ErrNotExist там означает настоящую пропажу
+			// графа, а не «ещё не распаковано» — то же самое введение в
+			// заблуждение, от которого уходим, только с другой стороны
+			// (регрессия внешнего ревью, круг 2).
 			msg := "проверка workflow пропущена: " + workflowErr.Error()
-			if errors.Is(workflowErr, fs.ErrNotExist) {
+			if office.Source == runner.SourcePayload && errors.Is(workflowErr, fs.ErrNotExist) {
 				msg = "проверка workflow пропущена: офис ещё не распакован (ни одного реального прогона не было)"
 			}
 			report(finding{"skip:workflow:" + key, "warn", msg})
@@ -512,7 +528,11 @@ func doctorCommand(args []string, out io.Writer) error {
 func concludeExit(out io.Writer, findings []finding) error {
 	var failed int
 	for _, f := range findings {
-		fmt.Fprintf(out, "%-4s %-28s %s\n", f.level, f.check, f.msg)
+		// %-32s, не %-28s: jira:workflow:<проект>:<роль> с ролью
+		// implementer (самой длинной сегодня) уже не влезает в 28 без
+		// пробела перед сообщением — а именно эти строки человек и читает
+		// после живого прогона.
+		fmt.Fprintf(out, "%-4s %-32s %s\n", f.level, f.check, f.msg)
 		// Fail-closed: только "ok" и "warn" — опознанные неопасные уровни;
 		// всё прочее (опечатка в литерале level, будущий четвёртый уровень
 		// без обновления этой проверки) обязано считаться отказом, а не

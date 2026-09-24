@@ -41,7 +41,7 @@ func withLookPath(t *testing.T, present ...string) {
 // с данным уровнем и check-id. Используется вместо руками посчитанных
 // пробелов и не зависит от того, что именно написано в msg.
 func findingPrefix(level, check string) string {
-	return fmt.Sprintf("%-4s %-28s", level, check)
+	return fmt.Sprintf("%-4s %-32s", level, check)
 }
 
 func TestDoctorReportsToolPresence(t *testing.T) {
@@ -1193,5 +1193,111 @@ func TestDoctorWorkflowNotYetUnpackedNamesItClearlyNotRawPath(t *testing.T) {
 	}
 	if strings.Contains(printed, "no such file or directory") {
 		t.Errorf("сырой путь ОС не должен был попасть в вывод:\n%s", printed)
+	}
+}
+
+// TestCheckCredentialsNamesEachRoleWithSameHalfConfiguredAccountSeparately
+// — регрессия внешнего ревью (круг 2): круг 1 дедупил только полностью
+// пустой Account{}, но две роли с одинаковой ПОЛОВИНОЙ учётки (обе
+// {user_env: JIRA_USER}, без secret_env) — тоже одинаковый непустой acc, и
+// дедуп по значению Account всё равно терял вторую роль. Теперь дедуп —
+// по уже напечатанному имени переменной, а не по структуре целиком.
+func TestCheckCredentialsNamesEachRoleWithSameHalfConfiguredAccountSeparately(t *testing.T) {
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	accounts := jira.Accounts{
+		Default: jira.Account{UserEnv: "JIRA_USER", SecretEnv: "JIRA_PASSWORD"},
+		Roles: map[string]jira.Account{
+			"analyst":  {UserEnv: "JIRA_USER"}, // secret_env забыт
+			"reviewer": {UserEnv: "JIRA_USER"}, // тоже забыт — но своя, отдельная беда
+		},
+	}
+
+	findings := checkCredentials(accounts)
+	for _, role := range []string{"analyst", "reviewer"} {
+		found := false
+		for _, f := range findings {
+			if f.check == "cred:"+role+".secret_env" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("роль %s не названа отдельно, хотя её половина учётки совпадает с другой ролью: %+v", role, findings)
+		}
+	}
+	var userEnvCount int
+	for _, f := range findings {
+		if f.check == "cred:JIRA_USER" {
+			userEnvCount++
+		}
+	}
+	if userEnvCount != 1 {
+		t.Errorf("JIRA_USER — настоящая общая переменная, должна остаться дедуплицирована один раз: %+v", findings)
+	}
+}
+
+// TestDoctorWorkflowMissingInCloneModeKeepsOriginalMessage — регрессия
+// внешнего ревью (круг 2): в режиме клона ResolveOffice не проверяет
+// существование <root>/office вовсе, и тот же самый fs.ErrNotExist от
+// LoadWorkflow там означает настоящую пропажу графа, а не «офис ещё не
+// распакован» (это верно только для режима поставки, где ResolveOffice
+// умышленно не распаковывает).
+func TestDoctorWorkflowMissingInCloneModeKeepsOriginalMessage(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	server := httptest.NewServer(doctorJiraHandler(t))
+	t.Cleanup(server.Close)
+	root, home := fixtureRunner(t, mockProject+jiraProject)
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte(doctorTrackerYAML(server.URL)), 0o644); err != nil {
+		t.Fatalf("tracker.yaml не записан: %v", err)
+	}
+	t.Setenv("JIRA_USER", "office")
+	t.Setenv("JIRA_PASSWORD", "секрет")
+	if err := os.Remove(filepath.Join(root, runner.OfficeDir, tracker.WorkflowFile)); err != nil {
+		t.Fatalf("workflow.yaml не убран: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("skip:workflow не критично: %v\n%s", err, out.String())
+	}
+	printed := out.String()
+	if strings.Contains(printed, "офис ещё не распакован") {
+		t.Errorf("режим клона не распаковывается никогда — сообщение про поставку вводит в заблуждение:\n%s", printed)
+	}
+	if !strings.Contains(printed, findingPrefix("warn", "skip:workflow:VO")) {
+		t.Errorf("пропуск workflow-проверки не назван:\n%s", printed)
+	}
+}
+
+// TestDoctorReportsUnknownForgeKind — регрессия внешнего ревью (круг 2):
+// forgesOf (cmd/runner/office.go) валит любой tick на forge, отличном от
+// "github", но круг 1's cred:GITHUB_TOKEN считал любой непустой Forge
+// заявкой на токен и печатал ok, даже когда forge вообще не собран.
+func TestDoctorReportsUnknownForgeKind(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	fixtureRunner(t, "OFF:\n  repo_url: https://example.test/o.git\n  tracker: mock\n"+
+		"  default_branch: master\n  forge: gitlab\n")
+	t.Setenv("GITHUB_TOKEN", "токен") // даже с токеном неизвестный forge — беда
+
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "local"}, &out)
+	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "forge:OFF")) {
+		t.Errorf("неизвестный forge должен быть fatal: %v\n%s", err, out.String())
+	}
+}
+
+// TestDoctorReportsUnparseableRepoURLForForgeProject — та же самая ранняя
+// проверка, что NewGitHub (internal/forge/github.go) делает перед
+// настоящим прогоном ("узнать в середине прохода было бы поздно").
+func TestDoctorReportsUnparseableRepoURLForForgeProject(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	fixtureRunner(t, "OFF:\n  repo_url: https://example.test\n  tracker: mock\n"+
+		"  default_branch: master\n  forge: github\n")
+	t.Setenv("GITHUB_TOKEN", "токен")
+
+	var out bytes.Buffer
+	err := doctorCommand([]string{"--backend", "local"}, &out)
+	if err == nil || !strings.Contains(out.String(), findingPrefix("fail", "forge:OFF")) {
+		t.Errorf("неразбираемый repo_url должен быть fatal: %v\n%s", err, out.String())
 	}
 }

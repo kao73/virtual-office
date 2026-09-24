@@ -55,7 +55,13 @@ shells out to is resolvable on `PATH`, and that every credential
 environment variable named by `tracker.yaml`'s `accounts` (default and any
 per-role override) and by each project's role accounts is set to a
 non-empty value. It SHALL NOT read or report the value of any credential
-variable, only whether it is set.
+variable, only whether it is set. It SHALL also check the forge token
+variable (`GITHUB_TOKEN`) required by any project with `forge` set,
+reporting its absence as a failure for such a project, and as a warning
+for a project without `forge` whose `repo_url` uses `https://` (a push
+there falls back to system git credentials rather than failing outright).
+It SHALL report an unrecognized `forge` value, or a `repo_url` the forge
+implementation cannot parse, as a failure named to its project.
 
 #### Scenario: A missing tool is named, not just "failed"
 - **WHEN** a tool the pipeline depends on is not on `PATH`
@@ -68,6 +74,13 @@ variable, only whether it is set.
 - **THEN** `runner doctor` reports that variable name as unset, without
   reporting any variable's value
 
+#### Scenario: A forge project without GITHUB_TOKEN fails; an https project without forge only warns
+- **WHEN** a project names `forge: github` and `GITHUB_TOKEN` is unset
+- **THEN** `runner doctor` reports that as a failure
+- **WHEN** instead a project has no `forge` but an `https://` `repo_url`,
+  and `GITHUB_TOKEN` is unset
+- **THEN** `runner doctor` reports that as a warning, not a failure
+
 ### Requirement: `runner doctor` checks JIRA reachability and shape for jira projects
 An office has a single `tracker.yaml`, shared by every project that names
 `tracker: jira` — there is no per-project instance. When at least one
@@ -75,16 +88,26 @@ project does, `runner doctor` SHALL check, once, against that instance:
 that it is reachable and the
 configured account's identity matches what the instance reports for
 `/myself`; that each `customfield_*` configured in `tracker.yaml`'s
-`fields` exists on the instance and carries the expected type; and that
-`depends_on_link` names a link type that exists on the instance. When no
-project declares `tracker: jira`, `runner doctor` SHALL skip every JIRA
-check and SHALL NOT require `tracker.yaml` to exist.
+`fields` exists on the instance and carries the expected type; and, when
+`depends_on_link` is configured, that it names a link type that exists on
+the instance. `depends_on_link` is optional: when it is unset, `runner
+doctor` SHALL report that as a warning, not skip it silently — the
+capability it guards (linking a split's children with "depends on") will
+not work without it. When no project declares `tracker: jira`, `runner
+doctor` SHALL skip every JIRA check and SHALL NOT require `tracker.yaml`
+to exist.
 
 #### Scenario: A deleted custom field is named, not just "JIRA check failed"
 - **WHEN** the instance no longer has a field matching the
   `customfield_*` id configured for `fields.lease_until`
 - **THEN** `runner doctor` reports that specific configured field (name and
   configured id) as missing, and other JIRA checks still run
+
+#### Scenario: An unconfigured depends_on_link warns without calling the instance
+- **WHEN** `tracker.yaml` does not set `depends_on_link`
+- **THEN** `runner doctor` reports a warning naming the capability that
+  will not work, exits non-fatally on this alone, and makes no request
+  for link types
 
 #### Scenario: A mock-only office skips JIRA checks entirely
 - **WHEN** every project in `projects.local.yaml` declares `tracker: mock`
