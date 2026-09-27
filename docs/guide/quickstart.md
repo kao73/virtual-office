@@ -10,19 +10,7 @@
 
 ## Установка
 
-**Тегов релиза пока нет** — команда с `releases/latest` ниже вернёт 404.
-До первого тега ставится локальный снапшот:
-
-```sh
-sh scripts/release-snapshot.sh
-OFFICE_INSTALL_FROM=dist sh install.sh
-runner init        # завести ${OFFICE_HOME} и положить образцы
-runner version     # что установлено и где лежит офис
-```
-
-Снапшоту нужны клон репозитория и Go: `scripts/release-snapshot.sh` собирает
-дистрибутив через `go run` (goreleaser). С первым тегом релиза офис ставится
-без клона и без Go, одной командой:
+Ставится из релиза одной командой, без клона и без Go:
 
 ```sh
 curl -fsSL https://github.com/kao73/virtual-office/releases/latest/download/install.sh | sh
@@ -33,6 +21,15 @@ runner version     # что установлено и где лежит офис
 `install.sh` кладёт `runner` и `run-agent` в `${OFFICE_HOME:-~/.office}/bin`,
 проверив контрольную сумму архива, и говорит, лежит ли этот каталог в `PATH`.
 Обновление — та же команда ещё раз и перезапуск цикла.
+
+Для разработки из исходников — локальный снапшот вместо релиза (нужны клон
+репозитория и Go: `scripts/release-snapshot.sh` собирает дистрибутив через
+`go run` (goreleaser)):
+
+```sh
+sh scripts/release-snapshot.sh
+OFFICE_INSTALL_FROM=dist sh install.sh
+```
 
 Что где оказывается после установки и что чем перекрывается —
 [«Конфигурация»](../reference/configuration.md).
