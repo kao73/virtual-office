@@ -28,11 +28,10 @@
 
 ## Установка
 
-**Тегов релиза пока нет** — ставится локальный снапшот:
+Ставится из релиза одной командой, без клона и без Go:
 
 ```sh
-sh scripts/release-snapshot.sh
-OFFICE_INSTALL_FROM=dist sh install.sh
+curl -fsSL https://github.com/kao73/virtual-office/releases/latest/download/install.sh | sh
 runner init        # завести ${OFFICE_HOME} и положить образцы
 runner doctor      # диагностика без побочных эффектов: инструменты, креды, JIRA, песочница, старые снапшоты
 runner version     # что установлено и где лежит офис
@@ -43,9 +42,16 @@ runner version     # что установлено и где лежит офис
 
 `install.sh` кладёт `runner` и `run-agent` в `${OFFICE_HOME:-$HOME/.office}/bin`,
 проверив контрольную сумму архива, и говорит, лежит ли этот путь в `PATH`.
-С первым тегом релиза установка станет одной командой из релиза
-(`curl -fsSL .../install.sh | sh`), без клона и без Go. Подробности —
-[«Быстрый старт», «Установка»](docs/guide/quickstart.md#установка).
+
+Для разработки из исходников — локальный снапшот вместо релиза (нужны клон
+репозитория и Go):
+
+```sh
+sh scripts/release-snapshot.sh
+OFFICE_INSTALL_FROM=dist sh install.sh
+```
+
+Подробности — [«Быстрый старт», «Установка»](docs/guide/quickstart.md#установка).
 
 ## Первая задача
 
