@@ -96,3 +96,45 @@ func (t *Tracker) Comment(key string, by tracker.Actor, body string) error {
 func messageHTML(body string) string {
 	return strings.Join(strings.Split(html.EscapeString(body), "\n"), "<br>")
 }
+
+// FindByMarker — задачи проекта с меткой marker в apiData.labels. Источник
+// идемпотентности пакетного создания (pipeline.ensureChildren).
+//
+// Полнотекстового поиска у API нет, так что обходим все колонки проекта —
+// не только графа: ребёнок, которого человек утащил за пределы графа, иначе
+// выглядел бы «не найденным» и был бы создан заново. Такая находка — громкая
+// ошибка ErrUnmappedColumn: статус для неё не выдумываем.
+func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
+	if err := t.checkProject(project); err != nil {
+		return nil, err
+	}
+	var found []taskDTO
+	for _, column := range t.columns {
+		tasks, err := t.tasksInColumn(column.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, raw := range tasks {
+			data, err := decodeAPIData(raw.APIData)
+			if err != nil {
+				return nil, fmt.Errorf("задача YouGile %s: %w", raw.ID, err)
+			}
+			if slices.Contains(data.Labels, marker) {
+				found = append(found, raw)
+			}
+		}
+	}
+	slices.SortStableFunc(found, func(a, b taskDTO) int {
+		return cmp.Or(cmp.Compare(a.Timestamp, b.Timestamp), cmp.Compare(a.ID, b.ID))
+	})
+
+	refs := make([]tracker.TaskRef, 0, len(found))
+	for _, raw := range found {
+		task, _, err := t.toTask(raw)
+		if err != nil {
+			return nil, err
+		}
+		refs = append(refs, task.Ref())
+	}
+	return refs, nil
+}
