@@ -37,7 +37,7 @@
 - [x] 4.2 Implement `CreateTask` using a content-derived `idempotencyKey`
       (hash of project+summary+description, not a fresh random value per
       call — see design.md Decisions) for dedup.
-- [ ] 4.3 Implement `SetHumanFlag` and `SetAttempts` (both likely additional
+- [x] 4.3 Implement `SetHumanFlag` and `SetAttempts` (both likely additional
       `apiData` fields, following the same namespaced schema).
 
 ## 5. Comments and marker protocol

@@ -2880,7 +2880,7 @@ git commit -m "feat(yougile): CreateTask with content-derived idempotencyKey and
 - Consumes: `mutateAPIData` (Task 9).
 - Produces: `func (t *Tracker) SetHumanFlag(key string, by tracker.Actor, on bool) error`; `func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `lease_test.go`:
 
@@ -2929,12 +2929,12 @@ func TestCountersFollowOwnership(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run 'SetAttempts|SetHumanFlag|Counters'`
 Expected: FAIL to build with `tr.SetAttempts undefined`, `tr.SetHumanFlag undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `lease.go`:
 
@@ -2951,12 +2951,12 @@ func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md
