@@ -850,7 +850,7 @@ git commit -m "feat(yougile): package scaffold, bearer HTTP helper, paginated li
 - Consumes: `(*Tracker).call` from Task 1.
 - Produces: `type userDTO struct { ID string \`json:"id"\`; Email string \`json:"email"\` }`; `func (t *Tracker) Whoami() (string, error)`. It returns the email of the key's user. Task 5 uses `userDTO` to resolve comment authors, and those emails are what gets compared against `Whoami`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `yougile_test.go`:
 
@@ -874,12 +874,12 @@ func TestWhoamiRejectsEmptyEmail(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestWhoami`
 Expected: FAIL to build with `tr.Whoami undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `yougile.go`:
 
@@ -905,12 +905,12 @@ func (t *Tracker) Whoami() (string, error) {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -run TestWhoami -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/yougile.go internal/tracker/yougile/yougile_test.go docs/openspec/changes/yougile-adapter-core/tasks.md

@@ -4,7 +4,7 @@
       key, base URL, project/board identifiers) and a minimal authenticated
       HTTP client (mirroring `internal/tracker/jira/jira.go`'s `net/http`
       usage, not a generated SDK).
-- [ ] 1.2 Implement `Whoami` against the real API's current-user endpoint.
+- [x] 1.2 Implement `Whoami` against the real API's current-user endpoint.
 
 ## 2. Status modeling
 
