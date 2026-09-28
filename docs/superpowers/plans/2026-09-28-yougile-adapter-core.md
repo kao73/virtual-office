@@ -1411,7 +1411,7 @@ git commit -m "feat(yougile): apiData codec that keeps foreign keys and writes o
   - `func (t *Tracker) comments(key string) ([]tracker.Comment, error)`
   - `func (t *Tracker) userEmail(id string) (string, error)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/tracker/yougile/task_test.go`:
 
@@ -1537,12 +1537,12 @@ func TestGetMalformedAPIDataNamesTask(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestGet`
 Expected: FAIL to build with `tr.Get undefined`, `undefined: ErrUnmappedColumn`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Create `internal/tracker/yougile/task.go`:
 
@@ -1715,12 +1715,12 @@ func (t *Tracker) userEmail(id string) (string, error) {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md

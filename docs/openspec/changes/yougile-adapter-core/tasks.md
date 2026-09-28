@@ -17,7 +17,7 @@
       list per `Tracker` instance rather than re-fetching it per call.
 - [ ] 2.3 Implement `ListExpired` (tasks whose lease, read from `apiData`,
       has passed) by enumerating the project's columns.
-- [ ] 2.4 Implement `Get` returning full task state including comments.
+- [x] 2.4 Implement `Get` returning full task state including comments.
 
 ## 3. Lease and ownership
 
