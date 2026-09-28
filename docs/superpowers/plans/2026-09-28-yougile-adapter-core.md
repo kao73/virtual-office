@@ -2358,7 +2358,7 @@ git commit -m "feat(yougile): Claim writes lease+column in one PUT, rereads and 
   - `func (t *Tracker) mutateAPIData(key string, by tracker.Actor, change func(*apiData)) error`
   - `func (t *Tracker) Renew(key, runID string, leaseUntil time.Time) error`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `lease_test.go`:
 
@@ -2400,12 +2400,12 @@ func TestRenewRefusesForeignLease(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestRenew`
 Expected: FAIL to build with `tr.Renew undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `task.go`:
 
@@ -2453,12 +2453,12 @@ func (t *Tracker) Renew(key, runID string, leaseUntil time.Time) error {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md
