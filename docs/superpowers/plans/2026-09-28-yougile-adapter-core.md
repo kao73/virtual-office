@@ -2103,7 +2103,7 @@ git commit -m "feat(yougile): ListExpired across all configured columns"
 - Consumes: `getRaw`, `toTask` (Task 5), `apiData.encode` (Task 4), `columnFor` (Task 6).
 - Produces: `func (t *Tracker) putTask(key string, body map[string]any) error`; `func (t *Tracker) Claim(req tracker.ClaimRequest) error`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `lease_test.go` (add `"errors"` and `"github.com/kao73/virtual-office/internal/tracker"` to its imports):
 
@@ -2250,12 +2250,12 @@ func TestClaimUnknownWorkingStatusWritesNothing(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run 'Claim'`
 Expected: FAIL to build with `tr.Claim undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `task.go`:
 
@@ -2330,12 +2330,12 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md

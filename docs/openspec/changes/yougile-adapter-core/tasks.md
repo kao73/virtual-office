@@ -23,7 +23,7 @@
 
 - [x] 3.1 Define the `apiData` lease sub-schema (namespaced, see design.md
       Decisions) and helpers to read/write it.
-- [ ] 3.2 Implement `Claim`: write lease fields, reread, verify ownership,
+- [x] 3.2 Implement `Claim`: write lease fields, reread, verify ownership,
       return `ErrClaimLost`-equivalent on loss.
 - [ ] 3.3 Implement `Renew`: succeed only while the calling run's lease is
       still live.
