@@ -33,6 +33,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kao73/virtual-office/internal/tracker"
 )
@@ -233,18 +234,20 @@ func statusError(method, path string, code int, body []byte) error {
 // русский текст ошибки, оборванный посреди руны, стал бы битым UTF-8.
 func snippet(body []byte) string {
 	const limit = 400
-	// Идём по рунам, не копируя тело: HTML-страница прокси бывает мегабайтами,
-	// а наружу уйдёт limit символов. range отдаёт битый байт как U+FFFD —
-	// его и пишем, чтобы чужая кодировка не протекла в текст ошибки.
+	// Идём по рунам прямо по байтам: HTML-страница прокси бывает мегабайтами,
+	// а наружу уйдёт limit символов (range по string(body) скопировал бы тело
+	// целиком). Битый байт DecodeRune отдаёт как U+FFFD — его и пишем, чтобы
+	// чужая кодировка не протекла в текст ошибки.
+	body = bytes.TrimSpace(body)
 	var out strings.Builder
-	n := 0
-	for _, r := range string(bytes.TrimSpace(body)) {
+	for n := 0; len(body) > 0; n++ {
 		if n == limit {
 			out.WriteString("…")
 			break
 		}
+		r, size := utf8.DecodeRune(body)
 		out.WriteRune(r)
-		n++
+		body = body[size:]
 	}
 	return out.String()
 }

@@ -673,3 +673,18 @@ func TestSnippetCutsByRunes(t *testing.T) {
 		}
 	}
 }
+
+// Тело ответа не копируется: наружу уходит 400 символов, и память под них,
+// а не под мегабайтную страницу прокси.
+func TestSnippetDoesNotCopyBody(t *testing.T) {
+	body := []byte(strings.Repeat("x", 1<<20))
+	res := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			_ = snippet(body)
+		}
+	})
+	if got := res.AllocedBytesPerOp(); got > 16<<10 {
+		t.Errorf("snippet выделяет %d байт на мегабайтное тело", got)
+	}
+}
