@@ -44,8 +44,9 @@ known limitation the `jira` adapter documents on its `Claim`.
 - **WHEN** a claim with a working status writes the lease and the column,
   and the re-read shows the lease is the caller's but the task is still
   outside the working status's column
-- **THEN** the claim fails, does not report success, and leaves the task
-  without the caller's lease
+- **THEN** the claim fails, does not report success, and releases the
+  caller's lease at once rather than leaving it to expire (if that release
+  itself fails, the lease is left to the reaper)
 
 #### Scenario: Claiming an archived task fails
 - **WHEN** a caller attempts to claim a task that has been archived
