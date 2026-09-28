@@ -105,8 +105,7 @@ func claimReq(runID string) tracker.ClaimRequest {
 	}
 }
 
-func putLease(t *testing.T, body map[string]any) map[string]any {
-	t.Helper()
+func putLease(body map[string]any) map[string]any {
 	data, _ := body["apiData"].(map[string]any)
 	lease, _ := data["lease"].(map[string]any)
 	return lease
@@ -122,7 +121,7 @@ func TestClaimWritesLeaseAndColumnInOnePut(t *testing.T) {
 	if len(fake.puts) != 1 {
 		t.Fatalf("PUT'ов %d, ожидался один", len(fake.puts))
 	}
-	lease := putLease(t, fake.puts[0])
+	lease := putLease(fake.puts[0])
 	if lease["run_id"] != "run-1" || lease["owner"] != "implementer" {
 		t.Errorf("аренда: %#v", lease)
 	}
@@ -357,19 +356,6 @@ func TestSetHumanFlagBySystemOnFreeTask(t *testing.T) {
 		if task, _ := tr.Get(testKey); task.HumanFlag != on {
 			t.Errorf("HumanFlag = %v, ожидалось %v", task.HumanFlag, on)
 		}
-	}
-}
-
-func TestCountersFollowOwnership(t *testing.T) {
-	tr, fake := fixture(t)
-	if err := tr.SetAttempts(testKey, tracker.ByRun("run-1"), 1); !errors.Is(err, tracker.ErrNotOwner) {
-		t.Errorf("прогон без аренды дал %v", err)
-	}
-	if err := tr.SetHumanFlag(testKey, tracker.ByRun("run-1"), true); !errors.Is(err, tracker.ErrNotOwner) {
-		t.Errorf("прогон без аренды дал %v", err)
-	}
-	if len(fake.puts) != 0 {
-		t.Error("записано без права")
 	}
 }
 

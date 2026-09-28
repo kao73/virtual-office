@@ -571,8 +571,8 @@ func TestOpenCachesProjectColumnsAndCreatesNothing(t *testing.T) {
 	if len(tr.columns) != 4 {
 		t.Errorf("кэш колонок: %+v, ожидались 4 колонки board-1", tr.columns)
 	}
-	for _, c := range tr.columns {
-		if c.ID == "col-foreign" {
+	for _, id := range tr.columns {
+		if id == "col-foreign" {
 			t.Errorf("в кэш попала колонка чужого проекта")
 		}
 	}

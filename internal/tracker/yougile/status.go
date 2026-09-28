@@ -22,14 +22,8 @@ type boardDTO struct {
 
 type columnDTO struct {
 	ID      string `json:"id"`
-	Title   string `json:"title"`
 	BoardID string `json:"boardId"`
 	Deleted bool   `json:"deleted"`
-}
-
-// columnInfo — колонка проекта, кэшированная на Open.
-type columnInfo struct {
-	ID, Title, BoardID string
 }
 
 // loadColumns читает доски и колонки проекта один раз и сверяет с ними
@@ -47,7 +41,7 @@ func (t *Tracker) loadColumns() error {
 	if err != nil {
 		return err
 	}
-	var columns []columnInfo
+	var columns []string
 	for _, board := range boards {
 		if board.Deleted || board.ProjectID != t.cfg.ProjectID {
 			continue
@@ -60,13 +54,13 @@ func (t *Tracker) loadColumns() error {
 			if c.Deleted || c.BoardID != board.ID {
 				continue
 			}
-			columns = append(columns, columnInfo{ID: c.ID, Title: c.Title, BoardID: c.BoardID})
+			columns = append(columns, c.ID)
 		}
 	}
 
 	known := make(map[string]bool, len(columns))
-	for _, c := range columns {
-		known[c.ID] = true
+	for _, id := range columns {
+		known[id] = true
 	}
 	var missing []string
 	for _, status := range slices.Sorted(maps.Keys(t.cfg.ColumnIDs)) {
@@ -110,6 +104,12 @@ func (t *Tracker) tasksInColumn(columnID string) ([]taskDTO, error) {
 	return live, nil
 }
 
+// byCreation — от старых к новым; равное время создания разводит id, чтобы
+// порядок не зависел от сервера.
+func byCreation(a, b taskDTO) int {
+	return cmp.Or(cmp.Compare(a.Timestamp, b.Timestamp), cmp.Compare(a.ID, b.ID))
+}
+
 // collect — задачи названных колонок, от старых к новым (FIFO: приоритета
 // в YouGile нет, design.md Decisions), отфильтрованные keep.
 func (t *Tracker) collect(columnIDs []string, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
@@ -121,9 +121,7 @@ func (t *Tracker) collect(columnIDs []string, keep func(tracker.Task) bool) ([]t
 		}
 		raws = append(raws, tasks...)
 	}
-	slices.SortStableFunc(raws, func(a, b taskDTO) int {
-		return cmp.Or(cmp.Compare(a.Timestamp, b.Timestamp), cmp.Compare(a.ID, b.ID))
-	})
+	slices.SortStableFunc(raws, byCreation)
 
 	refs := make([]tracker.TaskRef, 0, len(raws))
 	for _, raw := range raws {

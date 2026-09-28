@@ -43,6 +43,20 @@ func (t *Tracker) getRaw(key string) (taskDTO, error) {
 	return raw, nil
 }
 
+// load — getRaw и toTask одним шагом: задача как есть, в модели раннера и
+// её apiData.
+func (t *Tracker) load(key string) (taskDTO, tracker.Task, apiData, error) {
+	raw, err := t.getRaw(key)
+	if err != nil {
+		return taskDTO{}, tracker.Task{}, apiData{}, err
+	}
+	task, data, err := t.toTask(raw)
+	if err != nil {
+		return taskDTO{}, tracker.Task{}, apiData{}, err
+	}
+	return raw, task, data, nil
+}
+
 // toTask переводит задачу API в модель раннера. apiData возвращается рядом —
 // его перепишут и отправят обратно целиком те, кто мутирует задачу.
 func (t *Tracker) toTask(raw taskDTO) (tracker.Task, apiData, error) {
@@ -67,11 +81,7 @@ func (t *Tracker) toTask(raw taskDTO) (tracker.Task, apiData, error) {
 
 // Get — задача целиком, включая всю переписку чата задачи.
 func (t *Tracker) Get(key string) (tracker.Task, error) {
-	raw, err := t.getRaw(key)
-	if err != nil {
-		return tracker.Task{}, err
-	}
-	task, _, err := t.toTask(raw)
+	_, task, _, err := t.load(key)
 	if err != nil {
 		return tracker.Task{}, err
 	}
@@ -91,11 +101,7 @@ func (t *Tracker) putTask(key string, body map[string]any) error {
 // owned читает задачу (без переписки) и проверяет право актора её менять
 // общим tracker.CheckOwner: разъехавшись с jira и mock, правило дало бы гонку.
 func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, apiData, error) {
-	raw, err := t.getRaw(key)
-	if err != nil {
-		return tracker.Task{}, apiData{}, err
-	}
-	task, data, err := t.toTask(raw)
+	_, task, data, err := t.load(key)
 	if err != nil {
 		return tracker.Task{}, apiData{}, err
 	}
@@ -155,11 +161,7 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 		return tracker.TaskRef{}, errors.New("yougile: POST /tasks ответил без id — задача могла создаться, повтор найдёт её по idempotencyKey")
 	}
 
-	raw, err := t.getRaw(created.ID)
-	if err != nil {
-		return tracker.TaskRef{}, err
-	}
-	task, _, err := t.toTask(raw)
+	_, task, _, err := t.load(created.ID)
 	if err != nil {
 		return tracker.TaskRef{}, err
 	}

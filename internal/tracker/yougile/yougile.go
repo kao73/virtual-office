@@ -74,8 +74,8 @@ type Tracker struct {
 
 	// columnStatus — обратная карта ColumnIDs: id колонки → статус графа.
 	columnStatus map[string]string
-	// columns — все колонки всех досок проекта, прочитанные один раз на Open.
-	columns []columnInfo
+	// columns — id всех колонок всех досок проекта, прочитанные один раз на Open.
+	columns []string
 
 	mu    sync.Mutex
 	users map[string]string // id пользователя → email, кэш авторов комментариев
@@ -233,18 +233,17 @@ func statusError(method, path string, code int, body []byte) error {
 // русский текст ошибки, оборванный посреди руны, стал бы битым UTF-8.
 func snippet(body []byte) string {
 	const limit = 400
-	// В руны переводим не всё тело: HTML-страница прокси бывает мегабайтами,
-	// а наружу уйдёт limit символов. 4·limit байт вмещают limit рун любых.
+	// Идём по рунам, не копируя тело: HTML-страница прокси бывает мегабайтами,
+	// а наружу уйдёт limit символов.
 	body = bytes.TrimSpace(body)
-	cut := len(body) > 4*limit
-	if cut {
-		body = body[:4*limit]
+	n := 0
+	for i := range string(body) {
+		if n == limit {
+			return string(body[:i]) + "…"
+		}
+		n++
 	}
-	runes := []rune(string(body))
-	if len(runes) > limit || cut {
-		return string(runes[:min(limit, len(runes))]) + "…"
-	}
-	return string(runes)
+	return string(body)
 }
 
 // page — страница любого листинга API v2: paging + content.
@@ -294,6 +293,12 @@ func (t *Tracker) Whoami() (string, error) {
 	}
 	if me.Email == "" {
 		return "", errors.New("yougile: /users/me не назвал email — сравнивать авторов комментариев не с чем")
+	}
+	// Свои комментарии в переписке есть почти всегда — автора уже знаем.
+	if me.ID != "" {
+		t.mu.Lock()
+		t.users[me.ID] = me.Email
+		t.mu.Unlock()
 	}
 	return me.Email, nil
 }

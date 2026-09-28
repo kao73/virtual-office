@@ -312,3 +312,19 @@ func TestGetAsksChatWithoutSystemMessages(t *testing.T) {
 		t.Errorf("чат запрошен без includeSystem=false: %v", fake.requests)
 	}
 }
+
+// Whoami уже знает id и email офиса — свои комментарии не стоят запроса к /users.
+func TestWhoamiSeedsAuthorCache(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.messages[testKey] = []fakeMessage{{ID: 1, From: officeUserID, Text: "вопрос"}}
+	if _, err := tr.Whoami(); err != nil {
+		t.Fatal(err)
+	}
+	task, err := tr.Get(testKey)
+	if err != nil || task.Comments[0].Author != "office@example.com" {
+		t.Fatalf("Get: %+v, %v", task.Comments, err)
+	}
+	if n := fake.count("GET /api-v2/users/" + officeUserID); n != 0 {
+		t.Errorf("автор-офис запрошен %d раз", n)
+	}
+}

@@ -103,18 +103,13 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	}
 	var working string
 	if req.WorkingStatus != "" {
-		id, err := t.columnFor(req.WorkingStatus)
-		if err != nil {
+		var err error
+		if working, err = t.columnFor(req.WorkingStatus); err != nil {
 			return err
 		}
-		working = id
 	}
 
-	raw, err := t.getRaw(req.Key)
-	if err != nil {
-		return err
-	}
-	task, data, err := t.toTask(raw)
+	raw, task, data, err := t.load(req.Key)
 	if err != nil {
 		return err
 	}
@@ -145,11 +140,7 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 		return err
 	}
 
-	freshRaw, err := t.getRaw(req.Key)
-	if err != nil {
-		return err
-	}
-	fresh, _, err := t.toTask(freshRaw)
+	_, fresh, _, err := t.load(req.Key)
 	if err != nil {
 		return err
 	}

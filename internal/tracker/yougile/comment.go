@@ -124,7 +124,7 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 	}
 	var found []taskDTO
 	for _, column := range t.columns {
-		tasks, err := t.tasksInColumn(column.ID)
+		tasks, err := t.tasksInColumn(column)
 		if err != nil {
 			return nil, err
 		}
@@ -138,9 +138,7 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 			}
 		}
 	}
-	slices.SortStableFunc(found, func(a, b taskDTO) int {
-		return cmp.Or(cmp.Compare(a.Timestamp, b.Timestamp), cmp.Compare(a.ID, b.ID))
-	})
+	slices.SortStableFunc(found, byCreation)
 
 	refs := make([]tracker.TaskRef, 0, len(found))
 	for _, raw := range found {
