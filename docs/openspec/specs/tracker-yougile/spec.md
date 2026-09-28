@@ -27,7 +27,8 @@ tasks currently in that status's column.
 ### Requirement: Claim records lease ownership and verifies it after writing
 Claiming a task SHALL record the claiming run as the task's owner together
 with a lease expiry, then re-read the task to confirm the caller is in
-fact the recorded owner before reporting success.
+fact the recorded owner before reporting success. A task that has been
+archived SHALL NOT be claimed.
 
 #### Scenario: A claimant whose lease was overwritten is told it lost
 - **WHEN** a caller's lease write on an unowned task is overwritten by
