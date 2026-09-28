@@ -2,6 +2,7 @@
 change: yougile-adapter-core
 design-doc: docs/superpowers/specs/2026-09-28-yougile-adapter-core-design.md
 base-ref: a73fc3304d71ade69e4f6e497275663850ff2839
+archived-with: 2026-09-28-yougile-adapter-core
 ---
 
 # yougile-adapter-core Implementation Plan

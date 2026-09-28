@@ -2,6 +2,8 @@
 comet_change: yougile-adapter-core
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-28-yougile-adapter-core
+status: final
 ---
 
 # yougile-adapter-core — deep technical design
