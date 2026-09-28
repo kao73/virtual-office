@@ -27,7 +27,7 @@
       return `ErrClaimLost`-equivalent on loss.
 - [x] 3.3 Implement `Renew`: succeed only while the calling run's lease is
       still live.
-- [ ] 3.4 Implement `Release`: clear lease fields without changing status,
+- [x] 3.4 Implement `Release`: clear lease fields without changing status,
       usable by both a run and the system actor.
 
 ## 4. Task lifecycle

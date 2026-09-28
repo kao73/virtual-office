@@ -2477,7 +2477,7 @@ git commit -m "feat(yougile): Renew own live lease through CheckOwner"
 - Consumes: `mutateAPIData` (Task 9).
 - Produces: `func (t *Tracker) Release(key string, by tracker.Actor) error`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `lease_test.go`:
 
@@ -2534,12 +2534,12 @@ func TestReleaseBySystemOnlyWhenExpired(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestRelease`
 Expected: FAIL to build with `tr.Release undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `lease.go`:
 
@@ -2552,12 +2552,12 @@ func (t *Tracker) Release(key string, by tracker.Actor) error {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md
