@@ -653,8 +653,14 @@ func TestOpenRejectsColumnOfDeletedBoard(t *testing.T) {
 // Тело ответа режется по символам: русский текст ошибки, оборванный посреди
 // руны, уехал бы в лог битым UTF-8.
 func TestSnippetCutsByRunes(t *testing.T) {
-	// 2-байтовые и 4-байтовые руны, короче и длиннее предварительной обрезки
-	// по байтам.
+	// Битые байты (чужая кодировка прокси, оборванное тело) — U+FFFD, а не
+	// насквозь в текст ошибки.
+	for body, want := range map[string]string{"ab\xffcd": "ab\uFFFDcd", " \xd0": "\uFFFD"} {
+		if got := snippet([]byte(body)); got != want {
+			t.Errorf("snippet(%q) = %q, ожидалось %q", body, got, want)
+		}
+	}
+	// 2-байтовые и 4-байтовые руны, короче и длиннее лимита в байтах.
 	for _, r := range []string{"я", "🙂"} {
 		for _, n := range []int{500, 5000} {
 			got := snippet([]byte("  " + strings.Repeat(r, n)))

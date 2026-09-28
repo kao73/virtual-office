@@ -234,16 +234,19 @@ func statusError(method, path string, code int, body []byte) error {
 func snippet(body []byte) string {
 	const limit = 400
 	// Идём по рунам, не копируя тело: HTML-страница прокси бывает мегабайтами,
-	// а наружу уйдёт limit символов.
-	body = bytes.TrimSpace(body)
+	// а наружу уйдёт limit символов. range отдаёт битый байт как U+FFFD —
+	// его и пишем, чтобы чужая кодировка не протекла в текст ошибки.
+	var out strings.Builder
 	n := 0
-	for i := range string(body) {
+	for _, r := range string(bytes.TrimSpace(body)) {
 		if n == limit {
-			return string(body[:i]) + "…"
+			out.WriteString("…")
+			break
 		}
+		out.WriteRune(r)
 		n++
 	}
-	return string(body)
+	return out.String()
 }
 
 // page — страница любого листинга API v2: paging + content.
