@@ -32,7 +32,7 @@
 
 ## 4. Task lifecycle
 
-- [ ] 4.1 Implement `Transition` (moves `columnId` to the column configured
+- [x] 4.1 Implement `Transition` (moves `columnId` to the column configured
       for the target status).
 - [ ] 4.2 Implement `CreateTask` using a content-derived `idempotencyKey`
       (hash of project+summary+description, not a fresh random value per

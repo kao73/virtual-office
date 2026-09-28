@@ -2576,7 +2576,7 @@ git commit -m "feat(yougile): Release clears lease with explicit null, keeps sta
 - Consumes: `columnFor` (Task 6), `owned`, `putTask` (Tasks 8–9).
 - Produces: `func (t *Tracker) Transition(key string, by tracker.Actor, toStatus string) error`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `status_test.go`:
 
@@ -2619,12 +2619,12 @@ func TestTransitionUnknownStatusAsksNothing(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestTransition`
 Expected: FAIL to build with `tr.Transition undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `status.go`:
 
@@ -2643,12 +2643,12 @@ func (t *Tracker) Transition(key string, by tracker.Actor, toStatus string) erro
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md
