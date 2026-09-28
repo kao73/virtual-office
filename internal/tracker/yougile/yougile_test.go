@@ -489,3 +489,84 @@ func TestWhoamiRejectsEmptyEmail(t *testing.T) {
 		t.Error("пустой email принят")
 	}
 }
+
+func openWith(t *testing.T, fake *fakeYouGile, spoil func(*Config)) (*Tracker, error) {
+	t.Helper()
+	cfg := testConfig(serve(t, fake))
+	spoil(&cfg)
+	return Open(cfg)
+}
+
+func TestOpenRejectsAmbiguousColumnMapping(t *testing.T) {
+	_, err := openWith(t, newFake(t), func(c *Config) {
+		c.ColumnIDs = map[string]string{"Ready": colReady, "Backlog": colReady}
+	})
+	if err == nil {
+		t.Fatal("одна колонка на два статуса принята")
+	}
+	for _, want := range []string{colReady, "Ready", "Backlog"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("в ошибке нет %q: %v", want, err)
+		}
+	}
+}
+
+func TestOpenRejectsEmptyColumnID(t *testing.T) {
+	_, err := openWith(t, newFake(t), func(c *Config) { c.ColumnIDs["Ready"] = "" })
+	if err == nil || !strings.Contains(err.Error(), "Ready") {
+		t.Errorf("пустой id колонки дал %v", err)
+	}
+}
+
+func TestOpenRejectsMissingColumn(t *testing.T) {
+	_, err := openWith(t, newFake(t), func(c *Config) { c.ColumnIDs["Ready"] = "col-missing" })
+	if err == nil || !strings.Contains(err.Error(), "col-missing") {
+		t.Errorf("несуществующая колонка дала %v", err)
+	}
+}
+
+// Колонка есть в компании, но на доске чужого проекта: для этого трекера её нет.
+func TestOpenRejectsColumnOfAnotherProject(t *testing.T) {
+	_, err := openWith(t, newFake(t), func(c *Config) { c.ColumnIDs["Ready"] = "col-foreign" })
+	if err == nil || !strings.Contains(err.Error(), "col-foreign") {
+		t.Errorf("колонка чужого проекта дала %v", err)
+	}
+}
+
+func TestOpenRejectsUnknownProject(t *testing.T) {
+	_, err := openWith(t, newFake(t), func(c *Config) { c.ProjectID = "nope" })
+	if !errors.Is(err, tracker.ErrNoProject) {
+		t.Errorf("незнакомый проект дал %v, ожидался ErrNoProject", err)
+	}
+}
+
+func TestOpenRejectsCreateStatusOutsideMap(t *testing.T) {
+	_, err := openWith(t, newFake(t), func(c *Config) { c.CreateStatus = "Backlog" })
+	if err == nil || !strings.Contains(err.Error(), "Backlog") {
+		t.Errorf("create_status вне карты дал %v", err)
+	}
+}
+
+func TestOpenAllowsEmptyCreateStatus(t *testing.T) {
+	if _, err := openWith(t, newFake(t), func(c *Config) { c.CreateStatus = "" }); err != nil {
+		t.Errorf("пустой create_status отвергнут: %v", err)
+	}
+}
+
+func TestOpenCachesProjectColumnsAndCreatesNothing(t *testing.T) {
+	tr, fake := fixture(t)
+	if len(tr.columns) != 4 {
+		t.Errorf("кэш колонок: %+v, ожидались 4 колонки board-1", tr.columns)
+	}
+	for _, c := range tr.columns {
+		if c.ID == "col-foreign" {
+			t.Errorf("в кэш попала колонка чужого проекта")
+		}
+	}
+	if tr.columnStatus[colWork] != "InProgress" {
+		t.Errorf("обратная карта: %+v", tr.columnStatus)
+	}
+	if n := fake.count("POST") + fake.count("PUT"); n != 0 {
+		t.Errorf("Open что-то записал: %d запросов записи", n)
+	}
+}

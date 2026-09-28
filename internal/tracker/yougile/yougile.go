@@ -27,6 +27,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,11 +64,6 @@ type Config struct {
 	// CreateStatus — статус графа, в колонку которого CreateTask кладёт новую
 	// задачу. Пусто — CreateTask откажет при вызове.
 	CreateStatus string
-}
-
-// columnInfo — колонка проекта, кэшированная на Open.
-type columnInfo struct {
-	ID, Title, BoardID string
 }
 
 // Tracker — трекер поверх YouGile.
@@ -110,12 +106,37 @@ func Open(cfg Config) (*Tracker, error) {
 		return nil, errors.New("yougile: карта статус → колонка пуста")
 	}
 
-	return &Tracker{
-		cfg:    cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
-		users:  map[string]string{},
-		Now:    time.Now,
-	}, nil
+	// Обратная карта: строим один раз и падаем на неоднозначности сразу, а не
+	// посреди первого цикла. Обход в порядке ключей — ошибка одна и та же при
+	// каждом запуске.
+	columnStatus := make(map[string]string, len(cfg.ColumnIDs))
+	for _, status := range slices.Sorted(maps.Keys(cfg.ColumnIDs)) {
+		id := cfg.ColumnIDs[status]
+		if id == "" {
+			return nil, fmt.Errorf("yougile: у статуса %q пустой id колонки", status)
+		}
+		if before, found := columnStatus[id]; found {
+			return nil, fmt.Errorf("yougile: колонка %q сопоставлена и с %q, и с %q", id, before, status)
+		}
+		columnStatus[id] = status
+	}
+	if cfg.CreateStatus != "" {
+		if _, ok := cfg.ColumnIDs[cfg.CreateStatus]; !ok {
+			return nil, fmt.Errorf("yougile: create_status %q не входит в карту статус → колонка", cfg.CreateStatus)
+		}
+	}
+
+	t := &Tracker{
+		cfg:          cfg,
+		client:       &http.Client{Timeout: 30 * time.Second},
+		columnStatus: columnStatus,
+		users:        map[string]string{},
+		Now:          time.Now,
+	}
+	if err := t.loadColumns(); err != nil {
+		return nil, err
+	}
+	return t, nil
 }
 
 // checkProject — Tracker обслуживает ровно один проект YouGile.
