@@ -70,14 +70,19 @@ creation SHALL return the earlier task rather than creating a duplicate.
 - **THEN** both calls report the same task identity, and only one task
   exists
 
-### Requirement: Comments follow the office marker protocol and can be found by marker
-Comments SHALL be written and read back verbatim so that a comment
-carrying the office's marker convention can later be located by that
-marker.
+### Requirement: Comments are written verbatim and tasks can be found by marker
+Comments SHALL be written and read back verbatim, preserving the office's
+marker convention. A task created with a marker among its labels SHALL be
+locatable later by that marker, the same way the `jira` and `mock`
+adapters match `FindByMarker` against task labels.
 
-#### Scenario: A marked comment is found by its marker
+#### Scenario: A comment round-trips verbatim
 - **WHEN** a comment carrying a given run marker is posted to a task
-- **THEN** a subsequent search by that marker locates the task
+- **THEN** reading the task back returns that comment text unchanged
+
+#### Scenario: A labeled task is found by its marker
+- **WHEN** a task is created with a marker among its labels
+- **THEN** a subsequent `FindByMarker` call with that marker locates the task
 
 ### Requirement: Human-authored replies are distinguishable from office-authored comments
 The adapter SHALL expose enough information about a comment's author for
