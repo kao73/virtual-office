@@ -44,7 +44,13 @@ known limitation the `jira` adapter documents on its `Claim`.
 - **WHEN** a claim with a working status writes the lease and the column,
   and the re-read shows the lease is the caller's but the task is still
   outside the working status's column
-- **THEN** the claim fails and does not report success
+- **THEN** the claim fails, does not report success, and leaves the task
+  without the caller's lease
+
+#### Scenario: Claiming an archived task fails
+- **WHEN** a caller attempts to claim a task that has been archived
+- **THEN** the claim fails with a lost-claim error and nothing is written
+  to the task
 
 #### Scenario: Claiming an already-owned live lease fails
 - **WHEN** a caller attempts to claim a task whose lease is owned by
@@ -105,3 +111,9 @@ was written by the office or by a human.
 - **WHEN** the adapter reports its own operating account via `Whoami`
 - **THEN** that account can be compared against a comment's author to
   decide whether the comment came from the office
+
+#### Scenario: System events are not reported as comments
+- **WHEN** a task is moved between columns or its fields are changed, and
+  the task is read back
+- **THEN** its comments contain only messages that people or the office
+  wrote, not the system events the tracker records for those changes
