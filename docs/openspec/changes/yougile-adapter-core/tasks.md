@@ -53,6 +53,6 @@
 - [x] 6.1 Unit tests for each implemented method against a fixture/fake
       HTTP transport (mirroring `internal/tracker/jira/jira_test.go`'s
       approach), not against the live API.
-- [ ] 6.2 A small number of live-API smoke tests against `office-polygon`,
+- [x] 6.2 A small number of live-API smoke tests against `office-polygon`,
       gated so they do not run by default in CI (mirroring how JIRA-live
       tests, if any, are gated).

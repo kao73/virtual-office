@@ -3359,7 +3359,7 @@ git commit -m "test(yougile): contract subset assertion and ownership sweep acro
 - Consumes: the whole public surface plus `putTask`, `getRaw`, `decodeAPIData` (same package).
 - Produces: `TestLiveLifecycle`, built only with `-tags yougile_live`. There is no earlier precedent for live-gated tests in this repo (the only `//go:build` tags are `release`/`unix`), so this sets the convention: a build tag, not `testing.Short`, which means a plain `go test ./...` never compiles the file.
 
-- [ ] **Step 1: Write the live test**
+- [x] **Step 1: Write the live test**
 
 Create `internal/tracker/yougile/live_test.go`:
 
@@ -3532,14 +3532,14 @@ func TestLiveLifecycle(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Check the default build excludes it, and vet it under its tag**
+- [x] **Step 2: Check the default build excludes it, and vet it under its tag**
 
 ```bash
 go test ./internal/tracker/yougile/ -run TestLive -v    # expect: "testing: warning: no tests to run", ok
 go vet -tags yougile_live ./internal/tracker/yougile/  # expect: no output
 ```
 
-- [ ] **Step 3: Run it live (manual gate, office-polygon only)**
+- [x] **Step 3: Run it live (manual gate, office-polygon only)**
 
 1. Export the key without printing it. Per the owner's machine notes it is in the `yougile-mcp` server's `env` block in `~/.claude.json`, not in the shell profile. The actual key name is `YOUGILE_API_KEY`:
    `export YOUGILE_API_KEY="$(jq -r '.. | objects | select(has("YOUGILE_API_KEY")) | .YOUGILE_API_KEY' ~/.claude.json | head -1)"`
@@ -3550,7 +3550,7 @@ go vet -tags yougile_live ./internal/tracker/yougile/  # expect: no output
    Expected: PASS. If it fails on `text исказился на сервере`, YouGile derives `text` from `textHtml`. Record the exact server output and stop: this changes the Comment design and needs a decision from the owner. If it fails on `после Release` with a non-empty `RunID`, the `null` lease did not clear. Record the raw `apiData` and stop. If it fails on network timeouts, see the owner's note on AmneziaVPN split tunnelling before suspecting the adapter.
 4. Record the run (date, project id, pass/fail, any server-side surprises) in the change's verification evidence, not in code.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/tracker/yougile/live_test.go docs/openspec/changes/yougile-adapter-core/tasks.md
