@@ -930,7 +930,7 @@ git commit -m "feat(yougile): Whoami via /users/me"
 - Consumes: `call`, `listAll`, `Config`, `Tracker` from Task 1.
 - Produces: `type boardDTO`, `type columnDTO`, `type columnInfo` (moved), `func (t *Tracker) loadColumns() error`. After `Open`, `t.columnStatus` (column id → status) and `t.columns` (every live column of every board of the project) are filled.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `yougile_test.go`:
 
@@ -1017,12 +1017,12 @@ func TestOpenCachesProjectColumnsAndCreatesNothing(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestOpen`
 Expected: FAIL. `TestOpenRejectsAmbiguousColumnMapping`, `TestOpenRejectsMissingColumn`, `TestOpenRejectsColumnOfAnotherProject`, `TestOpenRejectsUnknownProject`, `TestOpenRejectsCreateStatusOutsideMap` and `TestOpenRejectsEmptyColumnID` report "принята"/nil errors. `TestOpenCachesProjectColumnsAndCreatesNothing` reports an empty cache.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 In `yougile.go`, delete the `columnInfo` type (it moves to `status.go`). In `Open`, replace the final `return &Tracker{...}, nil` with:
 
@@ -1148,12 +1148,12 @@ func (t *Tracker) loadColumns() error {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS for every test so far, including Task 1's (the fixture now performs the column fetch against the fake).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md

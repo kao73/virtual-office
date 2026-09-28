@@ -8,7 +8,7 @@
 
 ## 2. Status modeling
 
-- [ ] 2.1 Resolve/validate the configured status→column mapping at `Open()`
+- [x] 2.1 Resolve/validate the configured status→column mapping at `Open()`
       time (columns must already exist — the adapter never creates them),
       failing loudly and clearly on a missing or ambiguous mapping,
       mirroring `jira.go`'s reverse status-map validation.
