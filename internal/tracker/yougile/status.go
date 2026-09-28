@@ -185,3 +185,16 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 		return task.RunID != "" && !task.LeaseAlive(now)
 	})
 }
+
+// Transition переводит задачу в колонку статуса. Одно поле, одна запись:
+// второго состояния, которое надо держать в согласии, нет. apiData не трогает.
+func (t *Tracker) Transition(key string, by tracker.Actor, toStatus string) error {
+	column, err := t.columnFor(toStatus)
+	if err != nil {
+		return err
+	}
+	if _, _, err := t.owned(key, by); err != nil {
+		return err
+	}
+	return t.putTask(key, map[string]any{"columnId": column})
+}

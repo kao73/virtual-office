@@ -167,3 +167,40 @@ func TestListExpiredUnknownProject(t *testing.T) {
 		t.Errorf("чужой проект дал %v", err)
 	}
 }
+
+// Spec: «Transitioning a task moves it to the corresponding column».
+func TestTransitionMovesColumnOnly(t *testing.T) {
+	tr, fake := fixture(t)
+	if err := tr.Transition(testKey, tracker.BySystem(), "Review"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.task(testKey).ColumnID != colReview {
+		t.Errorf("колонка = %q", fake.task(testKey).ColumnID)
+	}
+	body := fake.puts[len(fake.puts)-1]
+	if len(body) != 1 || body["columnId"] != colReview {
+		t.Errorf("тело PUT: %#v, ожидался только columnId", body)
+	}
+}
+
+func TestTransitionFollowsOwnership(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-1", now.Add(time.Minute))
+	if err := tr.Transition(testKey, tracker.ByRun("run-2"), "Review"); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("чужой прогон дал %v", err)
+	}
+	if err := tr.Transition(testKey, tracker.ByRun("run-1"), "Review"); err != nil {
+		t.Errorf("владелец не смог перевести: %v", err)
+	}
+}
+
+func TestTransitionUnknownStatusAsksNothing(t *testing.T) {
+	tr, fake := fixture(t)
+	before := len(fake.requests)
+	if err := tr.Transition(testKey, tracker.BySystem(), "Nowhere"); err == nil {
+		t.Error("незнакомый статус принят")
+	}
+	if len(fake.requests) != before {
+		t.Error("запрос ушёл до проверки статуса")
+	}
+}
