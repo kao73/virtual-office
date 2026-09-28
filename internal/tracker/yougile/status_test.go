@@ -134,3 +134,36 @@ func TestListingDoesNotRefetchColumns(t *testing.T) {
 		t.Errorf("колонки спрошены %d раз, ожидался 1 (на Open)", n)
 	}
 }
+
+func TestListExpiredScansEveryConfiguredColumn(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.addTask(&fakeTask{ID: "stuck-review", ColumnID: colReview, Timestamp: now.UnixMilli()})
+	fake.addTask(&fakeTask{ID: "live-work", ColumnID: colWork, Timestamp: now.UnixMilli()})
+	fake.setLease("stuck-review", "run-dead", now.Add(-time.Minute))
+	fake.setLease("live-work", "run-live", now.Add(time.Minute))
+	// testKey без аренды вовсе — не истёкшая, а свободная.
+
+	refs, err := tr.ListExpired(testProject, now)
+	if err != nil || !slices.Equal(keys(refs), []string{"stuck-review"}) {
+		t.Errorf("ListExpired = %v, %v", keys(refs), err)
+	}
+	if fake.count("GET /api-v2/task-list?columnId="+colOutside) != 0 {
+		t.Error("ListExpired заглянул в колонку вне графа")
+	}
+}
+
+func TestListExpiredUsesGivenNow(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-1", now.Add(time.Minute))
+	refs, _ := tr.ListExpired(testProject, now.Add(2*time.Minute))
+	if !slices.Equal(keys(refs), []string{testKey}) {
+		t.Errorf("ListExpired(now+2m) = %v", keys(refs))
+	}
+}
+
+func TestListExpiredUnknownProject(t *testing.T) {
+	tr, _ := fixture(t)
+	if _, err := tr.ListExpired("OTHER", now); !errors.Is(err, tracker.ErrNoProject) {
+		t.Errorf("чужой проект дал %v", err)
+	}
+}

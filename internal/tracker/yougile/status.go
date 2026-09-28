@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kao73/virtual-office/internal/tracker"
 )
@@ -167,4 +168,20 @@ func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, er
 		ids = append(ids, id)
 	}
 	return t.collect(ids, func(tracker.Task) bool { return true })
+}
+
+// configuredColumns — колонки всех статусов графа, в стабильном порядке.
+func (t *Tracker) configuredColumns() []string {
+	return slices.Sorted(maps.Values(t.cfg.ColumnIDs))
+}
+
+// ListExpired — задачи с истёкшей арендой в любом статусе графа: сырьё для
+// reaper. Колонки вне графа не смотрит — их задачи Get всё равно не прочтёт.
+func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef, error) {
+	if err := t.checkProject(project); err != nil {
+		return nil, err
+	}
+	return t.collect(t.configuredColumns(), func(task tracker.Task) bool {
+		return task.RunID != "" && !task.LeaseAlive(now)
+	})
 }
