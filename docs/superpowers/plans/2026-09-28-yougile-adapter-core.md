@@ -2975,7 +2975,7 @@ git commit -m "feat(yougile): SetHumanFlag/SetAttempts in apiData under CheckOwn
 - Consumes: `owned` (Task 9), `call`, `comments` (Task 5).
 - Produces: `func (t *Tracker) Comment(key string, by tracker.Actor, body string) error`; `func messageHTML(body string) string`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/tracker/yougile/comment_test.go`:
 
@@ -3042,12 +3042,12 @@ func TestCommentFollowsOwnership(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestComment`
 Expected: FAIL to build with `tr.Comment undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `comment.go` (add `"html"`, `"strings"` to its imports):
 
@@ -3070,12 +3070,12 @@ func messageHTML(body string) string {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md

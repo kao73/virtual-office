@@ -42,7 +42,7 @@
 
 ## 5. Comments and marker protocol
 
-- [ ] 5.1 Implement `Comment`, writing through to YouGile's task-chat/message
+- [x] 5.1 Implement `Comment`, writing through to YouGile's task-chat/message
       endpoint.
 - [ ] 5.2 Implement `FindByMarker` (scoped project search, since real API
       listing does not support full-text search — confirm exact query
