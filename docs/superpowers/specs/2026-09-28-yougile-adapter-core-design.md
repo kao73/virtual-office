@@ -422,6 +422,15 @@ disagrees with §1–§10, this section wins.
 - `CreateTask` reports a create answer without an id instead of
   requesting `GET /tasks/`.
 - `Open` rejects a `base_url` that ends in `/api-v2`.
+- The chat is read with an explicit `includeSystem=false`. A live probe on
+  `office-polygon` showed that moving a card adds a system message, which the
+  API returns only with `includeSystem=true`. The live test requires exactly
+  one comment after claim, move, counters, flag and comment.
+- `Claim` refuses an archived card with `ErrClaimLost`. When the column did
+  not move, it releases its own lease instead of leaving it to expire.
+- `List` ignores a repeated status. `Transition` deliberately does not
+  reread: `jira.Transition` does not either, and a reread costs one request
+  per move against the 50 req/min limit.
 
 Findings from the final build review that were accepted and not fixed are
 listed in `tasks.md` under "Build review notes".
