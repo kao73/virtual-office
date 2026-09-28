@@ -158,3 +158,10 @@ func (t *Tracker) Renew(key, runID string, leaseUntil time.Time) error {
 		}
 	})
 }
+
+// Release снимает аренду, не трогая колонку, attempts, human_wait и чужие
+// ключи apiData. Снимает и сам прогон, и reaper — системной операцией
+// над чужой истёкшей арендой.
+func (t *Tracker) Release(key string, by tracker.Actor) error {
+	return t.mutateAPIData(key, by, func(d *apiData) { d.Lease = nil })
+}

@@ -273,3 +273,54 @@ func TestRenewRefusesForeignLease(t *testing.T) {
 		t.Errorf("продление чужой дало %v", err)
 	}
 }
+
+// Spec: «A released task keeps its status»; attempts/human_wait/чужое — тоже на месте.
+func TestReleaseClearsLeaseKeepsStatusAndCounters(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].ColumnID = colWork
+	fake.tasks[testKey].APIData = map[string]any{"attempts": 2, "human_wait": true, "crm": "keep"}
+	fake.setLease(testKey, "run-1", now.Add(time.Minute))
+
+	if err := tr.Release(testKey, tracker.ByRun("run-1")); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := tr.Get(testKey)
+	if task.RunID != "" || task.Owner != "" || !task.LeaseUntil.IsZero() {
+		t.Errorf("аренда не снята: %+v", task)
+	}
+	if task.Status != "InProgress" || task.Attempts != 2 || !task.HumanFlag {
+		t.Errorf("снятие аренды тронуло лишнее: %+v", task)
+	}
+	if fake.task(testKey).APIData["crm"] != "keep" {
+		t.Error("чужой ключ apiData потерян")
+	}
+}
+
+// Review Focus #3.
+func TestReleaseSendsExplicitNullLease(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-1", now.Add(time.Minute))
+	if err := tr.Release(testKey, tracker.ByRun("run-1")); err != nil {
+		t.Fatal(err)
+	}
+	body := fake.puts[len(fake.puts)-1]
+	data := body["apiData"].(map[string]any)
+	if lease, present := data["lease"]; !present || lease != nil {
+		t.Errorf("lease в теле PUT: %#v (присутствует: %v), ожидался явный null", lease, present)
+	}
+	if _, moved := body["columnId"]; moved {
+		t.Error("Release тронул колонку")
+	}
+}
+
+func TestReleaseBySystemOnlyWhenExpired(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-1", now.Add(time.Minute))
+	if err := tr.Release(testKey, tracker.BySystem()); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("системное снятие живой аренды дало %v", err)
+	}
+	fake.setLease(testKey, "run-1", now.Add(-time.Minute))
+	if err := tr.Release(testKey, tracker.BySystem()); err != nil {
+		t.Errorf("reaper не снял истёкшую: %v", err)
+	}
+}
