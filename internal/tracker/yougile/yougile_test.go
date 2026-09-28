@@ -471,3 +471,21 @@ func TestCheckProjectRejectsForeignProject(t *testing.T) {
 		t.Errorf("свой проект отвергнут: %v", err)
 	}
 }
+
+func TestWhoamiReturnsEmail(t *testing.T) {
+	tr, _ := fixture(t)
+	who, err := tr.Whoami()
+	if err != nil || who != "office@example.com" {
+		t.Errorf("Whoami = %q, %v", who, err)
+	}
+}
+
+// Пустой email — не «никто», а сломанный ответ: сравнивать авторов было бы
+// не с чем, и каждый комментарий офиса сошёл бы за слова человека.
+func TestWhoamiRejectsEmptyEmail(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.users[officeUserID] = ""
+	if _, err := tr.Whoami(); err == nil {
+		t.Error("пустой email принят")
+	}
+}

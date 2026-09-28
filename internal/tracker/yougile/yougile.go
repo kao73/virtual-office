@@ -231,3 +231,23 @@ func listAll[T any](t *Tracker, path string, query url.Values) ([]T, error) {
 	}
 	return nil, fmt.Errorf("GET %s: больше %d страниц, сервер не подтверждает конец списка", path, maxPages)
 }
+
+// userDTO — пользователь YouGile; нужны id и email.
+type userDTO struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
+// Whoami — email пользователя, чей ключ API у трекера. Авторов комментариев
+// Get отдаёт тоже email'ами (comment.go), так что сравнение идёт по учётке,
+// а не по тексту.
+func (t *Tracker) Whoami() (string, error) {
+	var me userDTO
+	if err := t.call(http.MethodGet, "/users/me", nil, nil, &me); err != nil {
+		return "", err
+	}
+	if me.Email == "" {
+		return "", errors.New("yougile: /users/me не назвал email — сравнивать авторов комментариев не с чем")
+	}
+	return me.Email, nil
+}
