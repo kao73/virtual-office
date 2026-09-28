@@ -21,7 +21,7 @@
 
 ## 3. Lease and ownership
 
-- [ ] 3.1 Define the `apiData` lease sub-schema (namespaced, see design.md
+- [x] 3.1 Define the `apiData` lease sub-schema (namespaced, see design.md
       Decisions) and helpers to read/write it.
 - [ ] 3.2 Implement `Claim`: write lease fields, reread, verify ownership,
       return `ErrClaimLost`-equivalent on loss.

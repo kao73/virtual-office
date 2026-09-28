@@ -1177,7 +1177,7 @@ git commit -m "feat(yougile): validate status→column map against live board co
   - `func decodeAPIData(raw json.RawMessage) (apiData, error)`
   - `func (d apiData) encode() map[string]any`. It always contains all four own keys (`lease` is `nil` when the task is free) plus every foreign key unchanged.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/tracker/yougile/lease_test.go`:
 
@@ -1279,12 +1279,12 @@ func TestDecodeAPIDataRejectsGarbage(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run 'APIData|Encode'`
 Expected: FAIL to build with `undefined: apiData`, `undefined: decodeAPIData`, `undefined: keyLease`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Create `internal/tracker/yougile/lease.go`:
 
@@ -1378,12 +1378,12 @@ func (d apiData) encode() map[string]any {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -run 'APIData|Encode' -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/lease.go internal/tracker/yougile/lease_test.go docs/openspec/changes/yougile-adapter-core/tasks.md
