@@ -324,3 +324,46 @@ func TestReleaseBySystemOnlyWhenExpired(t *testing.T) {
 		t.Errorf("reaper не снял истёкшую: %v", err)
 	}
 }
+
+// Review Focus #2.
+func TestSetAttemptsKeepsLeaseAndForeignKeys(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].APIData = map[string]any{"crm": "keep"}
+	fake.setLease(testKey, "run-1", now.Add(time.Minute))
+	if err := tr.SetAttempts(testKey, tracker.ByRun("run-1"), 3); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := tr.Get(testKey)
+	if task.Attempts != 3 || task.RunID != "run-1" {
+		t.Errorf("после SetAttempts: %+v", task)
+	}
+	if fake.task(testKey).APIData["crm"] != "keep" {
+		t.Error("чужой ключ потерян")
+	}
+}
+
+// Без аренды — законно для системной операции (между Release и Claim).
+func TestSetHumanFlagBySystemOnFreeTask(t *testing.T) {
+	tr, _ := fixture(t)
+	for _, on := range []bool{true, false} {
+		if err := tr.SetHumanFlag(testKey, tracker.BySystem(), on); err != nil {
+			t.Fatal(err)
+		}
+		if task, _ := tr.Get(testKey); task.HumanFlag != on {
+			t.Errorf("HumanFlag = %v, ожидалось %v", task.HumanFlag, on)
+		}
+	}
+}
+
+func TestCountersFollowOwnership(t *testing.T) {
+	tr, fake := fixture(t)
+	if err := tr.SetAttempts(testKey, tracker.ByRun("run-1"), 1); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("прогон без аренды дал %v", err)
+	}
+	if err := tr.SetHumanFlag(testKey, tracker.ByRun("run-1"), true); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("прогон без аренды дал %v", err)
+	}
+	if len(fake.puts) != 0 {
+		t.Error("записано без права")
+	}
+}

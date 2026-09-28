@@ -165,3 +165,14 @@ func (t *Tracker) Renew(key, runID string, leaseUntil time.Time) error {
 func (t *Tracker) Release(key string, by tracker.Actor) error {
 	return t.mutateAPIData(key, by, func(d *apiData) { d.Lease = nil })
 }
+
+// SetHumanFlag — атрибут «ждёт человека» в apiData.human_wait. Аренда для
+// него не нужна: вне lease он и лежит ради этого.
+func (t *Tracker) SetHumanFlag(key string, by tracker.Actor, on bool) error {
+	return t.mutateAPIData(key, by, func(d *apiData) { d.HumanWait = on })
+}
+
+// SetAttempts — счётчик попыток в apiData.attempts.
+func (t *Tracker) SetAttempts(key string, by tracker.Actor, n int) error {
+	return t.mutateAPIData(key, by, func(d *apiData) { d.Attempts = n })
+}
