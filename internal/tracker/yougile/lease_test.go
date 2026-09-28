@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -369,5 +370,43 @@ func TestCountersFollowOwnership(t *testing.T) {
 	}
 	if len(fake.puts) != 0 {
 		t.Error("записано без права")
+	}
+}
+
+// Перехватчик — прогон той же роли: Owner у обоих "implementer", различает их
+// только run_id. Сверка по владельцу-роли пропустила бы двух победителей.
+func TestClaimLostToSameRoleRun(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.afterPut = func(id string) { fake.setLeaseOf(id, "implementer", "run-winner", now.Add(time.Hour)) }
+	if err := tr.Claim(claimReq("run-1")); !errors.Is(err, tracker.ErrClaimLost) {
+		t.Errorf("проигрыш прогону той же роли дал %v", err)
+	}
+}
+
+// Сервер принял аренду, а колонку не сдвинул: захват не удался — задача
+// осталась бы в статусе, из которого её возьмёт следующий захват, с нашей
+// арендой, про которую граф ничего не говорит.
+func TestClaimFailsWhenColumnDidNotMove(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.ignoreColumnOnPut = true
+	err := tr.Claim(claimReq("run-1"))
+	if err == nil || !strings.Contains(err.Error(), "InProgress") {
+		t.Errorf("несдвинутая колонка дала %v", err)
+	}
+}
+
+// Удаление в YouGile мягкое: удалённая задача по id читается с deleted=true
+// и для раннера не существует — ни чтение, ни захват до неё не доходят.
+func TestDeletedTaskIsNotFound(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].Deleted = true
+	if _, err := tr.Get(testKey); !errors.Is(err, tracker.ErrNotFound) {
+		t.Errorf("Get удалённой задачи дал %v", err)
+	}
+	if err := tr.Claim(claimReq("run-1")); !errors.Is(err, tracker.ErrNotFound) {
+		t.Errorf("Claim удалённой задачи дал %v", err)
+	}
+	if len(fake.puts) != 0 {
+		t.Error("в удалённую задачу записано")
 	}
 }

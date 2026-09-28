@@ -204,3 +204,15 @@ func TestTransitionUnknownStatusAsksNothing(t *testing.T) {
 		t.Error("запрос ушёл до проверки статуса")
 	}
 }
+
+// Сервер проигнорировал фильтр по колонке — в очередь всё равно не попадает
+// ничего из других колонок.
+func TestListReadyKeepsOnlyItsColumnEvenIfServerIgnoresFilter(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.ignoreColumnFilter = true
+	fake.addTask(&fakeTask{ID: "in-review", ColumnID: colReview, Timestamp: now.UnixMilli()})
+	refs, err := tr.ListReady(testProject, "Ready")
+	if err != nil || !slices.Equal(keys(refs), []string{testKey}) {
+		t.Errorf("ListReady = %v, %v", keys(refs), err)
+	}
+}

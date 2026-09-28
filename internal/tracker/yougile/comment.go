@@ -52,9 +52,10 @@ func (t *Tracker) comments(key string) ([]tracker.Comment, error) {
 // userEmail — email автора по id, с кэшем на весь Tracker: авторов в переписке
 // немного, а rate limit — 50 запросов в минуту на компанию.
 //
-// Пользователя, которого сервер больше не знает (удалён из компании), автором
-// называет его id: учёткой офиса он не совпадёт ни с чем, то есть это слова
-// человека, — и ронять из-за него чтение задачи незачем.
+// Пользователя, которого сервер больше не знает (удалён из компании) или
+// который не назвал email, автором называет его id: учёткой офиса он не
+// совпадёт ни с чем, то есть это слова человека, — и ронять из-за него
+// чтение задачи незачем.
 func (t *Tracker) userEmail(id string) (string, error) {
 	t.mu.Lock()
 	email, ok := t.users[id]
@@ -70,6 +71,8 @@ func (t *Tracker) userEmail(id string) (string, error) {
 		email = id
 	case err != nil:
 		return "", fmt.Errorf("автор комментария %s не определён: %w", id, err)
+	case user.Email == "":
+		email = id
 	default:
 		email = user.Email
 	}

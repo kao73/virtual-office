@@ -146,6 +146,13 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	if fresh.RunID != req.RunID {
 		return fmt.Errorf("%w: после захвата %s владеет %s", tracker.ErrClaimLost, req.Key, fresh.RunID)
 	}
+	// Аренда и колонка ушли одним PUT, но принял ли сервер колонку, видно
+	// только здесь. Не сдвинулась — захват не удался, как у jira.Claim
+	// при отказе перевода; аренду снимет reaper по истечении.
+	if working != "" && fresh.Status != req.WorkingStatus {
+		return fmt.Errorf("yougile: %s захвачена, но осталась в статусе %q вместо %q",
+			req.Key, fresh.Status, req.WorkingStatus)
+	}
 	return nil
 }
 

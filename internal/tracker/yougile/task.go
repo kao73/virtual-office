@@ -151,6 +151,9 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 	if err := t.call(http.MethodPost, "/tasks", nil, body, &created); err != nil {
 		return tracker.TaskRef{}, err
 	}
+	if created.ID == "" {
+		return tracker.TaskRef{}, errors.New("yougile: POST /tasks ответил без id — задача могла создаться, повтор найдёт её по idempotencyKey")
+	}
 
 	raw, err := t.getRaw(created.ID)
 	if err != nil {

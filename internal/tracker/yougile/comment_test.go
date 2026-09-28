@@ -124,3 +124,16 @@ func TestFindByMarkerUnknownProject(t *testing.T) {
 		t.Errorf("чужой проект дал %v", err)
 	}
 }
+
+// Метка сравнивается целиком: split:P:a — не часть split:P:ab.
+func TestFindByMarkerMatchesWholeLabel(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.addTask(&fakeTask{ID: "longer", ColumnID: colReady, Timestamp: now.UnixMilli(),
+		APIData: map[string]any{"labels": []any{"split:P:ab"}}})
+	fake.addTask(&fakeTask{ID: "exact", ColumnID: colReady, Timestamp: now.UnixMilli() + 1,
+		APIData: map[string]any{"labels": []any{"split:P:a"}}})
+	refs, err := tr.FindByMarker(testProject, "split:P:a")
+	if err != nil || !slices.Equal(keys(refs), []string{"exact"}) {
+		t.Errorf("FindByMarker = %v, %v", keys(refs), err)
+	}
+}

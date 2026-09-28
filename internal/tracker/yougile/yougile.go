@@ -96,6 +96,12 @@ func Open(cfg Config) (*Tracker, error) {
 		return nil, fmt.Errorf("yougile: base_url=%q: нет схемы или хоста (пример: https://yougile.com)", cfg.BaseURL)
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
+	// Адрес документации API кончается на /api-v2, и его легко вставить как есть.
+	// Запросы ушли бы на /api-v2/api-v2/…, а 404 выдал бы себя за «нет проекта».
+	if strings.HasSuffix(cfg.BaseURL, apiPrefix) {
+		return nil, fmt.Errorf("yougile: base_url=%q: %s адаптер добавляет сам, укажи корень хоста (пример: https://yougile.com)",
+			cfg.BaseURL, apiPrefix)
+	}
 	if cfg.APIKey == "" {
 		return nil, errors.New("yougile: ключ API не задан")
 	}
@@ -181,12 +187,22 @@ func (t *Tracker) call(method, path string, query url.Values, in, out any) error
 	}
 	defer resp.Body.Close()
 
-	raw, _ := io.ReadAll(resp.Body)
+	raw, readErr := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
 		return statusError(method, path, resp.StatusCode, raw)
 	}
-	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
+	// Оборванное тело — запрос не удался: что сервер успел сделать, не знаем,
+	// и повтор — дело следующего тика.
+	if readErr != nil {
+		return fmt.Errorf("%s %s: ответ не дочитан: %w", method, path, readErr)
+	}
+	if out == nil {
 		return nil
+	}
+	// Пустой ответ там, где ждали тело, — не пустой список: иначе листинг
+	// молча не увидел бы ни задач, ни истёкших аренд.
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return fmt.Errorf("%s %s: пустой ответ (%d), а ожидалось тело", method, path, resp.StatusCode)
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("%s %s: ответ не разобран: %w\n%s", method, path, err, snippet(raw))

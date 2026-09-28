@@ -3,6 +3,7 @@ package yougile
 import (
 	"encoding/hex"
 	"errors"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -214,5 +215,87 @@ func TestCreateTaskUnknownProject(t *testing.T) {
 	tr, _ := fixture(t)
 	if _, err := tr.CreateTask("OTHER", tracker.TaskInput{Summary: "x"}); !errors.Is(err, tracker.ErrNoProject) {
 		t.Errorf("чужой проект дал %v", err)
+	}
+}
+
+// Сбой, кроме 404, при поиске автора — ошибка Get, а не «автор = id»: иначе
+// комментарий офиса сошёл бы за слова человека. И сбой не кэшируется.
+func TestGetFailsOnTransientAuthorLookupError(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.messages[testKey] = []fakeMessage{{ID: 1, From: officeUserID, Text: "вопрос"}}
+	fake.fail["GET /api-v2/users/"+officeUserID] = http.StatusTooManyRequests
+	if _, err := tr.Get(testKey); err == nil {
+		t.Fatal("429 на авторе не дал ошибки")
+	}
+	delete(fake.fail, "GET /api-v2/users/"+officeUserID)
+	task, err := tr.Get(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Comments[0].Author != "office@example.com" {
+		t.Errorf("после сбоя автор = %q, сбой закэширован", task.Comments[0].Author)
+	}
+}
+
+// Пользователь без email — как пропавший: автор — его id, а не пустая строка.
+func TestGetNamesAuthorWithoutEmailByID(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.users["user-noemail"] = ""
+	fake.messages[testKey] = []fakeMessage{{ID: 1, From: "user-noemail", Text: "привет"}}
+	task, err := tr.Get(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Comments[0].Author != "user-noemail" {
+		t.Errorf("автор без email = %q", task.Comments[0].Author)
+	}
+}
+
+// Ответ на создание без id: задача, возможно, уже есть — сказать об этом,
+// а не падать на GET /tasks/ с непонятной ошибкой.
+func TestCreateTaskRejectsAnswerWithoutID(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.createWithoutID = true
+	_, err := tr.CreateTask(testProject, tracker.TaskInput{Summary: "Child", Labels: []string{"m-1"}})
+	if err == nil || !strings.Contains(err.Error(), "без id") {
+		t.Errorf("ответ без id дал %v", err)
+	}
+	if fake.count("GET /api-v2/tasks/") != 0 {
+		t.Error("пошли читать задачу с пустым id")
+	}
+}
+
+// Порядок меток не меняет задачу: повтор с переставленными метками — тот же ключ.
+func TestCreateTaskLabelOrderDoesNotMatter(t *testing.T) {
+	tr, _ := fixture(t)
+	a, _ := tr.CreateTask(testProject, tracker.TaskInput{Summary: "Same", Labels: []string{"x", "y"}})
+	b, _ := tr.CreateTask(testProject, tracker.TaskInput{Summary: "Same", Labels: []string{"y", "x"}})
+	if a.Key != b.Key {
+		t.Errorf("перестановка меток дала новую задачу: %s и %s", a.Key, b.Key)
+	}
+}
+
+// Ключ идемпотентности общий на компанию: одинаковый ввод в разных проектах —
+// разные задачи, иначе трекер получил бы задачу соседа.
+func TestCreateTaskKeyDependsOnProject(t *testing.T) {
+	fake := newFake(t)
+	fake.projects["proj-2"] = true
+	fake.boards = append(fake.boards, map[string]any{"id": "board-2", "title": "Two", "projectId": "proj-2"})
+	fake.columns = append(fake.columns, map[string]any{"id": "col-2", "title": "Ready", "boardId": "board-2"})
+	root := serve(t, fake)
+	one, err := Open(testConfig(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := Open(Config{BaseURL: root, APIKey: "k", ProjectID: "proj-2",
+		ColumnIDs: map[string]string{"Ready": "col-2"}, CreateStatus: "Ready"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := tracker.TaskInput{Summary: "Same", Labels: []string{"m"}}
+	a, errA := one.CreateTask(testProject, input)
+	b, errB := two.CreateTask("proj-2", input)
+	if errA != nil || errB != nil || a.Key == b.Key {
+		t.Errorf("проекты делят задачу: %v/%v, %v/%v", a.Key, errA, b.Key, errB)
 	}
 }

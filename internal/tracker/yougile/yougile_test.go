@@ -77,6 +77,10 @@ type fakeYouGile struct {
 	pageCap       int  // >0 — сервер режет страницу до этого размера, что бы ни просили
 	endlessPaging bool // сервер всегда говорит next=true и отдаёт первый элемент
 
+	ignoreColumnFilter bool // /task-list отдаёт задачи всех колонок, как бы ни просили
+	ignoreColumnOnPut  bool // PUT /tasks/{id} применяет apiData, а columnId молча пропускает
+	createWithoutID    bool // POST /tasks отвечает 201 без id
+
 	requests  []string // "METHOD /api-v2/path?query"
 	lastAuth  string
 	puts      []map[string]any // тела PUT /tasks/{id}
@@ -133,13 +137,18 @@ func (f *fakeYouGile) task(id string) fakeTask {
 
 // setLease — записать аренду в apiData мимо адаптера, как это сделал бы другой прогон.
 func (f *fakeYouGile) setLease(id, runID string, until time.Time) {
+	f.setLeaseOf(id, "someone", runID, until)
+}
+
+// setLeaseOf — то же, с владельцем: прогон той же роли пишет то же имя роли.
+func (f *fakeYouGile) setLeaseOf(id, owner, runID string, until time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	task := f.tasks[id]
 	if task.APIData == nil {
 		task.APIData = map[string]any{}
 	}
-	task.APIData["lease"] = map[string]any{"owner": "someone", "run_id": runID, "lease_until": until.Format(time.RFC3339Nano)}
+	task.APIData["lease"] = map[string]any{"owner": owner, "run_id": runID, "lease_until": until.Format(time.RFC3339Nano)}
 }
 
 // count — сколько дошло запросов с данным префиксом "METHOD /api-v2/path".
@@ -261,7 +270,7 @@ func (f *fakeYouGile) route(method, path string, r *http.Request) (int, any) {
 		var items []any
 		for _, id := range f.order {
 			task := f.tasks[id]
-			if col := q.Get("columnId"); col != "" && task.ColumnID != col {
+			if col := q.Get("columnId"); col != "" && task.ColumnID != col && !f.ignoreColumnFilter {
 				continue
 			}
 			items = append(items, task.dto())
@@ -269,8 +278,9 @@ func (f *fakeYouGile) route(method, path string, r *http.Request) (int, any) {
 		return http.StatusOK, f.page(items, q)
 
 	case method == http.MethodGet && strings.HasPrefix(path, "/tasks/"):
+		// Удаление в YouGile мягкое: задача с deleted=true по id читается.
 		task, ok := f.tasks[strings.TrimPrefix(path, "/tasks/")]
-		if !ok || task.Deleted {
+		if !ok {
 			return http.StatusNotFound, notFound
 		}
 		return http.StatusOK, task.dto()
@@ -278,6 +288,9 @@ func (f *fakeYouGile) route(method, path string, r *http.Request) (int, any) {
 	case method == http.MethodPost && path == "/tasks":
 		body := decode()
 		f.posts = append(f.posts, body)
+		if f.createWithoutID {
+			return http.StatusCreated, map[string]any{}
+		}
 		key, _ := body["idempotencyKey"].(string)
 		if id, ok := f.idem[key]; ok && key != "" {
 			return http.StatusCreated, map[string]any{"id": id}
@@ -304,7 +317,7 @@ func (f *fakeYouGile) route(method, path string, r *http.Request) (int, any) {
 		}
 		body := decode()
 		f.puts = append(f.puts, body)
-		if v, ok := body["columnId"].(string); ok {
+		if v, ok := body["columnId"].(string); ok && !f.ignoreColumnOnPut {
 			task.ColumnID = v
 		}
 		if v, ok := body["apiData"].(map[string]any); ok {
@@ -567,5 +580,71 @@ func TestOpenCachesProjectColumnsAndCreatesNothing(t *testing.T) {
 	}
 	if n := fake.count("POST") + fake.count("PUT"); n != 0 {
 		t.Errorf("Open что-то записал: %d запросов записи", n)
+	}
+}
+
+// Пустой ответ 2xx там, где ждали тело, — не «пустой список»: иначе ListExpired
+// молча не видит истёкших аренд, а FindByMarker — детей, и ensureChildren
+// заводит дубли.
+func TestCallRejectsEmptyBodyWhenAnswerExpected(t *testing.T) {
+	tr, _ := fixture(t)
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(empty.Close)
+	tr.cfg.BaseURL = empty.URL
+	if refs, err := tr.ListReady(testProject, "Ready"); err == nil {
+		t.Errorf("пустой ответ листинга принят как %v", refs)
+	}
+	if err := tr.putTask(testKey, map[string]any{"columnId": colWork}); err != nil {
+		t.Errorf("пустой ответ на запись, где тело не нужно: %v", err)
+	}
+}
+
+// Тело оборвалось на чтении — запрос не удался, даже если код 2xx и тело
+// вызывающему не нужно: что сервер успел сделать, не известно.
+func TestCallReportsBrokenBody(t *testing.T) {
+	tr, _ := fixture(t)
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(broken.Close)
+	tr.cfg.BaseURL = broken.URL
+	if err := tr.putTask(testKey, map[string]any{"columnId": colWork}); err == nil {
+		t.Error("оборванное тело ответа не дало ошибки")
+	}
+}
+
+// base_url с /api-v2 на конце — частая опечатка: запросы ушли бы на
+// /api-v2/api-v2/…, и 404 выдал бы себя за «нет такого проекта».
+func TestOpenRejectsBaseURLWithAPIPrefix(t *testing.T) {
+	fake := newFake(t)
+	root := serve(t, fake)
+	for _, base := range []string{root + "/api-v2", root + "/api-v2/"} {
+		_, err := Open(testConfig(base))
+		if err == nil || errors.Is(err, tracker.ErrNoProject) || !strings.Contains(err.Error(), "base_url") {
+			t.Errorf("%s: %v, ожидалась ошибка base_url", base, err)
+		}
+	}
+}
+
+// Колонку из карты удалили в интерфейсе — Open обязан упасть, а не открыться
+// с очередью, которая тихо пустует.
+func TestOpenRejectsDeletedColumn(t *testing.T) {
+	fake := newFake(t)
+	fake.columns[0]["deleted"] = true // colReady
+	_, err := openWith(t, fake, func(*Config) {})
+	if err == nil || !strings.Contains(err.Error(), colReady) {
+		t.Errorf("удалённая колонка дала %v", err)
+	}
+}
+
+func TestOpenRejectsColumnOfDeletedBoard(t *testing.T) {
+	fake := newFake(t)
+	fake.boards[0]["deleted"] = true // board-1
+	_, err := openWith(t, fake, func(*Config) {})
+	if err == nil || !strings.Contains(err.Error(), colReady) {
+		t.Errorf("колонки удалённой доски дали %v", err)
 	}
 }
