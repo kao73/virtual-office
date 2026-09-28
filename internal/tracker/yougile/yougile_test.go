@@ -653,11 +653,17 @@ func TestOpenRejectsColumnOfDeletedBoard(t *testing.T) {
 // Тело ответа режется по символам: русский текст ошибки, оборванный посреди
 // руны, уехал бы в лог битым UTF-8.
 func TestSnippetCutsByRunes(t *testing.T) {
-	got := snippet([]byte(strings.Repeat("я", 500)))
-	if !utf8.ValidString(got) {
-		t.Errorf("snippet выдал битый UTF-8: %q", got[len(got)-8:])
-	}
-	if want := strings.Repeat("я", 400) + "…"; got != want {
-		t.Errorf("snippet обрезал не до 400 символов: %d рун", utf8.RuneCountInString(got))
+	// 2-байтовые и 4-байтовые руны, короче и длиннее предварительной обрезки
+	// по байтам.
+	for _, r := range []string{"я", "🙂"} {
+		for _, n := range []int{500, 5000} {
+			got := snippet([]byte("  " + strings.Repeat(r, n)))
+			if !utf8.ValidString(got) {
+				t.Errorf("%s×%d: битый UTF-8", r, n)
+			}
+			if want := strings.Repeat(r, 400) + "…"; got != want {
+				t.Errorf("%s×%d: обрезано до %d рун, ожидалось 400", r, n, utf8.RuneCountInString(got)-1)
+			}
+		}
 	}
 }

@@ -123,6 +123,10 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 		// Заархивировали между ListReady и захватом: на доске карточки не
 		// видно, и работать по ней нельзя. Проверка здесь, а не в getRaw:
 		// Get и Release архивной задачи должны оставаться рабочими.
+		//
+		// Аренду архивной карточки reaper не снимет: ListExpired, как и вся
+		// выдача, архив отсеивает (tasksInColumn). Истёкшая аренда захвату
+		// потом не мешает, так что висит она безвредно — принято, не чинится.
 		return fmt.Errorf("%w: %s в архиве", tracker.ErrClaimLost, req.Key)
 	case task.Status != req.ExpectStatus:
 		return fmt.Errorf("%w: %s в статусе %q, а захват шёл из %q",

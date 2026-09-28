@@ -233,9 +233,16 @@ func statusError(method, path string, code int, body []byte) error {
 // русский текст ошибки, оборванный посреди руны, стал бы битым UTF-8.
 func snippet(body []byte) string {
 	const limit = 400
-	runes := []rune(strings.TrimSpace(string(body)))
-	if len(runes) > limit {
-		return string(runes[:limit]) + "…"
+	// В руны переводим не всё тело: HTML-страница прокси бывает мегабайтами,
+	// а наружу уйдёт limit символов. 4·limit байт вмещают limit рун любых.
+	body = bytes.TrimSpace(body)
+	cut := len(body) > 4*limit
+	if cut {
+		body = body[:4*limit]
+	}
+	runes := []rune(string(body))
+	if len(runes) > limit || cut {
+		return string(runes[:min(limit, len(runes))]) + "…"
 	}
 	return string(runes)
 }
