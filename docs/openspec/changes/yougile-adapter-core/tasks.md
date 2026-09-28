@@ -15,7 +15,7 @@
 - [x] 2.2 Implement `List`/`ListReady` using server-side `columnId`
       filtering (not client-side filtering); cache the project's column
       list per `Tracker` instance rather than re-fetching it per call.
-- [ ] 2.3 Implement `ListExpired` (tasks whose lease, read from `apiData`,
+- [x] 2.3 Implement `ListExpired` (tasks whose lease, read from `apiData`,
       has passed) by enumerating the project's columns.
 - [x] 2.4 Implement `Get` returning full task state including comments.
 

@@ -2012,7 +2012,7 @@ git commit -m "feat(yougile): List/ListReady by server-side columnId filter, FIF
 - Consumes: `collect`, `checkProject` (Task 6).
 - Produces: `func (t *Tracker) configuredColumns() []string` (the values of `ColumnIDs`, sorted); `func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef, error)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `status_test.go`:
 
@@ -2051,12 +2051,12 @@ func TestListExpiredUnknownProject(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestListExpired`
 Expected: FAIL to build with `tr.ListExpired undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `status.go` (and add `"time"` to its imports):
 
@@ -2078,12 +2078,12 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md
