@@ -44,7 +44,7 @@
 
 - [x] 5.1 Implement `Comment`, writing through to YouGile's task-chat/message
       endpoint.
-- [ ] 5.2 Implement `FindByMarker` (scoped project search, since real API
+- [x] 5.2 Implement `FindByMarker` (scoped project search, since real API
       listing does not support full-text search — confirm exact query
       approach against the OpenAPI spec at build time).
 

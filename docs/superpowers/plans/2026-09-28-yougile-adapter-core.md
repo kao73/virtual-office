@@ -3096,7 +3096,7 @@ git commit -m "feat(yougile): Comment posts verbatim text to the task chat under
 
 This task implements the label semantics from departure #3 at the top of the plan. The marker is compared against `apiData.labels`, never against comment text. The spec scenario's wording ("a marked comment") is flagged for amendment in Verify.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `comment_test.go` (add `"slices"` and `"strings"` to its imports):
 
@@ -3166,12 +3166,12 @@ func TestFindByMarkerUnknownProject(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run TestFindByMarker`
 Expected: FAIL to build with `tr.FindByMarker undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `comment.go`:
 
@@ -3219,12 +3219,12 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md
