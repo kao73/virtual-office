@@ -148,3 +148,13 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	}
 	return nil
 }
+
+// Renew продлевает свою живую аренду. Истёкшую продлевать поздно: её уже мог
+// забрать другой — CheckOwner откажет ErrNotOwner.
+func (t *Tracker) Renew(key, runID string, leaseUntil time.Time) error {
+	return t.mutateAPIData(key, tracker.ByRun(runID), func(d *apiData) {
+		if d.Lease != nil { // CheckOwner уже гарантировал живую аренду этого прогона
+			d.Lease.LeaseUntil = leaseUntil
+		}
+	})
+}

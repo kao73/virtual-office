@@ -237,3 +237,39 @@ func TestClaimUnknownWorkingStatusWritesNothing(t *testing.T) {
 		t.Error("записано при незнакомом рабочем статусе")
 	}
 }
+
+func TestRenewExtendsOwnLiveLease(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-1", now.Add(time.Minute))
+	later := now.Add(time.Hour)
+	if err := tr.Renew(testKey, "run-1", later); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := tr.Get(testKey)
+	if !task.LeaseUntil.Equal(later) || task.RunID != "run-1" || task.Owner != "someone" {
+		t.Errorf("после продления: %+v", task)
+	}
+	if fake.count("GET /api-v2/chats/") != 1 { // только Get из самого теста
+		t.Error("проверка владения тянула переписку — лишний запрос под rate limit")
+	}
+}
+
+// Spec: «Renewing an expired lease fails» — и аренда остаётся как была.
+func TestRenewRefusesExpiredLease(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-1", now.Add(-time.Minute))
+	if err := tr.Renew(testKey, "run-1", now.Add(time.Hour)); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("продление истёкшей дало %v", err)
+	}
+	if len(fake.puts) != 0 {
+		t.Error("истёкшая аренда переписана")
+	}
+}
+
+func TestRenewRefusesForeignLease(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-other", now.Add(time.Minute))
+	if err := tr.Renew(testKey, "run-1", now.Add(time.Hour)); !errors.Is(err, tracker.ErrNotOwner) {
+		t.Errorf("продление чужой дало %v", err)
+	}
+}

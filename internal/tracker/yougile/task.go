@@ -85,3 +85,31 @@ func (t *Tracker) Get(key string) (tracker.Task, error) {
 func (t *Tracker) putTask(key string, body map[string]any) error {
 	return t.call(http.MethodPut, "/tasks/"+url.PathEscape(key), nil, body, nil)
 }
+
+// owned читает задачу (без переписки) и проверяет право актора её менять
+// общим tracker.CheckOwner: разъехавшись с jira и mock, правило дало бы гонку.
+func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, apiData, error) {
+	raw, err := t.getRaw(key)
+	if err != nil {
+		return tracker.Task{}, apiData{}, err
+	}
+	task, data, err := t.toTask(raw)
+	if err != nil {
+		return tracker.Task{}, apiData{}, err
+	}
+	if err := tracker.CheckOwner(task, by, t.Now()); err != nil {
+		return tracker.Task{}, apiData{}, err
+	}
+	return task, data, nil
+}
+
+// mutateAPIData — прочитать apiData целиком, поменять, записать целиком.
+// Колонку не трогает.
+func (t *Tracker) mutateAPIData(key string, by tracker.Actor, change func(*apiData)) error {
+	_, data, err := t.owned(key, by)
+	if err != nil {
+		return err
+	}
+	change(&data)
+	return t.putTask(key, map[string]any{"apiData": data.encode()})
+}
