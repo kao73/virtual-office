@@ -56,3 +56,33 @@
 - [x] 6.2 A small number of live-API smoke tests against `office-polygon`,
       gated so they do not run by default in CI (mirroring how JIRA-live
       tests, if any, are gated).
+
+## Build review notes (accepted, not blocking)
+
+Final whole-branch review (review_mode standard, range a73fc33..85d8ccc):
+no Critical or Important findings. Accepted Minor findings. Each one is
+carried to a later change or to the owner.
+
+- Office keys in `apiData` sit at the top level (`lease`, `attempts`,
+  `human_wait`, `labels`) with no namespace. A card with a foreign
+  `apiData` shape that `decodeAPIData` rejects fails `List`/`ListReady`/
+  `ListExpired` for its whole column and fails `FindByMarker` project-wide.
+  Decide on namespacing before `yougile-wiring-and-docs` puts real data
+  on boards.
+- `FindByMarker` skips archived cards, unlike `jira`. An archived split
+  child looks not-found and is covered only by `idempotencyKey`, whose
+  server-side lifetime is unverified.
+- `FindByMarker` reads every project column per call. `ensureChildren`
+  multiplies that cost by the number of children, against the 50 req/min
+  limit.
+- Other accepted items: the column set is cached at `Open`; an
+  idempotent replay can return a deleted task; `http://` base URLs are
+  accepted; an `io.ReadAll` error is ignored; `loadColumns` issues N+1
+  requests; `userEmail` can send a duplicate `/users` request under
+  concurrency; outgoing requests carry no `context.Context`.
+- `TaskRef.Updated` is always zero for YouGile, which has no last-modified
+  field. `yougile-wiring-and-docs` must document this for `runner ls`.
+- The claim-race spec scenario was reworded during Build by coordinator
+  ruling. It now names the overwritten-claimant case and documents the
+  mirror race, the same limitation as `jira.Claim`. Flag it to the owner
+  at verify.
