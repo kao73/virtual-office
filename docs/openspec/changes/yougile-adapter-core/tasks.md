@@ -34,7 +34,7 @@
 
 - [x] 4.1 Implement `Transition` (moves `columnId` to the column configured
       for the target status).
-- [ ] 4.2 Implement `CreateTask` using a content-derived `idempotencyKey`
+- [x] 4.2 Implement `CreateTask` using a content-derived `idempotencyKey`
       (hash of project+summary+description, not a fresh random value per
       call — see design.md Decisions) for dedup.
 - [ ] 4.3 Implement `SetHumanFlag` and `SetAttempts` (both likely additional

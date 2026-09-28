@@ -2671,7 +2671,7 @@ git commit -m "feat(yougile): Transition moves columnId under CheckOwner"
   - `func joinDescription(description, appendix string) string`. The same join rule as `jira`/`mock`.
   - Task 15 (`FindByMarker`) reads the labels from `apiData["labels"]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `task_test.go` (add `"encoding/hex"` to its imports):
 
@@ -2775,12 +2775,12 @@ func TestCreateTaskUnknownProject(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run 'CreateTask|IdempotencyKey|JoinDescription'`
 Expected: FAIL to build with `tr.CreateTask undefined`, `undefined: idempotencyKey`, `undefined: joinDescription`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `task.go` (add `"crypto/sha256"`, `"encoding/hex"` to its imports):
 
@@ -2856,12 +2856,12 @@ func joinDescription(description, appendix string) string {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md
