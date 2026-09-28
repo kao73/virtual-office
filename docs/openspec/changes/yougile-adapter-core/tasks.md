@@ -50,7 +50,7 @@
 
 ## 6. Tests
 
-- [ ] 6.1 Unit tests for each implemented method against a fixture/fake
+- [x] 6.1 Unit tests for each implemented method against a fixture/fake
       HTTP transport (mirroring `internal/tracker/jira/jira_test.go`'s
       approach), not against the live API.
 - [ ] 6.2 A small number of live-API smoke tests against `office-polygon`,

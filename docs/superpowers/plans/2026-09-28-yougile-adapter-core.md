@@ -3244,7 +3244,7 @@ Every method got its unit tests inside its own task. This task adds the two cros
 - Consumes: every exported method from Tasks 2–15.
 - Produces: `type coreTracker interface` (test-only). It lists exactly the 14 methods this change implements, with signatures copied verbatim from `internal/tracker/tracker.go`.
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Create `internal/tracker/yougile/contract_test.go`:
 
@@ -3324,12 +3324,12 @@ func TestEveryMutationFollowsOwnership(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestEveryMutationFollowsOwnership' -v`
 Expected: PASS right away, because every mutator already goes through `owned`. If a subtest fails, that mutator skips `owned`. Fix the mutator, not the test.
 
-- [ ] **Step 3: Run the full verification**
+- [x] **Step 3: Run the full verification**
 
 ```bash
 gofmt -l internal/tracker/yougile/                   # expect: no output
@@ -3341,7 +3341,7 @@ git diff --stat a73fc3304d71ade69e4f6e497275663850ff2839 -- internal/tracker/tra
 ```
 Expected: the `grep` prints `no full assertion — correct`, and the final `git diff --stat` prints nothing (no out-of-scope files touched).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/tracker/yougile/contract_test.go docs/openspec/changes/yougile-adapter-core/tasks.md
