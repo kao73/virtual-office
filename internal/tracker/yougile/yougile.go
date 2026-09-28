@@ -8,7 +8,8 @@
 // Статус задачи — её колонка на доске (Config.ColumnIDs): в YouGile задача
 // живёт ровно на одной доске и в одной колонке, и принцип «статус — не колонка»
 // из docs/DESIGN.md, написанный для JIRA с её многими досками, здесь опоры не
-// имеет (docs/openspec/changes/yougile-adapter-core/design.md, Decisions).
+// имеет (docs/openspec/changes/archive/2026-09-28-yougile-adapter-core/design.md,
+// Decisions; дальше просто «design.md»).
 //
 // Аренда, счётчик попыток, флаг «ждёт человека» и метки живут в apiData
 // задачи — свободном JSON-поле (lease.go).

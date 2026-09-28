@@ -95,7 +95,8 @@ func (d apiData) encode() map[string]any {
 // CAS в YouGile нет, как и в JIRA. Сверка закрывает половину гонки — ту, где
 // нашу запись затёрли после нас: мы честно проигрываем. Зеркальную — оба
 // прочли задачу свободной до чьей-либо записи — не закрывает ничто; см.
-// доккомент jira.Claim. Живую чужую аренду захват не перезаписывает никогда.
+// доккомент jira.Claim. Живую чужую аренду, видимую при чтении, захват не
+// перезаписывает; в зеркальной гонке второй пишущий затирает первого.
 func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	if req.RunID == "" {
 		return errors.New("yougile: захват без run_id — сверять владельца будет не с чем")
@@ -173,8 +174,10 @@ func (t *Tracker) Release(key string, by tracker.Actor) error {
 	return t.mutateAPIData(key, by, func(d *apiData) { d.Lease = nil })
 }
 
-// SetHumanFlag — атрибут «ждёт человека» в apiData.human_wait. Аренда для
-// него не нужна: вне lease он и лежит ради этого.
+// SetHumanFlag — атрибут «ждёт человека» в apiData.human_wait. Право —
+// общее tracker.CheckOwner: прогон ставит его под своей живой арендой,
+// системная операция — на задаче без живой аренды. Вне lease флаг лежит,
+// чтобы Release его не снимал.
 func (t *Tracker) SetHumanFlag(key string, by tracker.Actor, on bool) error {
 	return t.mutateAPIData(key, by, func(d *apiData) { d.HumanWait = on })
 }

@@ -103,10 +103,15 @@ func messageHTML(body string) string {
 // FindByMarker — задачи проекта с меткой marker в apiData.labels. Источник
 // идемпотентности пакетного создания (pipeline.ensureChildren).
 //
-// Полнотекстового поиска у API нет, так что обходим все колонки проекта —
+// Полнотекстового поиска у API нет, так что обходим колонки проекта —
 // не только графа: ребёнок, которого человек утащил за пределы графа, иначе
 // выглядел бы «не найденным» и был бы создан заново. Такая находка — громкая
 // ошибка ErrUnmappedColumn: статус для неё не выдумываем.
+//
+// Обход не полный, и это принято (tasks.md, Build review notes): колонки
+// берутся из снимка на Open — заведённых позже он не видит, — а архивные
+// задачи отсеивает tasksInColumn. Такого ребёнка страхует только
+// idempotencyKey в CreateTask.
 func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error) {
 	if err := t.checkProject(project); err != nil {
 		return nil, err

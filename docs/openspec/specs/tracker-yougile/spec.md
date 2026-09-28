@@ -40,6 +40,12 @@ mirror race in which both claimants read the task as free and each
 re-reads its own write; both may then report success. This is the same
 known limitation the `jira` adapter documents on its `Claim`.
 
+#### Scenario: A claim whose working column did not take effect fails
+- **WHEN** a claim with a working status writes the lease and the column,
+  and the re-read shows the lease is the caller's but the task is still
+  outside the working status's column
+- **THEN** the claim fails and does not report success
+
 #### Scenario: Claiming an already-owned live lease fails
 - **WHEN** a caller attempts to claim a task whose lease is owned by
   another run and has not expired

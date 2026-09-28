@@ -13,7 +13,7 @@ First of four changes building a second real `Tracker` adapter
 (`.comet/batches/yougile-tracker-adapter.json`). Scope, goals, non-goals,
 and the high-level decisions (and why each was made, including one
 reversed mid-brainstorm) are in `proposal.md` and `design.md` under
-`docs/openspec/changes/yougile-adapter-core/` and are not restated here in
+`docs/openspec/changes/archive/2026-09-28-yougile-adapter-core/` and are not restated here in
 full — this document refines them to concrete Go types, call sequences,
 and edge cases for Build.
 
@@ -357,7 +357,7 @@ writing this file.
 
 Recorded at Verify (2026-09-28, the owner chose option A). The
 implementation follows the delta spec
-(`docs/openspec/changes/yougile-adapter-core/specs/tracker-yougile/spec.md`)
+(`docs/openspec/changes/archive/2026-09-28-yougile-adapter-core/specs/tracker-yougile/spec.md`)
 and the plan (`docs/superpowers/plans/2026-09-28-yougile-adapter-core.md`,
 section "Where this plan departs from the design doc"). Where this section
 disagrees with §1–§10, this section wins.
@@ -370,7 +370,9 @@ disagrees with §1–§10, this section wins.
   `TaskInput.Labels`, and `jira` and `mock` both match labels. YouGile has
   no labels, so `CreateTask` stores them in `apiData.labels`. The owner
   confirmed this on 2026-09-28.
-- **Claim race.** This supersedes "one winner" in §5, §8 and §9.
+- **Claim race.** This supersedes "one winner" in §5, §8 and §9, and
+  §5's "we never overwrote a live lease": a live lease that the read did
+  not see can be overwritten.
   Write, reread and verify only catches a claimant whose write was
   overwritten; that claimant gets `ErrClaimLost`. The mirror race, in
   which both claimants read the task as free and each rereads its own
@@ -396,7 +398,30 @@ disagrees with §1–§10, this section wins.
   convention.
 - The file layout adds `task.go`, and the tests are split by concern.
 - Comment authors are resolved per id through `GET /users/{id}` and
-  cached, not through a bulk `GET /users`.
+  cached, not through a bulk `GET /users`. `Comment.Author` is the
+  user's email (§7 says "user id"); the id is used only for a user the
+  server no longer knows or who has no email.
+- `t.columns` is read only by `FindByMarker`. `List`, `ListReady` and
+  `ListExpired` take column ids from `cfg.ColumnIDs` (supersedes §2, §4).
+- There is no `*APIError` type and no `baseURL *url.URL` field (§2, §3):
+  `statusError` builds plain errors and wraps only 404 in
+  `tracker.ErrNotFound`; `BaseURL` stays a string.
+- `SetHumanFlag` and `SetAttempts` go through `tracker.CheckOwner` like
+  every other mutator (supersedes §9's "no lease required"): a run needs
+  its own live lease, a system operation needs no live lease on the task.
+
+**Changes from the PR #23 review cycle:**
+
+- `call` fails on a body that could not be read, and on an empty 2xx body
+  when the caller expects an answer. Before, `listAll` returned an empty
+  list without error.
+- `Claim` also checks after the reread that the task reached
+  `WorkingStatus`. If the server accepted the lease but not the column,
+  the claim fails with a plain error, as `jira.Claim` does when its
+  transition fails.
+- `CreateTask` reports a create answer without an id instead of
+  requesting `GET /tasks/`.
+- `Open` rejects a `base_url` that ends in `/api-v2`.
 
 Findings from the final build review that were accepted and not fixed are
 listed in `tasks.md` under "Build review notes".
