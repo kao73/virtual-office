@@ -3,8 +3,11 @@ package yougile
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/kao73/virtual-office/internal/tracker"
 )
 
 // Ключи apiData, которыми владеет адаптер. yougile-dependencies-attachments
@@ -84,4 +87,64 @@ func (d apiData) encode() map[string]any {
 	}
 	out[keyLabels] = labels
 	return out
+}
+
+// Claim — захват: записать аренду (и рабочую колонку) одним PUT, перечитать,
+// сверить владельца.
+//
+// CAS в YouGile нет, как и в JIRA. Сверка закрывает половину гонки — ту, где
+// нашу запись затёрли после нас: мы честно проигрываем. Зеркальную — оба
+// прочли задачу свободной до чьей-либо записи — не закрывает ничто; см.
+// доккомент jira.Claim. Живую чужую аренду захват не перезаписывает никогда.
+func (t *Tracker) Claim(req tracker.ClaimRequest) error {
+	if req.RunID == "" {
+		return errors.New("yougile: захват без run_id — сверять владельца будет не с чем")
+	}
+	var working string
+	if req.WorkingStatus != "" {
+		id, err := t.columnFor(req.WorkingStatus)
+		if err != nil {
+			return err
+		}
+		working = id
+	}
+
+	raw, err := t.getRaw(req.Key)
+	if err != nil {
+		return err
+	}
+	task, data, err := t.toTask(raw)
+	if err != nil {
+		return err
+	}
+	switch {
+	case task.Status != req.ExpectStatus:
+		return fmt.Errorf("%w: %s в статусе %q, а захват шёл из %q",
+			tracker.ErrClaimLost, req.Key, task.Status, req.ExpectStatus)
+	case task.LeaseAlive(t.Now()):
+		return fmt.Errorf("%w: %s арендована прогоном %s до %s",
+			tracker.ErrClaimLost, req.Key, task.RunID, task.LeaseUntil.Format(time.RFC3339))
+	}
+
+	data.Lease = &leaseData{Owner: req.Owner, RunID: req.RunID, LeaseUntil: req.LeaseUntil}
+	body := map[string]any{"apiData": data.encode()}
+	if working != "" && req.WorkingStatus != task.Status {
+		body["columnId"] = working
+	}
+	if err := t.putTask(req.Key, body); err != nil {
+		return err
+	}
+
+	freshRaw, err := t.getRaw(req.Key)
+	if err != nil {
+		return err
+	}
+	fresh, _, err := t.toTask(freshRaw)
+	if err != nil {
+		return err
+	}
+	if fresh.RunID != req.RunID {
+		return fmt.Errorf("%w: после захвата %s владеет %s", tracker.ErrClaimLost, req.Key, fresh.RunID)
+	}
+	return nil
 }

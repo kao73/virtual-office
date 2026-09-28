@@ -2,9 +2,12 @@ package yougile
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/kao73/virtual-office/internal/tracker"
 )
 
 // roundTrip — encode и обратно через настоящий JSON, как это пройдёт по проводу.
@@ -91,5 +94,146 @@ func TestDecodeAPIDataRejectsGarbage(t *testing.T) {
 		if _, err := decodeAPIData(json.RawMessage(raw)); err == nil {
 			t.Errorf("%s принят", raw)
 		}
+	}
+}
+
+func claimReq(runID string) tracker.ClaimRequest {
+	return tracker.ClaimRequest{
+		Key: testKey, RunID: runID, Owner: "implementer", LeaseUntil: now.Add(30 * time.Minute),
+		ExpectStatus: "Ready", WorkingStatus: "InProgress",
+	}
+}
+
+func putLease(t *testing.T, body map[string]any) map[string]any {
+	t.Helper()
+	data, _ := body["apiData"].(map[string]any)
+	lease, _ := data["lease"].(map[string]any)
+	return lease
+}
+
+// Аренда и перевод в рабочую колонку — одной записью: YouGile это умеет,
+// и состояния «аренда есть, статус старый» между ними не бывает.
+func TestClaimWritesLeaseAndColumnInOnePut(t *testing.T) {
+	tr, fake := fixture(t)
+	if err := tr.Claim(claimReq("run-1")); err != nil {
+		t.Fatalf("захват не удался: %v", err)
+	}
+	if len(fake.puts) != 1 {
+		t.Fatalf("PUT'ов %d, ожидался один", len(fake.puts))
+	}
+	lease := putLease(t, fake.puts[0])
+	if lease["run_id"] != "run-1" || lease["owner"] != "implementer" {
+		t.Errorf("аренда: %#v", lease)
+	}
+	if fake.puts[0]["columnId"] != colWork {
+		t.Errorf("columnId = %#v, ожидалась рабочая колонка", fake.puts[0]["columnId"])
+	}
+	task, _ := tr.Get(testKey)
+	if task.Status != "InProgress" || task.RunID != "run-1" || !task.LeaseUntil.Equal(now.Add(30*time.Minute)) {
+		t.Errorf("после захвата: %+v", task)
+	}
+}
+
+func TestClaimWithoutWorkingStatusKeepsColumn(t *testing.T) {
+	for name, working := range map[string]string{"рабочего статуса нет": "", "рабочий = текущий": "Ready"} {
+		t.Run(name, func(t *testing.T) {
+			tr, fake := fixture(t)
+			req := claimReq("run-1")
+			req.WorkingStatus = working
+			if err := tr.Claim(req); err != nil {
+				t.Fatal(err)
+			}
+			if _, moved := fake.puts[0]["columnId"]; moved {
+				t.Errorf("колонка тронута: %#v", fake.puts[0])
+			}
+			if fake.task(testKey).ColumnID != colReady {
+				t.Error("задача уехала из Ready")
+			}
+		})
+	}
+}
+
+// Spec: «Claiming an already-owned live lease fails» — и ничего не пишет.
+func TestClaimRefusesLiveLease(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-other", now.Add(time.Minute))
+	err := tr.Claim(claimReq("run-1"))
+	if !errors.Is(err, tracker.ErrClaimLost) {
+		t.Errorf("захват живой аренды дал %v", err)
+	}
+	if len(fake.puts) != 0 {
+		t.Errorf("живая аренда перезаписана: %#v", fake.puts)
+	}
+	if task, _ := tr.Get(testKey); task.RunID != "run-other" {
+		t.Errorf("владелец сменился: %q", task.RunID)
+	}
+}
+
+func TestClaimTakesExpiredLease(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-dead", now.Add(-time.Minute))
+	if err := tr.Claim(claimReq("run-1")); err != nil {
+		t.Errorf("истёкшая аренда не отдана: %v", err)
+	}
+}
+
+func TestClaimChecksExpectedStatus(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].ColumnID = colReview
+	if err := tr.Claim(claimReq("run-1")); !errors.Is(err, tracker.ErrClaimLost) {
+		t.Errorf("захват из чужого статуса дал %v", err)
+	}
+	if len(fake.puts) != 0 {
+		t.Error("записано, хотя статус не тот")
+	}
+}
+
+// Spec: «A losing claimant is told it lost» — нашу запись перезаписали
+// следом, перечитывание это видит.
+func TestClaimLostWhenOverwrittenAfterWrite(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.afterPut = func(id string) { fake.setLease(id, "run-winner", now.Add(time.Hour)) }
+	if err := tr.Claim(claimReq("run-1")); !errors.Is(err, tracker.ErrClaimLost) {
+		t.Errorf("проигранная гонка дала %v", err)
+	}
+}
+
+func TestSecondClaimantLoses(t *testing.T) {
+	tr, _ := fixture(t)
+	if err := tr.Claim(claimReq("run-1")); err != nil {
+		t.Fatal(err)
+	}
+	second := claimReq("run-2")
+	second.ExpectStatus = "InProgress"
+	if err := tr.Claim(second); !errors.Is(err, tracker.ErrClaimLost) {
+		t.Errorf("второй захват дал %v", err)
+	}
+	if task, _ := tr.Get(testKey); task.RunID != "run-1" {
+		t.Errorf("владелец: %q", task.RunID)
+	}
+}
+
+// Review Focus #2.
+func TestClaimKeepsForeignAPIDataAndCounters(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].APIData = map[string]any{"crm": map[string]any{"deal": 7}, "attempts": 2, "human_wait": true}
+	if err := tr.Claim(claimReq("run-1")); err != nil {
+		t.Fatal(err)
+	}
+	data := fake.task(testKey).APIData
+	if data["crm"] == nil || data["attempts"] != float64(2) || data["human_wait"] != true {
+		t.Errorf("apiData после захвата: %#v", data)
+	}
+}
+
+func TestClaimUnknownWorkingStatusWritesNothing(t *testing.T) {
+	tr, fake := fixture(t)
+	req := claimReq("run-1")
+	req.WorkingStatus = "Nowhere"
+	if err := tr.Claim(req); err == nil {
+		t.Error("незнакомый рабочий статус принят")
+	}
+	if len(fake.puts) != 0 {
+		t.Error("записано при незнакомом рабочем статусе")
 	}
 }

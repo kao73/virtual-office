@@ -80,3 +80,8 @@ func (t *Tracker) Get(key string) (tracker.Task, error) {
 	task.Comments = comments
 	return task, nil
 }
+
+// putTask — PUT /tasks/{key}: только переданные поля задачи.
+func (t *Tracker) putTask(key string, body map[string]any) error {
+	return t.call(http.MethodPut, "/tasks/"+url.PathEscape(key), nil, body, nil)
+}
