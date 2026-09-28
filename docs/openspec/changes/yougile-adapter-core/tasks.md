@@ -12,7 +12,7 @@
       time (columns must already exist — the adapter never creates them),
       failing loudly and clearly on a missing or ambiguous mapping,
       mirroring `jira.go`'s reverse status-map validation.
-- [ ] 2.2 Implement `List`/`ListReady` using server-side `columnId`
+- [x] 2.2 Implement `List`/`ListReady` using server-side `columnId`
       filtering (not client-side filtering); cache the project's column
       list per `Tracker` instance rather than re-fetching it per call.
 - [ ] 2.3 Implement `ListExpired` (tasks whose lease, read from `apiData`,

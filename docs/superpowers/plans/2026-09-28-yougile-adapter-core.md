@@ -1744,7 +1744,7 @@ git commit -m "feat(yougile): Get with column-derived status, apiData lease and 
   - `func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error)`
   - `func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, error)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/tracker/yougile/status_test.go`:
 
@@ -1887,12 +1887,12 @@ func TestListingDoesNotRefetchColumns(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestList'`
 Expected: FAIL to build with `tr.ListReady undefined`, `tr.List undefined`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Append to `status.go` (and add `"cmp"` to its imports):
 
@@ -1988,12 +1988,12 @@ func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, er
 
 `TaskRef.Updated` stays zero because YouGile's `TaskDto` has no last-modified timestamp. `runner ls` then shows no age for YouGile tasks. `yougile-wiring-and-docs` should record this.
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-adapter-core/tasks.md
