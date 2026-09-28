@@ -188,13 +188,17 @@ func TestClaimChecksExpectedStatus(t *testing.T) {
 	}
 }
 
-// Spec: «A losing claimant is told it lost» — нашу запись перезаписали
-// следом, перечитывание это видит.
+// Spec: «A claimant whose lease was overwritten is told it lost» —
+// нашу запись перезаписали следом, перечитывание это видит, и владельцем
+// остаётся выигравший, а не звонящий.
 func TestClaimLostWhenOverwrittenAfterWrite(t *testing.T) {
 	tr, fake := fixture(t)
 	fake.afterPut = func(id string) { fake.setLease(id, "run-winner", now.Add(time.Hour)) }
 	if err := tr.Claim(claimReq("run-1")); !errors.Is(err, tracker.ErrClaimLost) {
 		t.Errorf("проигранная гонка дала %v", err)
+	}
+	if task, _ := tr.Get(testKey); task.RunID != "run-winner" {
+		t.Errorf("владелец = %q, ожидался run-winner", task.RunID)
 	}
 }
 
