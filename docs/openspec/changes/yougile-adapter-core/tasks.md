@@ -1,6 +1,6 @@
 ## 1. Package scaffolding and HTTP client
 
-- [ ] 1.1 Create `internal/tracker/yougile` package with a config type (API
+- [x] 1.1 Create `internal/tracker/yougile` package with a config type (API
       key, base URL, project/board identifiers) and a minimal authenticated
       HTTP client (mirroring `internal/tracker/jira/jira.go`'s `net/http`
       usage, not a generated SDK).

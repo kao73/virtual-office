@@ -98,7 +98,7 @@ Run every command from the worktree root `/Users/aleksejkolesnikov/IdeaProjects/
   - consts `apiPrefix = "/api-v2"`, `pageLimit = 1000`, `maxPages = 100`
   - test helpers: `fakeYouGile`, `fakeTask`, `fakeMessage`, `newFake(t)`, `serve(t, fake) string`, `testConfig(baseURL) Config`, `fixture(t) (*Tracker, *fakeYouGile)`, consts `testProject`, `testKey`, `colReady`, `colWork`, `colReview`, `colOutside`, `officeUserID`, `humanUserID`, var `now`.
 
-- [ ] **Step 1: Write the fake server, fixture and failing tests**
+- [x] **Step 1: Write the fake server, fixture and failing tests**
 
 Create `internal/tracker/yougile/yougile_test.go`:
 
@@ -578,12 +578,12 @@ func TestCheckProjectRejectsForeignProject(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: FAIL at build time with `undefined: Open`, `undefined: Config`, `undefined: apiPrefix`, `undefined: listAll`, `undefined: maxPages`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Create `internal/tracker/yougile/yougile.go`:
 
@@ -825,12 +825,12 @@ func listAll[T any](t *Tracker, path string, query url.Values) ([]T, error) {
 
 `endlessPaging` in the fake returns one item with `next=true` on every page. The loop therefore runs `maxPages` times and returns the error, whose text contains `100`.
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestOpen|TestCall|TestListAll|TestCheckProject' -v`
 Expected: PASS for all.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 gofmt -l internal/tracker/yougile/   # expect no output
