@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kao73/virtual-office/internal/tracker"
 )
@@ -646,5 +647,17 @@ func TestOpenRejectsColumnOfDeletedBoard(t *testing.T) {
 	_, err := openWith(t, fake, func(*Config) {})
 	if err == nil || !strings.Contains(err.Error(), colReady) {
 		t.Errorf("колонки удалённой доски дали %v", err)
+	}
+}
+
+// Тело ответа режется по символам: русский текст ошибки, оборванный посреди
+// руны, уехал бы в лог битым UTF-8.
+func TestSnippetCutsByRunes(t *testing.T) {
+	got := snippet([]byte(strings.Repeat("я", 500)))
+	if !utf8.ValidString(got) {
+		t.Errorf("snippet выдал битый UTF-8: %q", got[len(got)-8:])
+	}
+	if want := strings.Repeat("я", 400) + "…"; got != want {
+		t.Errorf("snippet обрезал не до 400 символов: %d рун", utf8.RuneCountInString(got))
 	}
 }

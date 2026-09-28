@@ -216,3 +216,15 @@ func TestListReadyKeepsOnlyItsColumnEvenIfServerIgnoresFilter(t *testing.T) {
 		t.Errorf("ListReady = %v, %v", keys(refs), err)
 	}
 }
+
+// Повторённый статус не удваивает задачи.
+func TestListDeduplicatesStatuses(t *testing.T) {
+	tr, fake := fixture(t)
+	refs, err := tr.List(testProject, []string{"Ready", "Ready"})
+	if err != nil || !slices.Equal(keys(refs), []string{testKey}) {
+		t.Errorf("List = %v, %v", keys(refs), err)
+	}
+	if n := fake.count("GET /api-v2/task-list"); n != 1 {
+		t.Errorf("колонка прочитана %d раз", n)
+	}
+}

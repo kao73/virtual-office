@@ -229,14 +229,15 @@ func statusError(method, path string, code int, body []byte) error {
 	}
 }
 
-// snippet обрезает тело ответа до смысла.
+// snippet обрезает тело ответа до смысла — по символам, а не по байтам:
+// русский текст ошибки, оборванный посреди руны, стал бы битым UTF-8.
 func snippet(body []byte) string {
 	const limit = 400
-	text := strings.TrimSpace(string(body))
-	if len(text) > limit {
-		return text[:limit] + "…"
+	runes := []rune(strings.TrimSpace(string(body)))
+	if len(runes) > limit {
+		return string(runes[:limit]) + "…"
 	}
-	return text
+	return string(runes)
 }
 
 // page — страница любого листинга API v2: paging + content.

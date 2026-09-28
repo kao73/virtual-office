@@ -393,6 +393,24 @@ func TestClaimFailsWhenColumnDidNotMove(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "InProgress") {
 		t.Errorf("несдвинутая колонка дала %v", err)
 	}
+	// Мы владелец и точно знаем, что не работаем: аренда не должна держать
+	// задачу вне очереди до истечения.
+	if lease := fake.task(testKey).APIData["lease"]; lease != nil {
+		t.Errorf("после неудачного захвата аренда висит: %#v", lease)
+	}
+}
+
+// Карточку заархивировали между ListReady и Claim — на доске её не видно,
+// работать по ней нельзя.
+func TestClaimRefusesArchivedTask(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].Archived = true
+	if err := tr.Claim(claimReq("run-1")); !errors.Is(err, tracker.ErrClaimLost) {
+		t.Errorf("захват архивной задачи дал %v", err)
+	}
+	if len(fake.puts) != 0 {
+		t.Error("в архивную задачу записано")
+	}
 }
 
 // Удаление в YouGile мягкое: удалённая задача по id читается с deleted=true

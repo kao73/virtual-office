@@ -159,8 +159,10 @@ func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, er
 	if len(statuses) == 0 {
 		return nil, nil
 	}
+	// Повторённый статус не должен удваивать задачи: у jira это делает JQL
+	// «status in (…)», здесь — сами.
 	ids := make([]string, 0, len(statuses))
-	for _, status := range statuses {
+	for _, status := range slices.Compact(slices.Sorted(slices.Values(statuses))) {
 		id, err := t.columnFor(status)
 		if err != nil {
 			return nil, err

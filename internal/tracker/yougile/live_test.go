@@ -125,8 +125,11 @@ func TestLiveLifecycle(t *testing.T) {
 		task.Attempts != 2 || !task.HumanFlag {
 		t.Errorf("после захвата/продления: %+v", task)
 	}
-	if len(task.Comments) == 0 {
-		t.Fatal("комментарий не прочитан обратно")
+	// Ровно один: захват с переносом колонки, счётчики и флаг не должны
+	// оставить в переписке системных сообщений — HumanReply принял бы их
+	// за ответ человека.
+	if len(task.Comments) != 1 {
+		t.Fatalf("в переписке %d сообщений, ожидалось одно наше: %+v", len(task.Comments), task.Comments)
 	}
 	last := task.Comments[len(task.Comments)-1]
 	if last.Body != body {

@@ -299,3 +299,16 @@ func TestCreateTaskKeyDependsOnProject(t *testing.T) {
 		t.Errorf("проекты делят задачу: %v/%v, %v/%v", a.Key, errA, b.Key, errB)
 	}
 }
+
+// Системные сообщения чата (перенос карточки, смена исполнителя) — не
+// реплики: попади они в Comments, HumanReply принял бы их за ответ человека.
+// По умолчанию API их не отдаёт; просим явно, чтобы не зависеть от умолчания.
+func TestGetAsksChatWithoutSystemMessages(t *testing.T) {
+	tr, fake := fixture(t)
+	if _, err := tr.Get(testKey); err != nil {
+		t.Fatal(err)
+	}
+	if fake.count("GET /api-v2/chats/"+testKey+"/messages?includeSystem=false") != 1 {
+		t.Errorf("чат запрошен без includeSystem=false: %v", fake.requests)
+	}
+}

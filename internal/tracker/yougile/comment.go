@@ -25,8 +25,14 @@ type messageDTO struct {
 
 // comments — переписка задачи от старых к новым. Чат задачи в YouGile
 // адресуется id самой задачи. Порядок сервера не обещан — сортируем сами.
+//
+// Системные сообщения (перенос карточки, смена исполнителя) — не реплики:
+// попади они сюда, tracker.HumanReply принял бы их за ответ человека. API
+// по умолчанию их не отдаёт; includeSystem=false — явно, чтобы не зависеть
+// от умолчания.
 func (t *Tracker) comments(key string) ([]tracker.Comment, error) {
-	msgs, err := listAll[messageDTO](t, "/chats/"+url.PathEscape(key)+"/messages", nil)
+	msgs, err := listAll[messageDTO](t, "/chats/"+url.PathEscape(key)+"/messages",
+		url.Values{"includeSystem": {"false"}})
 	if err != nil {
 		return nil, err
 	}

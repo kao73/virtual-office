@@ -119,6 +119,11 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 		return err
 	}
 	switch {
+	case raw.Archived:
+		// Заархивировали между ListReady и захватом: на доске карточки не
+		// видно, и работать по ней нельзя. Проверка здесь, а не в getRaw:
+		// Get и Release архивной задачи должны оставаться рабочими.
+		return fmt.Errorf("%w: %s в архиве", tracker.ErrClaimLost, req.Key)
 	case task.Status != req.ExpectStatus:
 		return fmt.Errorf("%w: %s в статусе %q, а захват шёл из %q",
 			tracker.ErrClaimLost, req.Key, task.Status, req.ExpectStatus)
@@ -149,8 +154,11 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	}
 	// Аренда и колонка ушли одним PUT, но принял ли сервер колонку, видно
 	// только здесь. Не сдвинулась — захват не удался, как у jira.Claim
-	// при отказе перевода; аренду снимет reaper по истечении.
+	// при отказе перевода. Аренда наша, и работать мы не будем — снимаем
+	// её сразу, чтобы задача не выпала из очереди до истечения. Не снялась —
+	// её снимет reaper; в ответ идёт исходная беда.
 	if working != "" && fresh.Status != req.WorkingStatus {
+		_ = t.Release(req.Key, tracker.ByRun(req.RunID))
 		return fmt.Errorf("yougile: %s захвачена, но осталась в статусе %q вместо %q",
 			req.Key, fresh.Status, req.WorkingStatus)
 	}
