@@ -1,6 +1,7 @@
 package yougile
 
 import (
+	"encoding/hex"
 	"errors"
 	"reflect"
 	"strings"
@@ -115,5 +116,103 @@ func TestGetMalformedAPIDataNamesTask(t *testing.T) {
 	_, err := tr.Get(testKey)
 	if err == nil || !strings.Contains(err.Error(), testKey) {
 		t.Errorf("битый apiData дал %v, ожидалась ошибка с ключом задачи", err)
+	}
+}
+
+func TestCreateTaskPostsIntoCreateColumn(t *testing.T) {
+	tr, fake := fixture(t)
+	ref, err := tr.CreateTask(testProject, tracker.TaskInput{
+		Summary: "Child", Description: "prose", DescriptionAppend: "parent verbatim", Labels: []string{"split:VO-1:a"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Key != "task-new-1" || ref.Status != "Ready" || ref.Summary != "Child" || ref.Project != testProject {
+		t.Errorf("ref: %+v", ref)
+	}
+	body := fake.posts[0]
+	if body["title"] != "Child" || body["description"] != "prose\n\nparent verbatim" || body["columnId"] != colReady {
+		t.Errorf("тело POST: %#v", body)
+	}
+	labels := body["apiData"].(map[string]any)["labels"]
+	if !reflect.DeepEqual(labels, []any{"split:VO-1:a"}) {
+		t.Errorf("метки в apiData: %#v", labels)
+	}
+	key, _ := body["idempotencyKey"].(string)
+	if _, err := hex.DecodeString(key); err != nil || len(key) != 64 {
+		t.Errorf("idempotencyKey = %q, ожидался hex SHA-256", key)
+	}
+}
+
+// Spec: «A repeated create returns the original task».
+func TestCreateTaskRepeatedReturnsSameTask(t *testing.T) {
+	tr, fake := fixture(t)
+	input := tracker.TaskInput{Summary: "Child", Description: "prose", Labels: []string{"m-1"}}
+	first, err := tr.CreateTask(testProject, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := tr.CreateTask(testProject, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Key != second.Key {
+		t.Errorf("повтор создал новую задачу: %s и %s", first.Key, second.Key)
+	}
+	if len(fake.tasks) != 2 { // testKey + одна созданная
+		t.Errorf("задач в трекере %d, ожидалось 2", len(fake.tasks))
+	}
+}
+
+// Два ребёнка split с одинаковым текстом, но разными метками — разные задачи.
+func TestCreateTaskDifferentLabelsAreDifferentTasks(t *testing.T) {
+	tr, _ := fixture(t)
+	a, _ := tr.CreateTask(testProject, tracker.TaskInput{Summary: "Same", Description: "same", Labels: []string{"split:P:a"}})
+	b, _ := tr.CreateTask(testProject, tracker.TaskInput{Summary: "Same", Description: "same", Labels: []string{"split:P:b"}})
+	if a.Key == b.Key {
+		t.Errorf("разные метки слились в одну задачу %s", a.Key)
+	}
+}
+
+func TestIdempotencyKeySeparatesParts(t *testing.T) {
+	if idempotencyKey("ab", "c") == idempotencyKey("a", "bc") {
+		t.Error("части склеились без разделителя")
+	}
+	if idempotencyKey("a", "b") != idempotencyKey("a", "b") {
+		t.Error("ключ не детерминирован")
+	}
+}
+
+func TestJoinDescription(t *testing.T) {
+	cases := map[[2]string]string{
+		{"prose", ""}:       "prose",
+		{"", "appendix"}:    "appendix",
+		{"prose", "append"}: "prose\n\nappend",
+	}
+	for in, want := range cases {
+		if got := joinDescription(in[0], in[1]); got != want {
+			t.Errorf("joinDescription(%q, %q) = %q", in[0], in[1], got)
+		}
+	}
+}
+
+func TestCreateTaskWithoutCreateStatusPostsNothing(t *testing.T) {
+	fake := newFake(t)
+	tr, err := openWith(t, fake, func(c *Config) { c.CreateStatus = "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tr.CreateTask(testProject, tracker.TaskInput{Summary: "x"}); err == nil {
+		t.Error("создание без create_status принято")
+	}
+	if len(fake.posts) != 0 {
+		t.Error("POST ушёл без create_status")
+	}
+}
+
+func TestCreateTaskUnknownProject(t *testing.T) {
+	tr, _ := fixture(t)
+	if _, err := tr.CreateTask("OTHER", tracker.TaskInput{Summary: "x"}); !errors.Is(err, tracker.ErrNoProject) {
+		t.Errorf("чужой проект дал %v", err)
 	}
 }

@@ -1,6 +1,8 @@
 package yougile
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -112,4 +114,74 @@ func (t *Tracker) mutateAPIData(key string, by tracker.Actor, change func(*apiDa
 	}
 	change(&data)
 	return t.putTask(key, map[string]any{"apiData": data.encode()})
+}
+
+// CreateTask заводит задачу в колонке CreateStatus. Метки (у YouGile своих нет)
+// ложатся в apiData.labels — по ним ищет FindByMarker.
+//
+// idempotencyKey выводится из содержимого, а не случаен: повтор после
+// неоднозначного отказа отдаёт тот же ключ, и YouGile возвращает уже
+// созданную задачу. Это страховка поверх основного механизма — проверки
+// FindByMarker перед созданием (pipeline.ensureChildren). Метки входят в хэш,
+// чтобы два ребёнка split с одинаковым текстом не слились в одну задачу.
+func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
+	if err := t.checkProject(project); err != nil {
+		return tracker.TaskRef{}, err
+	}
+	if t.cfg.CreateStatus == "" {
+		return tracker.TaskRef{}, errors.New("yougile: create_status не задан — новой задаче некуда лечь")
+	}
+	column, err := t.columnFor(t.cfg.CreateStatus)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+
+	description := joinDescription(input.Description, input.DescriptionAppend)
+	labels := slices.Sorted(slices.Values(input.Labels))
+	body := map[string]any{
+		"title":          input.Summary,
+		"description":    description,
+		"columnId":       column,
+		"apiData":        apiData{Labels: slices.Clone(input.Labels)}.encode(),
+		"idempotencyKey": idempotencyKey(append([]string{project, input.Summary, description}, labels...)...),
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := t.call(http.MethodPost, "/tasks", nil, body, &created); err != nil {
+		return tracker.TaskRef{}, err
+	}
+
+	raw, err := t.getRaw(created.ID)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+	task, _, err := t.toTask(raw)
+	if err != nil {
+		return tracker.TaskRef{}, err
+	}
+	return task.Ref(), nil
+}
+
+// idempotencyKey — SHA-256 частей с NUL после каждой: ("ab","c") ≠ ("a","bc").
+func idempotencyKey(parts ...string) string {
+	h := sha256.New()
+	for _, p := range parts {
+		h.Write([]byte(p))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// joinDescription — то же правило, что у jira и mock: разделитель только
+// когда есть что разделять.
+func joinDescription(description, appendix string) string {
+	switch {
+	case appendix == "":
+		return description
+	case description == "":
+		return appendix
+	default:
+		return description + "\n\n" + appendix
+	}
 }
