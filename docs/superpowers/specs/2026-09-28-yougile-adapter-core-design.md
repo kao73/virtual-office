@@ -350,3 +350,51 @@ writing this file.
 - `FindByMarker`'s column-enumeration-and-scan approach (§7) — fine at
   expected scale; worth a note if task volumes per project turn out
   larger than assumed.
+
+## 11. Implementation Divergence
+
+Recorded at Verify (2026-09-28, the owner chose option A). The
+implementation follows the delta spec
+(`docs/openspec/changes/yougile-adapter-core/specs/tracker-yougile/spec.md`)
+and the plan (`docs/superpowers/plans/2026-09-28-yougile-adapter-core.md`,
+section "Where this plan departs from the design doc"). Where this section
+disagrees with §1–§10, this section wins.
+
+**Delta-spec amendments made during Build:**
+
+- **`FindByMarker` matches task labels, not comment text.** This
+  supersedes the comment scan in §7, §8 and §10. The only caller,
+  `pipeline/splits.go:ensureChildren`, passes the marker as
+  `TaskInput.Labels`, and `jira` and `mock` both match labels. YouGile has
+  no labels, so `CreateTask` stores them in `apiData.labels`. The owner
+  confirmed this on 2026-09-28.
+- **Claim race.** This supersedes "one winner" in §5, §8 and §9.
+  Write, reread and verify only catches a claimant whose write was
+  overwritten; that claimant gets `ErrClaimLost`. The mirror race, in
+  which both claimants read the task as free and each rereads its own
+  write, remains open. YouGile has no CAS, and `jira.Claim` documents the
+  same limitation.
+
+**Other departures (plan §1–§13, in brief):**
+
+- `Claim` honours `ExpectStatus`/`WorkingStatus` and writes the lease and
+  the column in one `PUT`.
+- Every mutator except `Claim` and `CreateTask` goes through
+  `tracker.CheckOwner`.
+- Listing uses `GET /api-v2/task-list`, because `/tasks` is deprecated.
+- The `apiData` codec keeps foreign keys and always writes its own keys,
+  `"lease": null` included.
+- The `idempotencyKey` hash also covers the final description (with
+  `DescriptionAppend`) and the sorted labels.
+- `Config.BaseURL` is the host root, and the code adds `/api-v2`.
+- `Config.CreateStatus` names the column that new tasks go to.
+- A `project` argument that differs from `Config.ProjectID` returns
+  `ErrNoProject`.
+- Go comments and error strings are in Russian, following the repo
+  convention.
+- The file layout adds `task.go`, and the tests are split by concern.
+- Comment authors are resolved per id through `GET /users/{id}` and
+  cached, not through a bulk `GET /users`.
+
+Findings from the final build review that were accepted and not fixed are
+listed in `tasks.md` under "Build review notes".
