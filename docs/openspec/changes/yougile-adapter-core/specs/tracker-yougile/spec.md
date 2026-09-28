@@ -28,11 +28,16 @@ Claiming a task SHALL record the claiming run as the task's owner together
 with a lease expiry, then re-read the task to confirm the caller is in
 fact the recorded owner before reporting success.
 
-#### Scenario: A losing claimant is told it lost
-- **WHEN** two callers attempt to claim the same unowned task at nearly
-  the same time
-- **THEN** exactly one claim succeeds, and the other is told it does not
-  own the task, without silently overwriting the winner's lease
+#### Scenario: A claimant whose lease was overwritten is told it lost
+- **WHEN** a caller's lease write on an unowned task is overwritten by
+  another claimant before the caller re-reads the task
+- **THEN** the caller's claim fails with a lost-claim error, and the
+  recorded owner is the other claimant
+
+YouGile offers no compare-and-set, so write-then-reread cannot close the
+mirror race in which both claimants read the task as free and each
+re-reads its own write; both may then report success. This is the same
+known limitation the `jira` adapter documents on its `Claim`.
 
 #### Scenario: Claiming an already-owned live lease fails
 - **WHEN** a caller attempts to claim a task whose lease is owned by
