@@ -4,10 +4,12 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kao73/virtual-office/internal/tracker"
@@ -76,4 +78,21 @@ func (t *Tracker) userEmail(id string) (string, error) {
 	t.users[id] = email
 	t.mu.Unlock()
 	return email, nil
+}
+
+// Comment пишет в чат задачи. Раннер читает text, поэтому он уходит дословно
+// (строка-маркер и раздел «Вопросы» обязаны доехать буква в букву). textHtml
+// API требует обязательно — это тот же текст, экранированный, с <br> вместо
+// переводов строк, чтобы человек в интерфейсе видел то же самое.
+func (t *Tracker) Comment(key string, by tracker.Actor, body string) error {
+	if _, _, err := t.owned(key, by); err != nil {
+		return err
+	}
+	return t.call(http.MethodPost, "/chats/"+url.PathEscape(key)+"/messages", nil,
+		map[string]any{"text": body, "textHtml": messageHTML(body), "label": ""}, nil)
+}
+
+// messageHTML — текст комментария как безопасный HTML.
+func messageHTML(body string) string {
+	return strings.Join(strings.Split(html.EscapeString(body), "\n"), "<br>")
 }
