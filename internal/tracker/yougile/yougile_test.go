@@ -256,12 +256,11 @@ func (f *fakeYouGile) route(method, path string, r *http.Request) (int, any) {
 		return http.StatusOK, f.page(items, q)
 
 	case method == http.MethodGet && path == "/task-list":
+		// Не прячем deleted (как и archived чуть выше): реальный YouGile их
+		// фильтровать не обязан, отсев — забота адаптера (status.go).
 		var items []any
 		for _, id := range f.order {
 			task := f.tasks[id]
-			if task.Deleted {
-				continue
-			}
 			if col := q.Get("columnId"); col != "" && task.ColumnID != col {
 				continue
 			}
