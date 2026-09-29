@@ -1157,7 +1157,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 6: Verify the claim gate reads the recorded link (tasks.md 2.3)
 
-- [ ] Task 6 complete: Verify the claim gate reads the recorded link (tasks.md 2.3)
+- [x] Task 6 complete: Verify the claim gate reads the recorded link (tasks.md 2.3)
 
 `tasks.md` 2.3 says "verify, don't reimplement". `pipeline.UnmetDependencies` (`internal/pipeline/deps.go:54`) reads `TaskRef.DependsOn` from `ListReady`, and `projectByKey` reads it from `List`. No `pipeline` change is made. The test drives the real gate function over this adapter's refs, which pins the two spec scenarios "not claimable while open" and "claimable once resolved". `go list -deps ./internal/pipeline` contains no `yougile` package, so the test import creates no cycle.
 
@@ -1167,7 +1167,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `LinkDependsOn` (Task 5), `pipeline.UnmetDependencies(ref tracker.TaskRef, byKey map[string]tracker.TaskRef, terminal func(string) bool) []tracker.TaskRef`.
 
-- [ ] **Step 1: Write the test** (append to `depends_test.go`, add import `"github.com/kao73/virtual-office/internal/pipeline"`)
+- [x] **Step 1: Write the test** (append to `depends_test.go`, add import `"github.com/kao73/virtual-office/internal/pipeline"`)
 
 ```go
 // Spec «A dependent task is not claimable while its dependency is open» и
@@ -1207,12 +1207,12 @@ func TestClaimGateBlocksUntilDependencyResolves(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `go test ./internal/tracker/yougile/ -run TestClaimGateBlocksUntilDependencyResolves -v`
 Expected: PASS at once. This pins behavior already delivered by Tasks 4–5, so the mutation probe is the red. If `go vet` or the build reports an import cycle, stop and report. Do not restructure packages.
 
-- [ ] **Step 3: Tick tasks.md 2.3, run the check set, commit**
+- [x] **Step 3: Tick tasks.md 2.3, run the check set, commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -1222,7 +1222,7 @@ git commit -m "test(yougile): pin the pipeline claim gate against recorded depen
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 4: Mutation probe**
+- [x] **Step 4: Mutation probe**
   - In `toTask`, delete `DependsOn: slices.Clone(data.DependsOn),` again. Expect `TestClaimGateBlocksUntilDependencyResolves` red on the first assertion. Restore.
 
 ---
