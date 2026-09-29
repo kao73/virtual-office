@@ -1229,7 +1229,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 7: Attachment link parser (tasks.md 3.1, reframed, part 1)
 
-- [ ] Task 7 complete: Attachment link parser (tasks.md 3.1, reframed, part 1)
+- [x] Task 7 complete: Attachment link parser (tasks.md 3.1, reframed, part 1)
 
 Pure functions with no HTTP. Design §4.1.
 
@@ -1249,7 +1249,7 @@ Pure functions with no HTTP. Design §4.1.
   - `func decodeName(segment string) string`: percent-decodes at most twice, stopping on failure or no-op
   - `func attachmentRefs(links []fileLink) []tracker.AttachmentRef` (nil when empty)
 
-- [ ] **Step 1: Write the failing tests** (`attachment_test.go`)
+- [x] **Step 1: Write the failing tests** (`attachment_test.go`)
 
 ```go
 package yougile
@@ -1375,12 +1375,12 @@ func TestAttachmentRefs(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and see red**
+- [x] **Step 2: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/ -run 'FileLink|DecodeName|UserDataLink|AttachmentRefs'`
 Expected: compile error `undefined: chatFileLink` (and the others).
 
-- [ ] **Step 3: Implement** (`attachment.go`)
+- [x] **Step 3: Implement** (`attachment.go`)
 
 ```go
 package yougile
@@ -1512,12 +1512,12 @@ func attachmentRefs(links []fileLink) []tracker.AttachmentRef {
 }
 ```
 
-- [ ] **Step 4: Run and see green**
+- [x] **Step 4: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS. If `TestDecodeNameStopsOnFailure` disagrees on `%252525.txt`, trace it by hand: one pass gives `%2525.txt` and the second gives `%25.txt`. The expected value is correct, so fix the code, not the test.
 
-- [ ] **Step 5: Check set, then commit**
+- [x] **Step 5: Check set, then commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -1527,7 +1527,7 @@ git commit -m "feat(yougile): parse attachment links from chat file messages and
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Mutation probes**
+- [x] **Step 6: Mutation probes**
   - In `decodeName`, change `for range 2` to `for range 1`. Expect `TestChatFileLinkDecodesNameTwice` red.
   - Change `for range 2` to `for range 3`. Expect `TestDecodeNameStopsOnFailure` red (`%252525.txt`).
   - Delete `|| seen[l.ID]`. Expect `TestFileLinksOrderAndDedup` red.
