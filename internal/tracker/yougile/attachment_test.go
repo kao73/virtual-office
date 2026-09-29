@@ -1,8 +1,11 @@
 package yougile
 
 import (
+	"net/http"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/kao73/virtual-office/internal/tracker"
 )
@@ -158,5 +161,93 @@ func TestAttachmentRefs(t *testing.T) {
 	got := attachmentRefs([]fileLink{{ID: uuid1, Segment: "a%20b.txt", Name: "a b.txt"}})
 	if want := []tracker.AttachmentRef{{ID: uuid1, Name: "a b.txt"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("attachmentRefs = %+v", got)
+	}
+}
+
+func TestAddAttachmentUploadsAndPostsFileMessage(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.setLease(testKey, "run-1", now.Add(time.Minute))
+	data := []byte("{\"children\":[]}\n")
+	id, err := tr.AddAttachment(testKey, tracker.ByRun("run-1"), "split.json", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, ok := fake.uploads[id]
+	if !ok || file.Name != "split.json" || string(file.Data) != string(data) {
+		t.Errorf("загружено: %q → %+v", id, fake.uploads)
+	}
+	wantText := "/root/#file:/user-data/" + id + "/split.json"
+	if len(fake.chatPosts) != 1 || fake.chatPosts[0]["text"] != wantText || fake.chatPosts[0]["textHtml"] != wantText {
+		t.Errorf("сообщение-файл: %#v, ожидался text = textHtml = %q", fake.chatPosts, wantText)
+	}
+	task, err := tr.Get(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []tracker.AttachmentRef{{ID: id, Name: "split.json"}}; !reflect.DeepEqual(task.Attachments, want) {
+		t.Errorf("Attachments = %+v", task.Attachments)
+	}
+	if last := task.Comments[len(task.Comments)-1]; last.Body != "[вложение: split.json]" || last.Author != "office@example.com" {
+		t.Errorf("реплика офиса: %+v", last)
+	}
+}
+
+// text и textHtml сообщения-файла — одна и та же строка, без HTML-экранирования:
+// иначе «&» в имени стал бы «&amp;» и интерфейс не узнал бы файл.
+func TestAddAttachmentTextEqualsHTMLForAmpersand(t *testing.T) {
+	tr, fake := fixture(t)
+	if _, err := tr.AddAttachment(testKey, tracker.BySystem(), "a&b.txt", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.chatPosts) != 1 || fake.chatPosts[0]["text"] != fake.chatPosts[0]["textHtml"] {
+		t.Errorf("text и textHtml разошлись: %#v", fake.chatPosts)
+	}
+}
+
+func TestAddAttachmentKeepsNonASCIIName(t *testing.T) {
+	tr, fake := fixture(t)
+	id, err := tr.AddAttachment(testKey, tracker.BySystem(), "ТЗ v2.pdf", []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ := tr.Get(testKey)
+	if len(task.Attachments) != 1 || task.Attachments[0] != (tracker.AttachmentRef{ID: id, Name: "ТЗ v2.pdf"}) {
+		t.Errorf("Attachments = %+v", task.Attachments)
+	}
+	if fake.uploads[id].Name != "ТЗ v2.pdf" {
+		t.Errorf("имя в multipart: %q", fake.uploads[id].Name)
+	}
+}
+
+// Файл загружен, но url не того вида — привязать нечего: ошибка, и в чат
+// ничего не уходит (осиротевшая загрузка безвредна, design doc §4.2).
+func TestAddAttachmentRejectsMalformedUploadAnswer(t *testing.T) {
+	for name, u := range map[string]string{
+		"не user-data": "/files/whatever.txt",
+		"не uuid":      "/user-data/12345/a.txt",
+		"пусто":        "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr, fake := fixture(t)
+			fake.uploadURL = func(string, string) string { return u }
+			if _, err := tr.AddAttachment(testKey, tracker.BySystem(), "a.txt", []byte("x")); err == nil {
+				t.Error("кривой ответ upload-file принят")
+			}
+			if len(fake.chatPosts) != 0 {
+				t.Errorf("в чат ушло: %#v", fake.chatPosts)
+			}
+		})
+	}
+}
+
+func TestAddAttachmentUploadFailureNeverLeaksKey(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.fail["POST /api-v2/upload-file"] = http.StatusInternalServerError
+	_, err := tr.AddAttachment(testKey, tracker.BySystem(), "a.txt", []byte("x"))
+	if err == nil || strings.Contains(err.Error(), "test-key") || !strings.Contains(err.Error(), "500") {
+		t.Errorf("отказ загрузки дал %v", err)
+	}
+	if len(fake.chatPosts) != 0 {
+		t.Error("сообщение ушло без файла")
 	}
 }

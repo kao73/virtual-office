@@ -27,6 +27,7 @@ import (
 	"io"
 	"log"
 	"maps"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"slices"
@@ -168,14 +169,20 @@ func (t *Tracker) checkProject(project string) error {
 // ошибки: YouGile объясняет отказ в нём.
 func (t *Tracker) call(method, path string, query url.Values, in, out any) error {
 	var body io.Reader
+	contentType := ""
 	if in != nil {
 		raw, err := json.Marshal(in)
 		if err != nil {
 			return fmt.Errorf("запрос не сериализован: %w", err)
 		}
-		body = bytes.NewReader(raw)
+		body, contentType = bytes.NewReader(raw), "application/json"
 	}
+	return t.send(method, path, query, body, contentType, out)
+}
 
+// send — один запрос к API с готовым телом. Тело ответа при ошибке попадает
+// в текст ошибки: YouGile объясняет отказ в нём.
+func (t *Tracker) send(method, path string, query url.Values, body io.Reader, contentType string, out any) error {
 	target := t.cfg.BaseURL + apiPrefix + path
 	if len(query) > 0 {
 		target += "?" + query.Encode()
@@ -186,8 +193,8 @@ func (t *Tracker) call(method, path string, query url.Values, in, out any) error
 	}
 	req.Header.Set("Authorization", "Bearer "+t.cfg.APIKey)
 	req.Header.Set("Accept", "application/json")
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	resp, err := t.client.Do(req)
@@ -217,6 +224,30 @@ func (t *Tracker) call(method, path string, query url.Values, in, out any) error
 		return fmt.Errorf("%s %s: ответ не разобран: %w\n%s", method, path, err, snippet(raw))
 	}
 	return nil
+}
+
+// upload — POST /upload-file: один файл multipart-полем file. Отдаёт url
+// из ответа — /user-data/<uuid>/<имя>. Ключ и ошибки — как у call.
+func (t *Tracker) upload(name string, data []byte) (string, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("file", name)
+	if err != nil {
+		return "", fmt.Errorf("вложение %q не упаковано: %w", name, err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return "", fmt.Errorf("вложение %q не упаковано: %w", name, err)
+	}
+	if err := w.Close(); err != nil {
+		return "", fmt.Errorf("вложение %q не упаковано: %w", name, err)
+	}
+	var out struct {
+		URL string `json:"url"`
+	}
+	if err := t.send(http.MethodPost, "/upload-file", nil, &buf, w.FormDataContentType(), &out); err != nil {
+		return "", err
+	}
+	return out.URL, nil
 }
 
 // statusError различает беды, которые лечатся по-разному. Ключ API сюда

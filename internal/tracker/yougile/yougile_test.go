@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -64,6 +65,12 @@ type fakeMessage struct {
 
 // fakeYouGile — минимальный YouGile: отвечает на те запросы, которые шлёт
 // адаптер, и запоминает их, чтобы тест проверял и исход, и форму запроса.
+// fakeFile — файл, загруженный через upload-file или прикреплённый «человеком».
+type fakeFile struct {
+	Name string
+	Data []byte
+}
+
 type fakeYouGile struct {
 	t  *testing.T
 	mu sync.Mutex
@@ -78,6 +85,9 @@ type fakeYouGile struct {
 	me       string
 	idem     map[string]string // idempotencyKey → id задачи
 	nextID   int
+
+	uploads   map[string]fakeFile          // uuid → файл
+	uploadURL func(id, name string) string // nil — "/user-data/<uuid>/<имя>"; тест подменяет, чтобы испортить ответ
 
 	pageCap       int  // >0 — сервер режет страницу до этого размера, что бы ни просили
 	endlessPaging bool // сервер всегда говорит next=true и отдаёт первый элемент
@@ -120,6 +130,7 @@ func newFake(t *testing.T) *fakeYouGile {
 		me:       officeUserID,
 		idem:     map[string]string{},
 		fail:     map[string]int{},
+		uploads:  map[string]fakeFile{},
 	}
 	f.addTask(&fakeTask{ID: testKey, Title: "First task", Description: "Do it", ColumnID: colReady,
 		Timestamp: now.Add(-time.Hour).UnixMilli()})
@@ -211,6 +222,20 @@ func (f *fakeYouGile) page(items []any, q url.Values) map[string]any {
 		"paging":  map[string]any{"count": end - offset, "limit": limit, "offset": offset, "next": end < len(items)},
 		"content": items[offset:end],
 	}
+}
+
+// newFileID — uuid очередного файла; вызывается под f.mu.
+func (f *fakeYouGile) newFileID() string {
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", len(f.uploads)+1)
+}
+
+// addFile — файл, прикреплённый человеком в интерфейсе, мимо адаптера.
+func (f *fakeYouGile) addFile(name string, data []byte) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := f.newFileID()
+	f.uploads[id] = fakeFile{Name: name, Data: data}
+	return id
 }
 
 func (f *fakeYouGile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -350,6 +375,22 @@ func (f *fakeYouGile) route(method, path string, r *http.Request) (int, any) {
 			task.Deleted = v
 		}
 		return http.StatusOK, map[string]any{"id": id}
+
+	case method == http.MethodPost && path == "/upload-file":
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			f.t.Errorf("upload-file: нет поля file: %v", err)
+			return http.StatusBadRequest, map[string]any{"error": "no file"}
+		}
+		defer file.Close()
+		data, _ := io.ReadAll(file)
+		id := f.newFileID()
+		f.uploads[id] = fakeFile{Name: header.Filename, Data: data}
+		u := "/user-data/" + id + "/" + url.PathEscape(header.Filename)
+		if f.uploadURL != nil {
+			u = f.uploadURL(id, header.Filename)
+		}
+		return http.StatusOK, map[string]any{"result": "ok", "url": u, "fullUrl": "https://ru.yougile.com" + u}
 
 	case strings.HasPrefix(path, "/chats/") && strings.HasSuffix(path, "/messages"):
 		chat := strings.TrimSuffix(strings.TrimPrefix(path, "/chats/"), "/messages")

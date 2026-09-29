@@ -43,6 +43,10 @@ func TestEveryMutationFollowsOwnership(t *testing.T) {
 		"SetHumanFlag":  func(tr *Tracker, a tracker.Actor) error { return tr.SetHumanFlag(testKey, a, true) },
 		"SetAttempts":   func(tr *Tracker, a tracker.Actor) error { return tr.SetAttempts(testKey, a, 1) },
 		"LinkDependsOn": func(tr *Tracker, a tracker.Actor) error { return tr.LinkDependsOn(testKey, "task-dep", a) },
+		"AddAttachment": func(tr *Tracker, a tracker.Actor) error {
+			_, err := tr.AddAttachment(testKey, a, "x.txt", []byte("x"))
+			return err
+		},
 	}
 	for name, mutate := range mutations {
 		t.Run(name+"/система поверх живой аренды", func(t *testing.T) {
@@ -51,7 +55,7 @@ func TestEveryMutationFollowsOwnership(t *testing.T) {
 			if err := mutate(tr, tracker.BySystem()); !errors.Is(err, tracker.ErrNotOwner) {
 				t.Errorf("дало %v", err)
 			}
-			if len(fake.puts)+len(fake.chatPosts) != 0 {
+			if len(fake.puts)+len(fake.chatPosts)+len(fake.uploads) != 0 {
 				t.Error("записано без права")
 			}
 		})
@@ -60,7 +64,7 @@ func TestEveryMutationFollowsOwnership(t *testing.T) {
 			if err := mutate(tr, tracker.ByRun("run-1")); !errors.Is(err, tracker.ErrNotOwner) {
 				t.Errorf("дало %v", err)
 			}
-			if len(fake.puts)+len(fake.chatPosts) != 0 {
+			if len(fake.puts)+len(fake.chatPosts)+len(fake.uploads) != 0 {
 				t.Error("записано без права")
 			}
 		})

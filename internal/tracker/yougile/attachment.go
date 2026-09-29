@@ -1,6 +1,7 @@
 package yougile
 
 import (
+	"fmt"
 	"html"
 	"net/url"
 	"regexp"
@@ -153,4 +154,38 @@ func attachmentRefs(links []fileLink) []tracker.AttachmentRef {
 		refs = append(refs, tracker.AttachmentRef{ID: l.ID, Name: l.Name})
 	}
 	return refs
+}
+
+// AddAttachment загружает файл и прикрепляет его к задаче сообщением-файлом
+// в чате — так же, как это делает интерфейс: человек видит файл, Get находит
+// его среди вложений. Отдаёт uuid файла.
+//
+// Сбой между загрузкой и сообщением оставляет невидимую осиротевшую
+// загрузку и возвращает ошибку; повтор загрузит заново (design doc §4.2).
+func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data []byte) (string, error) {
+	if _, _, err := t.owned(key, by); err != nil {
+		return "", err
+	}
+	uploaded, err := t.upload(name, data)
+	if err != nil {
+		return "", err
+	}
+	link, ok := uploadedLink(uploaded)
+	if !ok {
+		return "", fmt.Errorf("yougile: upload-file вернул url %q не вида /user-data/<uuid>/<имя> — файл загружен, но к задаче %s не привязан",
+			uploaded, key)
+	}
+	// Текст — url ровно так, как его отдал сервер (design doc §4.2), и он же
+	// в textHtml без HTML-экранирования.
+	text := fileMessagePrefix + uploaded
+	if err := t.postChat(key, text, text); err != nil {
+		return "", err
+	}
+	return link.ID, nil
+}
+
+// uploadedLink — ссылка из ответа upload-file: путь без хоста и запроса,
+// как в сообщении-файле.
+func uploadedLink(raw string) (fileLink, bool) {
+	return userDataLink(raw)
 }
