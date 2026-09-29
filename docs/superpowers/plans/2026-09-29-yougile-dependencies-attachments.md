@@ -2002,7 +2002,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 10: Download client with a narrow redirect policy (tasks.md 3.3, part 1)
 
-- [ ] Task 10 complete: Download client with a narrow redirect policy (tasks.md 3.3, part 1)
+- [x] Task 10 complete: Download client with a narrow redirect policy (tasks.md 3.3, part 1)
 
 **Files:**
 - Modify: `internal/tracker/yougile/yougile.go` (`Tracker.files`, `Open`, `newFileClient`, `fileHostAllowed`, `maxFileRedirects`)
@@ -2015,7 +2015,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `func newFileClient(base *url.URL) *http.Client`: no default headers, `Timeout: 60 * time.Second`, and a `CheckRedirect` that refuses after `maxFileRedirects` hops or to a host not allowed by `fileHostAllowed`, deleting `Authorization` from every redirected request as a second guard
   - `Tracker.files *http.Client`, set in `Open`
 
-- [ ] **Step 1: Write the failing tests** (`attachment_test.go`, add imports `"net/http/httptest"`, `"net/url"`, `"sync/atomic"`)
+- [x] **Step 1: Write the failing tests** (`attachment_test.go`, add imports `"net/http/httptest"`, `"net/url"`, `"sync/atomic"`)
 
 ```go
 func TestFileHostAllowed(t *testing.T) {
@@ -2086,12 +2086,12 @@ func TestOpenBuildsFileClient(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and see red**
+- [x] **Step 2: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/ -run 'FileHost|FileClient|OpenBuildsFileClient'`
 Expected: compile error `undefined: fileHostAllowed`.
 
-- [ ] **Step 3: Implement** (`yougile.go`)
+- [x] **Step 3: Implement** (`yougile.go`)
 
 In `Tracker`, after `client *http.Client`:
 ```go
@@ -2138,12 +2138,12 @@ func fileHostAllowed(base, target *url.URL) bool {
 }
 ```
 
-- [ ] **Step 4: Run and see green**
+- [x] **Step 4: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS.
 
-- [ ] **Step 5: Check set, then commit**
+- [x] **Step 5: Check set, then commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -2153,7 +2153,7 @@ git commit -m "feat(yougile): keyless file client with a same-host redirect poli
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Mutation probes**
+- [x] **Step 6: Mutation probes**
   - Change `len(via) > maxFileRedirects` to `>=`. Expect `TestFileClientCapsRedirects` red (5 hits).
   - Replace `strings.HasSuffix(host, "."+root)` with `strings.HasSuffix(host, root)`. Expect `TestFileHostAllowed` red (`evilyougile.com`).
   - Delete the scheme check. Expect `TestFileHostAllowed` red (`http://prod-user-data…`).
