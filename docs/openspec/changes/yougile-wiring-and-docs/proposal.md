@@ -24,13 +24,21 @@ set one up, so a project can actually declare `tracker: yougile`.
   by the comment marker, not by account, matching `openMock`'s pattern more
   than `openJira`'s per-role-account one, since a per-role account is
   optional there too).
-- `docs/notes/yougile-setup.md`, parallel to `docs/notes/jira-setup.md`:
+- `docs/reference/yougile-requirements.md`, paired with
+  `docs/reference/jira-requirements.md` (the repository's Diátaxis layout):
   how to provision a YouGile project for the office, including creating a
   dedicated non-human account/API key for `accounts.default` (the office
   writes under it; a human's own personal YouGile login must be a
   different account, or their replies are indistinguishable from the
   office's own writes — `docs/contracts/tracker-protocol.md`, "Кто
-  человек"), and how to set up the status string-sticker.
+  человек"), and how to find the project and column ids (status is a
+  column, as settled in `yougile-adapter-core`). Guide pages
+  (`project-setup.md`, `machine-setup.md`) and
+  `reference/configuration.md` gain the YouGile steps.
+- `runner doctor` gains a minimal YouGile stage (config, credential, open,
+  account), run only when a project declares `tracker: yougile`.
+- One YouGile project per runner; the adapter's `Config` gains `Key` (the
+  runner's project name) separate from `ProjectID`.
 - README/`docs/ONBOARDING.md`: mention `yougile` alongside `jira`/`mock` as
   a supported tracker option.
 - Items carried over from `yougile-dependencies-attachments` (PR #25):
@@ -42,8 +50,8 @@ set one up, so a project can actually declare `tracker: yougile`.
   - `base_url: https://ru.yougile.com` breaks attachment downloads (the
     `/user-data/` redirect goes to `prod-user-data.yougile.com`, which is
     not a subdomain of `ru.yougile.com`, so the file client refuses it).
-    Either the config loader normalizes it to `https://yougile.com`, or
-    doctor and the setup doc warn about it — chosen in Design.
+    The config loader refuses it with a hint to use
+    `https://yougile.com` (chosen in Design).
   - Setup/user docs: to drop a task stuck in Blocked, move it to a column
     outside the graph — do not archive it (`CompleteSplits` still
     completes a split whose parent is archived; accepted residual).
@@ -65,7 +73,7 @@ set one up, so a project can actually declare `tracker: yougile`.
 - `internal/tracker/config.go`, `cmd/runner/office.go`: small, additive
   changes mirroring the existing JIRA code paths.
 - New file `office/tracker-yougile.example.yaml` (parallel to
-  `office/tracker.example.yaml`), new `docs/notes/yougile-setup.md`.
+  `office/tracker.example.yaml`), new `docs/reference/yougile-requirements.md`.
 - Requires provisioning a real dedicated non-human YouGile account/API key
   before this change can be verified end-to-end (done in
   `yougile-live-validation`, but the account itself should exist by the

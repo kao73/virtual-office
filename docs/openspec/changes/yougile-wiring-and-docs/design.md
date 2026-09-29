@@ -46,9 +46,11 @@ JIRA custom fields get instance-specific ids at creation time
 (`scripts/jira-setup.sh` prints them). YouGile's lease/dependency/
 attachment-manifest data all lives in the adapter-owned `apiData` JSON
 field (`yougile-adapter-core`, `yougile-dependencies-attachments`), which
-needs no per-instance id — only the status sticker does (`sticker_id`,
-plus a `status_map` from graph status name to sticker state, mirroring
-JIRA's own `status_map`). This makes the YouGile setup script (if one ends
+needs no per-instance id — only the project and its columns do
+(`project_id` and `columns`, a map from graph status to column id: status
+is a column, as settled in `yougile-adapter-core`; this replaces the
+sticker-based status assumed when this change was opened — see the Design
+Doc, §8). This makes the YouGile setup script (if one ends
 up being needed at all) smaller in scope than `scripts/jira-setup.sh`.
 
 **`openYouGile` opens one shared `Tracker` per role, following `openMock`'s

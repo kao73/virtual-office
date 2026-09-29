@@ -2,10 +2,13 @@
 
 - [ ] 1.1 Add `"yougile"` to `internal/tracker/config.go`'s `trackers` list
       and any related validation.
-- [ ] 1.2 Define the `tracker-yougile.yaml` schema (API key location,
-      status sticker id, `status_map`, `accounts.default`, optional
-      `accounts.roles`/`also_agents`) and write
-      `office/tracker-yougile.example.yaml`.
+- [ ] 1.2 Define the `tracker-yougile.yaml` schema (`base_url`,
+      `api_key_env`, `also_agents`, one `projects.<key>` with
+      `project_id`/`columns`/`create_status`) with a strict `LoadConfig`,
+      and write `office/tracker-yougile.example.yaml`; `runner init`
+      places it.
+- [ ] 1.4 Add `Key` to `yougile.Config` (runner project name, defaults to
+      `ProjectID`); `checkProject` and `Task.Project` use it.
 - [ ] 1.3 Implement the "opened only when used" behavior in config loading,
       mirroring `tracker.yaml`'s existing handling.
 
@@ -23,13 +26,17 @@
       distinct from any human's personal login (needed for the account-
       based human/office distinction, `docs/contracts/tracker-protocol.md`
       "Кто человек").
-- [ ] 3.2 Create the status string-sticker on the target YouGile project
-      and record its id/state ids for the setup doc.
+- [ ] 3.2 Create the target YouGile project with one column per graph
+      status, following the reference doc (owner does 3.1/3.2 by the doc).
 
 ## 4. Documentation
 
-- [ ] 4.1 Write `docs/notes/yougile-setup.md`, parallel to
-      `docs/notes/jira-setup.md`.
+- [ ] 4.1 Write `docs/reference/yougile-requirements.md`, paired with
+      `docs/reference/jira-requirements.md`; add YouGile steps to
+      `docs/guide/project-setup.md`, `docs/guide/machine-setup.md` and
+      `docs/reference/configuration.md`.
+- [ ] 4.3 Add the minimal YouGile doctor stage (`config:tracker-yougile.yaml`,
+      `cred:<api_key_env>`, `yougile:open`, `yougile:account`) with tests.
 - [ ] 4.2 Update README and `docs/ONBOARDING.md` to mention `yougile` as a
       supported tracker option alongside `jira`/`mock`.
 
@@ -46,10 +53,9 @@
       YouGile projects, so the office's own chat notes and file messages
       are not counted as human replies; cover with a test.
 - [ ] 6.2 Route the YouGile `Tracker.Logf` to the runner's logger.
-- [ ] 6.3 Handle `base_url: https://ru.yougile.com` (breaks attachment
-      downloads via the `prod-user-data.yougile.com` redirect): normalize
-      to `https://yougile.com` in the config loader, or warn in doctor and
-      the setup doc — per the Design decision.
+- [ ] 6.3 Refuse `base_url: https://ru.yougile.com` in `LoadConfig` with a
+      hint to use `https://yougile.com` (it breaks attachment downloads via
+      the `prod-user-data.yougile.com` redirect).
 - [ ] 6.4 Docs: to drop a task stuck in Blocked, move it to a column
       outside the graph; do not archive it.
 - [ ] 6.5 Docs: `runner ls` shows archived cards too.
