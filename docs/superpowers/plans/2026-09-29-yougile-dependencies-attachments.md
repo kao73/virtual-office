@@ -601,7 +601,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 3: `Logf` hook, and listings skip unreadable cards (tasks.md: none, Design §2)
 
-- [ ] Task 3 complete: `Logf` hook, and listings skip unreadable cards (tasks.md: none, Design §2)
+- [x] Task 3 complete: `Logf` hook, and listings skip unreadable cards (tasks.md: none, Design §2)
 
 **Files:**
 - Modify: `internal/tracker/yougile/yougile.go` (`Tracker` struct, `Open`, imports)
@@ -612,7 +612,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `ErrOfficeData` (Task 2).
 - Produces: `Tracker.Logf func(format string, args ...any)`, defaulting to `log.Printf`. `yougile-wiring-and-docs` will point it at the runner logger.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `status_test.go`, add at the end:
 ```go
@@ -695,12 +695,12 @@ func TestFindByMarkerFailsLoudOnUnreadableOfficeData(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and see red**
+- [x] **Step 2: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestListingsSkip|TestOpenDefaultsLogf|TestFindByMarkerFailsLoud|TestSkipIsOnly'`
 Expected: compile error `tr.Logf undefined`. After Step 3's struct field alone (without the `collect` change), `TestListingsSkip…` fails with the ErrOfficeData error from ListReady. `TestFindByMarkerFailsLoudOnUnreadableOfficeData` and `TestSkipIsOnlyForOfficeData` pin existing behavior and pass once they compile.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `yougile.go`: add `"log"` to imports. In `Tracker`, after `Now`:
 ```go
@@ -729,12 +729,12 @@ In `Open`'s `t := &Tracker{…}` literal add `Logf: log.Printf,`.
 ```
 Update the `collect` doc comment by adding: `Карточка с нечитаемыми данными офиса (ErrOfficeData) пропускается с записью в Logf.`
 
-- [ ] **Step 4: Run and see green**
+- [x] **Step 4: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS.
 
-- [ ] **Step 5: Check set, then commit**
+- [x] **Step 5: Check set, then commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -747,7 +747,7 @@ hook and continue; Get, mutators and FindByMarker still fail loudly.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Mutation probes**
+- [x] **Step 6: Mutation probes**
   - In `collect`, replace `errors.Is(err, ErrOfficeData)` with `false`. Expect `TestListingsSkipCardWithUnreadableOfficeData` red.
   - Remove the `t.Logf(…)` line and keep the `continue`. Expect the same test red on the line count.
   - In `Open`, delete `Logf: log.Printf,`. Expect `TestOpenDefaultsLogf` red.
