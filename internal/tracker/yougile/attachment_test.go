@@ -48,17 +48,26 @@ func TestChatFileLinkRejectsNonFileText(t *testing.T) {
 }
 
 // Review Focus #2: буквальный «%» в имени — второе декодирование падает,
-// останавливаемся на первом.
-func TestDecodeNameStopsOnFailure(t *testing.T) {
-	for segment, want := range map[string]string{
-		"100%25.txt":            "100%.txt",
-		"plain.txt":             "plain.txt",
-		"%25D0%25A2.txt":        "Т.txt",
-		"%252525.txt":           "%25.txt", // не больше двух раз
-		"%D0%A2%D0%97%20v2.pdf": "ТЗ v2.pdf",
+// останавливаемся на первом. Битый escape первого уровня и разделитель на
+// любом уровне — отказ.
+func TestDecodeSegment(t *testing.T) {
+	for segment, want := range map[string]struct {
+		name string
+		ok   bool
+	}{
+		"100%25.txt":            {"100%.txt", true},
+		"plain.txt":             {"plain.txt", true},
+		"%25D0%25A2.txt":        {"Т.txt", true},
+		"%252525.txt":           {"%25.txt", true}, // не больше двух раз
+		"%D0%A2%D0%97%20v2.pdf": {"ТЗ v2.pdf", true},
+		"a%zz.txt":              {"", false}, // битый escape первого уровня
+		"%2F":                   {"", false},
+		"%5C":                   {"", false},
+		"a%252F..":              {"", false}, // разделитель на втором уровне
 	} {
-		if got := decodeName(segment); got != want {
-			t.Errorf("decodeName(%q) = %q, ожидалось %q", segment, got, want)
+		name, ok := decodeSegment(segment)
+		if ok != want.ok || (ok && name != want.name) {
+			t.Errorf("decodeSegment(%q) = %q, %v; ожидалось %q, %v", segment, name, ok, want.name, want.ok)
 		}
 	}
 }
@@ -524,6 +533,10 @@ func TestGetAttachmentRebuildsURLOnBaseURL(t *testing.T) {
 	// Сегмент из описания закодирован один раз и уходит на провод таким же.
 	if want := []string{"/user-data/" + id + "/%D0%A2%D0%97.pdf"}; !reflect.DeepEqual(fake.filePaths, want) {
 		t.Errorf("путь запроса за файлом %q, ожидался %q", fake.filePaths, want)
+	}
+	// Ссылка нашлась в описании — чат ответа не изменит, запрос к нему лишний.
+	if n := fake.count("GET /api-v2/chats/"); n != 0 {
+		t.Errorf("чат прочитан %d раз, хотя ссылка нашлась в описании", n)
 	}
 }
 

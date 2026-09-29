@@ -100,53 +100,37 @@ func userDataLink(escapedPath string) (fileLink, bool) {
 	if m == nil || !tracker.ValidAttachmentID(m[1]) {
 		return fileLink{}, false
 	}
-	if !escapedSegmentSafe(m[2]) {
-		return fileLink{}, false
-	}
-	name := decodeName(m[2])
-	if name == "" || name == "." || name == ".." {
+	name, ok := decodeSegment(m[2])
+	if !ok || name == "" || name == "." || name == ".." {
 		return fileLink{}, false
 	}
 	return fileLink{ID: m[1], Segment: m[2], Name: name}, true
 }
 
-// escapedSegmentSafe: сегмент — корректно экранированный, и на каждом из
-// двух уровней раскодирования в нём нет «/» и «\». Иначе пересобранный URL
-// (BaseURL/user-data/<uuid>/<сегмент>) вышел бы из папки файла: YouGile
-// раскодирует путь один-два раза (design doc §4.3). Битый escape на первом
-// уровне — тоже отказ: такую ссылку не скачать.
-func escapedSegmentSafe(segment string) bool {
+// decodeSegment раскодирует сегмент имени не больше двух раз — в чате
+// YouGile кодирует имя дважды, в описании один раз — и заодно проверяет, что
+// он безопасен для пересборки URL (BaseURL/user-data/<uuid>/<сегмент>):
+//   - битый escape на первом уровне — отказ, такую ссылку не скачать;
+//   - неудача на втором — остаёмся на первом: буквальный «%» в имени;
+//   - «/» или «\» на любом уровне — отказ: YouGile раскодирует путь
+//     один-два раза, и URL вышел бы из папки файла (design doc §4.3);
+//   - декодирование, которое ничего не меняет, — остановка.
+func decodeSegment(segment string) (string, bool) {
 	name := segment
 	for i := range 2 {
 		next, err := url.PathUnescape(name)
 		if err != nil {
-			return i > 0
+			return name, i > 0
 		}
 		if strings.ContainsAny(next, `/\`) {
-			return false
+			return "", false
 		}
 		if next == name {
 			break
 		}
 		name = next
 	}
-	return true
-}
-
-// decodeName раскодирует имя не больше двух раз: в чате YouGile кодирует
-// его дважды, в описании — один раз. Остановка — на первой неудаче или
-// когда декодирование ничего не меняет: буквальный «%» в имени иначе
-// превратился бы в мусор.
-func decodeName(segment string) string {
-	name := segment
-	for range 2 {
-		next, err := url.PathUnescape(name)
-		if err != nil || next == name {
-			break
-		}
-		name = next
-	}
-	return name
+	return name, true
 }
 
 // attachmentRefs — ссылки в модели раннера; nil, если вложений нет.
@@ -172,7 +156,7 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 	if err != nil {
 		return "", err
 	}
-	link, ok := uploadedLink(uploaded)
+	link, ok := userDataLink(uploaded)
 	if !ok {
 		return "", fmt.Errorf("yougile: upload-file вернул url %q не вида /user-data/<uuid>/<имя> — файл загружен, но к задаче %s не привязан",
 			uploaded, key)
@@ -187,12 +171,6 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 	return link.ID, nil
 }
 
-// uploadedLink — ссылка из ответа upload-file: путь без хоста и запроса,
-// как в сообщении-файле.
-func uploadedLink(raw string) (fileLink, bool) {
-	return userDataLink(raw)
-}
-
 // GetAttachment читает вложение по uuid. Ссылку ищет там же, где Get (описание
 // и чат), URL пересобирает на BaseURL и скачивает клиентом без ключа API
 // (design doc §4.3). Три запроса — задача, чат, файл; кэша нет намеренно.
@@ -204,17 +182,30 @@ func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Описание просматривается первым и у fileLinks выигрывает: найдись id
+	// там, чат ответа уже не изменит — запрос к нему не нужен.
+	if link, ok := findLink(fileLinks(raw.Description, nil), id); ok {
+		return t.download(link)
+	}
 	msgs, err := t.chat(key)
 	if err != nil {
 		return nil, err
 	}
-	for _, link := range fileLinks(raw.Description, msgs) {
-		if link.ID == id {
-			return t.download(link)
-		}
+	if link, ok := findLink(fileLinks(raw.Description, msgs), id); ok {
+		return t.download(link)
 	}
 	return nil, fmt.Errorf("%w: вложение %s/%s не упомянуто ни в описании, ни в чате задачи",
 		tracker.ErrNotFound, key, id)
+}
+
+// findLink — ссылка с данным uuid.
+func findLink(links []fileLink, id string) (fileLink, bool) {
+	for _, l := range links {
+		if l.ID == id {
+			return l, true
+		}
+	}
+	return fileLink{}, false
 }
 
 // download — GET файла по пути, пересобранному на BaseURL: хост из ссылки
