@@ -1,6 +1,6 @@
 workflow: full
 language: en
-phase: build
+phase: verify
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -13,9 +13,9 @@ auto_transition: true
 base_ref: 69c5b89c5902d8a5c3b66adf09340fee7a325f2c
 design_doc: docs/superpowers/specs/2026-09-29-yougile-dependencies-attachments-design.md
 plan: docs/superpowers/plans/2026-09-29-yougile-dependencies-attachments.md
-verify_result: fail
+verify_result: pending
 verify_failures: 1
-verification_report: null
+verification_report: docs/superpowers/reports/2026-09-29-yougile-dependencies-attachments-verify.md
 branch_status: pending
 created_at: 2026-09-28
 verified_at: null
