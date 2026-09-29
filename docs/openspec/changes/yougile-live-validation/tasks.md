@@ -5,6 +5,11 @@
       is distinct from any human's personal login).
 - [ ] 1.2 Confirm `tracker-yougile.yaml` is in place for a chosen project
       and the runner opens it cleanly (`runner ls` against it).
+- [ ] 1.3 P1: run live `runner doctor` against `office-wiring`/`YGW` after the
+      PR #26 fixes; every finding, including the YouGile stage, is `ok`.
+- [ ] 1.4 P2: record the shape of `GET /api-v2/projects/{id}` under the office
+      key, including whether `users` exposes the office account's own role
+      (read-only; a missing role is a finding, not a fix).
 
 ## 2. Sandbox setup
 
@@ -22,6 +27,19 @@
 - [ ] 3.3 Exercise a human-reply scenario: post a reply from a
       distinguishable human account (not the office account) and confirm
       the runner recognizes it as human input.
+- [ ] 3.4 T1 carries an attachment the work depends on; confirm its content
+      reaches the role (present in the committed result), not only that it
+      is listed in the task.
+- [ ] 3.5 Negative control: a tick with no human reply leaves the task in
+      `Blocked` with no new run, comment or lease.
+- [ ] 3.6 T2 split: `analyst` proposes `outcome:split`, the human answers
+      `Q1: yes`, and the repeated split is taken as the second confirmation.
+- [ ] 3.7 `runner complete-splits` creates C1 and C2 in `create_status` with
+      "C2 depends on C1" recorded in `apiData`; a second run creates no
+      duplicates.
+- [ ] 3.8 Dependency gate: with C1 not `Done` a tick claims C1 only; after C1
+      reaches `Done` via a human-merged PR the next tick claims C2; C2 is
+      finished or parked in an off-graph column (not archived).
 
 ## 4. Findings
 
