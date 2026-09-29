@@ -10,7 +10,7 @@ review_mode: standard
 isolation: worktree
 verify_mode: null
 auto_transition: true
-base_ref: d29f382ae3188a342e5f96f2751fefaf3a888952
+base_ref: dbd95f4c165380bc8d1a36cdadfb1f3b1b22c539
 design_doc: null
 plan: null
 verify_result: pending

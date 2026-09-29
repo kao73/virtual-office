@@ -39,3 +39,17 @@
       is accepted, opens through `openYouGile`, and a missing
       `tracker-yougile.yaml` is refused with the right error, mirroring
       the existing JIRA tests' shape.
+
+## 6. Carried over from `yougile-dependencies-attachments` (PR #25)
+
+- [ ] 6.1 Add the API-key user's email to the runner's `Accounts` for
+      YouGile projects, so the office's own chat notes and file messages
+      are not counted as human replies; cover with a test.
+- [ ] 6.2 Route the YouGile `Tracker.Logf` to the runner's logger.
+- [ ] 6.3 Handle `base_url: https://ru.yougile.com` (breaks attachment
+      downloads via the `prod-user-data.yougile.com` redirect): normalize
+      to `https://yougile.com` in the config loader, or warn in doctor and
+      the setup doc — per the Design decision.
+- [ ] 6.4 Docs: to drop a task stuck in Blocked, move it to a column
+      outside the graph; do not archive it.
+- [ ] 6.5 Docs: `runner ls` shows archived cards too.

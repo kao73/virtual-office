@@ -33,6 +33,22 @@ set one up, so a project can actually declare `tracker: yougile`.
   человек"), and how to set up the status string-sticker.
 - README/`docs/ONBOARDING.md`: mention `yougile` alongside `jira`/`mock` as
   a supported tracker option.
+- Items carried over from `yougile-dependencies-attachments` (PR #25):
+  - The API-key user's email SHALL be part of the runner's `Accounts` for
+    YouGile projects; otherwise the office's own chat notes and file
+    messages are read as human replies.
+  - `Tracker.Logf` is routed to the runner's logger instead of being
+    dropped.
+  - `base_url: https://ru.yougile.com` breaks attachment downloads (the
+    `/user-data/` redirect goes to `prod-user-data.yougile.com`, which is
+    not a subdomain of `ru.yougile.com`, so the file client refuses it).
+    Either the config loader normalizes it to `https://yougile.com`, or
+    doctor and the setup doc warn about it — chosen in Design.
+  - Setup/user docs: to drop a task stuck in Blocked, move it to a column
+    outside the graph — do not archive it (`CompleteSplits` still
+    completes a split whose parent is archived; accepted residual).
+  - Setup/user docs: `runner ls` lists archived cards too (the adapter's
+    `List` includes them so an archived dependency does not block).
 
 ## Capabilities
 
