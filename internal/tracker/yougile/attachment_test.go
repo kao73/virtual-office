@@ -141,6 +141,16 @@ func TestUserDataLinkRejectsEncodedSeparators(t *testing.T) {
 	}
 }
 
+// Буквальный «%» в имени (второе раскодирование падает) — нормальное вложение,
+// а не битый escape. Тест фиксирует уже существующее поведение.
+func TestUserDataLinkAcceptsLiteralPercent(t *testing.T) {
+	l, ok := userDataLink("/user-data/" + uuid1 + "/100%25.txt")
+	want := fileLink{ID: uuid1, Segment: "100%25.txt", Name: "100%.txt"}
+	if !ok || l != want {
+		t.Errorf("userDataLink = %+v, %v; ожидалось %+v", l, ok, want)
+	}
+}
+
 func TestAttachmentRefs(t *testing.T) {
 	if got := attachmentRefs(nil); got != nil {
 		t.Errorf("пусто дало %+v", got)
