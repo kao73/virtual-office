@@ -15,6 +15,11 @@ task it depends on has not reached a terminal status.
 - **THEN** A can be claimed on the next attempt, without any further
   action needed on A itself
 
+#### Scenario: An archived dependency still releases its dependents
+- **WHEN** task A depends on task B, B reaches a terminal status, and B is
+  then archived
+- **THEN** A can be claimed
+
 #### Scenario: A task cannot depend on itself
 - **WHEN** a caller declares that a task depends on that same task
 - **THEN** the declaration fails and nothing is recorded

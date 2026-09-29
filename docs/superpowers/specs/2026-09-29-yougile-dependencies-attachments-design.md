@@ -83,6 +83,7 @@ applies to the namespaced object now.
 | `virtual_office.v` absent or `1` | normal |
 | `virtual_office.v > 1` | an error of type `ErrOfficeData` naming the version, on every path that reads it. We never overwrite a newer schema |
 | `virtual_office` present but malformed (not an object, wrong field types) | `ErrOfficeData` naming the task |
+| top-level `apiData` not an object (a string, an array) | `ErrOfficeData`, marked as "not an object": such a card cannot carry office data |
 | top-level `lease`/`attempts`/`human_wait`/`labels` left over from change 1 (only on `office-polygon`) | foreign keys: preserved, not read, not migrated |
 
 **Where `ErrOfficeData` goes.**
@@ -92,6 +93,23 @@ applies to the namespaced object now.
 - `Get`, `Claim`, `owned` (and so every mutator) and `FindByMarker` **fail
   loudly**. `FindByMarker` is the idempotency source for split children, and
   skipping a card there would create a duplicate child.
+- One exception in `FindByMarker`: a card whose top-level `apiData` is not an
+  object is **skipped** with the same `Logf` line. It has no
+  `virtual_office`, so it cannot be one of our children, and one foreign card
+  must not fail the search for the whole project. A `virtual_office` that is
+  present but malformed, or of a newer version, still fails loudly. The codec
+  tells the two apart with an unexported sentinel wrapped next to
+  `ErrOfficeData`; for every other path both are just `ErrOfficeData`.
+
+**Archived and deleted cards.** Deleted cards are dropped from every
+listing. Archived cards are dropped from `ListReady` and `ListExpired`: an
+archived card is never claimed and never reaped. `List` **keeps** them, with
+the status of their column. The claim gate reads `List` over the graph's
+statuses (`pipeline.UnmetDependencies` over `projectByKey`) and treats a
+dependency missing from it as unmet. Archiving a finished card is ordinary
+YouGile housekeeping, so without archived cards in `List` an archived
+dependency in a terminal column would block its dependents forever.
+`FindByMarker` still drops archived cards; `idempotencyKey` covers them.
 
 **`Logf` hook.** It is a `Tracker` field, set up like `Now`, that defaults
 to `log.Printf`. `yougile-wiring-and-docs` points it at the runner's logger.
@@ -170,8 +188,11 @@ rendered as `[вложение: <name>]` instead of the raw `/root/#file:…`:
 3. Extract the uuid from the returned `url`. If it does not match the
    `/user-data/<uuid>/…` shape or fails `ValidAttachmentID`, fail with an
    error. The file is uploaded but unreferenced, which is harmless.
-4. `POST /chats/{key}/messages` with `text` = `textHtml` =
-   `/root/#file:<url>`.
+4. `POST /chats/{key}/messages` with `text` = `/root/#file:<url>`, the url
+   exactly as the server returned it, and `textHtml` = the same string
+   HTML-escaped (`html.EscapeString`). The segment class lets `&`, `<`, `>`
+   and `"` through, and they must not reach the markup raw. A well-formed
+   url is unchanged by escaping.
 5. Return the uuid.
 
 A failure between steps 2 and 4 leaves an invisible orphan upload and
@@ -214,10 +235,15 @@ Unit tests against the fake server, extending `yougile_test.go`'s fake with
   - `v: 2` is refused and nothing is written;
   - a malformed card is skipped by `ListReady`/`List`/`ListExpired` (with a
     `Logf` call) and makes `Get`/`FindByMarker` fail loudly;
+  - a card whose top-level `apiData` is not an object is skipped by
+    `FindByMarker` (with a `Logf` call);
   - top-level legacy keys are ignored;
   - the existing change-1 tests move to the namespaced fixture.
 - **Dependencies:**
   - the link is recorded and `DependsOn` reaches `ListReady` refs;
+  - `List` returns an archived card and the gate releases a task whose
+    dependency is archived in a terminal column; `ListReady` and
+    `ListExpired` still drop archived cards;
   - a repeated call is a no-op, with no second note and no write;
   - empty and self keys are rejected with no request;
   - a missing dependency gives `ErrNotFound`;
@@ -232,7 +258,7 @@ Unit tests against the fake server, extending `yougile_test.go`'s fake with
   - file messages appear in `Comments` as `[вложение: …]`.
 - **`AddAttachment`:**
   - multipart upload with the filename;
-  - chat post with `text` = `textHtml`;
+  - chat post with `text` verbatim and `textHtml` HTML-escaped;
   - the uuid is returned;
   - ownership is enforced;
   - a malformed upload answer is an error.
@@ -270,6 +296,13 @@ The round-trip needs this machine to reach `prod-user-data.yougile.com`
 - **`LinkDependsOn` posts a chat note and fails on a missing dependency.**
   Neither was in the Open artifacts. The owner asked for UI visibility on
   2026-09-29.
+- **Top-level `apiData` that is not an object is `ErrOfficeData`.** The
+  §2 table did not name this case. The coordinator ruled it during Build
+  (ruling V1): the adapter never overwrites such a card, listings skip it,
+  and after the final review `FindByMarker` skips it too (§2).
+- **`List` includes archived cards** (owner, 2026-09-29). The final review
+  found that an archived dependency blocked its dependents forever. `List`
+  now keeps archived cards; `ListReady` and `ListExpired` do not (§2).
 - **The delta spec stays `ADDED`** (task 1.2). The new requirements add
   behavior and change none of the existing text.
 
@@ -287,3 +320,9 @@ The round-trip needs this machine to reach `prod-user-data.yougile.com`
 - **Request cost.** `GetAttachment` costs three requests.
 - **Local network.** The storage host needs its own split-tunnel entry on
   this machine.
+- **The office's own chat messages.** `yougile-wiring-and-docs` must put the
+  API-key user's email into the runner's `Accounts`, or the office's own
+  dependency notes and file messages would count as human replies
+  (`HumanReply`).
+- **Archived cards in `List`.** `runner ls` and `CompleteSplits` (which lists
+  the blocked status) now see archived cards too.
