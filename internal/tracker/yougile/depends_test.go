@@ -171,6 +171,32 @@ func TestClaimGateBlocksUntilDependencyResolves(t *testing.T) {
 	}
 }
 
+// Spec «An archived dependency still releases its dependents»: зависимость
+// дошла до терминальной колонки и её заархивировали — обычная уборка доски.
+// List архив отдаёт, так что гейт её видит и отпускает зависимую задачу.
+func TestClaimGateReleasesOnArchivedDependency(t *testing.T) {
+	tr, fake := fixture(t)
+	withDependency(fake, "ID-7")
+	if err := tr.LinkDependsOn(testKey, depKey, tracker.BySystem()); err != nil {
+		t.Fatal(err)
+	}
+	fake.tasks[depKey].ColumnID = colReview
+	fake.tasks[depKey].Archived = true
+	terminal := func(status string) bool { return status == "Review" }
+
+	ready, err := tr.ListReady(testProject, "Ready")
+	if err != nil || len(ready) != 1 {
+		t.Fatalf("ListReady: %+v, %v", ready, err)
+	}
+	all, err := tr.List(testProject, []string{"Ready", "InProgress", "Review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pipeline.UnmetDependencies(ready[0], pipeline.ByKey(all), terminal); len(got) != 0 {
+		t.Errorf("архивная закрытая зависимость держит гейт: %+v", got)
+	}
+}
+
 // anyStrings — []any из JSON-ответа как []string.
 func anyStrings(v any) []string {
 	list, _ := v.([]any)

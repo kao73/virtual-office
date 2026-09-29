@@ -67,9 +67,34 @@ func TestListReadySkipsArchivedAndDeleted(t *testing.T) {
 	if !slices.Equal(keys(refs), []string{testKey}) {
 		t.Errorf("ListReady = %v", keys(refs))
 	}
-	all, _ := tr.List(testProject, []string{"Ready"})
-	if !slices.Equal(keys(all), []string{testKey}) {
-		t.Errorf("List = %v", keys(all))
+}
+
+// List, в отличие от ListReady и ListExpired, архивные карточки отдаёт —
+// статус по колонке: иначе гейт зависимостей не увидел бы, что заархивированная
+// зависимость дошла до терминальной колонки (решение владельца 2026-09-29).
+// Удалённые не отдаёт никто.
+func TestListIncludesArchivedButNotDeleted(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.addTask(&fakeTask{ID: "archived", ColumnID: colReview, Timestamp: now.UnixMilli(), Archived: true})
+	fake.addTask(&fakeTask{ID: "deleted", ColumnID: colReview, Timestamp: now.UnixMilli(), Deleted: true})
+	all, err := tr.List(testProject, []string{"Ready", "Review"})
+	if err != nil || !slices.Equal(keys(all), []string{testKey, "archived"}) {
+		t.Fatalf("List = %v, %v", keys(all), err)
+	}
+	if all[1].Status != "Review" {
+		t.Errorf("статус архивной карточки = %q, ожидался статус её колонки", all[1].Status)
+	}
+}
+
+// Архивную карточку reaper не трогает: её не видно ни в выдаче, ни в ListExpired.
+func TestListExpiredSkipsArchived(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.addTask(&fakeTask{ID: "archived", ColumnID: colReview, Timestamp: now.UnixMilli(), Archived: true})
+	fake.setLease("archived", "run-dead", now.Add(-time.Minute))
+	fake.setLease(testKey, "run-dead", now.Add(-time.Minute))
+	refs, err := tr.ListExpired(testProject, now)
+	if err != nil || !slices.Equal(keys(refs), []string{testKey}) {
+		t.Errorf("ListExpired = %v, %v", keys(refs), err)
 	}
 }
 

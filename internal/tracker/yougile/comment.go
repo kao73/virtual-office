@@ -143,7 +143,7 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 	}
 	var found []taskDTO
 	for _, column := range t.columns {
-		tasks, err := t.tasksInColumn(column)
+		tasks, err := t.tasksInColumn(column, false)
 		if err != nil {
 			return nil, err
 		}
