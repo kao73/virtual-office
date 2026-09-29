@@ -166,13 +166,11 @@ func fileHostAllowed(base, target *url.URL) bool {
 // Open готовит трекер: проверяет конфигурацию и ничего на сервере не создаёт.
 func Open(cfg Config) (*Tracker, error) {
 	// Те же правила, что у загрузчика файла: Config, собранный не из файла,
-	// их не обходит.
-	if err := validBaseURL(cfg.BaseURL); err != nil {
-		return nil, fmt.Errorf("yougile: %w", err)
-	}
-	base, err := url.Parse(cfg.BaseURL)
+	// их не обходит. После них BaseURL — корень хоста, и склейка адреса
+	// запроса строкой (send, download) безопасна.
+	base, err := parseBaseURL(cfg.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("yougile: base_url не разобран: %w", err) // validBaseURL его уже разобрал
+		return nil, fmt.Errorf("yougile: %w", err)
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
 	if cfg.APIKey == "" {

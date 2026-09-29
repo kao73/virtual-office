@@ -514,7 +514,7 @@ func TestOpenRejectsIncompleteConfig(t *testing.T) {
 	}
 }
 
-// Правила адреса у Open те же, что у загрузчика файла (validBaseURL): Config,
+// Правила адреса у Open те же, что у загрузчика файла (parseBaseURL): Config,
 // собранный не из файла, не должен их обходить. Отказ — про base_url и до
 // сети, а не 404 «нет проекта» с сервера.
 func TestOpenRejectsBaseURLLikeTheFileLoader(t *testing.T) {

@@ -96,7 +96,7 @@ func normEmail(email string) string { return strings.ToLower(strings.TrimSpace(e
 // собирает Config не из файла.
 func (fc FileConfig) validate() []error {
 	var errs []error
-	if err := validBaseURL(fc.BaseURL); err != nil {
+	if _, err := parseBaseURL(fc.BaseURL); err != nil {
 		errs = append(errs, err)
 	}
 	if fc.APIKeyEnv == "" {
@@ -124,32 +124,41 @@ func (fc FileConfig) validate() []error {
 	return errs
 }
 
-// validBaseURL — корень хоста со схемой: без пути (и без /api-v2 в нём),
-// query и fragment, и не ru.yougile.com.
-func validBaseURL(raw string) error {
+// parseBaseURL разбирает base_url и требует корень хоста: схема http(s) и
+// хост, и больше ничего, кроме слешей на конце, — ни пути (/api-v2 в том
+// числе), ни query, ни fragment, ни логина. Адрес запроса склеивается из
+// base_url строкой (send, download), и всё сверх корня ушло бы в каждый
+// запрос, а ответ выдал бы себя за «нет проекта». Правило — одно сравнение
+// с каноническим корнем, а не перечень синтаксиса URL: пустой «#» и «%2F»
+// разбор не показывает ни во Fragment, ни в Path. ru.yougile.com тоже
+// отвергается. Адрес в отказе — без пароля (Redacted): отказ печатают doctor
+// и лог.
+func parseBaseURL(raw string) (*url.URL, error) {
 	if raw == "" {
-		return errors.New("base_url не задан: без адреса YouGile идти некуда (пример: https://yougile.com)")
+		return nil, errors.New("base_url не задан: без адреса YouGile идти некуда (пример: https://yougile.com)")
 	}
 	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("base_url не разобран: %w", err)
+	}
+	shown := u.Redacted()
+	root := u.Scheme + "://" + u.Host
 	switch {
-	case err != nil:
-		return fmt.Errorf("base_url=%q не разобран: %w", raw, err)
 	case u.Scheme == "" || u.Host == "":
-		return fmt.Errorf("base_url=%q: нет схемы или хоста (пример: https://yougile.com)", raw)
-	case strings.HasSuffix(strings.ToLower(strings.TrimRight(u.Path, "/")), apiPrefix):
-		return fmt.Errorf("base_url=%q: %s адаптер добавляет сам, укажите корень хоста (пример: https://yougile.com)", raw, apiPrefix)
-	// Адрес склеивается строкой: путь, query и fragment ушли бы в каждый
-	// запрос (…/foo/api-v2/…, …?x=1/api-v2/…), и ответ выдал бы себя за «нет
-	// проекта». Слеши на конце безвредны — Open их срезает.
-	case strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
-		return fmt.Errorf("base_url=%q: нужен корень хоста, без пути, query и fragment (пример: https://yougile.com)", raw)
+		return nil, fmt.Errorf("base_url=%q: нет схемы или хоста (пример: https://yougile.com)", shown)
+	case u.Scheme != "https" && u.Scheme != "http":
+		return nil, fmt.Errorf("base_url=%q: схема — http или https (пример: https://yougile.com)", shown)
+	case strings.HasSuffix(strings.ToLower(strings.TrimRight(u.EscapedPath(), "/")), apiPrefix):
+		return nil, fmt.Errorf("base_url=%q: %s адаптер добавляет сам, укажите корень хоста (пример: https://yougile.com)", shown, apiPrefix)
+	case !strings.EqualFold(strings.TrimRight(raw, "/"), root):
+		return nil, fmt.Errorf("base_url=%q: нужен корень хоста, без пути, query, fragment и логина (пример: https://yougile.com)", shown)
 	// «ru.yougile.com.» с точкой на конце — тот же хост.
 	case strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), refusedHost):
-		return fmt.Errorf("base_url=%q: с %s вложения не скачаются — /user-data/ перенаправляет "+
+		return nil, fmt.Errorf("base_url=%q: с %s вложения не скачаются — /user-data/ перенаправляет "+
 			"на prod-user-data.yougile.com, а это не поддомен %s; укажите https://yougile.com",
-			raw, refusedHost, refusedHost)
+			shown, refusedHost, refusedHost)
 	}
-	return nil
+	return u, nil
 }
 
 // validate — правила проекта, которые видны без графа: id проекта, колонки
