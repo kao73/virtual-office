@@ -11,7 +11,7 @@
 
 ## 2. Dependencies
 
-- [ ] 2.1 Define the `depends_on` sub-object in `apiData` (task id
+- [x] 2.1 Define the `depends_on` sub-object in `apiData` (task id
       reference), namespaced alongside the lease sub-object.
       _Reframed (Design Doc §2–3): `depends_on` is an array of task ids inside the single `apiData.virtual_office` object._
 - [ ] 2.2 Implement `LinkDependsOn`.

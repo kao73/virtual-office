@@ -757,7 +757,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 4: Store `depends_on` and surface it as `Task.DependsOn` (tasks.md 2.1)
 
-- [ ] Task 4 complete: Store `depends_on` and surface it as `Task.DependsOn` (tasks.md 2.1)
+- [x] Task 4 complete: Store `depends_on` and surface it as `Task.DependsOn` (tasks.md 2.1)
 
 **Files:**
 - Modify: `internal/tracker/yougile/lease.go` (`officeData`, `apiData`, `decodeAPIData`, `encode`)
@@ -768,7 +768,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: Task 2 codec.
 - Produces: `apiData.DependsOn []string`, wire key `virtual_office.depends_on` (always written, `[]` when empty). `toTask` sets `tracker.Task.DependsOn`, so it also reaches `TaskRef.DependsOn` through `Ref()`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `lease_test.go`: in `TestEncodeWritesFullNamespace`, extend the key list to `{"v", "lease", "attempts", "human_wait", "labels", "depends_on"}` and add:
 ```go
@@ -812,12 +812,12 @@ func TestDependsOnReachesRefsAndGet(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and see red**
+- [x] **Step 2: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestEncodeWritesFullNamespace|TestDecodeAPIDataReadsDependsOn|TestDependsOnReachesRefsAndGet'`
 Expected: compile error `d.DependsOn undefined`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `lease.go`:
 - `officeData`: add the field `DependsOn []string \`json:"depends_on"\`` after `Labels`.
@@ -830,12 +830,12 @@ Expected: compile error `d.DependsOn undefined`.
 
 `task.go` `toTask`, in the `tracker.Task{…}` literal add `DependsOn: slices.Clone(data.DependsOn),` after `Labels: …`.
 
-- [ ] **Step 4: Run and see green**
+- [x] **Step 4: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS. `TestGetMapsColumnAndAPIData` still passes because `slices.Clone(nil)` is `nil`.
 
-- [ ] **Step 5: Tick tasks.md 2.1, run the check set, commit**
+- [x] **Step 5: Tick tasks.md 2.1, run the check set, commit**
 
 In `tasks.md`, change `- [ ] 2.1` to `- [x] 2.1`.
 ```bash
@@ -846,7 +846,7 @@ git commit -m "feat(yougile): store depends_on in virtual_office and expose it o
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Mutation probes**
+- [x] **Step 6: Mutation probes**
   - In `toTask`, delete `DependsOn: slices.Clone(data.DependsOn),`. Expect `TestDependsOnReachesRefsAndGet` red.
   - In `encode`, change `orEmpty(d.DependsOn)` to `d.DependsOn`. Expect `TestEncodeWritesFullNamespace` red (null instead of []).
   - In `decodeAPIData`, drop `DependsOn: od.DependsOn`. Expect `TestDecodeAPIDataReadsDependsOn` red.
