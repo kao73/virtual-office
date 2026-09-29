@@ -106,7 +106,7 @@ The Design Doc sets `tr.Logf` to print `"yougile: "+f`. Every message the adapte
 - Consumes: nothing new.
 - Produces: `yougile.Config.Key string`. Empty means `ProjectID`. It is what `checkProject` accepts and what `Task.Project`/`TaskRef.Project` carry. API paths keep `ProjectID`.
 
-- [ ] **Step 1: Write the failing tests** (append to `yougile_test.go`, after `TestCheckProjectRejectsForeignProject`)
+- [x] **Step 1: Write the failing tests** (append to `yougile_test.go`, after `TestCheckProjectRejectsForeignProject`)
 
 ```go
 // Раннер зовёт проект ключом из projects.local.yaml, а не UUID YouGile:
@@ -154,12 +154,12 @@ func TestKeyDefaultsToProjectID(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestKey' -v`
 Expected: compile FAIL, `cfg.Key undefined (type Config has no field or method Key)`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `yougile.go`, add the field to `Config`, right after `ProjectID`:
 
@@ -199,12 +199,12 @@ Doc refresh in `yougile.go`:
 - The `Config` comment: replace "Загрузчика из файла пока нет — его добавит yougile-wiring-and-docs; ключ API приходит из окружения на стороне вызывающего и сюда попадает уже значением." with "Из файла её собирает FileConfig.Tracker (config.go); ключ API приходит из окружения и сюда попадает уже значением."
 - The `Logf` comment: replace "yougile-wiring-and-docs направит его в лог раннера" with "раннер направляет его в свой вывод (cmd/runner/office.go, openYouGile)".
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/tracker/yougile/ -v -run 'TestKey|TestCheckProject'` then `go test ./internal/tracker/yougile/`
 Expected: PASS (the whole package; `live_test.go` skips without credentials).
 
-- [ ] **Step 5: Tick and commit**
+- [x] **Step 5: Tick and commit**
 
 In `tasks.md`, tick 1.4.
 

@@ -7,7 +7,7 @@
       `project_id`/`columns`/`create_status`) with a strict `LoadConfig`,
       and write `office/tracker-yougile.example.yaml`; `runner init`
       places it.
-- [ ] 1.4 Add `Key` to `yougile.Config` (runner project name, defaults to
+- [x] 1.4 Add `Key` to `yougile.Config` (runner project name, defaults to
       `ProjectID`); `checkProject` and `Task.Project` use it.
 - [ ] 1.3 Implement the "opened only when used" behavior in config loading,
       mirroring `tracker.yaml`'s existing handling.
