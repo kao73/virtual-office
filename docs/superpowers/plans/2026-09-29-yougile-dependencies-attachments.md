@@ -2633,12 +2633,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 14: Contract doc comments and full verification
 
-- [ ] Task 14 complete: Contract doc comments and full verification
+- [x] Task 14 complete: Contract doc comments and full verification
 
 **Files:**
 - Modify: `internal/tracker/tracker.go` (doc comments only: `Task.DependsOn`, `Tracker.LinkDependsOn`)
 
-- [ ] **Step 1: Update the doc comments**
+- [x] **Step 1: Update the doc comments**
 
 `tracker.go`, in the `Task.DependsOn` comment, replace `читается обратно через Get/List/ListReady на обеих\n\t// реализациях: mock хранит и читает то же поле, jira разбирает` with wording that covers three implementations:
 ```go
@@ -2654,7 +2654,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 In the `LinkDependsOn` interface comment, change `на обеих\n\t// реализациях: mock хранит то же поле, jira разбирает issuelinks` to `на всех\n\t// реализациях: mock хранит то же поле, yougile — depends_on в apiData, jira разбирает issuelinks`. Change the idempotency sentence `mock сверяется с уже записанным сам, jira полагается…` to `mock и yougile сверяются с уже записанным сами, jira полагается…`. Keep the rest verbatim, and keep `gofmt` line wrapping sensible.
 
-- [ ] **Step 2: Full verification**
+- [x] **Step 2: Full verification**
 
 Run:
 ```bash
@@ -2665,7 +2665,7 @@ Expected: everything PASS, with no gofmt output.
 Run: `grep -n "\- \[ \]" docs/openspec/changes/yougile-dependencies-attachments/tasks.md`
 Expected: no output. The only exception is 3.4/4.3, if Task 13's live round-trip was network-blocked, and that must be stated in the report.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/tracker/tracker.go
