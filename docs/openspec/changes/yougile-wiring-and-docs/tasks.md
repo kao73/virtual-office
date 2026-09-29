@@ -59,3 +59,14 @@
 - [x] 6.4 Docs: to drop a task stuck in Blocked, move it to a column
       outside the graph; do not archive it.
 - [x] 6.5 Docs: `runner ls` shows archived cards too.
+
+## Build notes
+
+- Departure from the Design Doc §4 step 6: the runner's `Logf` prints the
+  adapter's message as is, without its own `yougile: ` prefix — every
+  adapter message already starts with `yougile: `, and a second prefix would
+  read `yougile: yougile: …`. Pinned by a test in `cmd/runner/office_test.go`.
+- The doctor stage extracted the JIRA stage into `doctorJira` so that a JIRA
+  failure no longer ends the report before the YouGile checks.
+- 3.1/3.2 wait on the owner provisioning the account and project by
+  `docs/reference/yougile-requirements.md`.

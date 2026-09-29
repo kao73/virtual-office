@@ -1677,8 +1677,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 9: Full verification
 
-- [ ] **Step 1:** `go vet ./... && go test ./...` → all PASS.
-- [ ] **Step 2:** `sh scripts/doc-recipe-test.sh` → runs to the end.
-- [ ] **Step 3:** `comet classic openspec -- validate yougile-wiring-and-docs --strict` (from the worktree root, the same invocation earlier verify reports used) → valid.
-- [ ] **Step 4:** Check that `tasks.md` has every box ticked (`grep -c '\- \[ \]' docs/openspec/changes/yougile-wiring-and-docs/tasks.md` → `0`). 3.1/3.2 are allowed to stay open only while Task 8 is still waiting on the owner; say so explicitly in the handoff.
-- [ ] **Step 5:** Confirm the Logf departure (Global Constraints) is written in the Build notes, so Verify does not flag it as drift.
+- [x] **Step 1:** `go vet ./... && go test ./...` → all PASS.
+- [x] **Step 2:** `sh scripts/doc-recipe-test.sh` → runs to the end.
+- [x] **Step 3:** `comet classic openspec -- validate yougile-wiring-and-docs --strict` (from the worktree root, the same invocation earlier verify reports used) → valid.
+- [x] **Step 4:** Check that `tasks.md` has every box ticked (`grep -c '\- \[ \]' docs/openspec/changes/yougile-wiring-and-docs/tasks.md` → `0`). 3.1/3.2 are allowed to stay open only while Task 8 is still waiting on the owner; say so explicitly in the handoff.
+- [x] **Step 5:** Confirm the Logf departure (Global Constraints) is written in the Build notes, so Verify does not flag it as drift.
