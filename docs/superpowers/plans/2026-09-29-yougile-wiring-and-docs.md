@@ -1660,11 +1660,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:** none changed by the executor, except ticking `tasks.md` after the owner confirms.
 
-- [ ] **Step 1: Hand off to the owner** with this message (Russian, in chat):
+- [x] **Step 1: Hand off to the owner** with this message (Russian, in chat):
   > Нужны 3.1 и 3.2: по `docs/reference/yougile-requirements.md` заведите в YouGile отдельную не-человеческую учётку офиса с ключом API (раздел «Учётка») и проект с колонкой на каждый из восьми статусов графа (раздел «Проект и колонки»). Потом `tracker-yougile.yaml` по образцу, `export YOUGILE_API_KEY=…` и `runner doctor --backend local`. Напишите, где документ оказался неточен или неполон.
-- [ ] **Step 2: Wait for the owner's confirmation.** Every gap they report is a docs defect: fix it in `docs/reference/yougile-requirements.md` (and the guides if affected) and commit it as `docs(yougile-wiring-and-docs): fix requirements after provisioning`.
-- [ ] **Step 3: Record** in the change's Build notes: `doctor` output from the owner's machine with the key redacted, and the owner's email for the office account. That email is not a secret, but do not commit it if the owner objects. Do **not** run `tick`/`loop` against it: live runs belong to `yougile-live-validation`.
-- [ ] **Step 4: Tick 3.1, 3.2 and commit** only after the owner confirms:
+- [x] **Step 2: Wait for the owner's confirmation.** Every gap they report is a docs defect: fix it in `docs/reference/yougile-requirements.md` (and the guides if affected) and commit it as `docs(yougile-wiring-and-docs): fix requirements after provisioning`.
+- [x] **Step 3: Record** in the change's Build notes: `doctor` output from the owner's machine with the key redacted, and the owner's email for the office account. That email is not a secret, but do not commit it if the owner objects. Do **not** run `tick`/`loop` against it: live runs belong to `yougile-live-validation`.
+- [x] **Step 4: Tick 3.1, 3.2 and commit** only after the owner confirms:
 
 ```bash
 git add docs/openspec/changes/yougile-wiring-and-docs/tasks.md

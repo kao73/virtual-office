@@ -22,11 +22,11 @@
 
 ## 3. Non-human office account
 
-- [ ] 3.1 Create a dedicated YouGile account/API key for office use,
+- [x] 3.1 Create a dedicated YouGile account/API key for office use,
       distinct from any human's personal login (needed for the account-
       based human/office distinction, `docs/contracts/tracker-protocol.md`
       "Кто человек").
-- [ ] 3.2 Create the target YouGile project with one column per graph
+- [x] 3.2 Create the target YouGile project with one column per graph
       status, following the reference doc (owner does 3.1/3.2 by the doc).
 
 ## 4. Documentation
@@ -68,5 +68,24 @@
   read `yougile: yougile: …`. Pinned by a test in `cmd/runner/office_test.go`.
 - The doctor stage extracted the JIRA stage into `doctorJira` so that a JIRA
   failure no longer ends the report before the YouGile checks.
-- 3.1/3.2 wait on the owner provisioning the account and project by
-  `docs/reference/yougile-requirements.md`.
+- 3.1/3.2 done 2026-09-29. The owner created the office account
+  `kao@simbirsoft.com` (invitation to an email the owner controls — YouGile
+  has no bot/service users) and issued its key into `YOUGILE_OFFICE_API_KEY`.
+  Project `office-wiring` with board `office` and eight columns was created
+  via the API with the owner's admin key; the office account was added as
+  `worker`. `runner ls` and `runner doctor --backend local` on a separate
+  `OFFICE_HOME` (project key `WIRE`), key redacted:
+
+  ```
+  ok   config:tracker-yougile.yaml проект WIRE, колонка на каждый статус графа
+  ok   cred:YOUGILE_OFFICE_API_KEY задана
+  ok   yougile:open                проект и колонки на месте
+  ok   yougile:account             учётка офиса: kao@simbirsoft.com
+  ```
+
+  Before `runner ls` unpacked the office snapshot, the first finding was
+  `warn` (graph not read). Gaps found while provisioning were fixed in the
+  reference doc (`a9b7926`): creating the user, adding it to the project,
+  an API recipe for project/board/columns, a distinct `api_key_env`, and the
+  fresh-`OFFICE_HOME` warn. No `tick`/`loop` was run — live runs belong to
+  `yougile-live-validation`.
