@@ -1540,7 +1540,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 8: `Get` lists attachments and renders file messages (tasks.md 3.1, reframed)
 
-- [ ] Task 8 complete: `Get` lists attachments and renders file messages (tasks.md 3.1, reframed)
+- [x] Task 8 complete: `Get` lists attachments and renders file messages (tasks.md 3.1, reframed)
 
 **Files:**
 - Modify: `internal/tracker/yougile/comment.go` (`comments` → `chat` + `comments(msgs)`)
@@ -1554,7 +1554,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `func (t *Tracker) comments(msgs []messageDTO) ([]tracker.Comment, error)`: the signature changes from `comments(key)`. A file message's `Body` becomes `[вложение: <name>]`.
   - `Get` fills `Task.Attachments`.
 
-- [ ] **Step 1: Write the failing tests** (`task_test.go`)
+- [x] **Step 1: Write the failing tests** (`task_test.go`)
 
 ```go
 // Файл, прикреплённый человеком в чат, и ссылка в описании — вложения
@@ -1599,12 +1599,12 @@ func TestGetRendersFileMessageAsAttachmentComment(t *testing.T) {
 ```
 (`uuid1`/`uuid2` come from `attachment_test.go`, which is the same package. If `tracker.HumanReply` does not recognize the `[office run:r1 role:analyst]` marker, use the marker line from `TestGetReadsCommentsOldestFirstWithAuthorEmails` or build one with `tracker.Marker{…}.String()`. Do not weaken the assertion.)
 
-- [ ] **Step 2: Run and see red**
+- [x] **Step 2: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestGetListsAttachments|TestGetRendersFileMessage'`
 Expected: FAIL. `Attachments = []` for the first test, and the raw `/root/#file:…` body for the second.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `comment.go`: replace `comments(key)` with:
 ```go
@@ -1677,12 +1677,12 @@ func (t *Tracker) Get(key string) (tracker.Task, error) {
 ```
 Run `grep -n "comments(" internal/tracker/yougile/*.go` to confirm that no other caller of the old `comments(key)` remains.
 
-- [ ] **Step 4: Run and see green**
+- [x] **Step 4: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS. `TestGetMapsColumnAndAPIData` still passes, because a task with no links gets `Attachments == nil`.
 
-- [ ] **Step 5: Tick tasks.md 3.1 (keep its reframing note), run the check set, commit**
+- [x] **Step 5: Tick tasks.md 3.1 (keep its reframing note), run the check set, commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -1692,7 +1692,7 @@ git commit -m "feat(yougile): Get lists attachments and renders file messages as
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Mutation probes**
+- [x] **Step 6: Mutation probes**
   - In `Get`, delete the `task.Attachments = …` line. Expect `TestGetListsAttachmentsFromDescriptionAndChat` red.
   - Change `fileLinks(raw.Description, msgs)` to `fileLinks("", msgs)`. Expect the same test red.
   - In `comments`, delete the `if link, ok := chatFileLink…` block. Expect `TestGetRendersFileMessageAsAttachmentComment` red.
