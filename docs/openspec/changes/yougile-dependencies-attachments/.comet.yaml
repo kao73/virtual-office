@@ -1,6 +1,6 @@
 workflow: full
 language: en
-phase: design
+phase: build
 context_compression: off
 build_mode: null
 build_pause: null
@@ -11,7 +11,7 @@ isolation: worktree
 verify_mode: null
 auto_transition: true
 base_ref: 69c5b89c5902d8a5c3b66adf09340fee7a325f2c
-design_doc: null
+design_doc: docs/superpowers/specs/2026-09-29-yougile-dependencies-attachments-design.md
 plan: null
 verify_result: pending
 verify_failures: 0
@@ -24,7 +24,7 @@ archived: false
 bound_branch: comet/yougile-dependencies-attachments
 direct_override: null
 handoff_context: docs/openspec/changes/yougile-dependencies-attachments/.comet/handoff/design-context.json
-handoff_hash: 56e1b0539992c349d4cc7e641a7592ad313c2b7373bf2ce2ba724f1e71ed64da
+handoff_hash: 245dddea0ed7547484165f21e5be24363703424288bf73b03a751c6fc7d8845b
 classic_profile: full
 classic_migration: 1
 run_id: fbfb48a7-5134-42d8-b9f4-db33f520e08d
