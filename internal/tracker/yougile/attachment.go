@@ -177,10 +177,11 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 		return "", fmt.Errorf("yougile: upload-file вернул url %q не вида /user-data/<uuid>/<имя> — файл загружен, но к задаче %s не привязан",
 			uploaded, key)
 	}
-	// Текст — url ровно так, как его отдал сервер (design doc §4.2), и он же
-	// в textHtml без HTML-экранирования.
+	// Текст — url ровно так, как его отдал сервер (design doc §4.2), а textHtml —
+	// он же, экранированный как HTML: сегмент имени пропускает «&», «<», «>»
+	// и «"». Корректный url экранирование не меняет.
 	text := fileMessagePrefix + uploaded
-	if err := t.postChat(key, text, text); err != nil {
+	if err := t.postChat(key, text, html.EscapeString(text)); err != nil {
 		return "", err
 	}
 	return link.ID, nil

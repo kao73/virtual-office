@@ -196,15 +196,24 @@ func TestAddAttachmentUploadsAndPostsFileMessage(t *testing.T) {
 	}
 }
 
-// text и textHtml сообщения-файла — одна и та же строка, без HTML-экранирования:
-// иначе «&» в имени стал бы «&amp;» и интерфейс не узнал бы файл.
-func TestAddAttachmentTextEqualsHTMLForAmpersand(t *testing.T) {
+// text сообщения-файла — url ровно как его отдал сервер, а textHtml — та же
+// строка, экранированная как HTML: сегмент имени пропускает «&», «<», «>»
+// и «"», и сырыми в разметке им не место. Корректный url экранирование не меняет.
+func TestAddAttachmentEscapesTextHTML(t *testing.T) {
 	tr, fake := fixture(t)
-	if _, err := tr.AddAttachment(testKey, tracker.BySystem(), "a&b.txt", []byte("x")); err != nil {
+	fake.uploadURL = func(id, _ string) string { return "/user-data/" + id + `/a&b<c>"d".txt` }
+	id, err := tr.AddAttachment(testKey, tracker.BySystem(), "a.txt", []byte("x"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fake.chatPosts) != 1 || fake.chatPosts[0]["text"] != fake.chatPosts[0]["textHtml"] {
-		t.Errorf("text и textHtml разошлись: %#v", fake.chatPosts)
+	if len(fake.chatPosts) != 1 {
+		t.Fatalf("в чат ушло: %#v", fake.chatPosts)
+	}
+	if want := "/root/#file:/user-data/" + id + `/a&b<c>"d".txt`; fake.chatPosts[0]["text"] != want {
+		t.Errorf("text = %q, ожидался %q", fake.chatPosts[0]["text"], want)
+	}
+	if want := "/root/#file:/user-data/" + id + "/a&amp;b&lt;c&gt;&#34;d&#34;.txt"; fake.chatPosts[0]["textHtml"] != want {
+		t.Errorf("textHtml = %q, ожидался %q", fake.chatPosts[0]["textHtml"], want)
 	}
 }
 
