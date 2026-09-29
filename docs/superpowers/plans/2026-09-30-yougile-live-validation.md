@@ -2,6 +2,7 @@
 change: yougile-live-validation
 design-doc: docs/superpowers/specs/2026-09-30-yougile-live-validation-design.md
 base-ref: a78eca9f9326a2c52c3fbf22e8c149b5df0e6bcf
+archived-with: 2026-09-30-yougile-live-validation
 ---
 
 # yougile-live-validation Implementation Plan

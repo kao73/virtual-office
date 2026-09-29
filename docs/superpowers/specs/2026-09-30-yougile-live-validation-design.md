@@ -2,6 +2,8 @@
 comet_change: yougile-live-validation
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-30-yougile-live-validation
+status: final
 ---
 
 # yougile-live-validation — deep technical design
