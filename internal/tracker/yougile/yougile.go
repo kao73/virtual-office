@@ -74,6 +74,11 @@ type Config struct {
 type Tracker struct {
 	cfg    Config
 	client *http.Client
+	// files — клиент для скачивания вложений: без ключа API и с узкой
+	// политикой перенаправлений (newFileClient). Клиент API сюда не годится:
+	// net/http переносит Authorization на перенаправление в поддомен, а
+	// хранилище prod-user-data.yougile.com — поддомен yougile.com.
+	files *http.Client
 
 	// columnStatus — обратная карта ColumnIDs: id колонки → статус графа.
 	columnStatus map[string]string
@@ -90,6 +95,44 @@ type Tracker struct {
 	// collect). По умолчанию log.Printf; yougile-wiring-and-docs направит
 	// его в лог раннера.
 	Logf func(format string, args ...any)
+}
+
+// maxFileRedirects — сколько перенаправлений разрешено скачиванию файла:
+// /user-data/… на хосте API отвечает одним 302 в хранилище, пять — с запасом.
+const maxFileRedirects = 5
+
+// newFileClient — клиент скачивания вложений. Заголовков по умолчанию нет,
+// ключа API он не знает. Перенаправление — только на ту же схему и на хост
+// BaseURL или его поддомен, не больше maxFileRedirects переходов.
+func newFileClient(base *url.URL) *http.Client {
+	return &http.Client{
+		Timeout: 60 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > maxFileRedirects {
+				return fmt.Errorf("больше %d перенаправлений", maxFileRedirects)
+			}
+			if !fileHostAllowed(base, req.URL) {
+				return fmt.Errorf("перенаправление на %s://%s не разрешено: файлы берём только с %s и его поддоменов",
+					req.URL.Scheme, req.URL.Host, base.Hostname())
+			}
+			req.Header.Del("Authorization") // второй заслон: его и так никто не ставит
+			return nil
+		},
+	}
+}
+
+// fileHostAllowed — та же схема, что у BaseURL, и хост BaseURL или его
+// поддомен; порт не сравнивается. Пустой хост BaseURL не разрешает ничего:
+// иначе суффикс "." пропустил бы любой полностью квалифицированный хост.
+func fileHostAllowed(base, target *url.URL) bool {
+	if !strings.EqualFold(target.Scheme, base.Scheme) {
+		return false
+	}
+	host, root := strings.ToLower(target.Hostname()), strings.ToLower(base.Hostname())
+	if root == "" {
+		return false
+	}
+	return host == root || strings.HasSuffix(host, "."+root)
 }
 
 // Open готовит трекер: проверяет конфигурацию и ничего на сервере не создаёт.
@@ -144,6 +187,7 @@ func Open(cfg Config) (*Tracker, error) {
 	t := &Tracker{
 		cfg:          cfg,
 		client:       &http.Client{Timeout: 30 * time.Second},
+		files:        newFileClient(base),
 		columnStatus: columnStatus,
 		users:        map[string]string{},
 		Now:          time.Now,

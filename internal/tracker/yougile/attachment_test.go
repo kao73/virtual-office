@@ -2,8 +2,11 @@ package yougile
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -249,5 +252,184 @@ func TestAddAttachmentUploadFailureNeverLeaksKey(t *testing.T) {
 	}
 	if len(fake.chatPosts) != 0 {
 		t.Error("сообщение ушло без файла")
+	}
+}
+
+func TestFileHostAllowed(t *testing.T) {
+	cases := []struct {
+		base, target string
+		want         bool
+	}{
+		{"https://yougile.com", "https://yougile.com/user-data/x", true},
+		{"https://yougile.com", "https://prod-user-data.yougile.com/x", true},
+		{"https://yougile.com", "https://PROD-USER-DATA.YouGile.com/x", true},
+		{"https://YouGile.COM", "https://prod-user-data.yougile.com/x", true}, // регистр у BaseURL
+		{"https://yougile.com", "https://a.b.yougile.com/x", true},            // поддомен глубже
+		{"https://yougile.com", "HTTPS://prod-user-data.yougile.com/x", true}, // регистр схемы
+		{"https://yougile.com", "https://yougile.com:8443/x", true},           // порт не сравнивается
+		{"https://yougile.com:443", "https://prod-user-data.yougile.com/x", true},
+		{"https://yougile.com", "http://prod-user-data.yougile.com/x", false}, // схема не та
+		{"https://yougile.com", "http://yougile.com/x", false},                // схема не та, хост тот же
+		{"http://yougile.com", "https://yougile.com/x", false},                // и в обратную сторону
+		{"https://yougile.com", "https://evilyougile.com/x", false},           // не поддомен
+		{"https://yougile.com", "https://yougile.com.evil.io/x", false},
+		{"https://yougile.com", "https://yougile.com.evil.com/x", false},
+		{"https://yougile.com", "https://evil.com/yougile.com/x", false},
+		{"https://yougile.com", "https://yougile.com@evil.com/x", false}, // userinfo, хост evil.com
+		{"https://yougile.com", "https://ru.yougile.co/x", false},
+		{"https://yougile.com", "https://com/x", false}, // родитель, а не поддомен
+		{"https://ru.yougile.com", "https://yougile.com/x", false},
+		{"https://yougile.com", "/relative", false},    // без схемы и хоста
+		{"https://:443", "https://evil.com./x", false}, // пустой хост BaseURL ничего не разрешает
+		{"https://:443", "https://:443/x", false},
+		{"http://127.0.0.1:1234", "http://127.0.0.1:9999/x", true}, // порт не важен — так ходят тесты
+		{"http://127.0.0.1:1234", "http://localhost:1234/x", false},
+	}
+	for _, c := range cases {
+		base, err := url.Parse(c.base)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", c.base, err)
+		}
+		target, err := url.Parse(c.target)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", c.target, err)
+		}
+		if got := fileHostAllowed(base, target); got != c.want {
+			t.Errorf("fileHostAllowed(%s, %s) = %v", c.base, c.target, got)
+		}
+	}
+}
+
+// Цепочка перенаправлений ограничена: пять переходов — да, шестой — нет.
+func TestFileClientCapsRedirects(t *testing.T) {
+	var hits atomic.Int32
+	loop := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Redirect(w, r, "/again", http.StatusFound)
+	}))
+	t.Cleanup(loop.Close)
+	base, _ := url.Parse(loop.URL)
+	_, err := newFileClient(base).Get(loop.URL + "/start")
+	if err == nil || !strings.Contains(err.Error(), "перенаправлений") {
+		t.Errorf("бесконечные перенаправления дали %v", err)
+	}
+	if got := hits.Load(); got != maxFileRedirects+1 {
+		t.Errorf("запросов %d, ожидалось %d (первый и %d переходов)", got, maxFileRedirects+1, maxFileRedirects)
+	}
+}
+
+// Ровно maxFileRedirects переходов проходят: пятый ещё разрешён.
+func TestFileClientAllowsMaxRedirects(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) <= maxFileRedirects {
+			http.Redirect(w, r, "/next", http.StatusFound)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	base, _ := url.Parse(srv.URL)
+	resp, err := newFileClient(base).Get(srv.URL + "/start")
+	if err != nil {
+		t.Fatalf("%d перенаправлений отвергнуты: %v", maxFileRedirects, err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("статус %d", resp.StatusCode)
+	}
+}
+
+func TestFileClientRefusesForeignRedirect(t *testing.T) {
+	var foreignHits atomic.Int32
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { foreignHits.Add(1) }))
+	t.Cleanup(foreign.Close)
+	foreignURL := strings.Replace(foreign.URL, "127.0.0.1", "localhost", 1)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, foreignURL+"/steal", http.StatusFound)
+	}))
+	t.Cleanup(origin.Close)
+	base, _ := url.Parse(origin.URL)
+	if _, err := newFileClient(base).Get(origin.URL + "/user-data/x"); err == nil {
+		t.Error("перенаправление на чужой хост пройдено")
+	}
+	if foreignHits.Load() != 0 {
+		t.Error("чужой хост получил запрос")
+	}
+}
+
+// Перенаправление со сменой схемы (http → https на том же хосте) отвергается
+// до соединения.
+func TestFileClientRefusesSchemeChangingRedirect(t *testing.T) {
+	var tlsHits atomic.Int32
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { tlsHits.Add(1) }))
+	t.Cleanup(secure.Close)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, secure.URL+"/x", http.StatusFound)
+	}))
+	t.Cleanup(origin.Close)
+	base, _ := url.Parse(origin.URL)
+	client := newFileClient(base)
+	client.Transport = secure.Client().Transport // TLS-сертификат тестового сервера принят
+	_, err := client.Get(origin.URL + "/user-data/x")
+	if err == nil || !strings.Contains(err.Error(), "не разрешено") {
+		t.Errorf("смена схемы дала %v", err)
+	}
+	if tlsHits.Load() != 0 {
+		t.Error("сервер с другой схемой получил запрос")
+	}
+}
+
+// Ни один запрос клиента файлов не несёт Authorization: ни первый, ни
+// перенаправленный — даже если вызывающий по ошибке поставил его сам, а
+// перенаправление ведёт на тот же хост (net/http такой заголовок переносит).
+func TestFileClientNeverSendsAuthorization(t *testing.T) {
+	var seen atomic.Int32
+	var leaked atomic.Value
+	leaked.Store("")
+	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen.Add(1)
+		if a := r.Header.Get("Authorization"); a != "" {
+			leaked.Store(a)
+		}
+		_, _ = w.Write([]byte("файл"))
+	}))
+	t.Cleanup(storage.Close)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, storage.URL+"/file", http.StatusFound)
+	}))
+	t.Cleanup(origin.Close)
+	base, _ := url.Parse(origin.URL)
+	client := newFileClient(base)
+
+	// Обычный путь: клиент сам заголовков не ставит.
+	resp, err := client.Get(origin.URL + "/user-data/x")
+	if err != nil {
+		t.Fatalf("скачивание: %v", err)
+	}
+	resp.Body.Close()
+
+	// Второй заслон: Authorization, поставленный вызывающим, на
+	// перенаправлении снимается.
+	req, _ := http.NewRequest(http.MethodGet, origin.URL+"/user-data/x", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("скачивание с заголовком: %v", err)
+	}
+	resp.Body.Close()
+
+	if seen.Load() != 2 {
+		t.Fatalf("хранилище получило %d запросов, ожидалось 2", seen.Load())
+	}
+	if a := leaked.Load().(string); a != "" {
+		t.Errorf("хранилище получило Authorization %q", a)
+	}
+}
+
+func TestOpenBuildsFileClient(t *testing.T) {
+	tr, _ := fixture(t)
+	if tr.files == nil || tr.files == tr.client || tr.files.CheckRedirect == nil {
+		t.Errorf("клиент файлов: %+v", tr.files)
 	}
 }
