@@ -20,7 +20,7 @@ const fileMessagePrefix = "/root/#file:"
 var (
 	// userDataPath — путь файла YouGile; сегмент имени берётся как есть,
 	// закодированным.
-	userDataPath = regexp.MustCompile(`^/user-data/([0-9a-fA-F-]{36})/([^/?#]+)$`)
+	userDataPath = regexp.MustCompile(`^/user-data/([0-9a-fA-F-]{36})/([^/?#\s\\]+)$`)
 	// anchorPattern — ссылка в HTML описания: href в двойных или одинарных
 	// кавычках (группы 1 и 2) и текст (группа 3).
 	anchorPattern = regexp.MustCompile(`(?is)<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>(.*?)</a>`)
@@ -97,11 +97,37 @@ func userDataLink(escapedPath string) (fileLink, bool) {
 	if m == nil || !tracker.ValidAttachmentID(m[1]) {
 		return fileLink{}, false
 	}
+	if !escapedSegmentSafe(m[2]) {
+		return fileLink{}, false
+	}
 	name := decodeName(m[2])
 	if name == "" || name == "." || name == ".." {
 		return fileLink{}, false
 	}
 	return fileLink{ID: m[1], Segment: m[2], Name: name}, true
+}
+
+// escapedSegmentSafe: сегмент — корректно экранированный, и на каждом из
+// двух уровней раскодирования в нём нет «/» и «\». Иначе пересобранный URL
+// (BaseURL/user-data/<uuid>/<сегмент>) вышел бы из папки файла: YouGile
+// раскодирует путь один-два раза (design doc §4.3). Битый escape на первом
+// уровне — тоже отказ: такую ссылку не скачать.
+func escapedSegmentSafe(segment string) bool {
+	name := segment
+	for i := range 2 {
+		next, err := url.PathUnescape(name)
+		if err != nil {
+			return i > 0
+		}
+		if strings.ContainsAny(next, `/\`) {
+			return false
+		}
+		if next == name {
+			break
+		}
+		name = next
+	}
+	return true
 }
 
 // decodeName раскодирует имя не больше двух раз: в чате YouGile кодирует

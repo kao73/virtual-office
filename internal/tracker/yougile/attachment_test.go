@@ -28,6 +28,11 @@ func TestChatFileLinkRejectsNonFileText(t *testing.T) {
 		"/root/#file:/user-data/not-a-uuid/a.txt",             // не uuid
 		"/root/#file:/user-data/" + uuid1 + "/a.txt?x=1",      // хвост
 		"/root/#file:https://evil.example/user-data/" + uuid1 + "/a.txt",
+		"/root/#file:/user-data/" + uuid1 + "/a%zz.txt",      // битый escape
+		"/root/#file:/user-data/" + uuid1 + "/a.txt\nсмотри", // перевод строки внутри
+		"/root/#file:/user-data/" + uuid1 + "/a b.txt",       // пробел внутри
+		"/root/#file:/user-data/" + uuid1 + "/a\tb.txt",      // управляющий символ
+		"/root/#file:/user-data/" + uuid1 + "/a\\b",          // сырой обратный слэш
 	} {
 		if l, ok := chatFileLink(text); ok {
 			t.Errorf("%q принят как файл: %+v", text, l)
@@ -117,6 +122,19 @@ func TestFileLinksOrderAndDedup(t *testing.T) {
 // Review Focus #5: сегмент, который сдвинул бы пересобранный URL, — не вложение.
 func TestUserDataLinkRejectsDotSegments(t *testing.T) {
 	for _, segment := range []string{".", "..", "%2E%2E", "%252E%252E"} {
+		if l, ok := userDataLink("/user-data/" + uuid1 + "/" + segment); ok {
+			t.Errorf("сегмент %q принят: %+v", segment, l)
+		}
+	}
+}
+
+// Design §4.3: пересобранный URL остаётся под /user-data/<uuid>/. Разделитель
+// пути на любом уровне раскодирования (в самом имени или закодированный один
+// или два раза) выводит за эту папку — не вложение.
+func TestUserDataLinkRejectsEncodedSeparators(t *testing.T) {
+	for _, segment := range []string{
+		"..%2F..%2Fx", "%2E%2E%2F", "a%2F%2E%2E", "a%252F..", "..%5Cx", "a%255Cb", "a%2Fb",
+	} {
 		if l, ok := userDataLink("/user-data/" + uuid1 + "/" + segment); ok {
 			t.Errorf("сегмент %q принят: %+v", segment, l)
 		}
