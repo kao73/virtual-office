@@ -6,12 +6,19 @@
 читаются `curl`'ом из REST API. Пара к этому документу для JIRA —
 [«Что офис требует от вашей JIRA»](jira-requirements.md).
 
-Все запросы ниже берут ключ из переменной `YOUGILE_API_KEY` и в командной
-строке его не показывают. Если в `api_key_env` вы назвали другую переменную,
-подставьте её имя. Запросы на создание пользователя, проекта, доски и колонок
-(подразделы «Заведение учётки», «Участие в проекте» и «Создание проекта через API») выполняются ключом
-администратора, например вашим собственным, а не ключом учётки офиса: она
-только участник проекта.
+Ключей в запросах ниже два, и в командной строке ни один не показывается:
+
+- `YOUGILE_ADMIN_KEY` — ключ администратора компании, например ваш
+  собственный. Им идут запросы, которые заводят пользователя, проект, доску
+  и колонки и читают их id: учётка офиса — только участник проекта, и до
+  того, как её в проект добавят, она его не видит.
+- `YOUGILE_OFFICE_API_KEY` — ключ учётки офиса, тот, что раннер читает из
+  переменной `api_key_env` (в образце она так и названа). Им идут только
+  проверки того, что видит сам офис. Если в `api_key_env` вы назвали другую
+  переменную, подставьте её имя.
+
+Держите их в разных переменных: выпуск ключа офиса ниже кладёт его в свою
+переменную и ключ администратора не затирает.
 
 ## base_url
 
@@ -19,7 +26,10 @@
 `https://yougile.com` — корень хоста, без `/api-v2` на конце: префикс API
 адаптер добавляет сам, а адрес с `/api-v2` отвергает.
 
-`https://ru.yougile.com` раннер тоже отвергает, ещё при чтении файла. С ним не
+Адрес без схемы или с `/api-v2` раннер отвергает ещё при чтении файла, и
+`runner doctor` показывает это под `config:tracker-yougile.yaml`.
+
+`https://ru.yougile.com` раннер тоже отвергает при чтении файла. С ним не
 скачались бы вложения: `/user-data/…` отвечает переадресацией на
 `prod-user-data.yougile.com`, а это не поддомен `ru.yougile.com`, и файловый
 клиент офиса за пределы хоста из `base_url` и его поддоменов не ходит.
@@ -28,7 +38,7 @@
 
 ```sh
 curl -fsS -o /dev/null -w '%{http_code}\n' \
-  -H "Authorization: Bearer $YOUGILE_API_KEY" \
+  -H "Authorization: Bearer $YOUGILE_OFFICE_API_KEY" \
   https://yougile.com/api-v2/users/me
 ```
 
@@ -42,10 +52,11 @@ curl -fsS -o /dev/null -w '%{http_code}\n' \
 учётки офиса, поэтому ваш ответ, написанный под учёткой офиса, он не услышит
 ([контракт «раннер ↔ трекер», «Кто человек»](../contracts/tracker-protocol.md#кто-человек)).
 
-Имя переменной в `api_key_env` — любое. Если у вас в окружении уже есть личный
-`YOUGILE_API_KEY` (для других инструментов), назовите переменную офиса иначе,
-например `YOUGILE_OFFICE_API_KEY`, и впишите это имя в `api_key_env`. Иначе
-переменные смешаются, и раннер молча заработает под вашей учёткой.
+Имя переменной в `api_key_env` — любое. Образец называет её
+`YOUGILE_OFFICE_API_KEY`, а не `YOUGILE_API_KEY`, нарочно: под этим именем в
+окружении часто уже лежит личный ключ для других инструментов, и раннер молча
+заработал бы под вашей учёткой. Меняя имя, не берите то, под которым у вас
+лежит свой ключ.
 
 Учётка одна на все роли: роли раннер различает по маркеру в первой строке
 комментария, а не по автору. Её email вписывать никуда не нужно — раннер
@@ -53,7 +64,9 @@ curl -fsS -o /dev/null -w '%{http_code}\n' \
 
 Пользователя сначала нужно завести и добавить в проект — это описано ниже, в
 подразделах [«Заведение учётки»](#заведение-учётки) и
-[«Участие в проекте»](#участие-в-проекте).
+[«Участие в проекте»](#участие-в-проекте). Ключ офиса выпускайте после них:
+до приглашения выпускать его не для кого, а до участия в проекте проверки
+ниже проекта не увидят.
 
 Ключ выпускается двумя запросами под логином и паролем учётки офиса. Логин и
 пароль вводятся с клавиатуры (пароль — без эха) и попадают только в окружение
@@ -73,8 +86,8 @@ jq -n '{login: env.YG_LOGIN, password: env.YG_PASSWORD}' |
     https://yougile.com/api-v2/auth/companies |
   jq '.content[] | {id, name}'
 
-# ключ API — сразу в переменную, не на экран
-YOUGILE_API_KEY=$(jq -n --arg companyId '<id компании>' \
+# ключ API — сразу в переменную офиса, не на экран
+export YOUGILE_OFFICE_API_KEY=$(jq -n --arg companyId '<id компании>' \
     '{login: env.YG_LOGIN, password: env.YG_PASSWORD, companyId: $companyId}' |
   curl -fsS -X POST -H 'Content-Type: application/json' -d @- \
     https://yougile.com/api-v2/auth/keys |
@@ -84,17 +97,18 @@ unset YG_LOGIN YG_PASSWORD
 ```
 
 Куда ключ кладётся на машине раннера — в переменную, которую называет
-`api_key_env` (в образце — `YOUGILE_API_KEY`):
+`api_key_env` (в образце — `YOUGILE_OFFICE_API_KEY`):
 [«Подготовка машины», «Креды»](../guide/machine-setup.md#креды). В сам файл
 `tracker-yougile.yaml` ключ не пишется никогда.
 
 `also_agents` в `tracker-yougile.yaml` — email'ы чужой автоматизации: её
 сообщения тоже не считаются словами человека. Учётку офиса туда не пишут.
-Email'ы сравниваются с авторами комментариев как строки, точно и с учётом
-регистра, поэтому пишите их ровно так, как их отдаёт YouGile:
+Регистр и пробелы по краям не важны: раннер приводит к нижнему регистру и
+эти email'ы, и авторов комментариев. Пустая строка в списке — отказ. Email'ы
+пользователей компании:
 
 ```sh
-curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   'https://yougile.com/api-v2/users?limit=100' |
   jq '.content[] | {id, email}'
 ```
@@ -102,7 +116,7 @@ curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
 Проверка: запрос к `/users/me` отвечает email'ом учётки офиса, а не вашим:
 
 ```sh
-curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -H "Authorization: Bearer $YOUGILE_OFFICE_API_KEY" \
   https://yougile.com/api-v2/users/me | jq -r .email
 ```
 
@@ -121,7 +135,7 @@ curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
 в компании.
 
 ```sh
-curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"email": "you+office@gmail.com", "isAdmin": false, "messengerOnly": false}' \
   https://yougile.com/api-v2/users
@@ -140,11 +154,11 @@ curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_API_KEY" \
 
 ```sh
 # id пользователей
-curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   'https://yougile.com/api-v2/users?limit=100' | jq '.content[] | {id, email}'
 
 # участники проекта
-curl -fsS -X PUT -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -X PUT -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"users": {"<id владельца>": "admin", "<id учётки офиса>": "worker"}}' \
   https://yougile.com/api-v2/projects/<project_id>
@@ -165,26 +179,29 @@ curl -fsS -X PUT -H "Authorization: Bearer $YOUGILE_API_KEY" \
 
 Названия колонок — любые: раннер сопоставляет их по id из раздела `columns`
 в `tracker-yougile.yaml`. Колонки, которых в этом разделе нет, разрешены — это
-колонки вне графа, офис задачи в них не читает. Колонки заводит человек:
+колонки вне графа, офис задачи в них не читает. В самом разделе ключи — только
+статусы графа: ключ, которого в графе нет (опечатка, `Todo`), раннер отвергает
+и называет, иначе задачи в той колонке молча стояли бы без роли. Колонки заводит человек:
 раннер их только сверяет и сам не создаёт.
 
 `create_status` — статус, в колонку которого ложатся задачи, заведённые самим
-офисом (дети разбиения); в образце — `Backlog`. Он обязан быть одним из
-статусов в `columns`, иначе раннер откажется открыть проект.
+офисом (дети разбиения); в образце — `Backlog`. Он обязателен и обязан быть
+одним из статусов в `columns`: иначе раннер откажется открыть проект ещё при
+чтении файла, а не посреди разбиения, которое человек уже подтвердил.
 
 id читаются тремя запросами, каждый следующий — по id из предыдущего:
 
 ```sh
 # project_id
-curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   'https://yougile.com/api-v2/projects?limit=100' | jq '.content[] | {id, title}'
 
 # id доски проекта
-curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   'https://yougile.com/api-v2/boards?projectId=<project_id>' | jq '.content[] | {id, title}'
 
 # id колонок доски — восемь из них идут в columns
-curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   'https://yougile.com/api-v2/columns?boardId=<id доски>' | jq '.content[] | {id, title}'
 ```
 
@@ -198,19 +215,19 @@ curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
 
 ```sh
 # проект; в users — вы как admin, учётку офиса добавьте по разделу выше
-curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"title": "Office", "users": {"<id владельца>": "admin"}, "idempotencyKey": "office-project-1"}' \
   https://yougile.com/api-v2/projects
 
 # доска: projectId — id из ответа
-curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"title": "Office", "projectId": "<project_id>"}' \
   https://yougile.com/api-v2/boards
 
 # колонка — по одному запросу на каждый статус графа
-curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_API_KEY" \
+curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_ADMIN_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"title": "Backlog", "boardId": "<id доски>", "color": 1}' \
   https://yougile.com/api-v2/columns
@@ -220,8 +237,8 @@ curl -fsS -X POST -H "Authorization: Bearer $YOUGILE_API_KEY" \
 в `tracker-yougile.yaml`; `color` — число от 1 до 16.
 
 Проверка: `runner doctor` печатает `ok` у `config:tracker-yougile.yaml`
-(у каждого статуса графа есть колонка в файле) и у `yougile:open` (проект и
-все восемь колонок нашлись на сервере).
+(колонки в файле сходятся с графом) и у `yougile:open` (проект и все восемь
+колонок нашлись на сервере).
 
 ## Как снять задачу из Blocked
 
@@ -252,15 +269,14 @@ rate limit YouGile», а следующий заход пробует занов
 
 | check-id | Что проверяет | Если `fail` |
 |---|---|---|
-| `config:tracker-yougile.yaml` | файл читается и проходит проверку ключей; ключ проекта совпадает с `projects.local.yaml`; у каждого статуса графа есть колонка | дальше `warn skip:yougile`, остальные три не проверяются. Граф офиса не прочитан (офис не резолвится) — покрытие колонками не проверено, находка `warn`, проверки идут дальше |
+| `config:tracker-yougile.yaml` | файл читается и проходит проверку ключей (`base_url`, `create_status`, id колонок, `also_agents`); ключ проекта совпадает с `projects.local.yaml`; колонки сходятся с графом в обе стороны: у каждого статуса графа есть колонка, и каждый ключ `columns` — статус графа | дальше `warn skip:yougile`, остальные три не проверяются. Граф офиса не прочитан (офис не резолвится) — сверка с графом не выполнена, находка `warn`, проверки идут дальше |
 | `cred:<api_key_env>` | переменная из `api_key_env` задана (значение не печатается) | дальше `warn skip:yougile-checks`, `yougile:open` и `yougile:account` не проверяются |
 | `yougile:open` | проект с `project_id` отвечает ключу, все колонки из `columns` есть на досках проекта | дальше `warn skip:yougile-checks`, `yougile:account` не проверяется |
 | `yougile:account` | `/users/me` называет email учётки; при `ok` он напечатан в находке | — |
 
-На свежем `OFFICE_HOME`, пока снимок офиса не распакован, `config:tracker-yougile.yaml`
-даёт `warn` «покрытие статусов графа колонками не проверено: … workflow.yaml не
-прочитан». `runner ls` (только чтение) распаковывает снимок; после него доктор
-печатает `ok`.
+На свежем `OFFICE_HOME`, пока снимок офиса не распакован, доктор сверяет
+колонки с графом, вшитым в бинарник: снимок распаковывается ровно из него.
+Распаковывать для этого ничего не нужно, и сам доктор на диск не пишет.
 
 Email в находке `yougile:account` — учётка офиса. Если там ваш, ключ выпущен не
 от той учётки: см. [«Учётка»](#учётка).

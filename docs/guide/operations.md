@@ -227,8 +227,9 @@ ${OFFICE_HOME:-$HOME/.office}/
                                     и bin/run-agent; eval-roles (без -dev — не часть install.sh) от bin/eval-roles
 ```
 
-`runner init` создаёт сам каталог, два образца конфигурации
-(`projects.local.example.yaml`, `tracker.example.yaml`) в его корне и
+`runner init` создаёт сам каталог, три образца конфигурации
+(`projects.local.example.yaml`, `tracker.example.yaml`,
+`tracker-yougile.example.yaml`) в его корне и
 `scheduler/` с тремя заданиями планировщика; `office/<версия>/`, `repos/`,
 `worktrees/`, `runs/` и `ledger.jsonl` появляются по факту первого настоящего
 прогона. Уже лежащий файл init не трогает никогда — ни образец, ни правленое

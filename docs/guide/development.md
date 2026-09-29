@@ -146,6 +146,7 @@ office/                поставка офиса: роли, скиллы, ху
 ├── workflow.yaml        граф состояний: статусы, роли, PR-проход, переходы по исходам
 ├── budgets.yaml         дефолтные пределы расхода; необязателен, перекрывается накладкой машины
 ├── tracker.example.yaml         образец подключения к JIRA; рабочий файл — в ${OFFICE_HOME}
+├── tracker-yougile.example.yaml образец подключения к YouGile; рабочий файл — в ${OFFICE_HOME}
 ├── projects.local.example.yaml  образец проектов; рабочий файл — в ${OFFICE_HOME}
 └── payload.go           go:embed всего этого дерева и версия релиза (office.Version)
 evals/                 golden-кейсы ролей для cmd/eval-roles: fixture/, task.md, expect.yaml

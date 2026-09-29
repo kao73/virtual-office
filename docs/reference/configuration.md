@@ -99,7 +99,7 @@
 | `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` | `internal/adapters/claude/adapter.go` | кред агента; заданы обе — побеждает `ANTHROPIC_API_KEY` |
 | `GITHUB_TOKEN` | раннер при публикации ветки и на PR-проходе | право писать в репозиторий проекта |
 | имена из `accounts.*.user_env` / `accounts.*.secret_env` | значения — среда, читает `internal/tracker/jira` | учётки JIRA: в `${OFFICE_HOME}/tracker.yaml` только имена переменных, сами значения в файл не попадают |
-| имя из `api_key_env` | значение — среда, читает `cmd/runner` (`yougile.FileConfig.Tracker`) | ключ API YouGile: в `${OFFICE_HOME}/tracker-yougile.yaml` только имя переменной |
+| имя из `api_key_env` | значение — среда, читает `internal/tracker/yougile` (`FileConfig.Tracker`) | ключ API YouGile: в `${OFFICE_HOME}/tracker-yougile.yaml` только имя переменной |
 
 ## Ключи: где искать
 

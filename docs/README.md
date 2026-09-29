@@ -34,7 +34,8 @@
 | [contracts/role-sandbox-permissions.md](contracts/role-sandbox-permissions.md) | слоистые разрешения песочницы: сеть и инструменты роли |
 
 Ключи конфигурации описаны не здесь, а в самих образцах —
-`office/projects.local.example.yaml` и `office/tracker.example.yaml`: они едут
+`office/projects.local.example.yaml`, `office/tracker.example.yaml` и
+`office/tracker-yougile.example.yaml`: они едут
 внутри бинарника и с релизом разойтись не могут.
 
 ## Объяснения

@@ -91,14 +91,14 @@ export JIRA_REVIEWER_USER=office-reviewer JIRA_REVIEWER_PASSWORD='...'
 Для YouGile:
 
 ```sh
-export YOUGILE_API_KEY='...'
+export YOUGILE_OFFICE_API_KEY='...'
 ```
 
 - [ ] Имя переменной совпадает с `api_key_env` в `${OFFICE_HOME}/tracker-yougile.yaml`,
       а ключ выпущен от учётки офиса, не от вашей: [«Что офис требует от вашего
       YouGile», «Учётка»](../reference/yougile-requirements.md#учётка).
 
-Проверка всех трёх — тем же приёмом: `[ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo есть`
+Проверка каждой переменной — тем же приёмом: `[ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo есть`
 — печатать **значение** не нужно ни разу, ни здесь, ни в логах. Командная строка
 видна в `ps`, поэтому и `--env ИМЯ=значение` тоже не годится.
 
@@ -161,11 +161,12 @@ sbx policy rm network --id default-allow-all      # закрыть сеть пе
 runner init
 ```
 
-- [ ] Каталог есть, в нём два образца конфигурации и `scheduler/` с тремя
+- [ ] Каталог есть, в нём три образца конфигурации и `scheduler/` с тремя
       заданиями планировщика.
 
 Проверка: `ls "${OFFICE_HOME:-$HOME/.office}"` показывает
-`projects.local.example.yaml`, `tracker.example.yaml` и `scheduler/`. Команда
+`projects.local.example.yaml`, `tracker.example.yaml`,
+`tracker-yougile.example.yaml` и `scheduler/`. Команда
 идемпотентна: уже лежащий файл она не трогает никогда, ни образец, ни правленое
 задание, — и говорит об этом словом «оставлен».
 

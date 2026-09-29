@@ -145,6 +145,18 @@ runner SHALL refuse to start otherwise. The office's own YouGile account
 - **THEN** the runner refuses to start, and the error says attachments
   would not download and names `https://yougile.com` as the value to use
 
+#### Scenario: Columns are checked against the graph both ways
+- **WHEN** `tracker-yougile.yaml` has no column for some status of the
+  office graph, or its `columns` name a status the graph does not have
+- **THEN** the runner refuses to start and names those statuses, before any
+  request to YouGile
+
+#### Scenario: A missing create_status is refused at load
+- **WHEN** the YouGile project in `tracker-yougile.yaml` has no
+  `create_status`, or names one that is not among its `columns`
+- **THEN** the runner refuses to start, instead of failing later when it
+  creates the children of a confirmed split
+
 #### Scenario: The office's own account is not a human
 - **WHEN** a YouGile task's chat has a message written under the account
   whose API key the office uses
