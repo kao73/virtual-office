@@ -66,7 +66,7 @@ func TestDecodeSegment(t *testing.T) {
 		"a%252F..":              {"", false}, // разделитель на втором уровне
 	} {
 		name, ok := decodeSegment(segment)
-		if ok != want.ok || (ok && name != want.name) {
+		if ok != want.ok || name != want.name { // при отказе имя пустое: читать его нечего
 			t.Errorf("decodeSegment(%q) = %q, %v; ожидалось %q, %v", segment, name, ok, want.name, want.ok)
 		}
 	}

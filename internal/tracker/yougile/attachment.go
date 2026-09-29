@@ -120,7 +120,10 @@ func decodeSegment(segment string) (string, bool) {
 	for i := range 2 {
 		next, err := url.PathUnescape(name)
 		if err != nil {
-			return name, i > 0
+			if i == 0 {
+				return "", false
+			}
+			return name, true
 		}
 		if strings.ContainsAny(next, `/\`) {
 			return "", false
