@@ -158,7 +158,7 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 				// них на весь проект незачем. Битый же virtual_office — громко:
 				// пропусти мы своего испорченного ребёнка, ensureChildren завёл
 				// бы дубль.
-				t.Logf("yougile: задача %s пропущена: %v", raw.ID, err)
+				t.logf("yougile: задача %s пропущена: %v", raw.ID, err)
 				continue
 			}
 			if err != nil {

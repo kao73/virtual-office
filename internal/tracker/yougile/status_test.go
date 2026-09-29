@@ -298,6 +298,23 @@ func TestListingsSkipCardWithUnreadableOfficeData(t *testing.T) {
 	}
 }
 
+// Logf — экспортированное поле, и обвязка может занулить его, отключая лог:
+// пропуск битой карточки не должен от этого паниковать ни в листинге, ни в
+// FindByMarker.
+func TestSkipSurvivesNilLogf(t *testing.T) {
+	tr, fake := fixture(t)
+	tr.Logf = nil
+	fake.addTask(&fakeTask{ID: "foreign", ColumnID: colReady, Timestamp: now.UnixMilli(), RawAPIData: "x"})
+	if refs, err := tr.FindByMarker(testProject, "m"); err != nil || len(refs) != 0 {
+		t.Errorf("FindByMarker = %v, %v", keys(refs), err)
+	}
+	fake.addTask(&fakeTask{ID: "broken", ColumnID: colReady, Timestamp: now.UnixMilli(),
+		APIData: officeAPIData(map[string]any{"v": 2})})
+	if ready, err := tr.ListReady(testProject, "Ready"); err != nil || !slices.Equal(keys(ready), []string{testKey}) {
+		t.Errorf("ListReady = %v, %v", keys(ready), err)
+	}
+}
+
 // Карточка вне графа — не «данные офиса»: её листинг не глотает (сюда она
 // попадает, только если сервер проигнорировал фильтр — tasksInColumn её
 // отсеет раньше, так что проверяем, что skip узкий, на toTask напрямую).

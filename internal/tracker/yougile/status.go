@@ -132,7 +132,7 @@ func (t *Tracker) collect(columnIDs []string, withArchived bool, keep func(track
 		task, _, err := t.toTask(raw)
 		if errors.Is(err, ErrOfficeData) {
 			// Одна карточка не должна останавливать очередь колонки и reaper.
-			t.Logf("yougile: задача %s пропущена: %v", raw.ID, err)
+			t.logf("yougile: задача %s пропущена: %v", raw.ID, err)
 			continue
 		}
 		if err != nil {

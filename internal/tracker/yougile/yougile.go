@@ -96,8 +96,16 @@ type Tracker struct {
 	// Logf — куда адаптер сообщает о том, что стерпел, а не вернул ошибкой:
 	// листинги пропускают карточку с нечитаемыми данными офиса (status.go,
 	// collect). По умолчанию log.Printf; yougile-wiring-and-docs направит
-	// его в лог раннера.
+	// его в лог раннера. nil — лог выключен.
 	Logf func(format string, args ...any)
+}
+
+// logf пишет в Logf, если он задан: поле экспортировано, и обвязка вправе
+// его занулить — пропуск карточки от этого паниковать не должен.
+func (t *Tracker) logf(format string, args ...any) {
+	if t.Logf != nil {
+		t.Logf(format, args...)
+	}
 }
 
 // Tracker реализует контракт целиком.
