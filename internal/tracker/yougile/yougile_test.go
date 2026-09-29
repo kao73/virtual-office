@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -33,9 +34,13 @@ const (
 // fakeTask — задача в памяти фейкового YouGile.
 type fakeTask struct {
 	ID, Title, Description, ColumnID string
+	IDTaskProject                    string
 	Timestamp                        int64 // мс, как timestamp в TaskDto
 	Archived, Deleted                bool
 	APIData                          map[string]any
+	// RawAPIData — apiData не объектом (строка, массив): чужие данные, которые
+	// YouGile принимает как есть. Если задан, APIData не отдаётся.
+	RawAPIData any
 }
 
 func (t *fakeTask) dto() map[string]any {
@@ -43,8 +48,14 @@ func (t *fakeTask) dto() map[string]any {
 		"id": t.ID, "title": t.Title, "description": t.Description, "columnId": t.ColumnID,
 		"timestamp": t.Timestamp, "archived": t.Archived, "deleted": t.Deleted,
 	}
+	if t.IDTaskProject != "" {
+		m["idTaskProject"] = t.IDTaskProject
+	}
 	if t.APIData != nil {
 		m["apiData"] = t.APIData
+	}
+	if t.RawAPIData != nil {
+		m["apiData"] = t.RawAPIData
 	}
 	return m
 }
@@ -60,6 +71,12 @@ type fakeMessage struct {
 
 // fakeYouGile — минимальный YouGile: отвечает на те запросы, которые шлёт
 // адаптер, и запоминает их, чтобы тест проверял и исход, и форму запроса.
+// fakeFile — файл, загруженный через upload-file или прикреплённый «человеком».
+type fakeFile struct {
+	Name string
+	Data []byte
+}
+
 type fakeYouGile struct {
 	t  *testing.T
 	mu sync.Mutex
@@ -74,6 +91,16 @@ type fakeYouGile struct {
 	me       string
 	idem     map[string]string // idempotencyKey → id задачи
 	nextID   int
+
+	uploads   map[string]fakeFile          // uuid → файл
+	uploadURL func(id, name string) string // nil — "/user-data/<uuid>/<имя>"; тест подменяет, чтобы испортить ответ
+
+	storage  string   // корень фейкового хранилища (prod-user-data.yougile.com в жизни)
+	redirect string   // не пусто — куда /user-data/… отправляет вместо хранилища
+	fileAuth []string // Authorization каждого запроса к /user-data/… и к хранилищу
+	// filePaths — путь каждого запроса к /user-data/… как он пришёл по проводу,
+	// экранированным: YouGile ищет файл именно по нему.
+	filePaths []string
 
 	pageCap       int  // >0 — сервер режет страницу до этого размера, что бы ни просили
 	endlessPaging bool // сервер всегда говорит next=true и отдаёт первый элемент
@@ -116,6 +143,7 @@ func newFake(t *testing.T) *fakeYouGile {
 		me:       officeUserID,
 		idem:     map[string]string{},
 		fail:     map[string]int{},
+		uploads:  map[string]fakeFile{},
 	}
 	f.addTask(&fakeTask{ID: testKey, Title: "First task", Description: "Do it", ColumnID: colReady,
 		Timestamp: now.Add(-time.Hour).UnixMilli()})
@@ -149,7 +177,25 @@ func (f *fakeYouGile) setLeaseOf(id, owner, runID string, until time.Time) {
 	if task.APIData == nil {
 		task.APIData = map[string]any{}
 	}
-	task.APIData["lease"] = map[string]any{"owner": owner, "run_id": runID, "lease_until": until.Format(time.RFC3339Nano)}
+	ns, _ := task.APIData[keyNamespace].(map[string]any)
+	if ns == nil {
+		ns = map[string]any{}
+		task.APIData[keyNamespace] = ns
+	}
+	ns["lease"] = map[string]any{"owner": owner, "run_id": runID, "lease_until": until.Format(time.RFC3339Nano)}
+}
+
+// officeAPIData — apiData, в котором данные офиса лежат в своём пространстве имён.
+func officeAPIData(fields map[string]any) map[string]any {
+	return map[string]any{keyNamespace: fields}
+}
+
+// officeOf — данные офиса в apiData задачи фейка; nil, если их там нет.
+func (f *fakeYouGile) officeOf(id string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ns, _ := f.tasks[id].APIData[keyNamespace].(map[string]any)
+	return ns
 }
 
 // count — сколько дошло запросов с данным префиксом "METHOD /api-v2/path".
@@ -191,6 +237,20 @@ func (f *fakeYouGile) page(items []any, q url.Values) map[string]any {
 	}
 }
 
+// newFileID — uuid очередного файла; вызывается под f.mu.
+func (f *fakeYouGile) newFileID() string {
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", len(f.uploads)+1)
+}
+
+// addFile — файл, прикреплённый человеком в интерфейсе, мимо адаптера.
+func (f *fakeYouGile) addFile(name string, data []byte) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := f.newFileID()
+	f.uploads[id] = fakeFile{Name: name, Data: data}
+	return id
+}
+
 func (f *fakeYouGile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.requests = append(f.requests, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
@@ -198,6 +258,18 @@ func (f *fakeYouGile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if code, ok := f.fail[r.Method+" "+r.URL.Path]; ok {
 		f.mu.Unlock()
 		http.Error(w, `{"error":"forced"}`, code)
+		return
+	}
+	// Файл: хост API отвечает 302 в отдельное хранилище, как YouGile (design doc §1).
+	if strings.HasPrefix(r.URL.Path, "/user-data/") {
+		f.fileAuth = append(f.fileAuth, r.Header.Get("Authorization"))
+		f.filePaths = append(f.filePaths, r.URL.EscapedPath())
+		target := f.redirect
+		if target == "" {
+			target = f.storage + strings.TrimPrefix(r.URL.EscapedPath(), "/user-data")
+		}
+		f.mu.Unlock()
+		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, apiPrefix)
@@ -329,6 +401,22 @@ func (f *fakeYouGile) route(method, path string, r *http.Request) (int, any) {
 		}
 		return http.StatusOK, map[string]any{"id": id}
 
+	case method == http.MethodPost && path == "/upload-file":
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			f.t.Errorf("upload-file: нет поля file: %v", err)
+			return http.StatusBadRequest, map[string]any{"error": "no file"}
+		}
+		defer file.Close()
+		data, _ := io.ReadAll(file)
+		id := f.newFileID()
+		f.uploads[id] = fakeFile{Name: header.Filename, Data: data}
+		u := "/user-data/" + id + "/" + url.PathEscape(header.Filename)
+		if f.uploadURL != nil {
+			u = f.uploadURL(id, header.Filename)
+		}
+		return http.StatusOK, map[string]any{"result": "ok", "url": u, "fullUrl": "https://ru.yougile.com" + u}
+
 	case strings.HasPrefix(path, "/chats/") && strings.HasSuffix(path, "/messages"):
 		chat := strings.TrimSuffix(strings.TrimPrefix(path, "/chats/"), "/messages")
 		if _, ok := f.tasks[chat]; !ok {
@@ -365,6 +453,27 @@ func serve(t *testing.T, fake *fakeYouGile) string {
 	return server.URL
 }
 
+// serveStorage — хранилище файлов: отдаёт байты по uuid из первого сегмента пути.
+func (f *fakeYouGile) serveStorage(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.fileAuth = append(f.fileAuth, r.Header.Get("Authorization"))
+	id, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	file, ok := f.uploads[id]
+	f.mu.Unlock()
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	_, _ = w.Write(file.Data)
+}
+
+func serveStorage(t *testing.T, fake *fakeYouGile) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(fake.serveStorage))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
 func testConfig(baseURL string) Config {
 	return Config{
 		BaseURL: baseURL, APIKey: "test-key", ProjectID: testProject,
@@ -376,6 +485,7 @@ func testConfig(baseURL string) Config {
 func fixture(t *testing.T) (*Tracker, *fakeYouGile) {
 	t.Helper()
 	fake := newFake(t)
+	fake.storage = serveStorage(t, fake)
 	tr, err := Open(testConfig(serve(t, fake)))
 	if err != nil {
 		t.Fatalf("трекер не открыт: %v", err)

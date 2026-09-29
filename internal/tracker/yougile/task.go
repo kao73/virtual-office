@@ -20,14 +20,15 @@ var ErrUnmappedColumn = errors.New("yougile: задача в колонке вн
 
 // taskDTO — задача в ответе API: то, что читает адаптер.
 type taskDTO struct {
-	ID          string          `json:"id"`
-	Title       string          `json:"title"`
-	Description string          `json:"description"`
-	ColumnID    string          `json:"columnId"`
-	Timestamp   float64         `json:"timestamp"` // мс создания
-	Archived    bool            `json:"archived"`
-	Deleted     bool            `json:"deleted"`
-	APIData     json.RawMessage `json:"apiData"`
+	ID            string          `json:"id"`
+	Title         string          `json:"title"`
+	IDTaskProject string          `json:"idTaskProject"` // человекочитаемый номер задачи в проекте, «ID-7»
+	Description   string          `json:"description"`
+	ColumnID      string          `json:"columnId"`
+	Timestamp     float64         `json:"timestamp"` // мс создания
+	Archived      bool            `json:"archived"`
+	Deleted       bool            `json:"deleted"`
+	APIData       json.RawMessage `json:"apiData"`
 }
 
 // getRaw — задача без переписки: одного запроса хватает и проверке владения,
@@ -71,7 +72,7 @@ func (t *Tracker) toTask(raw taskDTO) (tracker.Task, apiData, error) {
 	}
 	task := tracker.Task{
 		Key: raw.ID, Project: t.cfg.ProjectID, Summary: raw.Title, Description: raw.Description,
-		Status: status, Labels: slices.Clone(data.Labels), Attempts: data.Attempts, HumanFlag: data.HumanWait,
+		Status: status, Labels: slices.Clone(data.Labels), DependsOn: slices.Clone(data.DependsOn), Attempts: data.Attempts, HumanFlag: data.HumanWait,
 	}
 	if data.Lease != nil {
 		task.Owner, task.RunID, task.LeaseUntil = data.Lease.Owner, data.Lease.RunID, data.Lease.LeaseUntil
@@ -79,17 +80,22 @@ func (t *Tracker) toTask(raw taskDTO) (tracker.Task, apiData, error) {
 	return task, data, nil
 }
 
-// Get — задача целиком, включая всю переписку чата задачи.
+// Get — задача целиком: переписка чата и вложения из описания и чата.
 func (t *Tracker) Get(key string) (tracker.Task, error) {
-	_, task, _, err := t.load(key)
+	raw, task, _, err := t.load(key)
 	if err != nil {
 		return tracker.Task{}, err
 	}
-	comments, err := t.comments(key)
+	msgs, err := t.chat(key)
+	if err != nil {
+		return tracker.Task{}, err
+	}
+	comments, err := t.comments(msgs)
 	if err != nil {
 		return tracker.Task{}, err
 	}
 	task.Comments = comments
+	task.Attachments = attachmentRefs(fileLinks(raw.Description, msgs))
 	return task, nil
 }
 
@@ -105,7 +111,7 @@ func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, apiData, er
 	if err != nil {
 		return tracker.Task{}, apiData{}, err
 	}
-	if err := tracker.CheckOwner(task, by, t.Now()); err != nil {
+	if err := tracker.CheckOwner(task, by, t.now()); err != nil {
 		return tracker.Task{}, apiData{}, err
 	}
 	return task, data, nil

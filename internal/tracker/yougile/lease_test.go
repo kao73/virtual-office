@@ -37,10 +37,10 @@ func TestDecodeAPIDataEmptyIsZero(t *testing.T) {
 	}
 }
 
-func TestDecodeAPIDataReadsOwnKeys(t *testing.T) {
+func TestDecodeAPIDataReadsNamespace(t *testing.T) {
 	until := time.Date(2026, 9, 28, 12, 30, 0, 123456789, time.UTC)
-	raw := `{"lease":{"owner":"implementer","run_id":"run-1","lease_until":"` + until.Format(time.RFC3339Nano) +
-		`"},"attempts":2,"human_wait":true,"labels":["split:VO-1:a"]}`
+	raw := `{"virtual_office":{"v":1,"lease":{"owner":"implementer","run_id":"run-1","lease_until":"` +
+		until.Format(time.RFC3339Nano) + `"},"attempts":2,"human_wait":true,"labels":["split:VO-1:a"]}}`
 	d, err := decodeAPIData(json.RawMessage(raw))
 	if err != nil {
 		t.Fatal(err)
@@ -51,11 +51,23 @@ func TestDecodeAPIDataReadsOwnKeys(t *testing.T) {
 	if d.Attempts != 2 || !d.HumanWait || !reflect.DeepEqual(d.Labels, []string{"split:VO-1:a"}) {
 		t.Errorf("поля: %+v", d)
 	}
+	if d.extra != nil {
+		t.Errorf("своё пространство имён попало в чужие ключи: %#v", d.extra)
+	}
 }
 
-// Review Focus #2: ключи, записанные не нами, переживают любую нашу запись.
+// Версия не указана — это та же первая схема.
+func TestDecodeAPIDataAcceptsMissingVersion(t *testing.T) {
+	d, err := decodeAPIData(json.RawMessage(`{"virtual_office":{"attempts":3}}`))
+	if err != nil || d.Attempts != 3 {
+		t.Errorf("без v: %+v, %v", d, err)
+	}
+}
+
+// Spec «Another integration's data survives office writes»: всё вне
+// virtual_office переписывается как было.
 func TestAPIDataKeepsForeignKeys(t *testing.T) {
-	raw := `{"crm":{"deal":42,"tags":["a","b"]},"depends_on":["task-9"],"attempts":1}`
+	raw := `{"crm":{"deal":42,"tags":["a","b"]},"virtual_office":{"v":1,"attempts":1}}`
 	d, err := decodeAPIData(json.RawMessage(raw))
 	if err != nil {
 		t.Fatal(err)
@@ -65,36 +77,105 @@ func TestAPIDataKeepsForeignKeys(t *testing.T) {
 	if !reflect.DeepEqual(out["crm"], map[string]any{"deal": float64(42), "tags": []any{"a", "b"}}) {
 		t.Errorf("чужой ключ crm искажён: %#v", out["crm"])
 	}
-	if !reflect.DeepEqual(out["depends_on"], []any{"task-9"}) {
-		t.Errorf("чужой ключ depends_on искажён: %#v", out["depends_on"])
+	ns, _ := out[keyNamespace].(map[string]any)
+	if ns["attempts"] != float64(5) {
+		t.Errorf("attempts = %#v", ns["attempts"])
 	}
-	if out["attempts"] != float64(5) {
-		t.Errorf("attempts = %#v", out["attempts"])
+	if _, leaked := out["attempts"]; leaked {
+		t.Error("attempts записан на верхний уровень, а не в virtual_office")
 	}
 }
 
-// Review Focus #3: свои ключи пишутся всегда, аренда — явным null, иначе
-// при слиянии apiData на сервере снятая аренда не снялась бы.
-func TestEncodeAlwaysWritesOwnKeys(t *testing.T) {
+// Review Focus #4: ключи change 1 на верхнем уровне (только office-polygon)
+// — чужие: не читаются, не мигрируются, переживают запись.
+func TestLegacyTopLevelKeysAreForeign(t *testing.T) {
+	raw := `{"lease":{"owner":"x","run_id":"old","lease_until":"2099-01-01T00:00:00Z"},"attempts":7,"labels":["split:P:a"]}`
+	d, err := decodeAPIData(json.RawMessage(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Lease != nil || d.Attempts != 0 || d.Labels != nil {
+		t.Errorf("верхний уровень прочитан как свой: %+v", d)
+	}
+	out := roundTrip(t, d)
+	if out["attempts"] != float64(7) || out["lease"] == nil || !reflect.DeepEqual(out["labels"], []any{"split:P:a"}) {
+		t.Errorf("наследие change 1 не сохранено: %#v", out)
+	}
+}
+
+// Свои ключи пишутся всегда и явно: lease — null, списки — [], версия — 1.
+// Иначе при слиянии apiData на сервере снятая аренда не снялась бы.
+func TestEncodeWritesFullNamespace(t *testing.T) {
 	out := roundTrip(t, apiData{})
-	for _, key := range []string{keyLease, keyAttempts, keyHumanWait, keyLabels} {
-		if _, ok := out[key]; !ok {
-			t.Errorf("ключ %q не записан: %#v", key, out)
+	ns, ok := out[keyNamespace].(map[string]any)
+	if !ok {
+		t.Fatalf("virtual_office не записан: %#v", out)
+	}
+	for _, key := range []string{"v", "lease", "attempts", "human_wait", "labels", "depends_on"} {
+		if _, ok := ns[key]; !ok {
+			t.Errorf("ключ %q не записан: %#v", key, ns)
 		}
 	}
-	if out[keyLease] != nil {
-		t.Errorf("свободная аренда записана как %#v, ожидался null", out[keyLease])
+	if ns["v"] != float64(schemaVersion) {
+		t.Errorf("v = %#v", ns["v"])
 	}
-	if !reflect.DeepEqual(out[keyLabels], []any{}) {
-		t.Errorf("пустые метки записаны как %#v, ожидался []", out[keyLabels])
+	if ns["lease"] != nil {
+		t.Errorf("свободная аренда записана как %#v, ожидался null", ns["lease"])
+	}
+	if !reflect.DeepEqual(ns["labels"], []any{}) {
+		t.Errorf("пустые метки записаны как %#v, ожидался []", ns["labels"])
+	}
+	if !reflect.DeepEqual(ns["depends_on"], []any{}) {
+		t.Errorf("пустые зависимости записаны как %#v, ожидался []", ns["depends_on"])
+	}
+	if len(out) != 1 {
+		t.Errorf("на верхнем уровне лишнее: %#v", out)
 	}
 }
 
-func TestDecodeAPIDataRejectsGarbage(t *testing.T) {
-	for _, raw := range []string{`"string"`, `[1,2]`, `{"lease":"not an object"}`, `{"attempts":"three"}`} {
-		if _, err := decodeAPIData(json.RawMessage(raw)); err == nil {
-			t.Errorf("%s принят", raw)
+func TestDecodeAPIDataRejectsMalformedOfficeData(t *testing.T) {
+	for _, raw := range []string{
+		`"string"`, `[1,2]`,
+		`{"virtual_office":"x"}`, `{"virtual_office":null}`, `{"virtual_office":[1]}`,
+		`{"virtual_office":{"lease":"not an object"}}`, `{"virtual_office":{"attempts":"three"}}`,
+		`{"virtual_office":{"v":"1"}}`, `{"virtual_office":{"v":-1}}`, `{"virtual_office":{"v":0}}`,
+		`{"virtual_office":{"surprise":1}}`,
+	} {
+		if _, err := decodeAPIData(json.RawMessage(raw)); !errors.Is(err, ErrOfficeData) {
+			t.Errorf("%s дал %v, ожидался ErrOfficeData", raw, err)
 		}
+	}
+}
+
+// Spec «Newer office data is not overwritten»: версия новее — отказ,
+// названный версией. Поля при этом годные: отказ даёт именно версия.
+func TestDecodeAPIDataRefusesNewerVersion(t *testing.T) {
+	_, err := decodeAPIData(json.RawMessage(`{"virtual_office":{"v":2,"attempts":1}}`))
+	if !errors.Is(err, ErrOfficeData) || !strings.Contains(err.Error(), "v=2") {
+		t.Errorf("v=2 дал %v", err)
+	}
+}
+
+func TestNewerOfficeDataIsNeverOverwritten(t *testing.T) {
+	writes := map[string]func(*Tracker) error{
+		"Claim":        func(tr *Tracker) error { return tr.Claim(claimReq("run-1")) },
+		"Release":      func(tr *Tracker) error { return tr.Release(testKey, tracker.BySystem()) },
+		"SetAttempts":  func(tr *Tracker) error { return tr.SetAttempts(testKey, tracker.BySystem(), 1) },
+		"SetHumanFlag": func(tr *Tracker) error { return tr.SetHumanFlag(testKey, tracker.BySystem(), true) },
+		"Transition":   func(tr *Tracker) error { return tr.Transition(testKey, tracker.BySystem(), "Review") },
+		"Comment":      func(tr *Tracker) error { return tr.Comment(testKey, tracker.BySystem(), "x") },
+	}
+	for name, write := range writes {
+		t.Run(name, func(t *testing.T) {
+			tr, fake := fixture(t)
+			fake.tasks[testKey].APIData = officeAPIData(map[string]any{"v": 2, "attempts": 1})
+			if err := write(tr); !errors.Is(err, ErrOfficeData) {
+				t.Errorf("дало %v, ожидался ErrOfficeData", err)
+			}
+			if len(fake.puts)+len(fake.chatPosts) != 0 {
+				t.Error("записано поверх новой схемы")
+			}
+		})
 	}
 }
 
@@ -107,7 +188,8 @@ func claimReq(runID string) tracker.ClaimRequest {
 
 func putLease(body map[string]any) map[string]any {
 	data, _ := body["apiData"].(map[string]any)
-	lease, _ := data["lease"].(map[string]any)
+	ns, _ := data[keyNamespace].(map[string]any)
+	lease, _ := ns["lease"].(map[string]any)
 	return lease
 }
 
@@ -220,13 +302,14 @@ func TestSecondClaimantLoses(t *testing.T) {
 // Review Focus #2.
 func TestClaimKeepsForeignAPIDataAndCounters(t *testing.T) {
 	tr, fake := fixture(t)
-	fake.tasks[testKey].APIData = map[string]any{"crm": map[string]any{"deal": 7}, "attempts": 2, "human_wait": true}
+	fake.tasks[testKey].APIData = map[string]any{"crm": map[string]any{"deal": 7},
+		keyNamespace: map[string]any{"attempts": 2, "human_wait": true}}
 	if err := tr.Claim(claimReq("run-1")); err != nil {
 		t.Fatal(err)
 	}
-	data := fake.task(testKey).APIData
-	if data["crm"] == nil || data["attempts"] != float64(2) || data["human_wait"] != true {
-		t.Errorf("apiData после захвата: %#v", data)
+	ns := fake.officeOf(testKey)
+	if fake.task(testKey).APIData["crm"] == nil || ns["attempts"] != float64(2) || ns["human_wait"] != true {
+		t.Errorf("apiData после захвата: %#v", fake.task(testKey).APIData)
 	}
 }
 
@@ -282,7 +365,7 @@ func TestRenewRefusesForeignLease(t *testing.T) {
 func TestReleaseClearsLeaseKeepsStatusAndCounters(t *testing.T) {
 	tr, fake := fixture(t)
 	fake.tasks[testKey].ColumnID = colWork
-	fake.tasks[testKey].APIData = map[string]any{"attempts": 2, "human_wait": true, "crm": "keep"}
+	fake.tasks[testKey].APIData = map[string]any{"crm": "keep", keyNamespace: map[string]any{"attempts": 2, "human_wait": true}}
 	fake.setLease(testKey, "run-1", now.Add(time.Minute))
 
 	if err := tr.Release(testKey, tracker.ByRun("run-1")); err != nil {
@@ -308,7 +391,7 @@ func TestReleaseSendsExplicitNullLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := fake.puts[len(fake.puts)-1]
-	data := body["apiData"].(map[string]any)
+	data := body["apiData"].(map[string]any)[keyNamespace].(map[string]any)
 	if lease, present := data["lease"]; !present || lease != nil {
 		t.Errorf("lease в теле PUT: %#v (присутствует: %v), ожидался явный null", lease, present)
 	}
@@ -381,7 +464,7 @@ func TestClaimFailsWhenColumnDidNotMove(t *testing.T) {
 	}
 	// Мы владелец и точно знаем, что не работаем: аренда не должна держать
 	// задачу вне очереди до истечения.
-	if lease := fake.task(testKey).APIData["lease"]; lease != nil {
+	if lease := fake.officeOf(testKey)["lease"]; lease != nil {
 		t.Errorf("после неудачного захвата аренда висит: %#v", lease)
 	}
 }
@@ -412,5 +495,15 @@ func TestDeletedTaskIsNotFound(t *testing.T) {
 	}
 	if len(fake.puts) != 0 {
 		t.Error("в удалённую задачу записано")
+	}
+}
+
+func TestDecodeAPIDataReadsDependsOn(t *testing.T) {
+	d, err := decodeAPIData(json.RawMessage(`{"virtual_office":{"v":1,"depends_on":["task-a","task-b"]}}`))
+	if err != nil || !reflect.DeepEqual(d.DependsOn, []string{"task-a", "task-b"}) {
+		t.Errorf("depends_on: %+v, %v", d.DependsOn, err)
+	}
+	if out := roundTrip(t, d); !reflect.DeepEqual(out[keyNamespace].(map[string]any)["depends_on"], []any{"task-a", "task-b"}) {
+		t.Errorf("depends_on не пережил запись: %#v", out)
 	}
 }

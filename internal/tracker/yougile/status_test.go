@@ -67,9 +67,34 @@ func TestListReadySkipsArchivedAndDeleted(t *testing.T) {
 	if !slices.Equal(keys(refs), []string{testKey}) {
 		t.Errorf("ListReady = %v", keys(refs))
 	}
-	all, _ := tr.List(testProject, []string{"Ready"})
-	if !slices.Equal(keys(all), []string{testKey}) {
-		t.Errorf("List = %v", keys(all))
+}
+
+// List, в отличие от ListReady и ListExpired, архивные карточки отдаёт —
+// статус по колонке: иначе гейт зависимостей не увидел бы, что заархивированная
+// зависимость дошла до терминальной колонки (решение владельца 2026-09-29).
+// Удалённые не отдаёт никто.
+func TestListIncludesArchivedButNotDeleted(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.addTask(&fakeTask{ID: "archived", ColumnID: colReview, Timestamp: now.UnixMilli(), Archived: true})
+	fake.addTask(&fakeTask{ID: "deleted", ColumnID: colReview, Timestamp: now.UnixMilli(), Deleted: true})
+	all, err := tr.List(testProject, []string{"Ready", "Review"})
+	if err != nil || !slices.Equal(keys(all), []string{testKey, "archived"}) {
+		t.Fatalf("List = %v, %v", keys(all), err)
+	}
+	if all[1].Status != "Review" {
+		t.Errorf("статус архивной карточки = %q, ожидался статус её колонки", all[1].Status)
+	}
+}
+
+// Архивную карточку reaper не трогает: её не видно ни в выдаче, ни в ListExpired.
+func TestListExpiredSkipsArchived(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.addTask(&fakeTask{ID: "archived", ColumnID: colReview, Timestamp: now.UnixMilli(), Archived: true})
+	fake.setLease("archived", "run-dead", now.Add(-time.Minute))
+	fake.setLease(testKey, "run-dead", now.Add(-time.Minute))
+	refs, err := tr.ListExpired(testProject, now)
+	if err != nil || !slices.Equal(keys(refs), []string{testKey}) {
+		t.Errorf("ListExpired = %v, %v", keys(refs), err)
 	}
 }
 
@@ -226,5 +251,146 @@ func TestListDeduplicatesStatuses(t *testing.T) {
 	}
 	if n := fake.count("GET /api-v2/task-list"); n != 1 {
 		t.Errorf("колонка прочитана %d раз", n)
+	}
+}
+
+// logInto — Logf, который копит строки для проверки.
+func logInto(tr *Tracker) *[]string {
+	var lines []string
+	tr.Logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	return &lines
+}
+
+// Spec «One malformed task does not stop the queue»: листинги идут дальше,
+// пропущенная карточка — в Logf, а не молча.
+func TestListingsSkipCardWithUnreadableOfficeData(t *testing.T) {
+	for name, bad := range map[string]map[string]any{
+		"битые данные": officeAPIData(map[string]any{"attempts": "three"}),
+		"новая версия": officeAPIData(map[string]any{"v": 2}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr, fake := fixture(t)
+			lines := logInto(tr)
+			fake.addTask(&fakeTask{ID: "broken", ColumnID: colReady, Timestamp: now.UnixMilli(), APIData: bad})
+			fake.setLease(testKey, "run-dead", now.Add(-time.Minute))
+
+			ready, err := tr.ListReady(testProject, "Ready")
+			if err != nil || !slices.Equal(keys(ready), []string{testKey}) {
+				t.Errorf("ListReady = %v, %v", keys(ready), err)
+			}
+			all, err := tr.List(testProject, []string{"Ready"})
+			if err != nil || !slices.Equal(keys(all), []string{testKey}) {
+				t.Errorf("List = %v, %v", keys(all), err)
+			}
+			expired, err := tr.ListExpired(testProject, now)
+			if err != nil || !slices.Equal(keys(expired), []string{testKey}) {
+				t.Errorf("ListExpired = %v, %v", keys(expired), err)
+			}
+			if len(*lines) != 3 {
+				t.Fatalf("в Logf %d строк, ожидалось 3 (по одной на листинг): %q", len(*lines), *lines)
+			}
+			for _, line := range *lines {
+				if !strings.HasPrefix(line, "yougile: задача broken пропущена: ") {
+					t.Errorf("строка лога: %q", line)
+				}
+			}
+		})
+	}
+}
+
+// Logf — экспортированное поле, и обвязка может занулить его, отключая лог:
+// пропуск битой карточки не должен от этого паниковать ни в листинге, ни в
+// FindByMarker.
+func TestSkipSurvivesNilLogf(t *testing.T) {
+	tr, fake := fixture(t)
+	tr.Logf = nil
+	fake.addTask(&fakeTask{ID: "foreign", ColumnID: colReady, Timestamp: now.UnixMilli(), RawAPIData: "x"})
+	if refs, err := tr.FindByMarker(testProject, "m"); err != nil || len(refs) != 0 {
+		t.Errorf("FindByMarker = %v, %v", keys(refs), err)
+	}
+	fake.addTask(&fakeTask{ID: "broken", ColumnID: colReady, Timestamp: now.UnixMilli(),
+		APIData: officeAPIData(map[string]any{"v": 2})})
+	if ready, err := tr.ListReady(testProject, "Ready"); err != nil || !slices.Equal(keys(ready), []string{testKey}) {
+		t.Errorf("ListReady = %v, %v", keys(ready), err)
+	}
+}
+
+// Карточка вне графа — не «данные офиса»: её листинг не глотает (сюда она
+// попадает, только если сервер проигнорировал фильтр — tasksInColumn её
+// отсеет раньше, так что проверяем, что skip узкий, на toTask напрямую).
+func TestSkipIsOnlyForOfficeData(t *testing.T) {
+	tr, _ := fixture(t)
+	_, _, err := tr.toTask(taskDTO{ID: "x", ColumnID: colOutside})
+	if errors.Is(err, ErrOfficeData) {
+		t.Errorf("колонка вне графа выдана за ErrOfficeData: %v", err)
+	}
+}
+
+// Узость самого collect: любая другая ошибка toTask (здесь — колонка,
+// которой не сопоставлен статус) валит листинг громко и в Logf не уходит.
+// tasksInColumn отсеивает чужие колонки, поэтому расхождение карты колонок
+// и карты статусов создаём напрямую.
+func TestListingsFailLoudOnErrorsOtherThanOfficeData(t *testing.T) {
+	tr, _ := fixture(t)
+	lines := logInto(tr)
+	delete(tr.columnStatus, colReady)
+
+	_, err := tr.ListReady(testProject, "Ready")
+	if !errors.Is(err, ErrUnmappedColumn) {
+		t.Errorf("ListReady дал %v, ожидался ErrUnmappedColumn", err)
+	}
+	_, err = tr.List(testProject, []string{"Ready"})
+	if !errors.Is(err, ErrUnmappedColumn) {
+		t.Errorf("List дал %v, ожидался ErrUnmappedColumn", err)
+	}
+	if len(*lines) != 0 {
+		t.Errorf("чужая ошибка ушла в Logf: %q", *lines)
+	}
+}
+
+func TestOpenDefaultsLogf(t *testing.T) {
+	tr, _ := fixture(t)
+	if tr.Logf == nil {
+		t.Error("Logf по умолчанию не задан — записи о пропущенных карточках молча потерялись бы")
+	}
+}
+
+// Now — экспортированное поле, как Logf, и обвязка вправе его занулить:
+// вместо паники в захвате, очереди и проверке владения — часы по умолчанию.
+func TestNilNowFallsBackToWallClock(t *testing.T) {
+	tr, fake := fixture(t)
+	tr.Now = nil
+	fake.setLease(testKey, "run-old", time.Now().Add(-time.Minute))
+	if ready, err := tr.ListReady(testProject, "Ready"); err != nil || !slices.Equal(keys(ready), []string{testKey}) {
+		t.Errorf("ListReady = %v, %v", keys(ready), err)
+	}
+	req := claimReq("run-1")
+	req.LeaseUntil = time.Now().Add(30 * time.Minute)
+	if err := tr.Claim(req); err != nil {
+		t.Errorf("Claim: %v", err)
+	}
+	if err := tr.Release(testKey, tracker.ByRun("run-1")); err != nil {
+		t.Errorf("Release: %v", err)
+	}
+}
+
+// Гейт очерёдности (pipeline.UnmetDependencies) и runner ls читают TaskRef
+// из ListReady/List, а не Task из Get: зависимость обязана доехать до ref.
+func TestDependsOnReachesRefsAndGet(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].APIData = officeAPIData(map[string]any{"depends_on": []any{"task-base"}})
+	want := []string{"task-base"}
+
+	ready, err := tr.ListReady(testProject, "Ready")
+	if err != nil || len(ready) != 1 || !slices.Equal(ready[0].DependsOn, want) {
+		t.Errorf("ListReady: %+v, %v", ready, err)
+	}
+	all, err := tr.List(testProject, []string{"Ready"})
+	if err != nil || len(all) != 1 || !slices.Equal(all[0].DependsOn, want) {
+		t.Errorf("List: %+v, %v", all, err)
+	}
+	task, err := tr.Get(testKey)
+	if err != nil || !slices.Equal(task.DependsOn, want) {
+		t.Errorf("Get: %+v, %v", task.DependsOn, err)
 	}
 }

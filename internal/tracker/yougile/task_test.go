@@ -15,10 +15,10 @@ import (
 func TestGetMapsColumnAndAPIData(t *testing.T) {
 	tr, fake := fixture(t)
 	until := now.Add(30 * time.Minute)
-	fake.tasks[testKey].APIData = map[string]any{
+	fake.tasks[testKey].APIData = officeAPIData(map[string]any{
 		"lease":    map[string]any{"owner": "implementer", "run_id": "run-1", "lease_until": until.Format(time.RFC3339Nano)},
 		"attempts": 2, "human_wait": true, "labels": []any{"m-1"},
-	}
+	})
 
 	task, err := tr.Get(testKey)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestGetTaskInUnmappedColumnFails(t *testing.T) {
 
 func TestGetMalformedAPIDataNamesTask(t *testing.T) {
 	tr, fake := fixture(t)
-	fake.tasks[testKey].APIData = map[string]any{"lease": "garbage"}
+	fake.tasks[testKey].APIData = officeAPIData(map[string]any{"lease": "garbage"})
 	_, err := tr.Get(testKey)
 	if err == nil || !strings.Contains(err.Error(), testKey) {
 		t.Errorf("битый apiData дал %v, ожидалась ошибка с ключом задачи", err)
@@ -135,7 +135,7 @@ func TestCreateTaskPostsIntoCreateColumn(t *testing.T) {
 	if body["title"] != "Child" || body["description"] != "prose\n\nparent verbatim" || body["columnId"] != colReady {
 		t.Errorf("тело POST: %#v", body)
 	}
-	labels := body["apiData"].(map[string]any)["labels"]
+	labels := body["apiData"].(map[string]any)[keyNamespace].(map[string]any)["labels"]
 	if !reflect.DeepEqual(labels, []any{"split:VO-1:a"}) {
 		t.Errorf("метки в apiData: %#v", labels)
 	}
@@ -326,5 +326,61 @@ func TestWhoamiSeedsAuthorCache(t *testing.T) {
 	}
 	if n := fake.count("GET /api-v2/users/" + officeUserID); n != 0 {
 		t.Errorf("автор-офис запрошен %d раз", n)
+	}
+}
+
+// Файл, прикреплённый человеком в чат, и ссылка в описании — вложения
+// задачи, по порядку: описание, потом чат.
+func TestGetListsAttachmentsFromDescriptionAndChat(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].Description = `<p><a href="https://ru.yougile.com/user-data/` + uuid1 +
+		`/%D0%A2%D0%97.pdf?previews[]=x">ТЗ.pdf</a></p>`
+	fake.messages[testKey] = []fakeMessage{
+		{ID: 1000, From: humanUserID, Text: "/root/#file:/user-data/" + uuid2 + "/%25D1%2581%25D1%2585%25D0%25B5%25D0%25BC%25D0%25B0.png"},
+	}
+	task, err := tr.Get(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []tracker.AttachmentRef{{ID: uuid1, Name: "ТЗ.pdf"}, {ID: uuid2, Name: "схема.png"}}
+	if !reflect.DeepEqual(task.Attachments, want) {
+		t.Errorf("Attachments = %+v, ожидалось %+v", task.Attachments, want)
+	}
+}
+
+// Сообщение-файл остаётся в переписке — ответ файлом тоже ответ, — но
+// телом «[вложение: имя]», а не сырой служебной строкой.
+func TestGetRendersFileMessageAsAttachmentComment(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.messages[testKey] = []fakeMessage{
+		{ID: 1000, From: officeUserID, Text: "[office run:r1 role:analyst outcome:question]\n## Вопросы\n1. Где ТЗ?"},
+		{ID: 2000, From: humanUserID, Text: "/root/#file:/user-data/" + uuid1 + "/%25D0%25A2%25D0%2597.txt"},
+	}
+	task, err := tr.Get(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(task.Comments) != 2 || task.Comments[1].Body != "[вложение: ТЗ.txt]" || task.Comments[1].Author != "human@example.com" {
+		t.Fatalf("переписка: %+v", task.Comments)
+	}
+	reply, _, found := tracker.HumanReply(task.Comments, []string{"office@example.com"})
+	if !found || reply.ID != "2000" {
+		t.Errorf("ответ человека файлом не засчитан: %+v, %v", reply, found)
+	}
+}
+
+// Удалённое сообщение-файл не даёт ни вложения, ни реплики: фильтр живёт
+// в chat(), до fileLinks и comments.
+func TestGetDeletedChatFileMessageYieldsNoAttachmentNoComment(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.messages[testKey] = []fakeMessage{
+		{ID: 1000, From: humanUserID, Text: "/root/#file:/user-data/" + uuid1 + "/a.txt", Deleted: true},
+	}
+	task, err := tr.Get(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(task.Attachments) != 0 || len(task.Comments) != 0 {
+		t.Errorf("Attachments = %+v, Comments = %+v; ожидались пустые", task.Attachments, task.Comments)
 	}
 }

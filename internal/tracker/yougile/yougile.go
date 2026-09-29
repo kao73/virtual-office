@@ -11,12 +11,15 @@
 // имеет (docs/openspec/changes/archive/2026-09-28-yougile-adapter-core/design.md,
 // Decisions; дальше просто «design.md»).
 //
-// Аренда, счётчик попыток, флаг «ждёт человека» и метки живут в apiData
-// задачи — свободном JSON-поле (lease.go).
+// Всё своё офис хранит в apiData задачи — свободном JSON-поле — под одним
+// ключом virtual_office (lease.go): аренда, счётчик попыток, флаг «ждёт
+// человека», метки и зависимости. Остальные ключи apiData — чужие и
+// переписываются как были (docs/superpowers/specs/2026-09-29-yougile-dependencies-attachments-design.md, §2).
 //
-// Пакет пока не реализует tracker.Tracker целиком: LinkDependsOn и вложения
-// добавит yougile-dependencies-attachments, и только тогда здесь появится
-// проверка `var _ tracker.Tracker = (*Tracker)(nil)`.
+// Зависимость — id в virtual_office.depends_on плюс заметка в чате задачи:
+// своей связи между задачами у YouGile нет (depends.go). Вложения живут
+// там, куда их кладёт интерфейс, — сообщением-файлом в чате и ссылкой в
+// описании; скачиваются клиентом без ключа API (attachment.go).
 package yougile
 
 import (
@@ -25,7 +28,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"slices"
@@ -72,6 +77,11 @@ type Config struct {
 type Tracker struct {
 	cfg    Config
 	client *http.Client
+	// files — клиент для скачивания вложений: без ключа API и с узкой
+	// политикой перенаправлений (newFileClient). Клиент API сюда не годится:
+	// net/http переносит Authorization на перенаправление в поддомен, а
+	// хранилище prod-user-data.yougile.com — поддомен yougile.com.
+	files *http.Client
 
 	// columnStatus — обратная карта ColumnIDs: id колонки → статус графа.
 	columnStatus map[string]string
@@ -81,8 +91,70 @@ type Tracker struct {
 	mu    sync.Mutex
 	users map[string]string // id пользователя → email, кэш авторов комментариев
 
-	// Now — часы раннера: аренду сверяем ими, а не серверными.
+	// Now — часы раннера: аренду сверяем ими, а не серверными. nil —
+	// time.Now.
 	Now func() time.Time
+	// Logf — куда адаптер сообщает о том, что стерпел, а не вернул ошибкой:
+	// листинги (status.go, collect) и FindByMarker (comment.go) пропускают
+	// карточку с нечитаемыми данными. По умолчанию log.Printf;
+	// yougile-wiring-and-docs направит его в лог раннера. nil — лог выключен.
+	Logf func(format string, args ...any)
+}
+
+// now и logf — доступ к экспортированным полям Now и Logf: обвязка вправе их
+// занулить, и адаптер от этого паниковать не должен.
+func (t *Tracker) now() time.Time {
+	if t.Now == nil {
+		return time.Now()
+	}
+	return t.Now()
+}
+
+func (t *Tracker) logf(format string, args ...any) {
+	if t.Logf != nil {
+		t.Logf(format, args...)
+	}
+}
+
+// Tracker реализует контракт целиком.
+var _ tracker.Tracker = (*Tracker)(nil)
+
+// maxFileRedirects — сколько перенаправлений разрешено скачиванию файла:
+// /user-data/… на хосте API отвечает одним 302 в хранилище, пять — с запасом.
+const maxFileRedirects = 5
+
+// newFileClient — клиент скачивания вложений. Заголовков по умолчанию нет,
+// ключа API он не знает. Перенаправление — только на ту же схему и на хост
+// BaseURL или его поддомен, не больше maxFileRedirects переходов.
+func newFileClient(base *url.URL) *http.Client {
+	return &http.Client{
+		Timeout: 60 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > maxFileRedirects {
+				return fmt.Errorf("больше %d перенаправлений", maxFileRedirects)
+			}
+			if !fileHostAllowed(base, req.URL) {
+				return fmt.Errorf("перенаправление на %s://%s не разрешено: файлы берём только с %s и его поддоменов",
+					req.URL.Scheme, req.URL.Host, base.Hostname())
+			}
+			req.Header.Del("Authorization") // второй заслон: его и так никто не ставит
+			return nil
+		},
+	}
+}
+
+// fileHostAllowed — та же схема, что у BaseURL, и хост BaseURL или его
+// поддомен; порт не сравнивается. Пустой хост BaseURL не разрешает ничего:
+// иначе суффикс "." пропустил бы любой полностью квалифицированный хост.
+func fileHostAllowed(base, target *url.URL) bool {
+	if !strings.EqualFold(target.Scheme, base.Scheme) {
+		return false
+	}
+	host, root := strings.ToLower(target.Hostname()), strings.ToLower(base.Hostname())
+	if root == "" {
+		return false
+	}
+	return host == root || strings.HasSuffix(host, "."+root)
 }
 
 // Open готовит трекер: проверяет конфигурацию и ничего на сервере не создаёт.
@@ -137,9 +209,11 @@ func Open(cfg Config) (*Tracker, error) {
 	t := &Tracker{
 		cfg:          cfg,
 		client:       &http.Client{Timeout: 30 * time.Second},
+		files:        newFileClient(base),
 		columnStatus: columnStatus,
 		users:        map[string]string{},
 		Now:          time.Now,
+		Logf:         log.Printf,
 	}
 	if err := t.loadColumns(); err != nil {
 		return nil, err
@@ -161,14 +235,20 @@ func (t *Tracker) checkProject(project string) error {
 // ошибки: YouGile объясняет отказ в нём.
 func (t *Tracker) call(method, path string, query url.Values, in, out any) error {
 	var body io.Reader
+	contentType := ""
 	if in != nil {
 		raw, err := json.Marshal(in)
 		if err != nil {
 			return fmt.Errorf("запрос не сериализован: %w", err)
 		}
-		body = bytes.NewReader(raw)
+		body, contentType = bytes.NewReader(raw), "application/json"
 	}
+	return t.send(method, path, query, body, contentType, out)
+}
 
+// send — один запрос к API с готовым телом. Тело ответа при ошибке попадает
+// в текст ошибки: YouGile объясняет отказ в нём.
+func (t *Tracker) send(method, path string, query url.Values, body io.Reader, contentType string, out any) error {
 	target := t.cfg.BaseURL + apiPrefix + path
 	if len(query) > 0 {
 		target += "?" + query.Encode()
@@ -179,8 +259,8 @@ func (t *Tracker) call(method, path string, query url.Values, in, out any) error
 	}
 	req.Header.Set("Authorization", "Bearer "+t.cfg.APIKey)
 	req.Header.Set("Accept", "application/json")
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	resp, err := t.client.Do(req)
@@ -210,6 +290,30 @@ func (t *Tracker) call(method, path string, query url.Values, in, out any) error
 		return fmt.Errorf("%s %s: ответ не разобран: %w\n%s", method, path, err, snippet(raw))
 	}
 	return nil
+}
+
+// upload — POST /upload-file: один файл multipart-полем file. Отдаёт url
+// из ответа — /user-data/<uuid>/<имя>. Ключ и ошибки — как у call.
+func (t *Tracker) upload(name string, data []byte) (string, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("file", name)
+	if err != nil {
+		return "", fmt.Errorf("вложение %q не упаковано: %w", name, err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return "", fmt.Errorf("вложение %q не упаковано: %w", name, err)
+	}
+	if err := w.Close(); err != nil {
+		return "", fmt.Errorf("вложение %q не упаковано: %w", name, err)
+	}
+	var out struct {
+		URL string `json:"url"`
+	}
+	if err := t.send(http.MethodPost, "/upload-file", nil, &buf, w.FormDataContentType(), &out); err != nil {
+		return "", err
+	}
+	return out.URL, nil
 }
 
 // statusError различает беды, которые лечатся по-разному. Ключ API сюда

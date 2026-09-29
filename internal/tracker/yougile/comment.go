@@ -23,33 +23,47 @@ type messageDTO struct {
 	Deleted    bool    `json:"deleted"`
 }
 
-// comments — переписка задачи от старых к новым. Чат задачи в YouGile
-// адресуется id самой задачи. Порядок сервера не обещан — сортируем сами.
+// chat — сообщения чата задачи от старых к новым, без удалённых. Чат задачи
+// в YouGile адресуется id самой задачи. Порядок сервера не обещан — сортируем
+// сами. Авторов не разрешает: вложениям (GetAttachment) они не нужны.
 //
 // Системные сообщения (перенос карточки, смена исполнителя) — не реплики:
 // попади они сюда, tracker.HumanReply принял бы их за ответ человека. API
 // по умолчанию их не отдаёт; includeSystem=false — явно, чтобы не зависеть
 // от умолчания.
-func (t *Tracker) comments(key string) ([]tracker.Comment, error) {
+func (t *Tracker) chat(key string) ([]messageDTO, error) {
 	msgs, err := listAll[messageDTO](t, "/chats/"+url.PathEscape(key)+"/messages",
 		url.Values{"includeSystem": {"false"}})
 	if err != nil {
 		return nil, err
 	}
 	slices.SortStableFunc(msgs, func(a, b messageDTO) int { return cmp.Compare(a.ID, b.ID) })
+	live := msgs[:0]
+	for _, m := range msgs {
+		if !m.Deleted {
+			live = append(live, m)
+		}
+	}
+	return live, nil
+}
 
+// comments — переписка в модели раннера, с email'ами авторов. Сообщение-файл
+// остаётся репликой (ответ человека файлом — тоже ответ), но телом
+// «[вложение: имя]», а не служебной строкой /root/#file:….
+func (t *Tracker) comments(msgs []messageDTO) ([]tracker.Comment, error) {
 	comments := make([]tracker.Comment, 0, len(msgs))
 	for _, m := range msgs {
-		if m.Deleted {
-			continue
-		}
 		author, err := t.userEmail(m.FromUserID)
 		if err != nil {
 			return nil, err
 		}
+		body := m.Text
+		if link, ok := chatFileLink(m.Text); ok {
+			body = "[вложение: " + link.Name + "]"
+		}
 		ms := int64(m.ID)
 		comments = append(comments, tracker.Comment{
-			ID: strconv.FormatInt(ms, 10), Author: author, Created: time.UnixMilli(ms).UTC(), Body: m.Text,
+			ID: strconv.FormatInt(ms, 10), Author: author, Created: time.UnixMilli(ms).UTC(), Body: body,
 		})
 	}
 	return comments, nil
@@ -97,8 +111,13 @@ func (t *Tracker) Comment(key string, by tracker.Actor, body string) error {
 	if _, _, err := t.owned(key, by); err != nil {
 		return err
 	}
+	return t.postChat(key, body, messageHTML(body))
+}
+
+// postChat — сообщение в чат задачи. Право на запись проверяет вызывающий.
+func (t *Tracker) postChat(key, text, textHTML string) error {
 	return t.call(http.MethodPost, "/chats/"+url.PathEscape(key)+"/messages", nil,
-		map[string]any{"text": body, "textHtml": messageHTML(body), "label": ""}, nil)
+		map[string]any{"text": text, "textHtml": textHTML, "label": ""}, nil)
 }
 
 // messageHTML — текст комментария как безопасный HTML.
@@ -114,6 +133,10 @@ func messageHTML(body string) string {
 // выглядел бы «не найденным» и был бы создан заново. Такая находка — громкая
 // ошибка ErrUnmappedColumn: статус для неё не выдумываем.
 //
+// Карточка, у которой apiData верхнего уровня не объект, пропускается с
+// записью в Logf: virtual_office в ней нет. Битый или новый virtual_office —
+// громкая ErrOfficeData.
+//
 // Обход не полный, и это принято (tasks.md, Build review notes): колонки
 // берутся из снимка на Open — заведённых позже он не видит, — а архивные
 // задачи отсеивает tasksInColumn. Такого ребёнка страхует только
@@ -124,12 +147,20 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 	}
 	var found []taskDTO
 	for _, column := range t.columns {
-		tasks, err := t.tasksInColumn(column)
+		tasks, err := t.tasksInColumn(column, false)
 		if err != nil {
 			return nil, err
 		}
 		for _, raw := range tasks {
 			data, err := decodeAPIData(raw.APIData)
+			if errors.Is(err, errAPIDataNotObject) {
+				// Чужие данные без virtual_office: метки там нет, а падать из-за
+				// них на весь проект незачем. Битый же virtual_office — громко:
+				// пропусти мы своего испорченного ребёнка, ensureChildren завёл
+				// бы дубль.
+				t.logf("yougile: задача %s пропущена: %v", raw.ID, err)
+				continue
+			}
 			if err != nil {
 				return nil, fmt.Errorf("задача YouGile %s: %w", raw.ID, err)
 			}

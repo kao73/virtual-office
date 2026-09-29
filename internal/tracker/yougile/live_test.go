@@ -7,11 +7,17 @@
 //	YOUGILE_COLUMNS='Ready=<id>,InProgress=<id>' \
 //	go test -tags yougile_live -run TestLive -count=1 -v ./internal/tracker/yougile/
 //
-// Запросов ~25 — под rate limit 50/мин на компанию; два запуска подряд
-// могут в него упереться.
+// Запросов ~25 на TestLiveLifecycle и ~30 на TestLiveDependenciesAndAttachments
+// — под rate limit 50/мин на компанию только поодиночке: гоняй их -run по
+// одному или с минутой между ними.
+//
+// Скачивание вложения уходит 302 на prod-user-data.yougile.com
+// (111.88.104.34) — отдельный от API хост; на этой машине ему нужна своя
+// запись split tunnel в AmneziaVPN, иначе round-trip упадёт по сети.
 package yougile
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"slices"
@@ -19,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kao73/virtual-office/internal/pipeline"
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
@@ -165,5 +172,92 @@ func TestLiveLifecycle(t *testing.T) {
 	ready, err := tr.ListReady(project, "InProgress")
 	if err != nil || !slices.ContainsFunc(ready, func(r tracker.TaskRef) bool { return r.Key == first.Key }) {
 		t.Errorf("ListReady(InProgress) не видит освобождённую задачу: %v", err)
+	}
+}
+
+func TestLiveDependenciesAndAttachments(t *testing.T) {
+	tr := liveTracker(t)
+	project := tr.cfg.ProjectID
+	stamp := time.Now().UTC().Format("20060102T150405.000")
+
+	create := func(summary string) tracker.TaskRef {
+		t.Helper()
+		ref, err := tr.CreateTask(project, tracker.TaskInput{Summary: summary + " " + stamp,
+			Labels: []string{"office-live:" + summary + ":" + stamp}})
+		if err != nil {
+			t.Fatalf("CreateTask %s: %v", summary, err)
+		}
+		t.Cleanup(func() { _ = tr.putTask(ref.Key, map[string]any{"deleted": true}) })
+		return ref
+	}
+	base, child := create("office live dep base"), create("office live dep child")
+
+	// Связь: запись, повтор — no-op, видна в ref'ах ListReady и в чате.
+	for range 2 {
+		if err := tr.LinkDependsOn(child.Key, base.Key, tracker.BySystem()); err != nil {
+			t.Fatalf("LinkDependsOn: %v", err)
+		}
+	}
+	gate := func() []tracker.TaskRef {
+		t.Helper()
+		ready, err := tr.ListReady(project, "Ready")
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(ready, func(r tracker.TaskRef) bool { return r.Key == child.Key })
+		if i < 0 || !slices.Equal(ready[i].DependsOn, []string{base.Key}) {
+			t.Fatalf("ListReady не видит связь у %s: %+v", child.Key, ready)
+		}
+		all, err := tr.List(project, []string{"Ready", "InProgress"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pipeline.UnmetDependencies(ready[i], pipeline.ByKey(all), func(s string) bool { return s == "InProgress" })
+	}
+	if unmet := gate(); len(unmet) != 1 {
+		t.Errorf("пока база в Ready, гейт видит %+v", unmet)
+	}
+	if err := tr.Transition(base.Key, tracker.BySystem(), "InProgress"); err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+	if unmet := gate(); len(unmet) != 0 {
+		t.Errorf("база «закрыта», а гейт держит: %+v", unmet)
+	}
+	task, err := tr.Get(child.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := 0
+	for _, c := range task.Comments {
+		if strings.HasPrefix(c.Body, "Зависит от: ") {
+			notes++
+		}
+	}
+	if notes != 1 {
+		t.Errorf("заметок о зависимости %d, ожидалась одна: %+v", notes, task.Comments)
+	}
+
+	// Вложение: загрузка → сообщение-файл → байт в байт обратно. Имя —
+	// кириллица с пробелом: единственная живая проверка, что не-ASCII имя
+	// в multipart доживает до сервера.
+	data := append([]byte("office live attachment "+stamp+"\n"), 0, 0xff)
+	name := "отчёт split.json"
+	id, err := tr.AddAttachment(child.Key, tracker.BySystem(), name, data)
+	if err != nil {
+		t.Fatalf("AddAttachment: %v", err)
+	}
+	task, err = tr.Get(child.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(task.Attachments, tracker.AttachmentRef{ID: id, Name: name}) {
+		t.Errorf("вложение не среди Attachments: %+v", task.Attachments)
+	}
+	back, err := tr.GetAttachment(child.Key, id)
+	if err != nil {
+		t.Fatalf("GetAttachment: %v (сеть до prod-user-data.yougile.com? см. шапку файла)", err)
+	}
+	if !bytes.Equal(back, data) {
+		t.Errorf("байты не совпали: %q против %q", back, data)
 	}
 }

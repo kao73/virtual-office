@@ -71,8 +71,10 @@ type Task struct {
 	Status      string
 	Labels      []string
 	// DependsOn — ключи задач, от которых зависит эта. Пишется
-	// LinkDependsOn, читается обратно через Get/List/ListReady на обеих
-	// реализациях: mock хранит и читает то же поле, jira разбирает
+	// LinkDependsOn, читается обратно через Get/List/ListReady на всех
+	// реализациях: mock хранит и читает то же поле, yougile — список id
+	// в apiData.virtual_office.depends_on (toTask кладёт его в DependsOn,
+	// так что ссылки из List/ListReady его несут), jira разбирает
 	// issuelinks в toTask (см. его доккомент про направление
 	// outward/inward) и запрашивает это поле явно в searchFields() —
 	// без него List/ListReady отдавали бы пустой DependsOn даже при
@@ -338,12 +340,14 @@ type Tracker interface {
 	// что reap и разбор ответа человека используют для мутаций вне аренды
 	// какой-либо роли.
 	//
-	// Записанную связь последующий Get(key).DependsOn возвращает на обеих
-	// реализациях: mock хранит то же поле, jira разбирает issuelinks
-	// в toTask — см. доккомент Task.DependsOn.
+	// Записанную связь последующий Get(key).DependsOn возвращает на всех
+	// реализациях: mock хранит то же поле, yougile — depends_on в apiData,
+	// jira разбирает issuelinks в toTask — см. доккомент Task.DependsOn.
+	// yougile перед записью кладёт в чат задачи видимую человеку заметку
+	// «Зависит от: …», а на несуществующую зависимость отвечает ErrNotFound.
 	//
 	// А вот идемпотентность повторной записи реализациями не одинакова:
-	// mock сверяется с уже записанным сам, jira полагается на серверную
+	// mock и yougile сверяются с уже записанным списком сами, jira полагается на серверную
 	// дедупликацию POST /issueLink (проверено эмпирически, не обещано
 	// контрактом REST API). Вызывающему, которому цена повтора важна,
 	// стоит сверяться с Get(key).DependsOn до вызова — так делает

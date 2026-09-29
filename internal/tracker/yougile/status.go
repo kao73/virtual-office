@@ -85,18 +85,20 @@ func (t *Tracker) columnFor(status string) (string, error) {
 	return id, nil
 }
 
-// tasksInColumn — живые задачи колонки, фильтр по columnId — на сервере.
-// Архивные и удалённые отбрасываются: архивная карточка в колонке Done не
-// должна снова стать кандидатом. Сверка columnId — страховка на случай,
+// tasksInColumn — задачи колонки, фильтр по columnId — на сервере.
+// Удалённые отбрасываются всегда. Архивные — если не просили withArchived:
+// архивная карточка в колонке Done не должна снова стать кандидатом, но List
+// её отдаёт — иначе гейт зависимостей не увидел бы, что заархивированная
+// зависимость закрыта (design doc §2). Сверка columnId — страховка на случай,
 // если сервер фильтр проигнорирует.
-func (t *Tracker) tasksInColumn(columnID string) ([]taskDTO, error) {
+func (t *Tracker) tasksInColumn(columnID string, withArchived bool) ([]taskDTO, error) {
 	all, err := listAll[taskDTO](t, "/task-list", url.Values{"columnId": {columnID}})
 	if err != nil {
 		return nil, err
 	}
 	live := all[:0]
 	for _, task := range all {
-		if task.Deleted || task.Archived || task.ColumnID != columnID {
+		if task.Deleted || (task.Archived && !withArchived) || task.ColumnID != columnID {
 			continue
 		}
 		live = append(live, task)
@@ -112,10 +114,12 @@ func byCreation(a, b taskDTO) int {
 
 // collect — задачи названных колонок, от старых к новым (FIFO: приоритета
 // в YouGile нет, design.md Decisions), отфильтрованные keep.
-func (t *Tracker) collect(columnIDs []string, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
+// Карточка с нечитаемыми данными офиса (ErrOfficeData) пропускается с записью в Logf.
+// withArchived — как у tasksInColumn: только для List.
+func (t *Tracker) collect(columnIDs []string, withArchived bool, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
 	var raws []taskDTO
 	for _, id := range columnIDs {
-		tasks, err := t.tasksInColumn(id)
+		tasks, err := t.tasksInColumn(id, withArchived)
 		if err != nil {
 			return nil, err
 		}
@@ -126,6 +130,11 @@ func (t *Tracker) collect(columnIDs []string, keep func(tracker.Task) bool) ([]t
 	refs := make([]tracker.TaskRef, 0, len(raws))
 	for _, raw := range raws {
 		task, _, err := t.toTask(raw)
+		if errors.Is(err, ErrOfficeData) {
+			// Одна карточка не должна останавливать очередь колонки и reaper.
+			t.logf("yougile: задача %s пропущена: %v", raw.ID, err)
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -145,11 +154,15 @@ func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	return t.collect([]string{id}, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
+	return t.collect([]string{id}, false, func(task tracker.Task) bool { return !task.LeaseAlive(t.now()) })
 }
 
 // List — задачи названных статусов как есть, с живой арендой тоже: этот
 // список смотрит человек, и «кто работает сейчас» — первое, что он ищет.
+// Архивные карточки — тоже, со статусом их колонки: по List гейт захвата
+// (pipeline.UnmetDependencies) решает, закрыта ли зависимость, и архивная
+// зависимость в терминальной колонке иначе держала бы зависимую задачу
+// вечно. Удалённых нет.
 func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, error) {
 	if err := t.checkProject(project); err != nil {
 		return nil, err
@@ -167,7 +180,7 @@ func (t *Tracker) List(project string, statuses []string) ([]tracker.TaskRef, er
 		}
 		ids = append(ids, id)
 	}
-	return t.collect(ids, func(tracker.Task) bool { return true })
+	return t.collect(ids, true, func(tracker.Task) bool { return true })
 }
 
 // configuredColumns — колонки всех статусов графа, в стабильном порядке.
@@ -181,7 +194,7 @@ func (t *Tracker) ListExpired(project string, now time.Time) ([]tracker.TaskRef,
 	if err := t.checkProject(project); err != nil {
 		return nil, err
 	}
-	return t.collect(t.configuredColumns(), func(task tracker.Task) bool {
+	return t.collect(t.configuredColumns(), false, func(task tracker.Task) bool {
 		return task.RunID != "" && !task.LeaseAlive(now)
 	})
 }
