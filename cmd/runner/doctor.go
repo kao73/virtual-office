@@ -38,6 +38,7 @@ import (
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/jira"
 	"github.com/kao73/virtual-office/internal/tracker/yougile"
+	payload "github.com/kao73/virtual-office/office"
 )
 
 // finding — одна строка отчёта: что проверялось, чем кончилось, что сказать
@@ -299,11 +300,27 @@ func loadWorkingStatuses(o runner.Office, resolveErr error) (map[string]string, 
 
 // loadOfficeWorkflow — граф офиса (office.Root, не ${OFFICE_HOME}); отказ
 // резолва офиса отдаётся как есть.
+//
+// В режиме поставки ResolveOffice(Resolve{}) не распаковывает (Unpack:
+// false), и на свежем офисе, ещё ни разу не тикнувшем, office/<версия>/ на
+// диске нет. Это главный сценарий доктора — «поставили, ещё не тикали», — и
+// граф тогда берётся из самого бинарника: office/<версия>/ распаковывается
+// ровно из этой поставки, так что граф тот же, а на диск доктор не пишет
+// ничего. В режиме клона такой подмены нет: ResolveOffice существование
+// <root>/office не проверяет, и отсутствие графа там — настоящая пропажа.
 func loadOfficeWorkflow(o runner.Office, resolveErr error) (tracker.Workflow, error) {
 	if resolveErr != nil {
 		return tracker.Workflow{}, resolveErr
 	}
-	return tracker.LoadWorkflow(filepath.Join(o.Root, tracker.WorkflowFile))
+	w, err := tracker.LoadWorkflow(filepath.Join(o.Root, tracker.WorkflowFile))
+	if o.Source != runner.SourcePayload || !errors.Is(err, fs.ErrNotExist) {
+		return w, err
+	}
+	raw, err := fs.ReadFile(payload.Payload, tracker.WorkflowFile)
+	if err != nil {
+		return tracker.Workflow{}, fmt.Errorf("граф из поставки не прочитан: %w", err)
+	}
+	return tracker.ParseWorkflow(tracker.WorkflowFile+" из поставки бинарника", raw)
 }
 
 // checkWorkflow — обёртка над Tracker.CheckWorkflow для одной пары (проект,
@@ -393,14 +410,14 @@ func doctorCommand(args []string, out io.Writer) error {
 	if err != nil {
 		report(finding{"config:home", "fail", err.Error()})
 		report(finding{"skip:project-dependent", "warn",
-			"tool(comet)/forge/cred/JIRA-проверки пропущены: OFFICE_HOME не определён"})
+			"tool(comet)/forge/cred/JIRA/YouGile-проверки пропущены: OFFICE_HOME не определён"})
 		return concludeExit(out, findings)
 	}
 	projects, err := tracker.LoadProjects(filepath.Join(home, tracker.ProjectsLocalFile))
 	if err != nil {
 		report(finding{"config:projects.local.yaml", "fail", err.Error()})
 		report(finding{"skip:project-dependent", "warn",
-			"tool(comet)/forge/cred/JIRA-проверки пропущены: projects.local.yaml не загрузился"})
+			"tool(comet)/forge/cred/JIRA/YouGile-проверки пропущены: projects.local.yaml не загрузился"})
 		return concludeExit(out, findings)
 	}
 
@@ -516,22 +533,9 @@ func doctorJira(report func(finding), home string, projects tracker.Projects, of
 	workingStatuses, workflowErr := loadWorkingStatuses(office, officeErr)
 	for _, key := range jiraProjects.Keys() {
 		if workflowErr != nil {
-			// В режиме поставки ResolveOffice(Resolve{}) не распаковывает
-			// (Unpack: false) — на свежем офисе, ещё ни разу не тикнувшем,
-			// office/<версия>/workflow.yaml на диске просто нет, и это
-			// не беда графа, а «ещё нечего проверять». office.Source ==
-			// SourcePayload — обязательное условие: в режиме клона
-			// (OFFICE_CONFIG_ROOT) версий на диске не бывает вовсе,
-			// ResolveOffice существование <root>/office не проверяет, и
-			// тот же самый fs.ErrNotExist там означает настоящую пропажу
-			// графа, а не «ещё не распаковано» — то же самое введение в
-			// заблуждение, от которого уходим, только с другой стороны
-			// (регрессия внешнего ревью, круг 2).
-			msg := "проверка workflow пропущена: " + workflowErr.Error()
-			if office.Source == runner.SourcePayload && errors.Is(workflowErr, fs.ErrNotExist) {
-				msg = "проверка workflow пропущена: офис ещё не распакован (ни одного реального прогона не было)"
-			}
-			report(finding{"skip:workflow:" + key, "warn", msg})
+			// Нераспакованный офис поставки сюда не доходит: граф тогда
+			// берётся из бинарника (loadOfficeWorkflow).
+			report(finding{"skip:workflow:" + key, "warn", "проверка workflow пропущена: " + workflowErr.Error()})
 			continue
 		}
 		for _, role := range slices.Sorted(maps.Keys(workingStatuses)) {
@@ -541,37 +545,38 @@ func doctorJira(report func(finding), home string, projects tracker.Projects, of
 }
 
 // doctorYouGile — стадия 4: tracker-yougile.yaml и живой YouGile, только
-// когда хоть один проект назвал yougile. Порядок и каскад — Design Doc
-// yougile-wiring-and-docs, §5: файл → переменная с ключом → Open (проект
-// и колонки) → Whoami. В YouGile доктор только читает: Open и Whoami — GET.
+// когда хоть один проект назвал yougile. Каскад: файл → сверка колонок
+// с графом → переменная с ключом → Open (проект и колонки на сервере) →
+// Whoami (Design Doc yougile-wiring-and-docs, §5 и §9). В YouGile доктор
+// только читает: Open и Whoami — GET.
 func doctorYouGile(report func(finding), home string, projects tracker.Projects, office runner.Office, officeErr error) {
 	declared := projects.For("yougile")
 	if len(declared) == 0 {
 		return
 	}
 	configID := "config:" + yougile.TrackerFile
-	skipAll := func() {
-		report(finding{"skip:yougile", "warn", "cred/YouGile-проверки пропущены: " + yougile.TrackerFile + " не загрузился"})
+	skipAll := func(why string) {
+		report(finding{"skip:yougile", "warn", "cred/YouGile-проверки пропущены: " + yougile.TrackerFile + " " + why})
 	}
 	fc, key, err := youGileFile(filepath.Join(home, yougile.TrackerFile), declared)
 	if err != nil {
 		report(finding{configID, "fail", err.Error()})
-		skipAll()
+		skipAll("не загрузился")
 		return
 	}
-	// Покрытие графа колонками — тоже по локальным файлам, поэтому здесь.
-	// Граф не прочитан (офис не резолвится или ещё не распакован) — не беда
-	// файла, а непроверенное: warn, и дальше.
+	// Сверка колонок с графом — тоже по локальным файлам, поэтому здесь.
+	// Граф не прочитан (офис не резолвится, граф клона пропал или сломан) —
+	// не беда файла, а непроверенное: warn, и дальше.
 	switch workflow, wfErr := loadOfficeWorkflow(office, officeErr); {
 	case wfErr != nil:
-		report(finding{configID, "warn", fmt.Sprintf("проект %s; покрытие статусов графа колонками не проверено: %v", key, wfErr)})
+		report(finding{configID, "warn", fmt.Sprintf("проект %s; сверка колонок с графом не выполнена: %v", key, wfErr)})
 	default:
 		if err := youGileColumns(fc, key, workflow); err != nil {
 			report(finding{configID, "fail", err.Error()})
-			skipAll()
+			skipAll("расходится с графом офиса")
 			return
 		}
-		report(finding{configID, "ok", "проект " + key + ", колонка на каждый статус графа"})
+		report(finding{configID, "ok", "проект " + key + ", колонки сходятся с графом"})
 	}
 
 	skipChecks := func(why string) {

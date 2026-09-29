@@ -1190,13 +1190,12 @@ func TestCheckCredentialsNamesEachUnconfiguredRoleSeparately(t *testing.T) {
 	}
 }
 
-// TestDoctorWorkflowNotYetUnpackedNamesItClearlyNotRawPath — регрессия
-// внешнего ревью: на свежепоставленном офисе, который ни разу не тикнул,
-// ResolveOffice(Resolve{}) (Unpack: false) не распаковывает
-// office/<версия>/ — workflow.yaml там ещё нет, и человек в главном
-// сценарии команды («поставили офис, ещё не тикали») видел бы сырой путь
-// ОС вместо объяснения.
-func TestDoctorWorkflowNotYetUnpackedNamesItClearlyNotRawPath(t *testing.T) {
+// На свежепоставленном офисе, который ни разу не тикнул, ResolveOffice
+// (Resolve{}) не распаковывает office/<версия>/ — и граф берётся из самого
+// бинарника: проверка workflow идёт, а не пропускается, и на диск доктор
+// не пишет ничего. Раньше здесь был skip с объяснением «ещё не распакован» —
+// главный сценарий команды оставался без проверки графа.
+func TestDoctorFreshPayloadChecksWorkflowFromBinary(t *testing.T) {
 	withLookPath(t, "git", "claude", "comet")
 	server := httptest.NewServer(doctorJiraHandler(t))
 	t.Cleanup(server.Close)
@@ -1212,14 +1211,17 @@ func TestDoctorWorkflowNotYetUnpackedNamesItClearlyNotRawPath(t *testing.T) {
 
 	var out bytes.Buffer
 	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
-		t.Fatalf("нераспакованный офис не критичен сам по себе: %v\n%s", err, out.String())
+		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
 	}
 	printed := out.String()
-	if !strings.Contains(printed, "офис ещё не распакован") {
-		t.Errorf("сообщение не объясняет причину человеку:\n%s", printed)
+	if !strings.Contains(printed, findingPrefix("ok", "jira:workflow:VO:implementer")) {
+		t.Errorf("граф из поставки не проверен:\n%s", printed)
 	}
-	if strings.Contains(printed, "no such file or directory") {
-		t.Errorf("сырой путь ОС не должен был попасть в вывод:\n%s", printed)
+	if strings.Contains(printed, "skip:workflow") {
+		t.Errorf("проверка workflow пропущена на свежем офисе:\n%s", printed)
+	}
+	if _, err := os.Stat(filepath.Join(home, runner.OfficeDir)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("доктор распаковал офис: %v", err)
 	}
 }
 
@@ -1439,11 +1441,71 @@ func TestDoctorYouGileMissingColumnFailsConfig(t *testing.T) {
 	if !ok || !strings.Contains(msg, "Blocked") {
 		t.Errorf("config: не назвал Blocked: %q\n%s", msg, out.String())
 	}
-	if !strings.Contains(out.String(), findingPrefix("warn", "skip:yougile")) {
-		t.Errorf("нет skip:yougile:\n%s", out.String())
+	// Файл загрузился — skip говорит о расхождении с графом, а не «не загрузился».
+	if skip, ok := findingMessage(t, out.String(), "warn", "skip:yougile"); !ok || !strings.Contains(skip, "расходится с графом") {
+		t.Errorf("skip:yougile не назвал причину: %q\n%s", skip, out.String())
 	}
 	if len(requests()) != 0 {
 		t.Errorf("до отказа ушли запросы: %v", requests())
+	}
+}
+
+// Свежая установка из бинарника: граф ещё не распакован, но колонки всё равно
+// сверяются — с графом поставки. Иначе doctor сказал бы «ok» (warn) ровно
+// тому, чей первый tick откажет.
+func TestDoctorYouGileFreshPayloadChecksColumnsAgainstBinaryGraph(t *testing.T) {
+	withLookPath(t, "git", "claude", "comet")
+	url, requests := youGileServer(t, youGileOpts{})
+	home := payloadFixture(t, "v0.9.0")
+	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte(youGileProject), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	partial := maps.Clone(youGileColumnIDs)
+	delete(partial, "Blocked")
+	writeYouGileFile(t, home, trackerYouGileYAML(url, "SHOP", partial))
+	t.Setenv("YOUGILE_API_KEY", "секрет")
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err == nil {
+		t.Fatal("статус без колонки должен быть fatal и на свежем офисе")
+	}
+	msg, ok := findingMessage(t, out.String(), "fail", "config:tracker-yougile.yaml")
+	if !ok || !strings.Contains(msg, "Blocked") {
+		t.Errorf("config: не назвал Blocked: %q\n%s", msg, out.String())
+	}
+	if len(requests()) != 0 {
+		t.Errorf("до отказа ушли запросы: %v", requests())
+	}
+	if _, err := os.Stat(filepath.Join(home, runner.OfficeDir)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("доктор распаковал офис: %v", err)
+	}
+}
+
+// Всё, что видно из самого файла, doctor называет под config:, а не под
+// yougile:open, где это приняли бы за беду сервера.
+func TestDoctorYouGileLocalFileErrorsAreConfigFindings(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	home, requests := youGileFixture(t, youGileProject, youGileOpts{})
+	body := strings.Replace(trackerYouGileYAML("https://yougile.com/api-v2", "SHOP", youGileColumnIDs),
+		"    create_status: Backlog\n", "", 1)
+	writeYouGileFile(t, home, body)
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err == nil {
+		t.Fatal("битый файл должен быть fatal")
+	}
+	// Отказ многострочный (errors.Join): находка — первая строка, остальные
+	// нарушения идут следом в том же отчёте.
+	if _, ok := findingMessage(t, out.String(), "fail", "config:tracker-yougile.yaml"); !ok {
+		t.Fatalf("нет fail config:tracker-yougile.yaml:\n%s", out.String())
+	}
+	for _, want := range []string{"/api-v2", "create_status не задан"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("config: не назвал %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "yougile:open") || len(requests()) != 0 {
+		t.Errorf("дело дошло до сервера: %v\n%s", requests(), out.String())
 	}
 }
 

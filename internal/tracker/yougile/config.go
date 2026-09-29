@@ -77,39 +77,143 @@ func LoadConfig(path string) (FileConfig, error) {
 	if err := errors.Join(fc.validate()...); err != nil {
 		return FileConfig{}, fmt.Errorf("%s нарушает контракт: %w", path, err)
 	}
+	// Email нечувствителен к регистру, а сравнивают его с автором комментария
+	// строкой (slices.Contains в pipeline); userEmail и Whoami приводят свою
+	// сторону так же.
+	for i, email := range fc.AlsoAgents {
+		fc.AlsoAgents[i] = normEmail(email)
+	}
 	return fc, nil
 }
 
+// normEmail — email в форме, в которой его сравнивают: без пробелов по краям
+// и в нижнем регистре.
+func normEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
+
+// validate проверяет всё, что видно из самого файла, без графа и без сети:
+// doctor показывает эти отказы под config:, а не под yougile:open, где их
+// приняли бы за беду сервера. Open повторяет часть проверок — для тех, кто
+// собирает Config не из файла.
 func (fc FileConfig) validate() []error {
 	var errs []error
-	if fc.BaseURL == "" {
-		errs = append(errs, errors.New("base_url не задан: без адреса YouGile идти некуда (пример: https://yougile.com)"))
-	} else if u, err := url.Parse(fc.BaseURL); err == nil && strings.EqualFold(u.Hostname(), refusedHost) {
-		errs = append(errs, fmt.Errorf("base_url=%q: с %s вложения не скачаются — /user-data/ перенаправляет "+
-			"на prod-user-data.yougile.com, а это не поддомен %s; укажите https://yougile.com",
-			fc.BaseURL, refusedHost, refusedHost))
+	if err := validBaseURL(fc.BaseURL); err != nil {
+		errs = append(errs, err)
 	}
 	if fc.APIKeyEnv == "" {
 		errs = append(errs, errors.New("api_key_env не задан: в файле — имя переменной окружения с ключом API, не сам ключ"))
+	}
+	for i, email := range fc.AlsoAgents {
+		if normEmail(email) == "" {
+			errs = append(errs, fmt.Errorf("also_agents[%d] пуст: там ждут email учётки чужой автоматизации", i))
+		}
 	}
 	switch len(fc.Projects) {
 	case 0:
 		errs = append(errs, errors.New("projects пуст: опишите проект YouGile под его ключом из projects.local.yaml"))
 	case 1:
 		for key, p := range fc.Projects {
-			if p.ProjectID == "" {
-				errs = append(errs, fmt.Errorf("projects.%s.project_id не задан", key))
-			}
-			if len(p.Columns) == 0 {
-				errs = append(errs, fmt.Errorf("projects.%s.columns пуст: статус графа — это колонка, "+
-					"раннеру нужна карта статус → id колонки", key))
-			}
+			errs = append(errs, p.validate(key)...)
 		}
 	default:
 		errs = append(errs, fmt.Errorf("projects описывает %d проекта (%s): поддерживается один проект YouGile на раннер",
 			len(fc.Projects), strings.Join(slices.Sorted(maps.Keys(fc.Projects)), ", ")))
 	}
 	return errs
+}
+
+// validBaseURL — корень хоста с схемой, без /api-v2 и не ru.yougile.com.
+func validBaseURL(raw string) error {
+	if raw == "" {
+		return errors.New("base_url не задан: без адреса YouGile идти некуда (пример: https://yougile.com)")
+	}
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+		return fmt.Errorf("base_url=%q не разобран: %w", raw, err)
+	case u.Scheme == "" || u.Host == "":
+		return fmt.Errorf("base_url=%q: нет схемы или хоста (пример: https://yougile.com)", raw)
+	case strings.HasSuffix(strings.TrimRight(raw, "/"), apiPrefix):
+		return fmt.Errorf("base_url=%q: %s адаптер добавляет сам, укажите корень хоста (пример: https://yougile.com)", raw, apiPrefix)
+	// «ru.yougile.com.» с точкой на конце — тот же хост.
+	case strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), refusedHost):
+		return fmt.Errorf("base_url=%q: с %s вложения не скачаются — /user-data/ перенаправляет "+
+			"на prod-user-data.yougile.com, а это не поддомен %s; укажите https://yougile.com",
+			raw, refusedHost, refusedHost)
+	}
+	return nil
+}
+
+// validate — правила проекта, которые видны без графа: id проекта, колонки
+// с непустыми и несовпадающими id и create_status среди них. create_status
+// обязателен: без него офис не заведёт детей разбиения, и узнать об этом
+// посреди цикла, после двух подтверждений человека, — поздно.
+func (p ProjectConfig) validate(key string) []error {
+	var errs []error
+	if p.ProjectID == "" {
+		errs = append(errs, fmt.Errorf("projects.%s.project_id не задан", key))
+	}
+	if len(p.Columns) == 0 {
+		errs = append(errs, fmt.Errorf("projects.%s.columns пуст: статус графа — это колонка, "+
+			"раннеру нужна карта статус → id колонки", key))
+	}
+	owner := map[string]string{}
+	for _, status := range slices.Sorted(maps.Keys(p.Columns)) {
+		id := p.Columns[status]
+		switch before, taken := owner[id]; {
+		case id == "":
+			errs = append(errs, fmt.Errorf("projects.%s.columns.%s: пустой id колонки", key, status))
+		case taken:
+			errs = append(errs, fmt.Errorf("projects.%s.columns: колонка %q сопоставлена и с %s, и с %s — "+
+				"статус задачи в YouGile это её колонка, одна колонка на два статуса не годится", key, id, before, status))
+		default:
+			owner[id] = status
+		}
+	}
+	switch _, ok := p.Columns[p.CreateStatus]; {
+	case p.CreateStatus == "":
+		errs = append(errs, fmt.Errorf("projects.%s.create_status не задан: в колонку этого статуса офис "+
+			"кладёт детей разбиения (в образце — Backlog)", key))
+	case !ok:
+		errs = append(errs, fmt.Errorf("projects.%s.create_status=%q нет среди projects.%s.columns", key, p.CreateStatus, key))
+	}
+	return errs
+}
+
+// CheckGraph сверяет колонки проекта key с графом в обе стороны. У каждого
+// статуса графа есть колонка: статус задачи в YouGile — её колонка, и без
+// колонки для Backlog или Done задачу в таком статусе не прочтёт ни List, ни
+// доска. И каждый ключ columns — статус графа: колонка под лишним ключом
+// (опечатка, Todo) читалась бы со статусом, которого ни одна роль не берёт, и
+// задачи в ней — а при create_status на ней и дети разбиения — молча стояли
+// бы. Колонки вне графа в columns просто не пишут. Сверка локальная: сами
+// колонки на сервере проверяет Open.
+func (fc FileConfig) CheckGraph(key string, statuses []string) error {
+	columns := fc.Projects[key].Columns
+	var missing, unknown []string
+	for _, status := range statuses {
+		if columns[status] == "" {
+			missing = append(missing, status)
+		}
+	}
+	for _, status := range slices.Sorted(maps.Keys(columns)) {
+		if !slices.Contains(statuses, status) {
+			unknown = append(unknown, status)
+		}
+	}
+	var errs []error
+	if len(missing) > 0 {
+		errs = append(errs, fmt.Errorf("у статусов графа %s нет колонки в projects.%s.columns",
+			strings.Join(missing, ", "), key))
+	}
+	if len(unknown) > 0 {
+		errs = append(errs, fmt.Errorf("projects.%s.columns называет %s, а таких статусов в графе нет "+
+			"(статусы графа: %s); колонки вне графа в columns не пишут",
+			key, strings.Join(unknown, ", "), strings.Join(statuses, ", ")))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("%s: %w", TrackerFile, err)
+	}
+	return nil
 }
 
 // ProjectKey — ключ единственного проекта. Осмыслен после LoadConfig: тот

@@ -314,6 +314,23 @@ func TestGetAsksChatWithoutSystemMessages(t *testing.T) {
 }
 
 // Whoami уже знает id и email офиса — свои комментарии не стоят запроса к /users.
+// Email в YouGile может прийти в любом регистре, а also_agents и учётку
+// офиса сравнивают с автором строкой: обе стороны — в нижнем регистре.
+func TestAuthorAndWhoamiEmailsAreLowercased(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.users[officeUserID] = "Office@Example.com"
+	fake.users[humanUserID] = " Human@Example.COM "
+	fake.messages[testKey] = []fakeMessage{{ID: 1, From: humanUserID, Text: "вопрос"}}
+	who, err := tr.Whoami()
+	if err != nil || who != "office@example.com" {
+		t.Errorf("Whoami = %q, %v", who, err)
+	}
+	task, err := tr.Get(testKey)
+	if err != nil || task.Comments[0].Author != "human@example.com" {
+		t.Errorf("автор = %+v, %v", task.Comments, err)
+	}
+}
+
 func TestWhoamiSeedsAuthorCache(t *testing.T) {
 	tr, fake := fixture(t)
 	fake.messages[testKey] = []fakeMessage{{ID: 1, From: officeUserID, Text: "вопрос"}}

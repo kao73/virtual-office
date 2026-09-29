@@ -227,23 +227,10 @@ func youGileFile(path string, declared tracker.Projects) (yougile.FileConfig, st
 	return fc, key, nil
 }
 
-// youGileColumns — у каждого статуса графа есть колонка. Статус задачи
-// в YouGile — её колонка, и без колонки для Backlog или Done задачу в таком
-// статусе не прочтёт ни List, ни доска. Сверка локальная: сами колонки на
-// сервере проверяет Open.
+// youGileColumns — колонки проекта сверены с графом офиса в обе стороны
+// (FileConfig.CheckGraph).
 func youGileColumns(fc yougile.FileConfig, key string, workflow tracker.Workflow) error {
-	columns := fc.Projects[key].Columns
-	var missing []string
-	for _, status := range workflow.Statuses {
-		if columns[status] == "" {
-			missing = append(missing, status)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("%s: у статусов графа %s нет колонки в projects.%s.columns",
-			yougile.TrackerFile, strings.Join(missing, ", "), key)
-	}
-	return nil
+	return fc.CheckGraph(key, workflow.Statuses)
 }
 
 // openYouGile — YouGile по tracker-yougile.yaml. Учётка одна на всех: роли

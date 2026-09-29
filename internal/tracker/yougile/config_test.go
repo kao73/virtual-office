@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kao73/virtual-office/internal/tracker"
 )
 
 // validFile — tracker-yougile.yaml, который загрузчик обязан принять.
@@ -44,6 +46,49 @@ func TestLoadConfigReadsValidFile(t *testing.T) {
 	p := fc.Projects["SHOP"]
 	if p.ProjectID != "proj-1" || p.Columns["InProgress"] != "col-work" || p.CreateStatus != "Ready" {
 		t.Errorf("проект доехал не целиком: %+v", p)
+	}
+}
+
+// also_agents сравнивают с автором строкой, а тот приходит в нижнем регистре.
+func TestLoadConfigNormalizesAlsoAgents(t *testing.T) {
+	fc, err := LoadConfig(writeFile(t, strings.Replace(validFile, "[bot@example.com]", `[" Bot@Example.COM "]`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fc.AlsoAgents) != 1 || fc.AlsoAgents[0] != "bot@example.com" {
+		t.Errorf("also_agents = %q", fc.AlsoAgents)
+	}
+}
+
+func TestCheckGraph(t *testing.T) {
+	fc, err := LoadConfig(writeFile(t, validFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fc.CheckGraph("SHOP", []string{"InProgress", "Ready"}); err != nil {
+		t.Errorf("совпадающий граф отвергнут: %v", err)
+	}
+	cases := []struct {
+		name     string
+		statuses []string
+		want     []string
+	}{
+		{"статусу нет колонки", []string{"Ready", "InProgress", "Done"}, []string{"у статусов графа Done нет колонки"}},
+		{"колонка не из графа", []string{"Ready"}, []string{"называет InProgress", "таких статусов в графе нет"}},
+		{"обе стороны", []string{"Ready", "Done"}, []string{"Done нет колонки", "называет InProgress"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := fc.CheckGraph("SHOP", tc.statuses)
+			if err == nil {
+				t.Fatal("расхождение с графом принято")
+			}
+			for _, want := range append(tc.want, TrackerFile) {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("в отказе нет %q: %v", want, err)
+				}
+			}
+		})
 	}
 }
 
@@ -95,6 +140,14 @@ func TestLoadConfigRejectsBrokenFile(t *testing.T) {
 		{"нет project_id", strings.Replace(validFile, "    project_id: proj-1\n", "", 1), "projects.SHOP.project_id"},
 		{"пустые колонки", strings.Replace(validFile,
 			"    columns:\n      Ready: col-ready\n      InProgress: col-work\n", "    columns: {}\n", 1), "projects.SHOP.columns"},
+		{"base_url без схемы", strings.Replace(validFile, "https://yougile.com", "yougile.com", 1), "нет схемы или хоста"},
+		{"base_url с /api-v2", strings.Replace(validFile, "https://yougile.com", "https://yougile.com/api-v2/", 1), "/api-v2"},
+		{"ru. с точкой на конце", strings.Replace(validFile, "https://yougile.com", "https://ru.yougile.com.", 1), "вложения"},
+		{"пустой also_agents", strings.Replace(validFile, "[bot@example.com]", "[bot@example.com, \" \"]", 1), "also_agents[1]"},
+		{"нет create_status", strings.Replace(validFile, "    create_status: Ready\n", "", 1), "projects.SHOP.create_status не задан"},
+		{"create_status вне columns", strings.Replace(validFile, "create_status: Ready", "create_status: Backlog", 1), `create_status="Backlog"`},
+		{"пустой id колонки", strings.Replace(validFile, "InProgress: col-work", `InProgress: ""`, 1), "projects.SHOP.columns.InProgress"},
+		{"одна колонка на два статуса", strings.Replace(validFile, "InProgress: col-work", "InProgress: col-ready", 1), "и с InProgress, и с Ready"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -161,18 +214,22 @@ func TestFileConfigTrackerRejectsUnknownKey(t *testing.T) {
 	}
 }
 
-// Поставляемый образец обязан загружаться как есть: иначе первый же
-// человек, скопировавший его, получит отказ не про свои значения, а про
-// опечатку в образце. Покрытие графа тут не проверить — его сверяет раннер.
+// Поставляемый образец обязан загружаться как есть и сходиться с
+// поставляемым графом: иначе первый же человек, скопировавший его, получит
+// отказ не про свои значения, а про опечатку в образце или про статус,
+// добавленный в граф без колонки в образце.
 func TestShippedSampleLoads(t *testing.T) {
-	fc, err := LoadConfig(filepath.Join("..", "..", "..", "office", ExampleFile))
+	office := filepath.Join("..", "..", "..", "office")
+	fc, err := LoadConfig(filepath.Join(office, ExampleFile))
 	if err != nil {
 		t.Fatalf("образец %s не загружается: %v", ExampleFile, err)
 	}
-	for _, status := range []string{"Backlog", "Analysis", "Ready", "InProgress", "Review", "Approved", "Done", "Blocked"} {
-		if fc.Projects[fc.ProjectKey()].Columns[status] == "" {
-			t.Errorf("в образце нет колонки статуса %s", status)
-		}
+	workflow, err := tracker.LoadWorkflow(filepath.Join(office, tracker.WorkflowFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fc.CheckGraph(fc.ProjectKey(), workflow.Statuses); err != nil {
+		t.Errorf("образец расходится с графом: %v", err)
 	}
 	if fc.BaseURL != "https://yougile.com" {
 		t.Errorf("образец советует base_url %q, а годится только https://yougile.com", fc.BaseURL)

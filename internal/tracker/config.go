@@ -227,12 +227,22 @@ type HumanReplyRule struct {
 // LoadWorkflow читает и проверяет граф. Разбор строгий: неизвестное поле — ошибка,
 // а не молча забытая настройка.
 func LoadWorkflow(path string) (Workflow, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Workflow{}, fmt.Errorf("%s не прочитан: %w", path, err)
+	}
+	return ParseWorkflow(path, raw)
+}
+
+// ParseWorkflow — LoadWorkflow для графа, который уже прочитан, например из
+// поставки в бинарнике; name — чем назвать источник в отказе.
+func ParseWorkflow(name string, raw []byte) (Workflow, error) {
 	var w Workflow
-	if err := decodeStrict(path, &w); err != nil {
+	if err := decodeStrictBytes(name, raw, &w); err != nil {
 		return Workflow{}, err
 	}
 	if err := w.validate(); err != nil {
-		return Workflow{}, fmt.Errorf("%s нарушает контракт графа: %w", path, err)
+		return Workflow{}, fmt.Errorf("%s нарушает контракт графа: %w", name, err)
 	}
 	return w, nil
 }
@@ -814,6 +824,11 @@ func decodeStrict(path string, into any) error {
 	if err != nil {
 		return fmt.Errorf("%s не прочитан: %w", path, err)
 	}
+	return decodeStrictBytes(path, raw, into)
+}
+
+// decodeStrictBytes — decodeStrict для уже прочитанного; path — только имя в отказе.
+func decodeStrictBytes(path string, raw []byte, into any) error {
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	// Пустой документ — это io.EOF, и жаловаться на него здесь нечем: «не разобран:

@@ -551,7 +551,7 @@ func TestOfficesYouGileProjectWithoutFileIsRefused(t *testing.T) {
 
 // Все три трекера разом, без флага: три офиса по алфавиту, каждый со своими
 // проектами, хозяйство общее. Прочей машинерии офиса (доска, reap, loop)
-// правки не нужны — она видит yougile тем же namedOffice (tasks.md 2.2).
+// правки не нужны — она видит yougile тем же namedOffice.
 func TestOfficesServeAllThreeTrackers(t *testing.T) {
 	jiraFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/myself") {
@@ -671,9 +671,12 @@ func TestOpenYouGileRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Backlog остаётся: он create_status, и без него отказ был бы про другое.
 	partial := maps.Clone(youGileColumnIDs)
-	delete(partial, "Backlog")
+	delete(partial, "Ready")
 	delete(partial, "Done")
+	extra := maps.Clone(youGileColumnIDs)
+	extra["Todo"] = "col-todo"
 	cases := []struct {
 		name, projectsLocal, key string
 		columns                  map[string]string
@@ -682,7 +685,8 @@ func TestOpenYouGileRefusals(t *testing.T) {
 		{"ключи расходятся", youGileProject, "shop", youGileColumnIDs, []string{"SHOP", "shop"}},
 		{"два yougile-проекта", youGileProject + strings.Replace(youGileProject, "SHOP", "BLOG", 1), "SHOP", youGileColumnIDs,
 			[]string{"один проект YouGile на раннер", "BLOG", "SHOP"}},
-		{"статусу графа нет колонки", youGileProject, "SHOP", partial, []string{"Backlog", "Done"}},
+		{"статусу графа нет колонки", youGileProject, "SHOP", partial, []string{"Ready", "Done"}},
+		{"колонка под статусом не из графа", youGileProject, "SHOP", extra, []string{"Todo", "таких статусов в графе нет"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -703,11 +707,41 @@ func TestOpenYouGileRefusals(t *testing.T) {
 					t.Errorf("отказ не назвал %q: %v", want, err)
 				}
 			}
-			// Все три отказа — по локальным файлам, до сети.
+			// Все отказы — по локальным файлам, до сети.
 			if got := requests(); len(got) != 0 {
 				t.Errorf("до отказа ушли запросы: %v", got)
 			}
 		})
+	}
+}
+
+// Пустая переменная с ключом — обычное дело под планировщиком, который не
+// читает ~/.zshrc. Это отказ всей команды с именем переменной, а не строка
+// в логе, и до сети.
+func TestOfficesEmptyYouGileKeyRefusesWholeCommand(t *testing.T) {
+	_, requests := youGileFixture(t, mockProject+youGileProject, youGileOpts{})
+	t.Setenv("YOUGILE_API_KEY", "")
+	all, err := newOffices(flags("tick"), nil, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "YOUGILE_API_KEY") {
+		t.Fatalf("отказ не назвал переменную: %v", err)
+	}
+	if all != nil {
+		t.Error("при пустом ключе собран офис mock")
+	}
+	if got := requests(); len(got) != 0 {
+		t.Errorf("без ключа ушли запросы: %v", got)
+	}
+}
+
+// Проекта нет на сервере — Open отказал, и не стартует ни один офис.
+func TestOfficesYouGileOpenFailureRefusesWholeCommand(t *testing.T) {
+	youGileFixture(t, mockProject+youGileProject, youGileOpts{noProject: true})
+	all, err := newOffices(flags("tick"), nil, io.Discard)
+	if !errors.Is(err, tracker.ErrNoProject) {
+		t.Fatalf("отказ не про проект: %v", err)
+	}
+	if all != nil {
+		t.Error("при неоткрывшемся YouGile собран офис mock")
 	}
 }
 

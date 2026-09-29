@@ -411,14 +411,16 @@ func (t *Tracker) Whoami() (string, error) {
 	if err := t.call(http.MethodGet, "/users/me", nil, nil, &me); err != nil {
 		return "", err
 	}
-	if me.Email == "" {
+	if normEmail(me.Email) == "" {
 		return "", errors.New("yougile: /users/me не назвал email — сравнивать авторов комментариев не с чем")
 	}
+	// В форме userEmail: сравнение с авторами идёт строкой.
+	email := normEmail(me.Email)
 	// Свои комментарии в переписке есть почти всегда — автора уже знаем.
 	if me.ID != "" {
 		t.mu.Lock()
-		t.users[me.ID] = me.Email
+		t.users[me.ID] = email
 		t.mu.Unlock()
 	}
-	return me.Email, nil
+	return email, nil
 }
