@@ -111,7 +111,7 @@ func (t *Tracker) owned(key string, by tracker.Actor) (tracker.Task, apiData, er
 	if err != nil {
 		return tracker.Task{}, apiData{}, err
 	}
-	if err := tracker.CheckOwner(task, by, t.Now()); err != nil {
+	if err := tracker.CheckOwner(task, by, t.now()); err != nil {
 		return tracker.Task{}, apiData{}, err
 	}
 	return task, data, nil

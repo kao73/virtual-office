@@ -91,17 +91,25 @@ type Tracker struct {
 	mu    sync.Mutex
 	users map[string]string // id пользователя → email, кэш авторов комментариев
 
-	// Now — часы раннера: аренду сверяем ими, а не серверными.
+	// Now — часы раннера: аренду сверяем ими, а не серверными. nil —
+	// time.Now.
 	Now func() time.Time
 	// Logf — куда адаптер сообщает о том, что стерпел, а не вернул ошибкой:
-	// листинги пропускают карточку с нечитаемыми данными офиса (status.go,
-	// collect). По умолчанию log.Printf; yougile-wiring-and-docs направит
-	// его в лог раннера. nil — лог выключен.
+	// листинги (status.go, collect) и FindByMarker (comment.go) пропускают
+	// карточку с нечитаемыми данными. По умолчанию log.Printf;
+	// yougile-wiring-and-docs направит его в лог раннера. nil — лог выключен.
 	Logf func(format string, args ...any)
 }
 
-// logf пишет в Logf, если он задан: поле экспортировано, и обвязка вправе
-// его занулить — пропуск карточки от этого паниковать не должен.
+// now и logf — доступ к экспортированным полям Now и Logf: обвязка вправе их
+// занулить, и адаптер от этого паниковать не должен.
+func (t *Tracker) now() time.Time {
+	if t.Now == nil {
+		return time.Now()
+	}
+	return t.Now()
+}
+
 func (t *Tracker) logf(format string, args ...any) {
 	if t.Logf != nil {
 		t.Logf(format, args...)

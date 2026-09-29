@@ -182,7 +182,7 @@ func (t *Tracker) Claim(req tracker.ClaimRequest) error {
 	case task.Status != req.ExpectStatus:
 		return fmt.Errorf("%w: %s в статусе %q, а захват шёл из %q",
 			tracker.ErrClaimLost, req.Key, task.Status, req.ExpectStatus)
-	case task.LeaseAlive(t.Now()):
+	case task.LeaseAlive(t.now()):
 		return fmt.Errorf("%w: %s арендована прогоном %s до %s",
 			tracker.ErrClaimLost, req.Key, task.RunID, task.LeaseUntil.Format(time.RFC3339))
 	}

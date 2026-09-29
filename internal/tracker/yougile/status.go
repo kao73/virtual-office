@@ -154,7 +154,7 @@ func (t *Tracker) ListReady(project, status string) ([]tracker.TaskRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	return t.collect([]string{id}, false, func(task tracker.Task) bool { return !task.LeaseAlive(t.Now()) })
+	return t.collect([]string{id}, false, func(task tracker.Task) bool { return !task.LeaseAlive(t.now()) })
 }
 
 // List — задачи названных статусов как есть, с живой арендой тоже: этот

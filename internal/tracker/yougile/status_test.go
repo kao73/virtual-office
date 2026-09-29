@@ -351,7 +351,26 @@ func TestListingsFailLoudOnErrorsOtherThanOfficeData(t *testing.T) {
 func TestOpenDefaultsLogf(t *testing.T) {
 	tr, _ := fixture(t)
 	if tr.Logf == nil {
-		t.Error("Logf по умолчанию не задан — пропуск карточки упал бы паникой")
+		t.Error("Logf по умолчанию не задан — записи о пропущенных карточках молча потерялись бы")
+	}
+}
+
+// Now — экспортированное поле, как Logf, и обвязка вправе его занулить:
+// вместо паники в захвате, очереди и проверке владения — часы по умолчанию.
+func TestNilNowFallsBackToWallClock(t *testing.T) {
+	tr, fake := fixture(t)
+	tr.Now = nil
+	fake.setLease(testKey, "run-old", time.Now().Add(-time.Minute))
+	if ready, err := tr.ListReady(testProject, "Ready"); err != nil || !slices.Equal(keys(ready), []string{testKey}) {
+		t.Errorf("ListReady = %v, %v", keys(ready), err)
+	}
+	req := claimReq("run-1")
+	req.LeaseUntil = time.Now().Add(30 * time.Minute)
+	if err := tr.Claim(req); err != nil {
+		t.Errorf("Claim: %v", err)
+	}
+	if err := tr.Release(testKey, tracker.ByRun("run-1")); err != nil {
+		t.Errorf("Release: %v", err)
 	}
 }
 
