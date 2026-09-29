@@ -109,19 +109,19 @@ The five inputs most likely to bite a real user that the Design Doc's test list 
 
 ### Task 1: Check off the rebase items and record the reframing in tasks.md (tasks.md 1.1, 1.2)
 
-- [ ] Task 1 complete: Check off the rebase items and record the reframing in tasks.md (tasks.md 1.1, 1.2)
+- [x] Task 1 complete: Check off the rebase items and record the reframing in tasks.md (tasks.md 1.1, 1.2)
 
 **Files:**
 - Modify: `docs/openspec/changes/yougile-dependencies-attachments/tasks.md`
 
 **Interfaces:** none.
 
-- [ ] **Step 1: Confirm 1.1 is really satisfied**
+- [x] **Step 1: Confirm 1.1 is really satisfied**
 
 Run: `git merge-base --is-ancestor 69c5b89 HEAD && echo on-master && ls docs/openspec/changes/archive | grep yougile-adapter-core`
 Expected: `on-master` and `2026-09-28-yougile-adapter-core`. If either is missing, stop and report. Do not rebase yourself.
 
-- [ ] **Step 2: Edit tasks.md**
+- [x] **Step 2: Edit tasks.md**
 
 Tick 1.1 and 1.2, and add a one-line reason under each. Under 2.1, 3.1 and 3.4, add an indented reframing note without ticking them. The exact text to insert:
 
@@ -146,7 +146,7 @@ Under `- [ ] 3.4 …`:
       _Reframed (Design Doc §1, §7): stability already confirmed live (identical bytes immediately and after 20 s); the remaining check is the live byte round-trip._
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/openspec/changes/yougile-dependencies-attachments/tasks.md
