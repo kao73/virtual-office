@@ -485,6 +485,11 @@ func TestGetAttachmentOfHumanChatFile(t *testing.T) {
 	if err != nil || string(got) != "постановка" {
 		t.Errorf("GetAttachment = %q, %v", got, err)
 	}
+	// Сегмент уходит на провод как найден — дважды закодированным: YouGile
+	// ищет объект по этому пути.
+	if want := []string{"/user-data/" + id + "/%25D0%25A2%25D0%2597.txt"}; !reflect.DeepEqual(fake.filePaths, want) {
+		t.Errorf("путь запроса за файлом %q, ожидался %q", fake.filePaths, want)
+	}
 }
 
 // URL пересобирается на BaseURL: хост из ссылки в описании не используется
@@ -506,6 +511,10 @@ func TestGetAttachmentRebuildsURLOnBaseURL(t *testing.T) {
 	}
 	if decoyHits.Load() != 0 {
 		t.Error("запрос ушёл на хост из описания")
+	}
+	// Сегмент из описания закодирован один раз и уходит на провод таким же.
+	if want := []string{"/user-data/" + id + "/%D0%A2%D0%97.pdf"}; !reflect.DeepEqual(fake.filePaths, want) {
+		t.Errorf("путь запроса за файлом %q, ожидался %q", fake.filePaths, want)
 	}
 }
 

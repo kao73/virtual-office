@@ -92,6 +92,9 @@ type fakeYouGile struct {
 	storage  string   // корень фейкового хранилища (prod-user-data.yougile.com в жизни)
 	redirect string   // не пусто — куда /user-data/… отправляет вместо хранилища
 	fileAuth []string // Authorization каждого запроса к /user-data/… и к хранилищу
+	// filePaths — путь каждого запроса к /user-data/… как он пришёл по проводу,
+	// экранированным: YouGile ищет файл именно по нему.
+	filePaths []string
 
 	pageCap       int  // >0 — сервер режет страницу до этого размера, что бы ни просили
 	endlessPaging bool // сервер всегда говорит next=true и отдаёт первый элемент
@@ -254,6 +257,7 @@ func (f *fakeYouGile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Файл: хост API отвечает 302 в отдельное хранилище, как YouGile (design doc §1).
 	if strings.HasPrefix(r.URL.Path, "/user-data/") {
 		f.fileAuth = append(f.fileAuth, r.Header.Get("Authorization"))
+		f.filePaths = append(f.filePaths, r.URL.EscapedPath())
 		target := f.redirect
 		if target == "" {
 			target = f.storage + strings.TrimPrefix(r.URL.EscapedPath(), "/user-data")
