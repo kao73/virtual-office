@@ -737,7 +737,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `func openYouGile(path string, workflow tracker.Workflow, declared tracker.Projects, out io.Writer) (opened, error)`
   - Test helpers in `office_test.go`: `youGileOpts`, `youGileServer(t, opts) (url string, requests func() []string)`, `trackerYouGileYAML(baseURL, key string, columns map[string]string) string`, `youGileColumnIDs`, `youGileProject`, `youGileFixture(t, projectsLocal string, opts youGileOpts) (home string, requests func() []string)`.
 
-- [ ] **Step 1: Write the failing test for the tracker list**
+- [x] **Step 1: Write the failing test for the tracker list**
 
 Append to `internal/tracker/config_test.go`:
 
@@ -758,12 +758,12 @@ func TestLoadProjectsAcceptsYouGile(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `go test ./internal/tracker/ -run TestLoadProjectsAcceptsYouGile -v`
 Expected: FAIL `tracker="yougile", ожидается один из [mock jira]`.
 
-- [ ] **Step 3: Write the failing runner tests** (append to `cmd/runner/office_test.go`; add imports `encoding/json`, `maps`, `slices`, `sync`, `github.com/kao73/virtual-office/internal/tracker/yougile`)
+- [x] **Step 3: Write the failing runner tests** (append to `cmd/runner/office_test.go`; add imports `encoding/json`, `maps`, `slices`, `sync`, `github.com/kao73/virtual-office/internal/tracker/yougile`)
 
 ```go
 const youGileProject = "SHOP:\n  repo_url: https://example.test/s.git\n  tracker: yougile\n  default_branch: master\n"
@@ -1071,12 +1071,12 @@ func TestOfficesRejectedYouGileKeyRefusesWholeCommand(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Run to verify they fail**
+- [x] **Step 4: Run to verify they fail**
 
 Run: `go test ./cmd/runner/ -run 'YouGile' -v`
 Expected: compile FAIL `undefined: openYouGile`.
 
-- [ ] **Step 5: Implement**
+- [x] **Step 5: Implement**
 
 `internal/tracker/config.go:485`:
 
@@ -1177,12 +1177,12 @@ func openYouGile(path string, workflow tracker.Workflow, declared tracker.Projec
 }
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `go test ./internal/tracker/ ./cmd/runner/ -v -run 'YouGile|TestOffices'` then `go test ./... && go vet ./...`
 Expected: PASS. If `TestOfficesServeAllThreeTrackers` shows the per-office machinery needs a change beyond the dispatch (it should not), stop and report. Tasks.md 2.2 asserts that it doesn't.
 
-- [ ] **Step 7: Tick and commit**
+- [x] **Step 7: Tick and commit**
 
 In `tasks.md`, tick 1.1, 1.3, 2.1, 2.2, 5.1, 6.1, 6.2.
 

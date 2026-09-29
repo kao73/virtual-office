@@ -1,6 +1,6 @@
 ## 1. Config and connection file
 
-- [ ] 1.1 Add `"yougile"` to `internal/tracker/config.go`'s `trackers` list
+- [x] 1.1 Add `"yougile"` to `internal/tracker/config.go`'s `trackers` list
       and any related validation.
 - [x] 1.2 Define the `tracker-yougile.yaml` schema (`base_url`,
       `api_key_env`, `also_agents`, one `projects.<key>` with
@@ -9,14 +9,14 @@
       places it.
 - [x] 1.4 Add `Key` to `yougile.Config` (runner project name, defaults to
       `ProjectID`); `checkProject` and `Task.Project` use it.
-- [ ] 1.3 Implement the "opened only when used" behavior in config loading,
+- [x] 1.3 Implement the "opened only when used" behavior in config loading,
       mirroring `tracker.yaml`'s existing handling.
 
 ## 2. Runner wiring
 
-- [ ] 2.1 Implement `openYouGile` in `cmd/runner/office.go`, mirroring
+- [x] 2.1 Implement `openYouGile` in `cmd/runner/office.go`, mirroring
       `openMock`'s one-shared-account shape.
-- [ ] 2.2 Confirm `printBoard`/`runner ls` and the rest of the per-office
+- [x] 2.2 Confirm `printBoard`/`runner ls` and the rest of the per-office
       machinery in `cmd/runner/office.go` need no changes beyond dispatch
       (they should already be tracker-agnostic per `runner-multi-tracker`).
 
@@ -42,17 +42,17 @@
 
 ## 5. Tests
 
-- [ ] 5.1 Config/wiring unit tests: a project declaring `tracker: yougile`
+- [x] 5.1 Config/wiring unit tests: a project declaring `tracker: yougile`
       is accepted, opens through `openYouGile`, and a missing
       `tracker-yougile.yaml` is refused with the right error, mirroring
       the existing JIRA tests' shape.
 
 ## 6. Carried over from `yougile-dependencies-attachments` (PR #25)
 
-- [ ] 6.1 Add the API-key user's email to the runner's `Accounts` for
+- [x] 6.1 Add the API-key user's email to the runner's `Accounts` for
       YouGile projects, so the office's own chat notes and file messages
       are not counted as human replies; cover with a test.
-- [ ] 6.2 Route the YouGile `Tracker.Logf` to the runner's logger.
+- [x] 6.2 Route the YouGile `Tracker.Logf` to the runner's logger.
 - [x] 6.3 Refuse `base_url: https://ru.yougile.com` in `LoadConfig` with a
       hint to use `https://yougile.com` (it breaks attachment downloads via
       the `prod-user-data.yougile.com` redirect).
