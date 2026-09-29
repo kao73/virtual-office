@@ -20,14 +20,15 @@ var ErrUnmappedColumn = errors.New("yougile: задача в колонке вн
 
 // taskDTO — задача в ответе API: то, что читает адаптер.
 type taskDTO struct {
-	ID          string          `json:"id"`
-	Title       string          `json:"title"`
-	Description string          `json:"description"`
-	ColumnID    string          `json:"columnId"`
-	Timestamp   float64         `json:"timestamp"` // мс создания
-	Archived    bool            `json:"archived"`
-	Deleted     bool            `json:"deleted"`
-	APIData     json.RawMessage `json:"apiData"`
+	ID            string          `json:"id"`
+	Title         string          `json:"title"`
+	IDTaskProject string          `json:"idTaskProject"` // человекочитаемый номер задачи в проекте, «ID-7»
+	Description   string          `json:"description"`
+	ColumnID      string          `json:"columnId"`
+	Timestamp     float64         `json:"timestamp"` // мс создания
+	Archived      bool            `json:"archived"`
+	Deleted       bool            `json:"deleted"`
+	APIData       json.RawMessage `json:"apiData"`
 }
 
 // getRaw — задача без переписки: одного запроса хватает и проверке владения,

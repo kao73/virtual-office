@@ -37,11 +37,12 @@ var _ coreTracker = (*Tracker)(nil)
 // и отказ случается до записи.
 func TestEveryMutationFollowsOwnership(t *testing.T) {
 	mutations := map[string]func(*Tracker, tracker.Actor) error{
-		"Release":      func(tr *Tracker, a tracker.Actor) error { return tr.Release(testKey, a) },
-		"Transition":   func(tr *Tracker, a tracker.Actor) error { return tr.Transition(testKey, a, "Review") },
-		"Comment":      func(tr *Tracker, a tracker.Actor) error { return tr.Comment(testKey, a, "x") },
-		"SetHumanFlag": func(tr *Tracker, a tracker.Actor) error { return tr.SetHumanFlag(testKey, a, true) },
-		"SetAttempts":  func(tr *Tracker, a tracker.Actor) error { return tr.SetAttempts(testKey, a, 1) },
+		"Release":       func(tr *Tracker, a tracker.Actor) error { return tr.Release(testKey, a) },
+		"Transition":    func(tr *Tracker, a tracker.Actor) error { return tr.Transition(testKey, a, "Review") },
+		"Comment":       func(tr *Tracker, a tracker.Actor) error { return tr.Comment(testKey, a, "x") },
+		"SetHumanFlag":  func(tr *Tracker, a tracker.Actor) error { return tr.SetHumanFlag(testKey, a, true) },
+		"SetAttempts":   func(tr *Tracker, a tracker.Actor) error { return tr.SetAttempts(testKey, a, 1) },
+		"LinkDependsOn": func(tr *Tracker, a tracker.Actor) error { return tr.LinkDependsOn(testKey, "task-dep", a) },
 	}
 	for name, mutate := range mutations {
 		t.Run(name+"/система поверх живой аренды", func(t *testing.T) {

@@ -33,6 +33,7 @@ const (
 // fakeTask — задача в памяти фейкового YouGile.
 type fakeTask struct {
 	ID, Title, Description, ColumnID string
+	IDTaskProject                    string
 	Timestamp                        int64 // мс, как timestamp в TaskDto
 	Archived, Deleted                bool
 	APIData                          map[string]any
@@ -42,6 +43,9 @@ func (t *fakeTask) dto() map[string]any {
 	m := map[string]any{
 		"id": t.ID, "title": t.Title, "description": t.Description, "columnId": t.ColumnID,
 		"timestamp": t.Timestamp, "archived": t.Archived, "deleted": t.Deleted,
+	}
+	if t.IDTaskProject != "" {
+		m["idTaskProject"] = t.IDTaskProject
 	}
 	if t.APIData != nil {
 		m["apiData"] = t.APIData

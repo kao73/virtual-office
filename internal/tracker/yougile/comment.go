@@ -97,8 +97,13 @@ func (t *Tracker) Comment(key string, by tracker.Actor, body string) error {
 	if _, _, err := t.owned(key, by); err != nil {
 		return err
 	}
+	return t.postChat(key, body, messageHTML(body))
+}
+
+// postChat — сообщение в чат задачи. Право на запись проверяет вызывающий.
+func (t *Tracker) postChat(key, text, textHTML string) error {
 	return t.call(http.MethodPost, "/chats/"+url.PathEscape(key)+"/messages", nil,
-		map[string]any{"text": body, "textHtml": messageHTML(body), "label": ""}, nil)
+		map[string]any{"text": text, "textHtml": textHTML, "label": ""}, nil)
 }
 
 // messageHTML — текст комментария как безопасный HTML.
