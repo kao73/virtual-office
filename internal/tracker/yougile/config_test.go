@@ -160,3 +160,21 @@ func TestFileConfigTrackerRejectsUnknownKey(t *testing.T) {
 		t.Errorf("чужой ключ дал %v", err)
 	}
 }
+
+// Поставляемый образец обязан загружаться как есть: иначе первый же
+// человек, скопировавший его, получит отказ не про свои значения, а про
+// опечатку в образце. Покрытие графа тут не проверить — его сверяет раннер.
+func TestShippedSampleLoads(t *testing.T) {
+	fc, err := LoadConfig(filepath.Join("..", "..", "..", "office", ExampleFile))
+	if err != nil {
+		t.Fatalf("образец %s не загружается: %v", ExampleFile, err)
+	}
+	for _, status := range []string{"Backlog", "Analysis", "Ready", "InProgress", "Review", "Approved", "Done", "Blocked"} {
+		if fc.Projects[fc.ProjectKey()].Columns[status] == "" {
+			t.Errorf("в образце нет колонки статуса %s", status)
+		}
+	}
+	if fc.BaseURL != "https://yougile.com" {
+		t.Errorf("образец советует base_url %q, а годится только https://yougile.com", fc.BaseURL)
+	}
+}

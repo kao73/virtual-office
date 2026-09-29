@@ -43,10 +43,11 @@ unset CLAUDE_CODE_OAUTH_TOKEN || :
 runner="$work/bin/runner"
 ( cd "$root" && go build -o "$runner" ./cmd/runner ) || fail "раннер не собрался"
 
-# 1. Хозяйство: пять файлов и каталог заданий, код 0.
+# 1. Хозяйство: шесть файлов и каталог заданий, код 0.
 "$runner" init > "$work/out-init" 2>&1 || fail "init: $(cat "$work/out-init")"
 for f in projects.local.example.yaml \
          tracker.example.yaml \
+         tracker-yougile.example.yaml \
          scheduler/local.office.runner.plist \
          scheduler/office-runner.service \
          scheduler/office-runner.timer; do
@@ -55,6 +56,7 @@ done
 [ -d "$home/scheduler" ] || fail "init не завёл scheduler/"
 grep -q 'projects.local.yaml' "$work/out-init" || fail "init не сказал, куда копировать образец проектов"
 grep -q 'tracker.yaml' "$work/out-init" || fail "init не сказал, куда копировать образец трекера"
+grep -q 'tracker-yougile.yaml' "$work/out-init" || fail "init не сказал, куда копировать образец YouGile"
 echo "ok: runner init"
 
 # 2. Репозиторий проекта-клиента — тот же рецепт, что в README: пустого мало,

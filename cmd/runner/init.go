@@ -11,6 +11,7 @@ import (
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/jira"
+	"github.com/kao73/virtual-office/internal/tracker/yougile"
 	payload "github.com/kao73/virtual-office/office"
 )
 
@@ -21,6 +22,7 @@ type sample struct{ example, working, edit string }
 var samples = []sample{
 	{tracker.ProjectsLocalExampleFile, tracker.ProjectsLocalFile, "ключ проекта, repo_url, default_branch, tracker"},
 	{jira.ExampleFile, jira.TrackerFile, "base_url и четыре customfield_*; нужен только проектам с tracker: jira"},
+	{yougile.ExampleFile, yougile.TrackerFile, "ключ проекта, project_id и id колонок; нужен только проектам с tracker: yougile"},
 }
 
 // writeAndClose — запись и закрытие как одна неудача: оборванная на середине
@@ -103,13 +105,13 @@ func cleanupPartialWrite(dst string, writeErr error) error {
 	return fmt.Errorf("образец %s не записан: %w", dst, writeErr)
 }
 
-// initCommand заводит хозяйство раннера: каталог ${OFFICE_HOME}, два образца
+// initCommand заводит хозяйство раннера: каталог ${OFFICE_HOME}, три образца
 // конфигурации рядом с местом, где будут лежать рабочие файлы, и подкаталог
 // scheduler/ с тремя заданиями планировщика. Всё — из поставки в бинарнике
 // в любом режиме, в том числе из клона: init не разрешает офис и ничего
 // не распаковывает.
 //
-// Рабочие файлы — projects.local.yaml, tracker.yaml, budgets.yaml — команда
+// Рабочие файлы — projects.local.yaml, tracker.yaml, tracker-yougile.yaml, budgets.yaml — команда
 // не трогает никогда: они свойство инстанса, и переписать их значило бы
 // снести настройку машины одной командой. Существующий образец тоже
 // остаётся: его могли править как черновик.

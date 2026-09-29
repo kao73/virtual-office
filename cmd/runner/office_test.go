@@ -330,7 +330,7 @@ func TestOfficesUnpackPayloadWithoutConfigRoot(t *testing.T) {
 	for _, rel := range []string{
 		"roles/_base/base.yaml", "roles/analyst/role.yaml", "roles/implementer/role.yaml", "roles/reviewer/role.yaml",
 		"skills/comet/SKILL.md", "hooks/require-result.sh", "workflow.yaml", "budgets.yaml",
-		"tracker.example.yaml", "projects.local.example.yaml",
+		"tracker.example.yaml", "tracker-yougile.example.yaml", "projects.local.example.yaml",
 		"sbx-kits/comet-cli/spec.yaml", "sbx-kits/bake-comet-template.sh",
 	} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {

@@ -13,7 +13,7 @@ import (
 // разошлись — тест скажет.
 var (
 	payloadDirs  = []string{"roles", "skills", "hooks", "sbx-kits", "scheduler"}
-	payloadFiles = []string{"workflow.yaml", "budgets.yaml", "tracker.example.yaml", "projects.local.example.yaml"}
+	payloadFiles = []string{"workflow.yaml", "budgets.yaml", "tracker.example.yaml", "tracker-yougile.example.yaml", "projects.local.example.yaml"}
 )
 
 // walkDisk обходит файлы каталога поставки на диске.
