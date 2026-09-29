@@ -149,7 +149,25 @@ func (f *fakeYouGile) setLeaseOf(id, owner, runID string, until time.Time) {
 	if task.APIData == nil {
 		task.APIData = map[string]any{}
 	}
-	task.APIData["lease"] = map[string]any{"owner": owner, "run_id": runID, "lease_until": until.Format(time.RFC3339Nano)}
+	ns, _ := task.APIData[keyNamespace].(map[string]any)
+	if ns == nil {
+		ns = map[string]any{}
+		task.APIData[keyNamespace] = ns
+	}
+	ns["lease"] = map[string]any{"owner": owner, "run_id": runID, "lease_until": until.Format(time.RFC3339Nano)}
+}
+
+// officeAPIData — apiData, в котором данные офиса лежат в своём пространстве имён.
+func officeAPIData(fields map[string]any) map[string]any {
+	return map[string]any{keyNamespace: fields}
+}
+
+// officeOf — данные офиса в apiData задачи фейка; nil, если их там нет.
+func (f *fakeYouGile) officeOf(id string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ns, _ := f.tasks[id].APIData[keyNamespace].(map[string]any)
+	return ns
 }
 
 // count — сколько дошло запросов с данным префиксом "METHOD /api-v2/path".

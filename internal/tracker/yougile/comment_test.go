@@ -80,7 +80,7 @@ func TestFindByMarkerFindsLabeledTask(t *testing.T) {
 func TestFindByMarkerSearchesEveryStatusColumn(t *testing.T) {
 	tr, fake := fixture(t)
 	fake.addTask(&fakeTask{ID: "moved", ColumnID: colReview, Timestamp: now.UnixMilli(),
-		APIData: map[string]any{"labels": []any{"split:P:a"}}})
+		APIData: officeAPIData(map[string]any{"labels": []any{"split:P:a"}})})
 	refs, err := tr.FindByMarker(testProject, "split:P:a")
 	if err != nil || !slices.Equal(keys(refs), []string{"moved"}) {
 		t.Errorf("FindByMarker = %v, %v", keys(refs), err)
@@ -92,7 +92,7 @@ func TestFindByMarkerSearchesEveryStatusColumn(t *testing.T) {
 func TestFindByMarkerFailsLoudOnUnmappedColumn(t *testing.T) {
 	tr, fake := fixture(t)
 	fake.addTask(&fakeTask{ID: "parked", ColumnID: colOutside, Timestamp: now.UnixMilli(),
-		APIData: map[string]any{"labels": []any{"split:P:a"}}})
+		APIData: officeAPIData(map[string]any{"labels": []any{"split:P:a"}})})
 	_, err := tr.FindByMarker(testProject, "split:P:a")
 	if !errors.Is(err, ErrUnmappedColumn) || !strings.Contains(err.Error(), "parked") {
 		t.Errorf("метка вне графа дала %v", err)
@@ -129,11 +129,22 @@ func TestFindByMarkerUnknownProject(t *testing.T) {
 func TestFindByMarkerMatchesWholeLabel(t *testing.T) {
 	tr, fake := fixture(t)
 	fake.addTask(&fakeTask{ID: "longer", ColumnID: colReady, Timestamp: now.UnixMilli(),
-		APIData: map[string]any{"labels": []any{"split:P:ab"}}})
+		APIData: officeAPIData(map[string]any{"labels": []any{"split:P:ab"}})})
 	fake.addTask(&fakeTask{ID: "exact", ColumnID: colReady, Timestamp: now.UnixMilli() + 1,
-		APIData: map[string]any{"labels": []any{"split:P:a"}}})
+		APIData: officeAPIData(map[string]any{"labels": []any{"split:P:a"}})})
 	refs, err := tr.FindByMarker(testProject, "split:P:a")
 	if err != nil || !slices.Equal(keys(refs), []string{"exact"}) {
+		t.Errorf("FindByMarker = %v, %v", keys(refs), err)
+	}
+}
+
+// Метка change 1 на верхнем уровне apiData — чужая: по ней не находим.
+func TestFindByMarkerIgnoresLegacyTopLevelLabels(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.addTask(&fakeTask{ID: "legacy", ColumnID: colReady, Timestamp: now.UnixMilli(),
+		APIData: map[string]any{"labels": []any{"split:P:a"}}})
+	refs, err := tr.FindByMarker(testProject, "split:P:a")
+	if err != nil || len(refs) != 0 {
 		t.Errorf("FindByMarker = %v, %v", keys(refs), err)
 	}
 }

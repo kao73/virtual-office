@@ -15,10 +15,10 @@ import (
 func TestGetMapsColumnAndAPIData(t *testing.T) {
 	tr, fake := fixture(t)
 	until := now.Add(30 * time.Minute)
-	fake.tasks[testKey].APIData = map[string]any{
+	fake.tasks[testKey].APIData = officeAPIData(map[string]any{
 		"lease":    map[string]any{"owner": "implementer", "run_id": "run-1", "lease_until": until.Format(time.RFC3339Nano)},
 		"attempts": 2, "human_wait": true, "labels": []any{"m-1"},
-	}
+	})
 
 	task, err := tr.Get(testKey)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestGetTaskInUnmappedColumnFails(t *testing.T) {
 
 func TestGetMalformedAPIDataNamesTask(t *testing.T) {
 	tr, fake := fixture(t)
-	fake.tasks[testKey].APIData = map[string]any{"lease": "garbage"}
+	fake.tasks[testKey].APIData = officeAPIData(map[string]any{"lease": "garbage"})
 	_, err := tr.Get(testKey)
 	if err == nil || !strings.Contains(err.Error(), testKey) {
 		t.Errorf("битый apiData дал %v, ожидалась ошибка с ключом задачи", err)
@@ -135,7 +135,7 @@ func TestCreateTaskPostsIntoCreateColumn(t *testing.T) {
 	if body["title"] != "Child" || body["description"] != "prose\n\nparent verbatim" || body["columnId"] != colReady {
 		t.Errorf("тело POST: %#v", body)
 	}
-	labels := body["apiData"].(map[string]any)["labels"]
+	labels := body["apiData"].(map[string]any)[keyNamespace].(map[string]any)["labels"]
 	if !reflect.DeepEqual(labels, []any{"split:VO-1:a"}) {
 		t.Errorf("метки в apiData: %#v", labels)
 	}

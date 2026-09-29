@@ -10,14 +10,21 @@ import (
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
-// Ключи apiData, которыми владеет адаптер. yougile-dependencies-attachments
-// добавит сюда depends_on и манифест вложений — теми же соседями верхнего уровня.
-const (
-	keyLease     = "lease"
-	keyAttempts  = "attempts"
-	keyHumanWait = "human_wait"
-	keyLabels    = "labels"
-)
+// ErrOfficeData — данные офиса в apiData задачи не читаются: apiData не
+// объект, virtual_office не объект, не те типы полей, незнакомое поле или
+// версия схемы не 1 (новее этой или явно нулевая/отрицательная). Такую
+// задачу адаптер не перезаписывает никогда. Листинги её пропускают с записью
+// в Logf (status.go, collect), остальные пути падают громко (design doc §2).
+var ErrOfficeData = errors.New("yougile: данные офиса в apiData не читаются")
+
+// keyNamespace — единственный ключ верхнего уровня apiData, которым владеет
+// офис. Всё остальное в apiData — чужое, в том числе ключи верхнего уровня,
+// оставшиеся от change 1 на office-polygon: они не читаются и не мигрируются.
+const keyNamespace = "virtual_office"
+
+// schemaVersion — версия схемы virtual_office, которую понимает адаптер.
+// Отсутствующая v читается как 1; любая другая — ErrOfficeData.
+const schemaVersion = 1
 
 // leaseData — аренда: пишется и снимается целиком.
 type leaseData struct {
@@ -26,12 +33,23 @@ type leaseData struct {
 	LeaseUntil time.Time `json:"lease_until"`
 }
 
+// officeData — virtual_office на проводе. Без omitempty: encode пишет все
+// ключи явно — lease null'ом, списки пустыми, — чтобы слияние apiData на
+// сервере, если оно там есть, не оставило старых значений.
+type officeData struct {
+	V         int        `json:"v"`
+	Lease     *leaseData `json:"lease"`
+	Attempts  int        `json:"attempts"`
+	HumanWait bool       `json:"human_wait"`
+	Labels    []string   `json:"labels"`
+}
+
 // apiData — наш взгляд на apiData задачи. attempts и human_wait живут вне
 // lease: Release их не трогает, как jira не трогает attempts и метку человека.
 //
 // Инвариант каждой записи: apiData читается целиком, меняется и пишется
-// целиком. extra держит ключи, которых адаптер не знает, — без него запись
-// молча стирала бы чужие данные.
+// целиком. extra держит все ключи верхнего уровня, кроме virtual_office, —
+// без него запись молча стирала бы чужие данные.
 type apiData struct {
 	Lease     *leaseData
 	Attempts  int
@@ -40,8 +58,8 @@ type apiData struct {
 	extra     map[string]json.RawMessage
 }
 
-// decodeAPIData разбирает apiData. Пусто и null — нулевое значение: задача,
-// которую офис ни разу не трогал, свободна.
+// decodeAPIData разбирает apiData. Пусто, null или нет virtual_office —
+// нулевое значение: задача, которую офис ни разу не трогал, свободна.
 func decodeAPIData(raw json.RawMessage) (apiData, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -49,20 +67,17 @@ func decodeAPIData(raw json.RawMessage) (apiData, error) {
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(trimmed, &fields); err != nil {
-		return apiData{}, fmt.Errorf("apiData не JSON-объект: %w", err)
+		return apiData{}, fmt.Errorf("%w: apiData не JSON-объект: %v", ErrOfficeData, err)
 	}
 
 	var d apiData
-	targets := map[string]any{keyLease: &d.Lease, keyAttempts: &d.Attempts, keyHumanWait: &d.HumanWait, keyLabels: &d.Labels}
-	for key, target := range targets {
-		value, ok := fields[key]
-		if !ok {
-			continue
+	if ns, ok := fields[keyNamespace]; ok {
+		delete(fields, keyNamespace)
+		od, err := decodeOffice(ns)
+		if err != nil {
+			return apiData{}, err
 		}
-		delete(fields, key)
-		if err := json.Unmarshal(value, target); err != nil {
-			return apiData{}, fmt.Errorf("apiData.%s: %w", key, err)
-		}
+		d = apiData{Lease: od.Lease, Attempts: od.Attempts, HumanWait: od.HumanWait, Labels: od.Labels}
 	}
 	if len(fields) > 0 {
 		d.extra = fields
@@ -70,23 +85,54 @@ func decodeAPIData(raw json.RawMessage) (apiData, error) {
 	return d, nil
 }
 
-// encode — объект целиком для PUT: чужие ключи как были, свои — все и явно.
-// lease пишется null'ом, а не пропускается: если сервер сливает apiData,
-// а не заменяет, пропущенный ключ оставил бы аренду висеть.
+// decodeOffice разбирает virtual_office строго: только объект, только
+// известные поля известных типов. Версию смотрим первой и отдельно — у
+// новой схемы поля могут быть другими, и отказ должен назвать версию,
+// а не чужое поле. Нормальна только отсутствующая v или v=1.
+func decodeOffice(raw json.RawMessage) (officeData, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return officeData{}, fmt.Errorf("%w: %s — не JSON-объект", ErrOfficeData, keyNamespace)
+	}
+	var head struct {
+		V *int `json:"v"`
+	}
+	if err := json.Unmarshal(trimmed, &head); err != nil {
+		return officeData{}, fmt.Errorf("%w: %s.v: %v", ErrOfficeData, keyNamespace, err)
+	}
+	if head.V != nil && *head.V != schemaVersion {
+		return officeData{}, fmt.Errorf("%w: %s.v=%d, адаптер знает только версию %d — не перезаписываем",
+			ErrOfficeData, keyNamespace, *head.V, schemaVersion)
+	}
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.DisallowUnknownFields()
+	var od officeData
+	if err := dec.Decode(&od); err != nil {
+		return officeData{}, fmt.Errorf("%w: %s: %v", ErrOfficeData, keyNamespace, err)
+	}
+	return od, nil
+}
+
+// encode — объект целиком для PUT: чужие ключи как были, virtual_office —
+// весь и явно.
 func (d apiData) encode() map[string]any {
-	out := make(map[string]any, len(d.extra)+4)
+	out := make(map[string]any, len(d.extra)+1)
 	for key, value := range d.extra {
 		out[key] = value
 	}
-	out[keyLease] = d.Lease // nil *leaseData сериализуется в null
-	out[keyAttempts] = d.Attempts
-	out[keyHumanWait] = d.HumanWait
-	labels := d.Labels
-	if labels == nil {
-		labels = []string{}
+	out[keyNamespace] = officeData{
+		V: schemaVersion, Lease: d.Lease, Attempts: d.Attempts, HumanWait: d.HumanWait,
+		Labels: orEmpty(d.Labels),
 	}
-	out[keyLabels] = labels
 	return out
+}
+
+// orEmpty — nil-срез как [], а не null: пустой список пишется списком.
+func orEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // Claim — захват: записать аренду (и рабочую колонку) одним PUT, перечитать,
