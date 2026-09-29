@@ -35,7 +35,7 @@
 
 ## 4. Interface completion and tests
 
-- [ ] 4.1 Confirm `var _ tracker.Tracker = (*Tracker)(nil)` compiles.
+- [x] 4.1 Confirm `var _ tracker.Tracker = (*Tracker)(nil)` compiles.
 - [x] 4.2 Unit tests for `LinkDependsOn`/`AddAttachment`/`GetAttachment`
       against a fixture/fake HTTP transport.
 - [ ] 4.3 Extend the gated live-API smoke tests from `yougile-adapter-core`

@@ -2434,7 +2434,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 12: Interface completion and package doc (tasks.md 4.1)
 
-- [ ] Task 12 complete: Interface completion and package doc (tasks.md 4.1)
+- [x] Task 12 complete: Interface completion and package doc (tasks.md 4.1)
 
 **Files:**
 - Modify: `internal/tracker/yougile/yougile.go` (package doc, `var _ tracker.Tracker`)
@@ -2444,7 +2444,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `var _ tracker.Tracker = (*Tracker)(nil)`.
 
-- [ ] **Step 1: Remove `coreTracker` and add the full assertion**
+- [x] **Step 1: Remove `coreTracker` and add the full assertion**
 
 In `contract_test.go`, delete the `coreTracker` interface, its doc comment and `var _ coreTracker = (*Tracker)(nil)`. Keep `TestEveryMutationFollowsOwnership`. In `yougile.go`, directly after the `Tracker` struct:
 ```go
@@ -2452,7 +2452,7 @@ In `contract_test.go`, delete the `coreTracker` interface, its doc comment and `
 var _ tracker.Tracker = (*Tracker)(nil)
 ```
 
-- [ ] **Step 2: Update the package doc** (`yougile.go:14-19`)
+- [x] **Step 2: Update the package doc** (`yougile.go:14-19`)
 
 Replace the two paragraphs from `// Аренда, счётчик попыток…` through `// проверка \`var _ tracker.Tracker = (*Tracker)(nil)\`.` with:
 ```go
@@ -2468,12 +2468,12 @@ Replace the two paragraphs from `// Аренда, счётчик попыток�
 ```
 Run `grep -n "yougile-dependencies-attachments добавит\|манифест" internal/tracker/yougile/*.go`. Any hit is a stale forward reference, so rewrite or delete it.
 
-- [ ] **Step 3: Build and test**
+- [x] **Step 3: Build and test**
 
 Run: `go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/`
 Expected: PASS.
 
-- [ ] **Step 4: Tick tasks.md 4.1, commit**
+- [x] **Step 4: Tick tasks.md 4.1, commit**
 
 ```bash
 git add internal/tracker/yougile/ docs/openspec/changes/yougile-dependencies-attachments/tasks.md
@@ -2482,7 +2482,7 @@ git commit -m "feat(yougile): assert the full tracker.Tracker contract
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 5: Mutation probe**
+- [x] **Step 5: Mutation probe**
   - Rename `func (t *Tracker) GetAttachment` to `getAttachment`. Expect `go build ./...` to fail on the `var _` line. Restore.
 
 ---
