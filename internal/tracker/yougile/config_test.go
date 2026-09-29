@@ -50,6 +50,15 @@ func TestLoadConfigReadsValidFile(t *testing.T) {
 }
 
 // also_agents сравнивают с автором строкой, а тот приходит в нижнем регистре.
+// Слеши на конце — всё ещё корень хоста: Open их срезает.
+func TestLoadConfigAcceptsTrailingSlashes(t *testing.T) {
+	for _, u := range []string{"https://yougile.com/", "https://yougile.com//"} {
+		if _, err := LoadConfig(writeFile(t, strings.Replace(validFile, "https://yougile.com", u, 1))); err != nil {
+			t.Errorf("%s отвергнут: %v", u, err)
+		}
+	}
+}
+
 func TestLoadConfigNormalizesAlsoAgents(t *testing.T) {
 	fc, err := LoadConfig(writeFile(t, strings.Replace(validFile, "[bot@example.com]", `[" Bot@Example.COM "]`, 1)))
 	if err != nil {
@@ -147,6 +156,8 @@ func TestLoadConfigRejectsBrokenFile(t *testing.T) {
 		{"base_url с /api-v2", strings.Replace(validFile, "https://yougile.com", "https://yougile.com/api-v2/", 1), "/api-v2"},
 		{"base_url с /API-V2", strings.Replace(validFile, "https://yougile.com", "https://yougile.com/API-V2", 1), "/api-v2"},
 		{"base_url с путём", strings.Replace(validFile, "https://yougile.com", "https://yougile.com/foo", 1), "без пути"},
+		{"base_url с query", strings.Replace(validFile, "https://yougile.com", "https://yougile.com?x=1", 1), "без пути"},
+		{"base_url с fragment", strings.Replace(validFile, "https://yougile.com", "https://yougile.com/#x", 1), "без пути"},
 		{"пустой ключ проекта", strings.Replace(validFile, "  SHOP:", `  "":`, 1), "ключ проекта пуст"},
 		{"ru. с точкой на конце", strings.Replace(validFile, "https://yougile.com", "https://ru.yougile.com.", 1), "вложения"},
 		{"пустой also_agents", strings.Replace(validFile, "[bot@example.com]", "[bot@example.com, \" \"]", 1), "also_agents[1]"},

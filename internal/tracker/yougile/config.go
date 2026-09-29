@@ -124,8 +124,8 @@ func (fc FileConfig) validate() []error {
 	return errs
 }
 
-// validBaseURL — корень хоста со схемой: без пути (и без /api-v2 в нём) и не
-// ru.yougile.com.
+// validBaseURL — корень хоста со схемой: без пути (и без /api-v2 в нём),
+// query и fragment, и не ru.yougile.com.
 func validBaseURL(raw string) error {
 	if raw == "" {
 		return errors.New("base_url не задан: без адреса YouGile идти некуда (пример: https://yougile.com)")
@@ -138,9 +138,11 @@ func validBaseURL(raw string) error {
 		return fmt.Errorf("base_url=%q: нет схемы или хоста (пример: https://yougile.com)", raw)
 	case strings.HasSuffix(strings.ToLower(strings.TrimRight(u.Path, "/")), apiPrefix):
 		return fmt.Errorf("base_url=%q: %s адаптер добавляет сам, укажите корень хоста (пример: https://yougile.com)", raw, apiPrefix)
-	// Путь ушёл бы в каждый запрос: /foo/api-v2/…, и 404 выдал бы себя за «нет проекта».
-	case u.Path != "" && u.Path != "/":
-		return fmt.Errorf("base_url=%q: нужен корень хоста, без пути (пример: https://yougile.com)", raw)
+	// Адрес склеивается строкой: путь, query и fragment ушли бы в каждый
+	// запрос (…/foo/api-v2/…, …?x=1/api-v2/…), и ответ выдал бы себя за «нет
+	// проекта». Слеши на конце безвредны — Open их срезает.
+	case strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
+		return fmt.Errorf("base_url=%q: нужен корень хоста, без пути, query и fragment (пример: https://yougile.com)", raw)
 	// «ru.yougile.com.» с точкой на конце — тот же хост.
 	case strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), refusedHost):
 		return fmt.Errorf("base_url=%q: с %s вложения не скачаются — /user-data/ перенаправляет "+

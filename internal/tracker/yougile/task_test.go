@@ -169,6 +169,24 @@ func TestCreateTaskIdempotencyKeyIgnoresRunnerKey(t *testing.T) {
 	}
 }
 
+// И проект в хэше есть: та же задача в другом проекте YouGile — другой ключ,
+// иначе сервер вернул бы задачу чужого проекта.
+func TestCreateTaskIdempotencyKeyDependsOnProjectID(t *testing.T) {
+	input := tracker.TaskInput{Summary: "Child", Description: "prose", Labels: []string{"split:VO-1:a"}}
+	tr, fake := fixture(t)
+	if _, err := tr.CreateTask(testProject, input); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := fake.posts[0]["idempotencyKey"].(string)
+	tr.cfg.ProjectID = "другой-проект"
+	if _, err := tr.CreateTask(testProject, input); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := fake.posts[len(fake.posts)-1]["idempotencyKey"].(string); a == b {
+		t.Errorf("idempotencyKey не зависит от ProjectID: %s", a)
+	}
+}
+
 // Spec: «A repeated create returns the original task».
 func TestCreateTaskRepeatedReturnsSameTask(t *testing.T) {
 	tr, fake := fixture(t)
