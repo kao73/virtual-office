@@ -11,14 +11,47 @@ import (
 )
 
 // FindByMarker — источник идемпотентности детей split: пропусти он
-// карточку, ensureChildren завёл бы дубль. Поэтому здесь — громко.
+// карточку со своим, но нечитаемым virtual_office, ensureChildren завёл бы
+// дубль. Поэтому здесь — громко.
 func TestFindByMarkerFailsLoudOnUnreadableOfficeData(t *testing.T) {
-	tr, fake := fixture(t)
-	fake.addTask(&fakeTask{ID: "broken", ColumnID: colReview, Timestamp: now.UnixMilli(),
-		APIData: officeAPIData(map[string]any{"v": 2, "labels": []any{"split:P:a"}})})
-	_, err := tr.FindByMarker(testProject, "split:P:a")
-	if !errors.Is(err, ErrOfficeData) || !strings.Contains(err.Error(), "broken") {
-		t.Errorf("FindByMarker дал %v", err)
+	for name, bad := range map[string]map[string]any{
+		"новая версия": officeAPIData(map[string]any{"v": 2, "labels": []any{"split:P:a"}}),
+		"битые данные": {keyNamespace: "x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr, fake := fixture(t)
+			lines := logInto(tr)
+			fake.addTask(&fakeTask{ID: "broken", ColumnID: colReview, Timestamp: now.UnixMilli(), APIData: bad})
+			_, err := tr.FindByMarker(testProject, "split:P:a")
+			if !errors.Is(err, ErrOfficeData) || !strings.Contains(err.Error(), "broken") {
+				t.Errorf("FindByMarker дал %v", err)
+			}
+			if len(*lines) != 0 {
+				t.Errorf("громкая ошибка ушла в Logf: %q", *lines)
+			}
+		})
+	}
+}
+
+// apiData верхнего уровня не объект — это чужие данные: virtual_office в них
+// нет и быть не может, значит и нашей метки тоже. Такую карточку FindByMarker
+// пропускает с записью в Logf, а не валит поиск по всему проекту.
+func TestFindByMarkerSkipsNonObjectAPIData(t *testing.T) {
+	for name, raw := range map[string]any{"строка": "foreign", "массив": []any{1, 2}} {
+		t.Run(name, func(t *testing.T) {
+			tr, fake := fixture(t)
+			lines := logInto(tr)
+			fake.addTask(&fakeTask{ID: "foreign", ColumnID: colReview, Timestamp: now.UnixMilli(), RawAPIData: raw})
+			fake.addTask(&fakeTask{ID: "child", ColumnID: colReady, Timestamp: now.UnixMilli(),
+				APIData: officeAPIData(map[string]any{"labels": []any{"split:P:a"}})})
+			refs, err := tr.FindByMarker(testProject, "split:P:a")
+			if err != nil || !slices.Equal(keys(refs), []string{"child"}) {
+				t.Errorf("FindByMarker = %v, %v", keys(refs), err)
+			}
+			if len(*lines) != 1 || !strings.HasPrefix((*lines)[0], "yougile: задача foreign пропущена: ") {
+				t.Errorf("Logf: %q", *lines)
+			}
+		})
 	}
 }
 

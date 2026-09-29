@@ -133,6 +133,10 @@ func messageHTML(body string) string {
 // выглядел бы «не найденным» и был бы создан заново. Такая находка — громкая
 // ошибка ErrUnmappedColumn: статус для неё не выдумываем.
 //
+// Карточка, у которой apiData верхнего уровня не объект, пропускается с
+// записью в Logf: virtual_office в ней нет. Битый или новый virtual_office —
+// громкая ErrOfficeData.
+//
 // Обход не полный, и это принято (tasks.md, Build review notes): колонки
 // берутся из снимка на Open — заведённых позже он не видит, — а архивные
 // задачи отсеивает tasksInColumn. Такого ребёнка страхует только
@@ -149,6 +153,14 @@ func (t *Tracker) FindByMarker(project, marker string) ([]tracker.TaskRef, error
 		}
 		for _, raw := range tasks {
 			data, err := decodeAPIData(raw.APIData)
+			if errors.Is(err, errAPIDataNotObject) {
+				// Чужие данные без virtual_office: метки там нет, а падать из-за
+				// них на весь проект незачем. Битый же virtual_office — громко:
+				// пропусти мы своего испорченного ребёнка, ensureChildren завёл
+				// бы дубль.
+				t.Logf("yougile: задача %s пропущена: %v", raw.ID, err)
+				continue
+			}
 			if err != nil {
 				return nil, fmt.Errorf("задача YouGile %s: %w", raw.ID, err)
 			}

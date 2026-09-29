@@ -17,6 +17,12 @@ import (
 // в Logf (status.go, collect), остальные пути падают громко (design doc §2).
 var ErrOfficeData = errors.New("yougile: данные офиса в apiData не читаются")
 
+// errAPIDataNotObject уточняет ErrOfficeData: apiData верхнего уровня не
+// объект, virtual_office в нём нет вовсе. Для записи это тот же отказ, а
+// FindByMarker такую карточку пропускает: нашей метки в ней быть не может
+// (comment.go). Битый или новый virtual_office этим не помечается.
+var errAPIDataNotObject = errors.New("apiData не JSON-объект")
+
 // keyNamespace — единственный ключ верхнего уровня apiData, которым владеет
 // офис. Всё остальное в apiData — чужое, в том числе ключи верхнего уровня,
 // оставшиеся от change 1 на office-polygon: они не читаются и не мигрируются.
@@ -70,7 +76,7 @@ func decodeAPIData(raw json.RawMessage) (apiData, error) {
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(trimmed, &fields); err != nil {
-		return apiData{}, fmt.Errorf("%w: apiData не JSON-объект: %v", ErrOfficeData, err)
+		return apiData{}, fmt.Errorf("%w: %w: %v", ErrOfficeData, errAPIDataNotObject, err)
 	}
 
 	var d apiData

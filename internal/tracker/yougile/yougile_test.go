@@ -38,6 +38,9 @@ type fakeTask struct {
 	Timestamp                        int64 // мс, как timestamp в TaskDto
 	Archived, Deleted                bool
 	APIData                          map[string]any
+	// RawAPIData — apiData не объектом (строка, массив): чужие данные, которые
+	// YouGile принимает как есть. Если задан, APIData не отдаётся.
+	RawAPIData any
 }
 
 func (t *fakeTask) dto() map[string]any {
@@ -50,6 +53,9 @@ func (t *fakeTask) dto() map[string]any {
 	}
 	if t.APIData != nil {
 		m["apiData"] = t.APIData
+	}
+	if t.RawAPIData != nil {
+		m["apiData"] = t.RawAPIData
 	}
 	return m
 }
