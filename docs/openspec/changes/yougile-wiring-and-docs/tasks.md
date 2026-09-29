@@ -53,7 +53,7 @@
       YouGile projects, so the office's own chat notes and file messages
       are not counted as human replies; cover with a test.
 - [ ] 6.2 Route the YouGile `Tracker.Logf` to the runner's logger.
-- [ ] 6.3 Refuse `base_url: https://ru.yougile.com` in `LoadConfig` with a
+- [x] 6.3 Refuse `base_url: https://ru.yougile.com` in `LoadConfig` with a
       hint to use `https://yougile.com` (it breaks attachment downloads via
       the `prod-user-data.yougile.com` redirect).
 - [ ] 6.4 Docs: to drop a task stuck in Blocked, move it to a column

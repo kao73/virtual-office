@@ -233,7 +233,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `func (FileConfig) ProjectKey() string`: the key of the single project (valid after `LoadConfig`).
   - `func (FileConfig) Tracker(key string) (Config, error)`
 
-- [ ] **Step 1: Write the failing tests** (`config_test.go`)
+- [x] **Step 1: Write the failing tests** (`config_test.go`)
 
 ```go
 package yougile
@@ -400,12 +400,12 @@ func TestFileConfigTrackerRejectsUnknownKey(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestLoadConfig|TestFileConfig' -v`
 Expected: compile FAIL, `undefined: LoadConfig`, `undefined: TrackerFile`.
 
-- [ ] **Step 3: Implement `config.go`**
+- [x] **Step 3: Implement `config.go`**
 
 ```go
 package yougile
@@ -555,12 +555,12 @@ func (fc FileConfig) Tracker(key string) (Config, error) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/tracker/yougile/ -run 'TestLoadConfig|TestFileConfig' -v` then `go test ./internal/tracker/yougile/ && go vet ./internal/tracker/yougile/`
 Expected: PASS.
 
-- [ ] **Step 5: Tick and commit**
+- [x] **Step 5: Tick and commit**
 
 In `tasks.md`, tick 6.3. Leave 1.2 open; Task 3 finishes it.
 
