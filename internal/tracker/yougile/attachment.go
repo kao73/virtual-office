@@ -3,6 +3,8 @@ package yougile
 import (
 	"fmt"
 	"html"
+	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -188,4 +190,54 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 // как в сообщении-файле.
 func uploadedLink(raw string) (fileLink, bool) {
 	return userDataLink(raw)
+}
+
+// GetAttachment читает вложение по uuid. Ссылку ищет там же, где Get (описание
+// и чат), URL пересобирает на BaseURL и скачивает клиентом без ключа API
+// (design doc §4.3). Три запроса — задача, чат, файл; кэша нет намеренно.
+func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
+	if !tracker.ValidAttachmentID(id) {
+		return nil, fmt.Errorf("%w: вложение %s/%s", tracker.ErrNotFound, key, id)
+	}
+	raw, err := t.getRaw(key)
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := t.chat(key)
+	if err != nil {
+		return nil, err
+	}
+	for _, link := range fileLinks(raw.Description, msgs) {
+		if link.ID == id {
+			return t.download(link)
+		}
+	}
+	return nil, fmt.Errorf("%w: вложение %s/%s не упомянуто ни в описании, ни в чате задачи",
+		tracker.ErrNotFound, key, id)
+}
+
+// download — GET файла по пути, пересобранному на BaseURL: хост из ссылки
+// в описании не используется никогда. Хост API отвечает 302 в хранилище,
+// клиент files идёт туда без Authorization.
+func (t *Tracker) download(link fileLink) ([]byte, error) {
+	target := t.cfg.BaseURL + "/user-data/" + link.ID + "/" + link.Segment
+	req, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("вложение %s: запрос не собран: %w", link.ID, err)
+	}
+	resp, err := t.files.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("вложение %s не скачано: %w", link.ID, err)
+	}
+	defer resp.Body.Close()
+	body, readErr := io.ReadAll(resp.Body)
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return nil, fmt.Errorf("%w: вложение %s (404)", tracker.ErrNotFound, link.ID)
+	case resp.StatusCode < 200 || resp.StatusCode >= 300:
+		return nil, fmt.Errorf("вложение %s: %d: %s", link.ID, resp.StatusCode, snippet(body))
+	case readErr != nil:
+		return nil, fmt.Errorf("вложение %s: ответ не дочитан: %w", link.ID, readErr)
+	}
+	return body, nil
 }

@@ -1,6 +1,7 @@
 package yougile
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -431,5 +432,144 @@ func TestOpenBuildsFileClient(t *testing.T) {
 	tr, _ := fixture(t)
 	if tr.files == nil || tr.files == tr.client || tr.files.CheckRedirect == nil {
 		t.Errorf("клиент файлов: %+v", tr.files)
+	}
+}
+
+// Spec «An added attachment round-trips» — байт в байт, включая нули и не-UTF-8.
+func TestAttachmentRoundTripsBytes(t *testing.T) {
+	tr, _ := fixture(t)
+	data := []byte{0, 1, 2, 0xff, '\n', 'x'}
+	id, err := tr.AddAttachment(testKey, tracker.BySystem(), "blob.bin", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := tr.GetAttachment(testKey, id)
+	if err != nil || string(got) != string(data) {
+		t.Errorf("GetAttachment = %v, %v; ожидалось %v", got, err, data)
+	}
+}
+
+// Spec «Retrieving an attachment does not expose the tracker credentials»:
+// ни хост API на /user-data, ни хранилище не видят Authorization. Запросов
+// к хосту API ровно три — задача, чат, файл, — и один переход в хранилище.
+func TestGetAttachmentSendsNoCredentials(t *testing.T) {
+	tr, fake := fixture(t)
+	id := fake.addFile("a.txt", []byte("secret-free"))
+	fake.messages[testKey] = []fakeMessage{{ID: 1000, From: humanUserID, Text: "/root/#file:/user-data/" + id + "/a.txt"}}
+	before := len(fake.requests)
+	if _, err := tr.GetAttachment(testKey, id); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.requests[before:]; len(got) != 3 {
+		t.Errorf("запросы к хосту API: %v, ожидалось 3 (задача, чат, файл)", got)
+	}
+	if len(fake.fileAuth) != 2 {
+		t.Fatalf("запросов за файлом %d, ожидалось 2 (хост API и хранилище)", len(fake.fileAuth))
+	}
+	for i, auth := range fake.fileAuth {
+		if auth != "" {
+			t.Errorf("запрос %d за файлом нёс Authorization %q", i, auth)
+		}
+	}
+}
+
+// Spec «A file a person attached is among the task's attachments»: чат,
+// имя закодировано дважды.
+func TestGetAttachmentOfHumanChatFile(t *testing.T) {
+	tr, fake := fixture(t)
+	id := fake.addFile("ТЗ.txt", []byte("постановка"))
+	fake.messages[testKey] = []fakeMessage{
+		{ID: 1000, From: humanUserID, Text: "/root/#file:/user-data/" + id + "/%25D0%25A2%25D0%2597.txt"},
+	}
+	got, err := tr.GetAttachment(testKey, id)
+	if err != nil || string(got) != "постановка" {
+		t.Errorf("GetAttachment = %q, %v", got, err)
+	}
+}
+
+// URL пересобирается на BaseURL: хост из ссылки в описании не используется
+// никогда — адаптер нельзя направить на произвольный хост.
+func TestGetAttachmentRebuildsURLOnBaseURL(t *testing.T) {
+	tr, fake := fixture(t)
+	var decoyHits atomic.Int32
+	decoy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		decoyHits.Add(1)
+		_, _ = w.Write([]byte("decoy"))
+	}))
+	t.Cleanup(decoy.Close)
+	id := fake.addFile("ТЗ.pdf", []byte("real"))
+	fake.tasks[testKey].Description = `<p><a href="` + decoy.URL + `/user-data/` + id +
+		`/%D0%A2%D0%97.pdf?previews[]=x">ТЗ.pdf</a></p>`
+	got, err := tr.GetAttachment(testKey, id)
+	if err != nil || string(got) != "real" {
+		t.Errorf("GetAttachment = %q, %v", got, err)
+	}
+	if decoyHits.Load() != 0 {
+		t.Error("запрос ушёл на хост из описания")
+	}
+}
+
+// Скачивание идёт клиентом файлов этого трекера: перенаправление с хоста API
+// на чужой хост отвергается, и чужой хост запроса не получает. Клиент API
+// такое перенаправление прошёл бы.
+func TestGetAttachmentRefusesForeignRedirect(t *testing.T) {
+	tr, fake := fixture(t)
+	var foreignHits atomic.Int32
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		foreignHits.Add(1)
+		_, _ = w.Write([]byte("foreign"))
+	}))
+	t.Cleanup(foreign.Close)
+	id := fake.addFile("a.txt", []byte("x"))
+	fake.messages[testKey] = []fakeMessage{{ID: 1000, From: humanUserID, Text: "/root/#file:/user-data/" + id + "/a.txt"}}
+	fake.redirect = strings.Replace(foreign.URL, "127.0.0.1", "localhost", 1) + "/" + id + "/a.txt"
+	if _, err := tr.GetAttachment(testKey, id); err == nil || errors.Is(err, tracker.ErrNotFound) {
+		t.Errorf("перенаправление на чужой хост дало %v", err)
+	}
+	if foreignHits.Load() != 0 {
+		t.Errorf("чужой хост получил %d запросов", foreignHits.Load())
+	}
+	if len(fake.fileAuth) != 1 {
+		t.Errorf("запросов за файлом %d, ожидался 1 (только хост API)", len(fake.fileAuth))
+	}
+}
+
+// Spec «An unknown attachment id is rejected»: id, не упомянутый у задачи, —
+// ErrNotFound, и за файлом никто не ходит, даже за тем, что у задачи есть.
+func TestGetAttachmentUnknownIDIsNotFound(t *testing.T) {
+	tr, fake := fixture(t)
+	present := fake.addFile("a.txt", []byte("своё"))
+	fake.messages[testKey] = []fakeMessage{{ID: 1000, From: humanUserID, Text: "/root/#file:/user-data/" + present + "/a.txt"}}
+	other := fake.addFile("b.txt", []byte("чужое"))
+	if _, err := tr.GetAttachment(testKey, other); !errors.Is(err, tracker.ErrNotFound) {
+		t.Errorf("неупомянутый id дал %v", err)
+	}
+	if fake.count("GET /user-data/") != 0 || len(fake.fileAuth) != 0 {
+		t.Error("за файлом ходили")
+	}
+}
+
+func TestGetAttachmentInvalidIDMakesNoRequest(t *testing.T) {
+	tr, fake := fixture(t)
+	before := len(fake.requests)
+	if _, err := tr.GetAttachment(testKey, "../../etc/passwd"); !errors.Is(err, tracker.ErrNotFound) {
+		t.Errorf("негодный id дал %v", err)
+	}
+	if len(fake.requests) != before {
+		t.Errorf("ушли запросы: %v", fake.requests[before:])
+	}
+}
+
+// Ссылка есть, файла в хранилище нет — ErrNotFound; прочие коды — ошибка с кодом.
+func TestGetAttachmentStorageErrors(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.messages[testKey] = []fakeMessage{{ID: 1000, From: humanUserID, Text: "/root/#file:/user-data/" + uuid1 + "/gone.txt"}}
+	if _, err := tr.GetAttachment(testKey, uuid1); !errors.Is(err, tracker.ErrNotFound) {
+		t.Errorf("пропавший файл дал %v", err)
+	}
+	fake.fail["GET /user-data/"+uuid1+"/gone.txt"] = http.StatusInternalServerError
+	_, err := tr.GetAttachment(testKey, uuid1)
+	if err == nil || errors.Is(err, tracker.ErrNotFound) || !strings.Contains(err.Error(), "500") {
+		t.Errorf("500 хранилища дал %v", err)
 	}
 }

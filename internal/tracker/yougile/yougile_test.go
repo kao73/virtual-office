@@ -89,6 +89,10 @@ type fakeYouGile struct {
 	uploads   map[string]fakeFile          // uuid → файл
 	uploadURL func(id, name string) string // nil — "/user-data/<uuid>/<имя>"; тест подменяет, чтобы испортить ответ
 
+	storage  string   // корень фейкового хранилища (prod-user-data.yougile.com в жизни)
+	redirect string   // не пусто — куда /user-data/… отправляет вместо хранилища
+	fileAuth []string // Authorization каждого запроса к /user-data/… и к хранилищу
+
 	pageCap       int  // >0 — сервер режет страницу до этого размера, что бы ни просили
 	endlessPaging bool // сервер всегда говорит next=true и отдаёт первый элемент
 
@@ -245,6 +249,17 @@ func (f *fakeYouGile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if code, ok := f.fail[r.Method+" "+r.URL.Path]; ok {
 		f.mu.Unlock()
 		http.Error(w, `{"error":"forced"}`, code)
+		return
+	}
+	// Файл: хост API отвечает 302 в отдельное хранилище, как YouGile (design doc §1).
+	if strings.HasPrefix(r.URL.Path, "/user-data/") {
+		f.fileAuth = append(f.fileAuth, r.Header.Get("Authorization"))
+		target := f.redirect
+		if target == "" {
+			target = f.storage + strings.TrimPrefix(r.URL.EscapedPath(), "/user-data")
+		}
+		f.mu.Unlock()
+		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, apiPrefix)
@@ -428,6 +443,27 @@ func serve(t *testing.T, fake *fakeYouGile) string {
 	return server.URL
 }
 
+// serveStorage — хранилище файлов: отдаёт байты по uuid из первого сегмента пути.
+func (f *fakeYouGile) serveStorage(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.fileAuth = append(f.fileAuth, r.Header.Get("Authorization"))
+	id, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	file, ok := f.uploads[id]
+	f.mu.Unlock()
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	_, _ = w.Write(file.Data)
+}
+
+func serveStorage(t *testing.T, fake *fakeYouGile) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(fake.serveStorage))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
 func testConfig(baseURL string) Config {
 	return Config{
 		BaseURL: baseURL, APIKey: "test-key", ProjectID: testProject,
@@ -439,6 +475,7 @@ func testConfig(baseURL string) Config {
 func fixture(t *testing.T) (*Tracker, *fakeYouGile) {
 	t.Helper()
 	fake := newFake(t)
+	fake.storage = serveStorage(t, fake)
 	tr, err := Open(testConfig(serve(t, fake)))
 	if err != nil {
 		t.Fatalf("трекер не открыт: %v", err)
