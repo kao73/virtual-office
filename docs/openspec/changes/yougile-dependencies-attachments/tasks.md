@@ -40,3 +40,7 @@
       against a fixture/fake HTTP transport.
 - [x] 4.3 Extend the gated live-API smoke tests from `yougile-adapter-core`
       to cover a dependency-blocked claim and an attachment round-trip.
+- [ ] 4.4 Final-review fixes: `List` includes archived cards so an archived
+      dependency in a terminal column releases its dependents (owner,
+      2026-09-29); `FindByMarker` skips cards whose top-level apiData is not
+      an object; the file message's `textHtml` is HTML-escaped.
