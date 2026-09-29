@@ -2,6 +2,7 @@
 change: yougile-wiring-and-docs
 design-doc: docs/superpowers/specs/2026-09-29-yougile-wiring-and-docs-design.md
 base-ref: 6225f8427be08f163e7f211efe1d32c42f1ce0a6
+archived-with: 2026-09-29-yougile-wiring-and-docs
 ---
 
 # yougile-wiring-and-docs Implementation Plan

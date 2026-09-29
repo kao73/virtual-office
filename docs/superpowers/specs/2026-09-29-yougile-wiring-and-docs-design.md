@@ -2,6 +2,8 @@
 comet_change: yougile-wiring-and-docs
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-29-yougile-wiring-and-docs
+status: final
 ---
 
 # yougile-wiring-and-docs — deep technical design
