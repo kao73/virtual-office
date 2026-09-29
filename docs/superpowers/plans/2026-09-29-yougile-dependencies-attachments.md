@@ -2164,7 +2164,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 11: `GetAttachment` (tasks.md 3.3, 4.2)
 
-- [ ] Task 11 complete: `GetAttachment` (tasks.md 3.3, 4.2)
+- [x] Task 11 complete: `GetAttachment` (tasks.md 3.3, 4.2)
 
 **Files:**
 - Modify: `internal/tracker/yougile/attachment.go` (`GetAttachment`, `download`)
@@ -2178,7 +2178,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `func (t *Tracker) download(link fileLink) ([]byte, error)`
   - fake: `fakeYouGile.storage string` (storage root URL), `fakeYouGile.redirect string` (override for the 302 target), `fakeYouGile.fileAuth []string` (the `Authorization` of every `/user-data` and storage request), `(*fakeYouGile).serveStorage(http.ResponseWriter, *http.Request)`, `serveStorage(t, fake) string`
 
-- [ ] **Step 1: Extend the fake** (`yougile_test.go`)
+- [x] **Step 1: Extend the fake** (`yougile_test.go`)
 
 Fields in `fakeYouGile`:
 ```go
@@ -2225,7 +2225,7 @@ func serveStorage(t *testing.T, fake *fakeYouGile) string {
 ```
 In `fixture`, after `fake := newFake(t)`, add `fake.storage = serveStorage(t, fake)`.
 
-- [ ] **Step 2: Write the failing tests** (`attachment_test.go`)
+- [x] **Step 2: Write the failing tests** (`attachment_test.go`)
 
 ```go
 // Spec «An added attachment round-trips» — байт в байт, включая нули и не-UTF-8.
@@ -2349,12 +2349,12 @@ func TestGetAttachmentStorageErrors(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run and see red**
+- [x] **Step 3: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: compile error `tr.GetAttachment undefined`.
 
-- [ ] **Step 4: Implement** (`attachment.go`, add the imports `"io"`, `"net/http"`)
+- [x] **Step 4: Implement** (`attachment.go`, add the imports `"io"`, `"net/http"`)
 
 ```go
 // GetAttachment читает вложение по uuid. Ссылку ищет там же, где Get (описание
@@ -2408,12 +2408,12 @@ func (t *Tracker) download(link fileLink) ([]byte, error) {
 }
 ```
 
-- [ ] **Step 5: Run and see green**
+- [x] **Step 5: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS. If `TestGetAttachmentStorageErrors`' 500 case gets a redirect instead, the `fail` check in `ServeHTTP` is running after the `/user-data` branch. It must run first, as specified in Step 1.
 
-- [ ] **Step 6: Tick tasks.md 3.3 and 4.2, run the check set, commit**
+- [x] **Step 6: Tick tasks.md 3.3 and 4.2, run the check set, commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -2423,7 +2423,7 @@ git commit -m "feat(yougile): GetAttachment rebuilds the URL on BaseURL and down
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 7: Mutation probes**
+- [x] **Step 7: Mutation probes**
   - In `download`, replace `t.files.Do(req)` with `t.client.Do(req)` and add `req.Header.Set("Authorization", "Bearer "+t.cfg.APIKey)` before it. Expect `TestGetAttachmentSendsNoCredentials` red.
   - In `download`, build the target from the description host. To simulate this, add a `Host string` field to `fileLink`, set it in `descriptionLink` from `u.Scheme + "://" + u.Host`, and in `download` use `link.Host` instead of `t.cfg.BaseURL` when it is non-empty. Expect `TestGetAttachmentRebuildsURLOnBaseURL` red (the decoy was hit). Restore all three edits.
   - Delete the `ValidAttachmentID` guard at the top of `GetAttachment`. Expect `TestGetAttachmentInvalidIDMakesNoRequest` red (requests were made).

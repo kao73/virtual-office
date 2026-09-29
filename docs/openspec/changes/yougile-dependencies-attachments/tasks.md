@@ -26,7 +26,7 @@
       _Reframed (Design Doc §7): no manifest. Attachments are discovered from chat file messages and description links (§4.1)._
 - [x] 3.2 Implement `AddAttachment` (upload via `upload-file`, record the
       returned url in the manifest under a generated id).
-- [ ] 3.3 Implement `GetAttachment` (resolve id via the manifest, GET the
+- [x] 3.3 Implement `GetAttachment` (resolve id via the manifest, GET the
       stored url).
 - [ ] 3.4 Live-check that an `upload-file` URL fetched immediately after
       upload, and again after some delay, both return the same bytes
@@ -36,7 +36,7 @@
 ## 4. Interface completion and tests
 
 - [ ] 4.1 Confirm `var _ tracker.Tracker = (*Tracker)(nil)` compiles.
-- [ ] 4.2 Unit tests for `LinkDependsOn`/`AddAttachment`/`GetAttachment`
+- [x] 4.2 Unit tests for `LinkDependsOn`/`AddAttachment`/`GetAttachment`
       against a fixture/fake HTTP transport.
 - [ ] 4.3 Extend the gated live-API smoke tests from `yougile-adapter-core`
       to cover a dependency-blocked claim and an attachment round-trip.
