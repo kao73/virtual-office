@@ -855,7 +855,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 5: `LinkDependsOn` with a visible chat note (tasks.md 2.2)
 
-- [ ] Task 5 complete: `LinkDependsOn` with a visible chat note (tasks.md 2.2)
+- [x] Task 5 complete: `LinkDependsOn` with a visible chat note (tasks.md 2.2)
 
 **Files:**
 - Create: `internal/tracker/yougile/depends.go`
@@ -873,7 +873,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `func dependencyNote(dep taskDTO) string`
   - `taskDTO.IDTaskProject string` (JSON `idTaskProject`)
 
-- [ ] **Step 1: Extend the fake** (`yougile_test.go`)
+- [x] **Step 1: Extend the fake** (`yougile_test.go`)
 
 In `fakeTask`, add the field `IDTaskProject string` (on its own line after the `ID, Title…` line). In `dto()`, after building `m`:
 ```go
@@ -882,7 +882,7 @@ In `fakeTask`, add the field `IDTaskProject string` (on its own line after the `
 	}
 ```
 
-- [ ] **Step 2: Write the failing tests** (`depends_test.go`)
+- [x] **Step 2: Write the failing tests** (`depends_test.go`)
 
 ```go
 package yougile
@@ -1042,12 +1042,12 @@ func anyStrings(v any) []string {
 ```
 (No dependency task exists in that fixture. The ownership refusal must come first, or the test would see `ErrNotFound` instead of `ErrNotOwner`.)
 
-- [ ] **Step 3: Run and see red**
+- [x] **Step 3: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: compile error `tr.LinkDependsOn undefined`.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `task.go` `taskDTO`: add after `Title`
 ```go
@@ -1130,12 +1130,12 @@ func dependencyNote(dep taskDTO) string {
 }
 ```
 
-- [ ] **Step 5: Run and see green**
+- [x] **Step 5: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS, including `TestEveryMutationFollowsOwnership/LinkDependsOn/*` and the existing Comment tests (unchanged behavior).
 
-- [ ] **Step 6: Tick tasks.md 2.2, run the check set, commit**
+- [x] **Step 6: Tick tasks.md 2.2, run the check set, commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -1145,7 +1145,7 @@ git commit -m "feat(yougile): LinkDependsOn with a chat note posted before the w
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 7: Mutation probes**
+- [x] **Step 7: Mutation probes**
   - Swap the note block and the `data.DependsOn = …; return t.putTask(…)` lines (write first, then note). Expect `TestLinkDependsOnPostsNoteBeforeWrite` red.
   - Delete the `slices.Contains` early return. Expect `TestLinkDependsOnIsIdempotent` red.
   - Delete the `case dependsOnKey == key:` arm. Expect `TestLinkDependsOnRejectsEmptyAndSelfWithoutRequests/сама_на_себя` red.
