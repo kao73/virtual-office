@@ -84,7 +84,7 @@ One fix wave resolved all three, and the re-review found every item addressed.
   - body reads are unbounded (60 s timeout only);
   - names containing a literal `%XX` may not round-trip;
   - link text used as the name can drop the extension;
-  - `GetAttachment` costs 3 requests against the 50 req/min limit, with no 429 handling;
+  - `GetAttachment` costs 2 requests for a description link and 3 for a chat file (after the PR #25 cleanup) against the 50 req/min limit, with no 429 handling;
   - several test-hygiene items.
   
   All were triaged "can wait" by the final reviewer.
