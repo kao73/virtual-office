@@ -33,7 +33,7 @@
 ```sh
 curl -fsSL https://github.com/kao73/virtual-office/releases/latest/download/install.sh | sh
 runner init        # завести ${OFFICE_HOME} и положить образцы
-runner doctor      # диагностика без побочных эффектов: инструменты, креды, JIRA, песочница, старые снапшоты
+runner doctor      # диагностика без побочных эффектов: инструменты, креды, JIRA, YouGile, песочница, старые снапшоты
 runner version     # что установлено и где лежит офис
 ```
 
@@ -92,6 +92,7 @@ runner ls     # что происходит с задачей прямо сей�
 |---|---|
 | Три роли и путь задачи по графу статусов | [roles-and-flow.md](docs/guide/roles-and-flow.md) |
 | Расписание, доска `runner ls`, расход `runner ledger`, ручной запуск роли | [operations.md](docs/guide/operations.md) |
+| Трекеры: файловый `mock`, JIRA Server 8.13, YouGile | [jira-requirements.md](docs/reference/jira-requirements.md), [yougile-requirements.md](docs/reference/yougile-requirements.md) |
 | Протокол трекера: аренда задачи, комментарии, типизированный вопрос человеку | [tracker-protocol.md](docs/contracts/tracker-protocol.md) |
 | Слоистые разрешения песочницы: сеть и инструменты, доступные роли | [role-sandbox-permissions.md](docs/contracts/role-sandbox-permissions.md) |
 | Бюджеты расхода и окно подписки | [budgets.md](docs/notes/budgets.md) |
