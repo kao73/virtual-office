@@ -228,3 +228,87 @@ func TestListDeduplicatesStatuses(t *testing.T) {
 		t.Errorf("колонка прочитана %d раз", n)
 	}
 }
+
+// logInto — Logf, который копит строки для проверки.
+func logInto(tr *Tracker) *[]string {
+	var lines []string
+	tr.Logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	return &lines
+}
+
+// Spec «One malformed task does not stop the queue»: листинги идут дальше,
+// пропущенная карточка — в Logf, а не молча.
+func TestListingsSkipCardWithUnreadableOfficeData(t *testing.T) {
+	for name, bad := range map[string]map[string]any{
+		"битые данные": officeAPIData(map[string]any{"attempts": "three"}),
+		"новая версия": officeAPIData(map[string]any{"v": 2}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr, fake := fixture(t)
+			lines := logInto(tr)
+			fake.addTask(&fakeTask{ID: "broken", ColumnID: colReady, Timestamp: now.UnixMilli(), APIData: bad})
+			fake.setLease(testKey, "run-dead", now.Add(-time.Minute))
+
+			ready, err := tr.ListReady(testProject, "Ready")
+			if err != nil || !slices.Equal(keys(ready), []string{testKey}) {
+				t.Errorf("ListReady = %v, %v", keys(ready), err)
+			}
+			all, err := tr.List(testProject, []string{"Ready"})
+			if err != nil || !slices.Equal(keys(all), []string{testKey}) {
+				t.Errorf("List = %v, %v", keys(all), err)
+			}
+			expired, err := tr.ListExpired(testProject, now)
+			if err != nil || !slices.Equal(keys(expired), []string{testKey}) {
+				t.Errorf("ListExpired = %v, %v", keys(expired), err)
+			}
+			if len(*lines) != 3 {
+				t.Fatalf("в Logf %d строк, ожидалось 3 (по одной на листинг): %q", len(*lines), *lines)
+			}
+			for _, line := range *lines {
+				if !strings.HasPrefix(line, "yougile: задача broken пропущена: ") {
+					t.Errorf("строка лога: %q", line)
+				}
+			}
+		})
+	}
+}
+
+// Карточка вне графа — не «данные офиса»: её листинг не глотает (сюда она
+// попадает, только если сервер проигнорировал фильтр — tasksInColumn её
+// отсеет раньше, так что проверяем, что skip узкий, на toTask напрямую).
+func TestSkipIsOnlyForOfficeData(t *testing.T) {
+	tr, _ := fixture(t)
+	_, _, err := tr.toTask(taskDTO{ID: "x", ColumnID: colOutside})
+	if errors.Is(err, ErrOfficeData) {
+		t.Errorf("колонка вне графа выдана за ErrOfficeData: %v", err)
+	}
+}
+
+// Узость самого collect: любая другая ошибка toTask (здесь — колонка,
+// которой не сопоставлен статус) валит листинг громко и в Logf не уходит.
+// tasksInColumn отсеивает чужие колонки, поэтому расхождение карты колонок
+// и карты статусов создаём напрямую.
+func TestListingsFailLoudOnErrorsOtherThanOfficeData(t *testing.T) {
+	tr, _ := fixture(t)
+	lines := logInto(tr)
+	delete(tr.columnStatus, colReady)
+
+	_, err := tr.ListReady(testProject, "Ready")
+	if !errors.Is(err, ErrUnmappedColumn) {
+		t.Errorf("ListReady дал %v, ожидался ErrUnmappedColumn", err)
+	}
+	_, err = tr.List(testProject, []string{"Ready"})
+	if !errors.Is(err, ErrUnmappedColumn) {
+		t.Errorf("List дал %v, ожидался ErrUnmappedColumn", err)
+	}
+	if len(*lines) != 0 {
+		t.Errorf("чужая ошибка ушла в Logf: %q", *lines)
+	}
+}
+
+func TestOpenDefaultsLogf(t *testing.T) {
+	tr, _ := fixture(t)
+	if tr.Logf == nil {
+		t.Error("Logf по умолчанию не задан — пропуск карточки упал бы паникой")
+	}
+}

@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"net/http"
 	"net/url"
@@ -83,6 +84,11 @@ type Tracker struct {
 
 	// Now — часы раннера: аренду сверяем ими, а не серверными.
 	Now func() time.Time
+	// Logf — куда адаптер сообщает о том, что стерпел, а не вернул ошибкой:
+	// листинги пропускают карточку с нечитаемыми данными офиса (status.go,
+	// collect). По умолчанию log.Printf; yougile-wiring-and-docs направит
+	// его в лог раннера.
+	Logf func(format string, args ...any)
 }
 
 // Open готовит трекер: проверяет конфигурацию и ничего на сервере не создаёт.
@@ -140,6 +146,7 @@ func Open(cfg Config) (*Tracker, error) {
 		columnStatus: columnStatus,
 		users:        map[string]string{},
 		Now:          time.Now,
+		Logf:         log.Printf,
 	}
 	if err := t.loadColumns(); err != nil {
 		return nil, err

@@ -10,6 +10,18 @@ import (
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
+// FindByMarker — источник идемпотентности детей split: пропусти он
+// карточку, ensureChildren завёл бы дубль. Поэтому здесь — громко.
+func TestFindByMarkerFailsLoudOnUnreadableOfficeData(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.addTask(&fakeTask{ID: "broken", ColumnID: colReview, Timestamp: now.UnixMilli(),
+		APIData: officeAPIData(map[string]any{"v": 2, "labels": []any{"split:P:a"}})})
+	_, err := tr.FindByMarker(testProject, "split:P:a")
+	if !errors.Is(err, ErrOfficeData) || !strings.Contains(err.Error(), "broken") {
+		t.Errorf("FindByMarker дал %v", err)
+	}
+}
+
 const markedBody = "[office run:r1 role:analyst outcome:question]\nЧто делать с <b>тегами</b> & амперсандом?\n\n## Вопросы\n1. да/нет"
 
 func TestCommentPostsVerbatimTextAndEscapedHTML(t *testing.T) {

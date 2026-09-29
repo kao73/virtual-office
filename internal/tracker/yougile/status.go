@@ -112,6 +112,7 @@ func byCreation(a, b taskDTO) int {
 
 // collect — задачи названных колонок, от старых к новым (FIFO: приоритета
 // в YouGile нет, design.md Decisions), отфильтрованные keep.
+// Карточка с нечитаемыми данными офиса (ErrOfficeData) пропускается с записью в Logf.
 func (t *Tracker) collect(columnIDs []string, keep func(tracker.Task) bool) ([]tracker.TaskRef, error) {
 	var raws []taskDTO
 	for _, id := range columnIDs {
@@ -126,6 +127,11 @@ func (t *Tracker) collect(columnIDs []string, keep func(tracker.Task) bool) ([]t
 	refs := make([]tracker.TaskRef, 0, len(raws))
 	for _, raw := range raws {
 		task, _, err := t.toTask(raw)
+		if errors.Is(err, ErrOfficeData) {
+			// Одна карточка не должна останавливать очередь колонки и reaper.
+			t.Logf("yougile: задача %s пропущена: %v", raw.ID, err)
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
