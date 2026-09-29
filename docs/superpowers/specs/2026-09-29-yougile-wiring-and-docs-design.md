@@ -219,3 +219,35 @@ doc during Build (tasks 3.1/3.2). That doubles as a check of the doc. Live
 - Doctor gets a minimal YouGile stage. The proposal did not mention doctor.
 - `ru.yougile.com` is refused, not normalized, not only warned about, and not
   documented alone.
+
+## 9. Implementation Divergence
+
+Recorded at Verify (2026-09-29) against the built change; owner chose to
+record rather than redesign.
+
+- **§4 step 6, Logf prefix.** The runner prints the adapter's message as is,
+  without adding `yougile: `: every adapter message already starts with it,
+  and a second prefix would read `yougile: yougile: …`. Pinned by a test in
+  `cmd/runner/office_test.go`.
+- **§5, doctor stage shape.** To keep a failed JIRA stage from ending the
+  report before the YouGile checks, the JIRA stage was extracted into
+  `doctorJira`; its findings, order and exit code are unchanged.
+- **§5, unreadable graph.** When the office workflow cannot be read (office
+  not resolved, or the snapshot not unpacked yet on a fresh `OFFICE_HOME`),
+  `config:tracker-yougile.yaml` reports `warn` — column coverage not
+  checked — and the stage continues to the key and server checks. After
+  `runner ls` (read-only) unpacks the snapshot, the finding is `ok`. Seen
+  live during provisioning.
+- **§6, reference doc after provisioning.** Following the doc on a real
+  account exposed gaps, fixed in `a9b7926`: YouGile has no bot/service
+  users, so the office user is invited to an email the owner controls and
+  sets a password (the key is issued only with login and password); the
+  office user must be a project member (`worker` is enough) — `PUT
+  /projects/{id}` replaces the whole `users` map; an optional API recipe for
+  project, board and columns with an admin's key; naming `api_key_env`
+  differently (e.g. `YOUGILE_OFFICE_API_KEY`) when a personal
+  `YOUGILE_API_KEY` is already in the environment; and the fresh-`OFFICE_HOME`
+  warn above.
+- **Open-phase risk now closed.** `design.md` Risks said no dedicated office
+  account existed; one does now (`kao@simbirsoft.com`, project
+  `office-wiring`), see `tasks.md` Build notes.
