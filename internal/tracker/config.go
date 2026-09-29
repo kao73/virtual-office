@@ -482,7 +482,7 @@ func (w Workflow) checkOrder() []error {
 
 // Трекеры, которые офис умеет вести. Список живёт здесь, а не в точке входа:
 // его спрашивает LoadProjects, и разъехаться этим двум местам нельзя.
-var trackers = []string{"mock", "jira"}
+var trackers = []string{"mock", "jira", "yougile"}
 
 // Trackers — имена трекеров для подсказок и сообщений об ошибке.
 func Trackers() []string { return slices.Clone(trackers) }

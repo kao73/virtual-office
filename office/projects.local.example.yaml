@@ -15,7 +15,8 @@ PROJ:
   repo_url: https://github.com/you/your-project.git
   # Ветка, от которой ответвляются задачи и в которую открывается pull request.
   default_branch: main
-  # Где живут задачи проекта: jira (нужен tracker.yaml) или mock (файловый трекер).
+  # Где живут задачи проекта: jira (нужен tracker.yaml), yougile (нужен
+  # tracker-yougile.yaml) или mock (файловый трекер).
   tracker: jira
   # branch_prefix: agent/            # префикс веток задач; умолчание — agent/
   # worktree_root: <абсолютный путь> # где держать рабочие папки; пусто — ${OFFICE_HOME}/worktrees/PROJ
