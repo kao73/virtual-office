@@ -44,23 +44,31 @@ curl -fsS -o /dev/null -w '%{http_code}\n' \
 спрашивает его у `/users/me` при запуске.
 
 Ключ выпускается двумя запросами под логином и паролем учётки офиса. Логин и
-пароль читаются из переменных, чтобы не попасть в историю оболочки и в `ps`:
+пароль вводятся с клавиатуры (пароль — без эха) и попадают только в окружение
+этой оболочки и её потомков. `jq` собирает из них тело запроса через `env`,
+`curl` читает тело со стандартного ввода, поэтому ни в истории оболочки, ни
+в аргументах процессов, которые показывает `ps`, их нет:
 
 ```sh
+# логин и пароль учётки офиса
+printf 'логин: ';  read -r YG_LOGIN
+printf 'пароль: '; read -rs YG_PASSWORD; echo
+export YG_LOGIN YG_PASSWORD
+
 # id компании, к которой у учётки есть доступ
-jq -n --arg login "$YG_LOGIN" --arg password "$YG_PASSWORD" \
-    '{login: $login, password: $password}' |
+jq -n '{login: env.YG_LOGIN, password: env.YG_PASSWORD}' |
   curl -fsS -X POST -H 'Content-Type: application/json' -d @- \
     https://yougile.com/api-v2/auth/companies |
   jq '.content[] | {id, name}'
 
 # ключ API — сразу в переменную, не на экран
-YOUGILE_API_KEY=$(jq -n --arg login "$YG_LOGIN" --arg password "$YG_PASSWORD" \
-    --arg companyId '<id компании>' \
-    '{login: $login, password: $password, companyId: $companyId}' |
+YOUGILE_API_KEY=$(jq -n --arg companyId '<id компании>' \
+    '{login: env.YG_LOGIN, password: env.YG_PASSWORD, companyId: $companyId}' |
   curl -fsS -X POST -H 'Content-Type: application/json' -d @- \
     https://yougile.com/api-v2/auth/keys |
   jq -r .key)
+
+unset YG_LOGIN YG_PASSWORD
 ```
 
 Куда ключ кладётся на машине раннера — в переменную, которую называет
@@ -100,6 +108,10 @@ curl -fsS -H "Authorization: Bearer $YOUGILE_API_KEY" \
 в `tracker-yougile.yaml`. Колонки, которых в этом разделе нет, разрешены — это
 колонки вне графа, офис задачи в них не читает. Колонки заводит человек:
 раннер их только сверяет и сам не создаёт.
+
+`create_status` — статус, в колонку которого ложатся задачи, заведённые самим
+офисом (дети разбиения); в образце — `Backlog`. Он обязан быть одним из
+статусов в `columns`, иначе раннер откажется открыть проект.
 
 id читаются тремя запросами, каждый следующий — по id из предыдущего:
 
@@ -153,7 +165,7 @@ rate limit YouGile», а следующий заход пробует занов
 
 | check-id | Что проверяет | Если `fail` |
 |---|---|---|
-| `config:tracker-yougile.yaml` | файл читается и проходит проверку ключей; ключ проекта совпадает с `projects.local.yaml`; у каждого статуса графа есть колонка | дальше `warn skip:yougile`, остальные три не проверяются |
+| `config:tracker-yougile.yaml` | файл читается и проходит проверку ключей; ключ проекта совпадает с `projects.local.yaml`; у каждого статуса графа есть колонка | дальше `warn skip:yougile`, остальные три не проверяются. Граф офиса не прочитан (офис не резолвится) — покрытие колонками не проверено, находка `warn`, проверки идут дальше |
 | `cred:<api_key_env>` | переменная из `api_key_env` задана (значение не печатается) | дальше `warn skip:yougile-checks`, `yougile:open` и `yougile:account` не проверяются |
 | `yougile:open` | проект с `project_id` отвечает ключу, все колонки из `columns` есть на досках проекта | дальше `warn skip:yougile-checks`, `yougile:account` не проверяется |
 | `yougile:account` | `/users/me` называет email учётки; при `ok` он напечатан в находке | — |
