@@ -54,9 +54,9 @@ const pageLimit = 1000
 // говорит «дальше пусто», не должен крутить цикл вечно.
 const maxPages = 100
 
-// Config — подключение и раскладка статусов по колонкам. Загрузчика из файла
-// пока нет — его добавит yougile-wiring-and-docs; ключ API приходит из
-// окружения на стороне вызывающего и сюда попадает уже значением.
+// Config — подключение и раскладка статусов по колонкам. Из файла её
+// собирает FileConfig.Tracker (config.go); ключ API приходит из окружения и
+// сюда попадает уже значением.
 type Config struct {
 	// BaseURL — корень хоста, https://yougile.com. Поле, а не константа, —
 	// чтобы тесты направляли трекер на httptest.
@@ -65,6 +65,11 @@ type Config struct {
 	APIKey string
 	// ProjectID — id проекта YouGile. Один Tracker — один проект.
 	ProjectID string
+	// Key — имя проекта у раннера: ключ из projects.local.yaml (SHOP), а не
+	// UUID YouGile. Его принимает checkProject и его несут Task.Project и
+	// TaskRef.Project — рабочие папки, ветки и реестр видят тот же ключ, что
+	// у jira и mock. В API уходит ProjectID. Пусто — ProjectID.
+	Key string
 	// ColumnIDs — статус графа → id колонки. Колонки заводит человек; адаптер
 	// их не создаёт, а на Open сверяет, что они есть.
 	ColumnIDs map[string]string
@@ -97,7 +102,8 @@ type Tracker struct {
 	// Logf — куда адаптер сообщает о том, что стерпел, а не вернул ошибкой:
 	// листинги (status.go, collect) и FindByMarker (comment.go) пропускают
 	// карточку с нечитаемыми данными. По умолчанию log.Printf;
-	// yougile-wiring-and-docs направит его в лог раннера. nil — лог выключен.
+	// раннер направляет его в свой вывод (cmd/runner/office.go, openYouGile).
+	// nil — лог выключен.
 	Logf func(format string, args ...any)
 }
 
@@ -182,6 +188,9 @@ func Open(cfg Config) (*Tracker, error) {
 	if cfg.ProjectID == "" {
 		return nil, errors.New("yougile: id проекта не задан")
 	}
+	if cfg.Key == "" {
+		cfg.Key = cfg.ProjectID
+	}
 	if len(cfg.ColumnIDs) == 0 {
 		return nil, errors.New("yougile: карта статус → колонка пуста")
 	}
@@ -221,11 +230,12 @@ func Open(cfg Config) (*Tracker, error) {
 	return t, nil
 }
 
-// checkProject — Tracker обслуживает ровно один проект YouGile.
+// checkProject — Tracker обслуживает ровно один проект YouGile, и раннер
+// зовёт его ключом Key.
 func (t *Tracker) checkProject(project string) error {
-	if project != t.cfg.ProjectID {
-		return fmt.Errorf("%w: %q (этот трекер обслуживает проект YouGile %q)",
-			tracker.ErrNoProject, project, t.cfg.ProjectID)
+	if project != t.cfg.Key {
+		return fmt.Errorf("%w: %q (этот трекер обслуживает проект %q, в YouGile — %q)",
+			tracker.ErrNoProject, project, t.cfg.Key, t.cfg.ProjectID)
 	}
 	return nil
 }

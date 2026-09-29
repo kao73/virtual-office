@@ -595,6 +595,50 @@ func TestCheckProjectRejectsForeignProject(t *testing.T) {
 	}
 }
 
+// Раннер зовёт проект ключом из projects.local.yaml, а не UUID YouGile:
+// Key — то, что принимает checkProject и что несут Task.Project и TaskRef.Project.
+// В API по-прежнему уходит ProjectID.
+func TestKeyNamesTheProjectForTheRunner(t *testing.T) {
+	fake := newFake(t)
+	cfg := testConfig(serve(t, fake))
+	cfg.Key = "SHOP"
+	tr, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("трекер не открыт: %v", err)
+	}
+	tr.Now = func() time.Time { return now }
+
+	if err := tr.checkProject("SHOP"); err != nil {
+		t.Errorf("свой ключ отвергнут: %v", err)
+	}
+	if err := tr.checkProject(testProject); !errors.Is(err, tracker.ErrNoProject) {
+		t.Errorf("UUID проекта вместо ключа дал %v, ожидался ErrNoProject", err)
+	}
+	refs, err := tr.ListReady("SHOP", "Ready")
+	if err != nil || len(refs) != 1 || refs[0].Project != "SHOP" {
+		t.Errorf("ListReady(SHOP) = %+v, %v; ожидался один ref проекта SHOP", refs, err)
+	}
+	task, err := tr.Get(testKey)
+	if err != nil || task.Project != "SHOP" {
+		t.Errorf("Get: Project=%q, %v; ожидался SHOP", task.Project, err)
+	}
+	if fake.count("GET /api-v2/projects/"+testProject) != 1 {
+		t.Errorf("в API ушёл не ProjectID: %v", fake.requests)
+	}
+}
+
+// Пустой Key — это ProjectID: прежние вызовы и live_test.go не меняются.
+func TestKeyDefaultsToProjectID(t *testing.T) {
+	tr, _ := fixture(t)
+	if err := tr.checkProject(testProject); err != nil {
+		t.Errorf("ProjectID без Key отвергнут: %v", err)
+	}
+	task, err := tr.Get(testKey)
+	if err != nil || task.Project != testProject {
+		t.Errorf("Get: Project=%q, %v; ожидался %q", task.Project, err, testProject)
+	}
+}
+
 func TestWhoamiReturnsEmail(t *testing.T) {
 	tr, _ := fixture(t)
 	who, err := tr.Whoami()
