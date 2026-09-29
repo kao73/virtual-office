@@ -288,8 +288,10 @@ The round-trip needs this machine to reach `prod-user-data.yougile.com`
   self-maintained id→url manifest"). Human files already live in chat links,
   so storing office files the same way gives one mechanism for both, makes
   office files visible in the UI as they are in JIRA, and needs no second
-  record. This drops tasks 3.1 and 3.4 as written. URL stability becomes the
-  byte round-trip check.
+  record. This drops tasks 3.1 and 3.4 as written and changes the mechanics
+  of 3.2 and 3.3 (no manifest write or lookup; chat file messages and
+  description links instead). URL stability becomes the byte round-trip
+  check.
 - **The change-1 schema is moved under `virtual_office`**, a change to code
   that change 1 shipped. `proposal.md` already assumed a namespaced lease
   sub-object, and task 2.1 already said "namespaced alongside the lease".

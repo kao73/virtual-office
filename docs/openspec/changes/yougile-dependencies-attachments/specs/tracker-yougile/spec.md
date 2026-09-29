@@ -74,4 +74,5 @@ malformed office data stop listing the other tasks.
 #### Scenario: Newer office data is not overwritten
 - **WHEN** a task's office data declares a newer schema version than the
   adapter understands
-- **THEN** reading or changing that task fails, and nothing is written
+- **THEN** reading that task on its own or changing it fails, nothing is
+  written, and a listing skips the task and reports it rather than failing

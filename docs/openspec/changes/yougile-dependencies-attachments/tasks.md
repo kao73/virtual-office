@@ -26,8 +26,10 @@
       _Reframed (Design Doc §7): no manifest. Attachments are discovered from chat file messages and description links (§4.1)._
 - [x] 3.2 Implement `AddAttachment` (upload via `upload-file`, record the
       returned url in the manifest under a generated id).
+      _Reframed (Design Doc §4.2, §7): no manifest. The upload url is posted as a chat file message `/root/#file:<url>`; the id is the uuid from that url._
 - [x] 3.3 Implement `GetAttachment` (resolve id via the manifest, GET the
       stored url).
+      _Reframed (Design Doc §4.3, §7): the id is resolved through chat file messages and description links, the URL is rebuilt on `BaseURL` and fetched by a keyless client._
 - [x] 3.4 Live-check that an `upload-file` URL fetched immediately after
       upload, and again after some delay, both return the same bytes
       (confirms or refutes the "URL stability" risk noted in design.md).
