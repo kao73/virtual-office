@@ -1524,7 +1524,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 This is a docs task. The "test" is the reviewer checklist in Step 3 plus `sh scripts/doc-recipe-test.sh`. Use `documentation-writer` (Diátaxis: this is **reference**, mirroring `jira-requirements.md`: a requirement plus a way to check it, nothing else). Russian prose. Pass it through `humanizer` before committing.
 
-- [ ] **Step 1: Write `docs/reference/yougile-requirements.md`**
+- [x] **Step 1: Write `docs/reference/yougile-requirements.md`**
 
 Structure (headings verbatim, content as described; every `curl` uses `-H "Authorization: Bearer $YOUGILE_API_KEY"` and never prints the key):
 
@@ -1585,7 +1585,7 @@ and the next tick retries. Keep the loop period at the default 2 minutes or more
 yougile:open, yougile:account — what each one checks and what it skips when it fails.
 ```
 
-- [ ] **Step 2: Update the guides**
+- [x] **Step 2: Update the guides**
 
 - `docs/guide/project-setup.md`, "Запись о проекте": "подключение к JIRA" → "подключение к JIRA или YouGile".
 - `docs/guide/project-setup.md`, "Подключение к трекеру": first line → "Только для проекта на JIRA или YouGile — …". Keep the JIRA part under a `### JIRA` subheading, and add `### YouGile`:
@@ -1601,14 +1601,14 @@ yougile:open, yougile:account — what each one checks and what it skips when it
 - `docs/guide/operations.md:216` tree: add `├── tracker-yougile.yaml            подключение к YouGile: проект, колонки, имя переменной с ключом` right after the `tracker.yaml` line (align with its neighbors).
 - `docs/openspec/changes/yougile-wiring-and-docs/design.md`: the Goals bullet and the second Risk still name `docs/notes/yougile-setup.md`. Replace both with `docs/reference/yougile-requirements.md` (Design Doc §8 says the open-phase artifacts are corrected).
 
-- [ ] **Step 3: Check**
+- [x] **Step 3: Check**
 
 Run: `grep -rn "yougile-setup.md" docs/ --include=*.md | grep -v superpowers/specs` → expect no hits.
 Run: `grep -n "ru.yougile.com" docs/reference/yougile-requirements.md` → only in the refusal explanation.
 Run: `sh scripts/doc-recipe-test.sh` → passes.
 Reviewer checklist: each section is a requirement plus a check; no instruction prints the key; the column list matches `office/workflow.yaml` `statuses`; the check-ids match `doctor.go`'s header; 6.4 and 6.5 each have their own section; every relative link resolves (`ls` each target).
 
-- [ ] **Step 4: Tick and commit**
+- [x] **Step 4: Tick and commit**
 
 In `tasks.md`, tick 4.1, 6.4, 6.5.
 

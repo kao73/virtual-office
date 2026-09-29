@@ -31,7 +31,7 @@
 
 ## 4. Documentation
 
-- [ ] 4.1 Write `docs/reference/yougile-requirements.md`, paired with
+- [x] 4.1 Write `docs/reference/yougile-requirements.md`, paired with
       `docs/reference/jira-requirements.md`; add YouGile steps to
       `docs/guide/project-setup.md`, `docs/guide/machine-setup.md` and
       `docs/reference/configuration.md`.
@@ -56,6 +56,6 @@
 - [x] 6.3 Refuse `base_url: https://ru.yougile.com` in `LoadConfig` with a
       hint to use `https://yougile.com` (it breaks attachment downloads via
       the `prod-user-data.yougile.com` redirect).
-- [ ] 6.4 Docs: to drop a task stuck in Blocked, move it to a column
+- [x] 6.4 Docs: to drop a task stuck in Blocked, move it to a column
       outside the graph; do not archive it.
-- [ ] 6.5 Docs: `runner ls` shows archived cards too.
+- [x] 6.5 Docs: `runner ls` shows archived cards too.
