@@ -7,6 +7,7 @@
       and the runner opens it cleanly (`runner ls` against it).
 - [x] 1.3 P1: run live `runner doctor` against `office-wiring`/`YGW` after the
       PR #26 fixes; every finding, including the YouGile stage, is `ok`.
+      (Done for the YouGile stage; `sbx:network` was `warn` — environment, see retro.)
 - [x] 1.4 P2: record the shape of `GET /api-v2/projects/{id}` under the office
       key, including whether `users` exposes the office account's own role
       (read-only; a missing role is a finding, not a fix).
@@ -36,7 +37,7 @@
       `Q1: yes`, and the repeated split is taken as the second confirmation.
 - [x] 3.7 `runner complete-splits` creates C1 and C2 in `create_status` with
       "C2 depends on C1" recorded in `apiData`; a second run creates no
-      duplicates.
+      duplicates. (Idempotency not proven live — parent already Done; retro finding 6.)
 - [x] 3.8 Dependency gate: with C1 not `Done` a tick claims C1 only; after C1
       reaches `Done` via a human-merged PR the next tick claims C2; C2 is
       finished or parked in an off-graph column (not archived).
