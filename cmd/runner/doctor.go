@@ -590,21 +590,26 @@ func doctorYouGile(report func(finding), home string, projects tracker.Projects,
 	}
 	report(finding{credID, "ok", "задана"})
 
+	// Отказ здесь — беда локальных файлов, не сервера, и находка ему — config:.
+	// Сегодня он недостижим: ключ проекта и переменная проверены выше.
 	cfg, err := fc.Tracker(key)
-	if err == nil {
-		var trk *yougile.Tracker
-		if trk, err = yougile.Open(cfg); err == nil {
-			report(finding{"yougile:open", "ok", "проект и колонки на месте"})
-			if email, err := trk.Whoami(); err != nil {
-				report(finding{"yougile:account", "fail", err.Error()})
-			} else {
-				report(finding{"yougile:account", "ok", "учётка офиса: " + email})
-			}
-			return
-		}
+	if err != nil {
+		report(finding{configID, "fail", err.Error()})
+		skipChecks(yougile.TrackerFile + " не собрался в подключение")
+		return
 	}
-	report(finding{"yougile:open", "fail", err.Error()})
-	skipChecks("трекер не открыт")
+	trk, err := yougile.Open(cfg)
+	if err != nil {
+		report(finding{"yougile:open", "fail", err.Error()})
+		skipChecks("трекер не открыт")
+		return
+	}
+	report(finding{"yougile:open", "ok", "проект и колонки на месте"})
+	if email, err := trk.Whoami(); err != nil {
+		report(finding{"yougile:account", "fail", err.Error()})
+	} else {
+		report(finding{"yougile:account", "ok", "учётка офиса: " + email})
+	}
 }
 
 // concludeExit печатает каждую находку в порядке появления и отказывает,

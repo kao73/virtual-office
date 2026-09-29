@@ -112,6 +112,9 @@ func (fc FileConfig) validate() []error {
 		errs = append(errs, errors.New("projects пуст: опишите проект YouGile под его ключом из projects.local.yaml"))
 	case 1:
 		for key, p := range fc.Projects {
+			if strings.TrimSpace(key) == "" {
+				errs = append(errs, errors.New("projects: ключ проекта пуст — нужен ключ из projects.local.yaml"))
+			}
 			errs = append(errs, p.validate(key)...)
 		}
 	default:
@@ -121,7 +124,8 @@ func (fc FileConfig) validate() []error {
 	return errs
 }
 
-// validBaseURL — корень хоста с схемой, без /api-v2 и не ru.yougile.com.
+// validBaseURL — корень хоста со схемой: без пути (и без /api-v2 в нём) и не
+// ru.yougile.com.
 func validBaseURL(raw string) error {
 	if raw == "" {
 		return errors.New("base_url не задан: без адреса YouGile идти некуда (пример: https://yougile.com)")
@@ -132,8 +136,11 @@ func validBaseURL(raw string) error {
 		return fmt.Errorf("base_url=%q не разобран: %w", raw, err)
 	case u.Scheme == "" || u.Host == "":
 		return fmt.Errorf("base_url=%q: нет схемы или хоста (пример: https://yougile.com)", raw)
-	case strings.HasSuffix(strings.TrimRight(raw, "/"), apiPrefix):
+	case strings.HasSuffix(strings.ToLower(strings.TrimRight(u.Path, "/")), apiPrefix):
 		return fmt.Errorf("base_url=%q: %s адаптер добавляет сам, укажите корень хоста (пример: https://yougile.com)", raw, apiPrefix)
+	// Путь ушёл бы в каждый запрос: /foo/api-v2/…, и 404 выдал бы себя за «нет проекта».
+	case u.Path != "" && u.Path != "/":
+		return fmt.Errorf("base_url=%q: нужен корень хоста, без пути (пример: https://yougile.com)", raw)
 	// «ru.yougile.com.» с точкой на конце — тот же хост.
 	case strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), refusedHost):
 		return fmt.Errorf("base_url=%q: с %s вложения не скачаются — /user-data/ перенаправляет "+
@@ -188,7 +195,11 @@ func (p ProjectConfig) validate(key string) []error {
 // бы. Колонки вне графа в columns просто не пишут. Сверка локальная: сами
 // колонки на сервере проверяет Open.
 func (fc FileConfig) CheckGraph(key string, statuses []string) error {
-	columns := fc.Projects[key].Columns
+	project, ok := fc.Projects[key]
+	if !ok {
+		return fmt.Errorf("%s не описывает проект %q", TrackerFile, key)
+	}
+	columns := project.Columns
 	var missing, unknown []string
 	for _, status := range statuses {
 		if columns[status] == "" {

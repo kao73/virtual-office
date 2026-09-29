@@ -68,6 +68,9 @@ func TestCheckGraph(t *testing.T) {
 	if err := fc.CheckGraph("SHOP", []string{"InProgress", "Ready"}); err != nil {
 		t.Errorf("совпадающий граф отвергнут: %v", err)
 	}
+	if err := fc.CheckGraph("BLOG", []string{"Ready"}); err == nil || !strings.Contains(err.Error(), `не описывает проект "BLOG"`) {
+		t.Errorf("чужой ключ дал %v", err)
+	}
 	cases := []struct {
 		name     string
 		statuses []string
@@ -142,6 +145,9 @@ func TestLoadConfigRejectsBrokenFile(t *testing.T) {
 			"    columns:\n      Ready: col-ready\n      InProgress: col-work\n", "    columns: {}\n", 1), "projects.SHOP.columns"},
 		{"base_url без схемы", strings.Replace(validFile, "https://yougile.com", "yougile.com", 1), "нет схемы или хоста"},
 		{"base_url с /api-v2", strings.Replace(validFile, "https://yougile.com", "https://yougile.com/api-v2/", 1), "/api-v2"},
+		{"base_url с /API-V2", strings.Replace(validFile, "https://yougile.com", "https://yougile.com/API-V2", 1), "/api-v2"},
+		{"base_url с путём", strings.Replace(validFile, "https://yougile.com", "https://yougile.com/foo", 1), "без пути"},
+		{"пустой ключ проекта", strings.Replace(validFile, "  SHOP:", `  "":`, 1), "ключ проекта пуст"},
 		{"ru. с точкой на конце", strings.Replace(validFile, "https://yougile.com", "https://ru.yougile.com.", 1), "вложения"},
 		{"пустой also_agents", strings.Replace(validFile, "[bot@example.com]", "[bot@example.com, \" \"]", 1), "also_agents[1]"},
 		{"нет create_status", strings.Replace(validFile, "    create_status: Ready\n", "", 1), "projects.SHOP.create_status не задан"},
