@@ -173,7 +173,8 @@ func (t *Tracker) AddAttachment(key string, by tracker.Actor, name string, data 
 
 // GetAttachment читает вложение по uuid. Ссылку ищет там же, где Get (описание
 // и чат), URL пересобирает на BaseURL и скачивает клиентом без ключа API
-// (design doc §4.3). Три запроса — задача, чат, файл; кэша нет намеренно.
+// (design doc §4.3). Запросов два — задача и файл, — если ссылка нашлась
+// в описании, и три — с чатом, — если нет; кэша нет намеренно.
 func (t *Tracker) GetAttachment(key, id string) ([]byte, error) {
 	if !tracker.ValidAttachmentID(id) {
 		return nil, fmt.Errorf("%w: вложение %s/%s", tracker.ErrNotFound, key, id)

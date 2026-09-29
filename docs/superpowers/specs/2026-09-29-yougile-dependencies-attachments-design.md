@@ -215,7 +215,9 @@ returns an error. The retry uploads again.
    `BaseURL` is `http://127.0.0.1:…`, so the scheme rule is "same scheme as
    `BaseURL`". Non-2xx fails. `404` becomes `ErrNotFound`.
 
-**Cost.** One `GetAttachment` makes three requests (task, chat, file).
+**Cost.** One `GetAttachment` makes two requests (task, file) when the link
+is in the description, which takes precedence and makes the chat irrelevant,
+and three (task, chat, file) otherwise (PR #25 cleanup).
 `pipeline.fetchAttachments` calls it once per human attachment. Against
 50 req/min this is acceptable for a few files, and there is deliberately no
 cache (YAGNI).
@@ -321,7 +323,7 @@ The round-trip needs this machine to reach `prod-user-data.yougile.com`
   between the note and the write.
 - **Capability URLs.** Anyone holding a file link can read the file, as in
   the UI. The API key never leaves the API host.
-- **Request cost.** `GetAttachment` costs three requests.
+- **Request cost.** `GetAttachment` costs two or three requests.
 - **Local network.** The storage host needs its own split-tunnel entry on
   this machine.
 - **The office's own chat messages.** `yougile-wiring-and-docs` must put the
