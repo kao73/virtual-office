@@ -111,10 +111,10 @@ func cleanupPartialWrite(dst string, writeErr error) error {
 // в любом режиме, в том числе из клона: init не разрешает офис и ничего
 // не распаковывает.
 //
-// Рабочие файлы — projects.local.yaml, tracker.yaml, tracker-yougile.yaml, budgets.yaml — команда
-// не трогает никогда: они свойство инстанса, и переписать их значило бы
-// снести настройку машины одной командой. Существующий образец тоже
-// остаётся: его могли править как черновик.
+// Рабочие файлы — projects.local.yaml, tracker.yaml, tracker-yougile.yaml,
+// budgets.yaml — команда не трогает никогда: они свойство инстанса, и
+// переписать их значило бы снести настройку машины одной командой.
+// Существующий образец тоже остаётся: его могли править как черновик.
 func initCommand(args []string, out io.Writer) error {
 	if err := flags("init").Parse(args); err != nil {
 		return err

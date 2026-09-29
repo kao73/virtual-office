@@ -567,15 +567,13 @@ func doctorYouGile(report func(finding), home string, projects tracker.Projects,
 	// Сверка колонок с графом — тоже по локальным файлам, поэтому здесь.
 	// Граф не прочитан (офис не резолвится, граф клона пропал или сломан) —
 	// не беда файла, а непроверенное: warn, и дальше.
-	switch workflow, wfErr := loadOfficeWorkflow(office, officeErr); {
-	case wfErr != nil:
+	if workflow, wfErr := loadOfficeWorkflow(office, officeErr); wfErr != nil {
 		report(finding{configID, "warn", fmt.Sprintf("проект %s; сверка колонок с графом не выполнена: %v", key, wfErr)})
-	default:
-		if err := youGileColumns(fc, key, workflow); err != nil {
-			report(finding{configID, "fail", err.Error()})
-			skipAll("расходится с графом офиса")
-			return
-		}
+	} else if err := fc.CheckGraph(key, workflow.Statuses); err != nil {
+		report(finding{configID, "fail", err.Error()})
+		skipAll("расходится с графом офиса")
+		return
+	} else {
 		report(finding{configID, "ok", "проект " + key + ", колонки сходятся с графом"})
 	}
 

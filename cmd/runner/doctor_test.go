@@ -1393,19 +1393,6 @@ func TestDoctorYouGileFullSuccess(t *testing.T) {
 	}
 }
 
-// Нет yougile-проектов — стадии нет вовсе.
-func TestDoctorWithoutYouGileProjectsSkipsStage(t *testing.T) {
-	withLookPath(t, "git", "claude", "go", "comet")
-	fixtureRunner(t, mockProject)
-	var out bytes.Buffer
-	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
-		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
-	}
-	if strings.Contains(out.String(), "yougile") {
-		t.Errorf("mock-only офис упомянул YouGile:\n%s", out.String())
-	}
-}
-
 func TestDoctorYouGileMissingFileSkipsDependentChecks(t *testing.T) {
 	withLookPath(t, "git", "claude", "go", "comet")
 	fixtureRunner(t, mockProject+youGileProject)

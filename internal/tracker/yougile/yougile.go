@@ -165,23 +165,16 @@ func fileHostAllowed(base, target *url.URL) bool {
 
 // Open готовит трекер: проверяет конфигурацию и ничего на сервере не создаёт.
 func Open(cfg Config) (*Tracker, error) {
-	if cfg.BaseURL == "" {
-		return nil, errors.New("yougile: base_url не задан")
+	// Те же правила, что у загрузчика файла: Config, собранный не из файла,
+	// их не обходит.
+	if err := validBaseURL(cfg.BaseURL); err != nil {
+		return nil, fmt.Errorf("yougile: %w", err)
 	}
 	base, err := url.Parse(cfg.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("yougile: base_url не разобран: %w", err)
-	}
-	if base.Scheme == "" || base.Host == "" {
-		return nil, fmt.Errorf("yougile: base_url=%q: нет схемы или хоста (пример: https://yougile.com)", cfg.BaseURL)
+		return nil, fmt.Errorf("yougile: base_url не разобран: %w", err) // validBaseURL его уже разобрал
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	// Адрес документации API кончается на /api-v2, и его легко вставить как есть.
-	// Запросы ушли бы на /api-v2/api-v2/…, а 404 выдал бы себя за «нет проекта».
-	if strings.HasSuffix(cfg.BaseURL, apiPrefix) {
-		return nil, fmt.Errorf("yougile: base_url=%q: %s адаптер добавляет сам, укажи корень хоста (пример: https://yougile.com)",
-			cfg.BaseURL, apiPrefix)
-	}
 	if cfg.APIKey == "" {
 		return nil, errors.New("yougile: ключ API не задан")
 	}
@@ -411,11 +404,11 @@ func (t *Tracker) Whoami() (string, error) {
 	if err := t.call(http.MethodGet, "/users/me", nil, nil, &me); err != nil {
 		return "", err
 	}
-	if normEmail(me.Email) == "" {
-		return "", errors.New("yougile: /users/me не назвал email — сравнивать авторов комментариев не с чем")
-	}
 	// В форме userEmail: сравнение с авторами идёт строкой.
 	email := normEmail(me.Email)
+	if email == "" {
+		return "", errors.New("yougile: /users/me не назвал email — сравнивать авторов комментариев не с чем")
+	}
 	// Свои комментарии в переписке есть почти всегда — автора уже знаем.
 	if me.ID != "" {
 		t.mu.Lock()

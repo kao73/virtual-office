@@ -144,7 +144,7 @@ func TestLoadConfigEmptyFileJoinsAllErrors(t *testing.T) {
 func TestLoadConfigRejectsBrokenFile(t *testing.T) {
 	cases := []struct{ name, body, want string }{
 		{"нет base_url", strings.Replace(validFile, "base_url: https://yougile.com\n", "", 1), "base_url"},
-		{"ru.", strings.Replace(validFile, "https://yougile.com", "https://ru.yougile.com", 1), "https://yougile.com"},
+		{"ru.", strings.Replace(validFile, "https://yougile.com", "https://ru.yougile.com", 1), "вложения не скачаются"},
 		{"ru. со слешем и в верхнем регистре", strings.Replace(validFile, "https://yougile.com", "https://RU.yougile.com/", 1), "вложения"},
 		{"нет api_key_env", strings.Replace(validFile, "api_key_env: YOUGILE_API_KEY\n", "", 1), "api_key_env"},
 		{"нет проектов", strings.Split(validFile, "projects:")[0], "projects"},
@@ -176,14 +176,6 @@ func TestLoadConfigRejectsBrokenFile(t *testing.T) {
 				t.Errorf("в отказе нет %q: %v", tc.want, err)
 			}
 		})
-	}
-}
-
-// Отказ ru. говорит, почему: вложения не скачаются.
-func TestLoadConfigRuHostExplainsAttachments(t *testing.T) {
-	_, err := LoadConfig(writeFile(t, strings.Replace(validFile, "https://yougile.com", "https://ru.yougile.com", 1)))
-	if err == nil || !strings.Contains(err.Error(), "вложения не скачаются") {
-		t.Errorf("отказ ru. не объяснил причину: %v", err)
 	}
 }
 

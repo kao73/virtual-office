@@ -227,12 +227,6 @@ func youGileFile(path string, declared tracker.Projects) (yougile.FileConfig, st
 	return fc, key, nil
 }
 
-// youGileColumns — колонки проекта сверены с графом офиса в обе стороны
-// (FileConfig.CheckGraph).
-func youGileColumns(fc yougile.FileConfig, key string, workflow tracker.Workflow) error {
-	return fc.CheckGraph(key, workflow.Statuses)
-}
-
 // openYouGile — YouGile по tracker-yougile.yaml. Учётка одна на всех: роли
 // различаются маркером комментария, а не автором, — форма openMock, а не
 // openJira. Её email (Whoami) — агентский: без него записки офиса в чате
@@ -243,7 +237,7 @@ func openYouGile(path string, workflow tracker.Workflow, declared tracker.Projec
 	if err != nil {
 		return opened{}, err
 	}
-	if err := youGileColumns(fc, key, workflow); err != nil {
+	if err := fc.CheckGraph(key, workflow.Statuses); err != nil {
 		return opened{}, err
 	}
 	cfg, err := fc.Tracker(key)

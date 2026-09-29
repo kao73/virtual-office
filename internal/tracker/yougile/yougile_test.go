@@ -514,6 +514,24 @@ func TestOpenRejectsIncompleteConfig(t *testing.T) {
 	}
 }
 
+// Правила адреса у Open те же, что у загрузчика файла (validBaseURL): Config,
+// собранный не из файла, не должен их обходить. Отказ — про base_url и до
+// сети, а не 404 «нет проекта» с сервера.
+func TestOpenRejectsBaseURLLikeTheFileLoader(t *testing.T) {
+	for _, u := range []string{
+		"https://yougile.example/foo", "https://yougile.example?x=1", "https://yougile.example/API-V2",
+		"https://ru.yougile.com",
+	} {
+		t.Run(u, func(t *testing.T) {
+			cfg := testConfig(u)
+			_, err := Open(cfg)
+			if err == nil || !strings.Contains(err.Error(), "base_url") {
+				t.Errorf("Open(%s) = %v, ждали отказ про base_url", u, err)
+			}
+		})
+	}
+}
+
 func TestCallSendsBearerKey(t *testing.T) {
 	tr, fake := fixture(t)
 	var out struct {

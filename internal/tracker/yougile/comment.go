@@ -92,10 +92,10 @@ func (t *Tracker) userEmail(id string) (string, error) {
 		email = id
 	case err != nil:
 		return "", fmt.Errorf("автор комментария %s не определён: %w", id, err)
-	case normEmail(user.Email) == "":
-		email = id
 	default:
-		email = normEmail(user.Email)
+		if email = normEmail(user.Email); email == "" {
+			email = id
+		}
 	}
 
 	t.mu.Lock()
