@@ -2,6 +2,7 @@
 change: yougile-dependencies-attachments
 design-doc: docs/superpowers/specs/2026-09-29-yougile-dependencies-attachments-design.md
 base-ref: 279a7bd6b4bb3157bfc9be4eb657845c3b43c2df
+archived-with: 2026-09-29-yougile-dependencies-attachments
 ---
 
 # yougile-dependencies-attachments Implementation Plan

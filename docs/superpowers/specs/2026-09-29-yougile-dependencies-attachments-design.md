@@ -2,6 +2,8 @@
 comet_change: yougile-dependencies-attachments
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-09-29-yougile-dependencies-attachments
+status: final
 ---
 
 # yougile-dependencies-attachments — deep technical design
