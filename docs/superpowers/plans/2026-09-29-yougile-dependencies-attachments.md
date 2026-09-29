@@ -159,7 +159,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 2: Move office data in apiData under `virtual_office` (tasks.md 2.1, part 1)
 
-- [ ] Task 2 complete: Move office data in apiData under `virtual_office` (tasks.md 2.1, part 1)
+- [x] Task 2 complete: Move office data in apiData under `virtual_office` (tasks.md 2.1, part 1)
 
 **Files:**
 - Modify: `internal/tracker/yougile/lease.go:1-90` (codec block)
@@ -177,7 +177,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `apiData` keeps its fields `Lease`, `Attempts`, `HumanWait`, `Labels`, `extra`. `decodeAPIData(json.RawMessage) (apiData, error)` and `(apiData).encode() map[string]any` keep their signatures.
   - test helpers `officeAPIData(fields map[string]any) map[string]any` and `(*fakeYouGile).officeOf(id string) map[string]any`
 
-- [ ] **Step 1: Add the fake helpers and migrate `setLeaseOf`** (`yougile_test.go`)
+- [x] **Step 1: Add the fake helpers and migrate `setLeaseOf`** (`yougile_test.go`)
 
 Replace the body of `setLeaseOf` and add two helpers after it:
 
@@ -212,7 +212,7 @@ func (f *fakeYouGile) officeOf(id string) map[string]any {
 }
 ```
 
-- [ ] **Step 2: Rewrite the codec tests** (`lease_test.go`)
+- [x] **Step 2: Rewrite the codec tests** (`lease_test.go`)
 
 Replace `TestDecodeAPIDataReadsOwnKeys`, `TestAPIDataKeepsForeignKeys`, `TestEncodeAlwaysWritesOwnKeys` and `TestDecodeAPIDataRejectsGarbage` with the following. Keep `roundTrip` and `TestDecodeAPIDataEmptyIsZero` unchanged.
 
@@ -359,7 +359,7 @@ func TestNewerOfficeDataIsNeverOverwritten(t *testing.T) {
 
 Add `"strings"` is already imported in `lease_test.go`. Check that `"errors"` is too (it is).
 
-- [ ] **Step 3: Migrate the existing fixtures to the namespace**
+- [x] **Step 3: Migrate the existing fixtures to the namespace**
 
 These are exact replacements:
 
@@ -430,12 +430,12 @@ func TestFindByMarkerIgnoresLegacyTopLevelLabels(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Run and see red**
+- [x] **Step 4: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: compile error (`undefined: keyNamespace`, `ErrOfficeData`, `schemaVersion`). This is the red.
 
-- [ ] **Step 5: Implement the namespaced codec** (`lease.go`)
+- [x] **Step 5: Implement the namespaced codec** (`lease.go`)
 
 Replace the block from the `// Ключи apiData, которыми владеет адаптер…` const block through the end of `encode()` with:
 
@@ -571,12 +571,12 @@ func orEmpty(s []string) []string {
 
 `toTask` (`task.go`) already wraps the decode error with `задача YouGile %s: %w`, and `FindByMarker` does the same, so `errors.Is(…, ErrOfficeData)` holds on both paths with the task id in the text.
 
-- [ ] **Step 6: Run and see green**
+- [x] **Step 6: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS (all old and new tests).
 
-- [ ] **Step 7: Check set, then commit**
+- [x] **Step 7: Check set, then commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -590,7 +590,7 @@ malformed virtual_office is ErrOfficeData and is never overwritten.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 8: Mutation probes** (restore each by re-editing, then `git diff --quiet && echo clean`)
+- [x] **Step 8: Mutation probes** (restore each by re-editing, then `git diff --quiet && echo clean`)
   - In `decodeOffice`, change `head.V > schemaVersion` to `head.V > schemaVersion+1`. Expect `TestDecodeAPIDataRefusesNewerVersion` and `TestNewerOfficeDataIsNeverOverwritten` red.
   - Delete `dec.DisallowUnknownFields()`. Expect `TestDecodeAPIDataRejectsMalformedOfficeData` red on `surprise`.
   - In `encode`, change `out[keyNamespace] =` to `out["office"] =`. Expect `TestEncodeWritesFullNamespace` and several Claim/Release tests red.
