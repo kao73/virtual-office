@@ -990,3 +990,18 @@ func TestShippedProjectsExampleLoadsAfterFourEdits(t *testing.T) {
 		t.Errorf("проект разобран как %+v", p)
 	}
 }
+
+// yougile — третий трекер: проект с ним принимается, и список для подсказок
+// его называет.
+func TestLoadProjectsAcceptsYouGile(t *testing.T) {
+	projects, err := load(t, strings.Replace(validMachine, "tracker: mock", "tracker: yougile", 1))
+	if err != nil {
+		t.Fatalf("проект с tracker: yougile отвергнут: %v", err)
+	}
+	if got := projects.For("yougile").Keys(); !slices.Equal(got, []string{"OFF"}) {
+		t.Errorf("For(yougile) = %v, ожидался [OFF]", got)
+	}
+	if !slices.Contains(Trackers(), "yougile") {
+		t.Errorf("Trackers() = %v, yougile не назван", Trackers())
+	}
+}

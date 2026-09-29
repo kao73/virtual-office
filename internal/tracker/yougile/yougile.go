@@ -54,9 +54,9 @@ const pageLimit = 1000
 // говорит «дальше пусто», не должен крутить цикл вечно.
 const maxPages = 100
 
-// Config — подключение и раскладка статусов по колонкам. Загрузчика из файла
-// пока нет — его добавит yougile-wiring-and-docs; ключ API приходит из
-// окружения на стороне вызывающего и сюда попадает уже значением.
+// Config — подключение и раскладка статусов по колонкам. Из файла её
+// собирает FileConfig.Tracker (config.go); ключ API приходит из окружения и
+// сюда попадает уже значением.
 type Config struct {
 	// BaseURL — корень хоста, https://yougile.com. Поле, а не константа, —
 	// чтобы тесты направляли трекер на httptest.
@@ -65,6 +65,11 @@ type Config struct {
 	APIKey string
 	// ProjectID — id проекта YouGile. Один Tracker — один проект.
 	ProjectID string
+	// Key — имя проекта у раннера: ключ из projects.local.yaml (SHOP), а не
+	// UUID YouGile. Его принимает checkProject и его несут Task.Project и
+	// TaskRef.Project — рабочие папки, ветки и реестр видят тот же ключ, что
+	// у jira и mock. В API уходит ProjectID. Пусто — ProjectID.
+	Key string
 	// ColumnIDs — статус графа → id колонки. Колонки заводит человек; адаптер
 	// их не создаёт, а на Open сверяет, что они есть.
 	ColumnIDs map[string]string
@@ -97,7 +102,8 @@ type Tracker struct {
 	// Logf — куда адаптер сообщает о том, что стерпел, а не вернул ошибкой:
 	// листинги (status.go, collect) и FindByMarker (comment.go) пропускают
 	// карточку с нечитаемыми данными. По умолчанию log.Printf;
-	// yougile-wiring-and-docs направит его в лог раннера. nil — лог выключен.
+	// раннер направляет его в свой вывод (cmd/runner/office.go, openYouGile).
+	// nil — лог выключен.
 	Logf func(format string, args ...any)
 }
 
@@ -159,28 +165,22 @@ func fileHostAllowed(base, target *url.URL) bool {
 
 // Open готовит трекер: проверяет конфигурацию и ничего на сервере не создаёт.
 func Open(cfg Config) (*Tracker, error) {
-	if cfg.BaseURL == "" {
-		return nil, errors.New("yougile: base_url не задан")
-	}
-	base, err := url.Parse(cfg.BaseURL)
+	// Те же правила, что у загрузчика файла: Config, собранный не из файла,
+	// их не обходит. После них BaseURL — корень хоста, и склейка адреса
+	// запроса строкой (send, download) безопасна.
+	base, err := parseBaseURL(cfg.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("yougile: base_url не разобран: %w", err)
-	}
-	if base.Scheme == "" || base.Host == "" {
-		return nil, fmt.Errorf("yougile: base_url=%q: нет схемы или хоста (пример: https://yougile.com)", cfg.BaseURL)
+		return nil, fmt.Errorf("yougile: %w", err)
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	// Адрес документации API кончается на /api-v2, и его легко вставить как есть.
-	// Запросы ушли бы на /api-v2/api-v2/…, а 404 выдал бы себя за «нет проекта».
-	if strings.HasSuffix(cfg.BaseURL, apiPrefix) {
-		return nil, fmt.Errorf("yougile: base_url=%q: %s адаптер добавляет сам, укажи корень хоста (пример: https://yougile.com)",
-			cfg.BaseURL, apiPrefix)
-	}
 	if cfg.APIKey == "" {
 		return nil, errors.New("yougile: ключ API не задан")
 	}
 	if cfg.ProjectID == "" {
 		return nil, errors.New("yougile: id проекта не задан")
+	}
+	if cfg.Key == "" {
+		cfg.Key = cfg.ProjectID
 	}
 	if len(cfg.ColumnIDs) == 0 {
 		return nil, errors.New("yougile: карта статус → колонка пуста")
@@ -221,11 +221,12 @@ func Open(cfg Config) (*Tracker, error) {
 	return t, nil
 }
 
-// checkProject — Tracker обслуживает ровно один проект YouGile.
+// checkProject — Tracker обслуживает ровно один проект YouGile, и раннер
+// зовёт его ключом Key.
 func (t *Tracker) checkProject(project string) error {
-	if project != t.cfg.ProjectID {
-		return fmt.Errorf("%w: %q (этот трекер обслуживает проект YouGile %q)",
-			tracker.ErrNoProject, project, t.cfg.ProjectID)
+	if project != t.cfg.Key {
+		return fmt.Errorf("%w: %q (этот трекер обслуживает проект %q, в YouGile — %q)",
+			tracker.ErrNoProject, project, t.cfg.Key, t.cfg.ProjectID)
 	}
 	return nil
 }
@@ -401,14 +402,16 @@ func (t *Tracker) Whoami() (string, error) {
 	if err := t.call(http.MethodGet, "/users/me", nil, nil, &me); err != nil {
 		return "", err
 	}
-	if me.Email == "" {
+	// В форме userEmail: сравнение с авторами идёт строкой.
+	email := normEmail(me.Email)
+	if email == "" {
 		return "", errors.New("yougile: /users/me не назвал email — сравнивать авторов комментариев не с чем")
 	}
 	// Свои комментарии в переписке есть почти всегда — автора уже знаем.
 	if me.ID != "" {
 		t.mu.Lock()
-		t.users[me.ID] = me.Email
+		t.users[me.ID] = email
 		t.mu.Unlock()
 	}
-	return me.Email, nil
+	return email, nil
 }

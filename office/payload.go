@@ -1,5 +1,5 @@
 // Package office — поставка офиса внутри бинарника раннера: роли, скиллы,
-// хуки, граф переходов, дефолтные бюджеты, оба образца и кит песочницы —
+// хуки, граф переходов, дефолтные бюджеты, образцы конфигурации и кит песочницы —
 // дерево репозитория как есть.
 //
 // Пакет несёт только данные и не импортирует ничего из internal/: поведение
@@ -17,7 +17,7 @@ import "embed"
 // по shebang (internal/office).
 //
 //go:embed all:roles all:skills all:hooks all:sbx-kits all:scheduler
-//go:embed workflow.yaml budgets.yaml tracker.example.yaml projects.local.example.yaml
+//go:embed workflow.yaml budgets.yaml tracker.example.yaml tracker-yougile.example.yaml projects.local.example.yaml
 var Payload embed.FS
 
 // Version — версия релиза, вшитая сборкой:

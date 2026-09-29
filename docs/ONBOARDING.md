@@ -26,12 +26,15 @@
 ## Проект
 
 - [ ] 5. Инстанс трекера отвечает требованиям офиса —
-      [«Что офис требует от вашей JIRA»](reference/jira-requirements.md).
-      Своего инстанса нет — поднимается локальный:
+      [JIRA](reference/jira-requirements.md) или
+      [YouGile](reference/yougile-requirements.md). Своей JIRA нет —
+      поднимается локальная:
       [`bootstrap/jira/README.md`](../bootstrap/jira/README.md). Проект на
       файловом трекере `mock` этого шага не требует вовсе.
 - [ ] 6. Учётки: минимум две, офисная и человеческая —
-      [«Что офис требует от вашей JIRA», «Учётки»](reference/jira-requirements.md#учётки).
+      [«Что офис требует от вашей JIRA», «Учётки»](reference/jira-requirements.md#учётки);
+      для YouGile — одна учётка офиса, не ваша:
+      [«Учётка»](reference/yougile-requirements.md#учётка).
 - [ ] 7. Репозиторий проекта-клиента: ветка по умолчанию, `.gitignore`, охват
       токена — [«Завести проект», «Репозиторий
       проекта-клиента»](guide/project-setup.md#репозиторий-проекта-клиента).

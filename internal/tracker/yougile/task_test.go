@@ -145,6 +145,48 @@ func TestCreateTaskPostsIntoCreateColumn(t *testing.T) {
 	}
 }
 
+// idempotencyKey считается от id проекта в YouGile, а не от ключа раннера:
+// ключ в projects.local.yaml человек вправе переименовать, и повтор
+// complete-splits после этого не должен завести ребёнка второй раз.
+func TestCreateTaskIdempotencyKeyIgnoresRunnerKey(t *testing.T) {
+	input := tracker.TaskInput{Summary: "Child", Description: "prose", Labels: []string{"split:VO-1:a"}}
+	keyFor := func(runnerKey string) string {
+		fake := newFake(t)
+		cfg := testConfig(serve(t, fake))
+		cfg.Key = runnerKey
+		tr, err := Open(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tr.CreateTask(runnerKey, input); err != nil {
+			t.Fatal(err)
+		}
+		key, _ := fake.posts[0]["idempotencyKey"].(string)
+		return key
+	}
+	if a, b := keyFor("SHOP"), keyFor("STORE"); a != b {
+		t.Errorf("idempotencyKey зависит от ключа раннера: %s ≠ %s", a, b)
+	}
+}
+
+// И проект в хэше есть: та же задача в другом проекте YouGile — другой ключ,
+// иначе сервер вернул бы задачу чужого проекта.
+func TestCreateTaskIdempotencyKeyDependsOnProjectID(t *testing.T) {
+	input := tracker.TaskInput{Summary: "Child", Description: "prose", Labels: []string{"split:VO-1:a"}}
+	tr, fake := fixture(t)
+	if _, err := tr.CreateTask(testProject, input); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := fake.posts[0]["idempotencyKey"].(string)
+	tr.cfg.ProjectID = "другой-проект"
+	if _, err := tr.CreateTask(testProject, input); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := fake.posts[len(fake.posts)-1]["idempotencyKey"].(string); a == b {
+		t.Errorf("idempotencyKey не зависит от ProjectID: %s", a)
+	}
+}
+
 // Spec: «A repeated create returns the original task».
 func TestCreateTaskRepeatedReturnsSameTask(t *testing.T) {
 	tr, fake := fixture(t)
@@ -314,6 +356,23 @@ func TestGetAsksChatWithoutSystemMessages(t *testing.T) {
 }
 
 // Whoami уже знает id и email офиса — свои комментарии не стоят запроса к /users.
+// Email в YouGile может прийти в любом регистре, а also_agents и учётку
+// офиса сравнивают с автором строкой: обе стороны — в нижнем регистре.
+func TestAuthorAndWhoamiEmailsAreLowercased(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.users[officeUserID] = "Office@Example.com"
+	fake.users[humanUserID] = " Human@Example.COM "
+	fake.messages[testKey] = []fakeMessage{{ID: 1, From: humanUserID, Text: "вопрос"}}
+	who, err := tr.Whoami()
+	if err != nil || who != "office@example.com" {
+		t.Errorf("Whoami = %q, %v", who, err)
+	}
+	task, err := tr.Get(testKey)
+	if err != nil || task.Comments[0].Author != "human@example.com" {
+		t.Errorf("автор = %+v, %v", task.Comments, err)
+	}
+}
+
 func TestWhoamiSeedsAuthorCache(t *testing.T) {
 	tr, fake := fixture(t)
 	fake.messages[testKey] = []fakeMessage{{ID: 1, From: officeUserID, Text: "вопрос"}}

@@ -214,6 +214,7 @@ run-agent validate-result /tmp/task-123/.agent/result.json
 ${OFFICE_HOME:-$HOME/.office}/
 ├── projects.local.yaml             где проекты на этой машине
 ├── tracker.yaml                    подключение к JIRA: адрес, учётки, поля
+├── tracker-yougile.yaml            подключение к YouGile: проект, колонки, имя переменной с ключом
 ├── budgets.yaml                    перекрытие пределов, необязательное
 ├── scheduler/                      образцы заданий планировщика: launchd и systemd
 ├── runner.log                      только под launchd: лог заходов из local.office.runner.plist
@@ -226,8 +227,9 @@ ${OFFICE_HOME:-$HOME/.office}/
                                     и bin/run-agent; eval-roles (без -dev — не часть install.sh) от bin/eval-roles
 ```
 
-`runner init` создаёт сам каталог, два образца конфигурации
-(`projects.local.example.yaml`, `tracker.example.yaml`) в его корне и
+`runner init` создаёт сам каталог, три образца конфигурации
+(`projects.local.example.yaml`, `tracker.example.yaml`,
+`tracker-yougile.example.yaml`) в его корне и
 `scheduler/` с тремя заданиями планировщика; `office/<версия>/`, `repos/`,
 `worktrees/`, `runs/` и `ledger.jsonl` появляются по факту первого настоящего
 прогона. Уже лежащий файл init не трогает никогда — ни образец, ни правленое

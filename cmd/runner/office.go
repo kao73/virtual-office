@@ -19,6 +19,7 @@ import (
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/jira"
 	"github.com/kao73/virtual-office/internal/tracker/mock"
+	"github.com/kao73/virtual-office/internal/tracker/yougile"
 	"github.com/kao73/virtual-office/internal/workspace"
 )
 
@@ -30,7 +31,8 @@ import (
 // его можно проверить целиком на файловом трекере с поддельным агентом.
 //
 // Порядок загрузки — по зависимостям: граф; проекты; трекеры, которые
-// проекты назвали (tracker.yaml открывается только если среди них jira);
+// проекты назвали (tracker.yaml — только если среди них jira,
+// tracker-yougile.yaml — только если yougile);
 // forge по всем проектам разом; общее хозяйство; и уже из этого — офисы.
 // Сборка строгая: не открылся один трекер — не стартует ни один офис.
 // Неверный кред под планировщиком обязан быть отказом, а не строкой в логе.
@@ -80,6 +82,8 @@ func newOffices(fs *flag.FlagSet, args []string, out io.Writer) (*offices, error
 			o, err = openMock(workflow)
 		case "jira":
 			o, err = openJira(sources.machine(home, jira.TrackerFile), workflow)
+		case "yougile":
+			o, err = openYouGile(sources.machine(home, yougile.TrackerFile), workflow, projects.For("yougile"), out)
 		default:
 			// LoadProjects уже отверг чужое имя; ветка на случай, если список
 			// трекеров там и здесь однажды разойдётся.
@@ -197,6 +201,62 @@ func openJira(trackerFile string, workflow tracker.Workflow) (opened, error) {
 	}
 	if o.accounts, err = cfg.AgentAccounts(); err != nil {
 		return opened{}, err
+	}
+	return o, nil
+}
+
+// youGileFile читает tracker-yougile.yaml и сверяет его с projects.local.yaml:
+// проект YouGile один на раннер, и ключ у него в обоих файлах один. declared —
+// проекты с tracker: yougile. Отказ называет обе стороны: «нет такого проекта»
+// на первом же тике не сказал бы, какой из двух файлов править.
+func youGileFile(path string, declared tracker.Projects) (yougile.FileConfig, string, error) {
+	fc, err := yougile.LoadConfig(path)
+	if err != nil {
+		return yougile.FileConfig{}, "", err
+	}
+	key := fc.ProjectKey()
+	keys := declared.Keys()
+	switch {
+	case len(keys) > 1:
+		return yougile.FileConfig{}, "", fmt.Errorf("%s называет %d проекта с tracker: yougile (%s): поддерживается один проект YouGile на раннер",
+			tracker.ProjectsLocalFile, len(keys), strings.Join(keys, ", "))
+	case len(keys) == 1 && keys[0] != key:
+		return yougile.FileConfig{}, "", fmt.Errorf("%s описывает проект %q, а %s называет проект с tracker: yougile %q — ключи обязаны совпадать",
+			path, key, tracker.ProjectsLocalFile, keys[0])
+	}
+	return fc, key, nil
+}
+
+// openYouGile — YouGile по tracker-yougile.yaml. Учётка одна на всех: роли
+// различаются маркером комментария, а не автором, — форма openMock, а не
+// openJira. Её email (Whoami) — агентский: без него записки офиса в чате
+// задачи сходили бы за ответы человека. Лог адаптера — в вывод раннера;
+// префикс «yougile: » у его сообщений уже есть.
+func openYouGile(path string, workflow tracker.Workflow, declared tracker.Projects, out io.Writer) (opened, error) {
+	fc, key, err := youGileFile(path, declared)
+	if err != nil {
+		return opened{}, err
+	}
+	if err := fc.CheckGraph(key, workflow.Statuses); err != nil {
+		return opened{}, err
+	}
+	cfg, err := fc.Tracker(key)
+	if err != nil {
+		return opened{}, err
+	}
+	office, err := yougile.Open(cfg)
+	if err != nil {
+		return opened{}, err
+	}
+	email, err := office.Whoami()
+	if err != nil {
+		return opened{}, fmt.Errorf("учётка офиса: %w", err)
+	}
+	office.Logf = func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
+
+	o := opened{tasks: office, byRole: map[string]tracker.Tracker{}, accounts: append([]string{email}, fc.AlsoAgents...)}
+	for _, role := range workflow.Order() {
+		o.byRole[role] = office
 	}
 	return o, nil
 }

@@ -13,10 +13,11 @@ import (
 	"github.com/kao73/virtual-office/internal/runner"
 	"github.com/kao73/virtual-office/internal/tracker"
 	"github.com/kao73/virtual-office/internal/tracker/jira"
+	"github.com/kao73/virtual-office/internal/tracker/yougile"
 	payload "github.com/kao73/virtual-office/office"
 )
 
-// Свежая машина: каталога нет — появляется с двумя образцами конфигурации
+// Свежая машина: каталога нет — появляется с тремя образцами конфигурации
 // и каталогом scheduler/ на три задания планировщика, слово в слово из
 // поставки, и с подсказкой, куда их копировать.
 func TestInitLaysOutFreshHome(t *testing.T) {
@@ -39,7 +40,7 @@ func TestInitLaysOutFreshHome(t *testing.T) {
 	// осталось «ровно», просто список вырос на scheduler/. Убрать это
 	// утверждение значило бы остаться без единственной проверки, что init
 	// не кладёт в хозяйство ничего сверх обещанного.
-	wantFiles := []string{tracker.ProjectsLocalExampleFile, jira.ExampleFile}
+	wantFiles := []string{tracker.ProjectsLocalExampleFile, jira.ExampleFile, yougile.ExampleFile}
 	wantTop := append(append([]string{}, wantFiles...), schedulerDir)
 	slices.Sort(wantTop)
 	if !slices.Equal(names, wantTop) {
@@ -89,10 +90,10 @@ func TestInitLaysOutFreshHome(t *testing.T) {
 		}
 	}
 	printed := out.String()
-	if got := strings.Count(printed, "создан"); got != 5 {
-		t.Errorf("«создан» в выводе %d, ожидалось пять (два образца и три задания):\n%s", got, printed)
+	if got := strings.Count(printed, "создан"); got != 6 {
+		t.Errorf("«создан» в выводе %d, ожидалось шесть (три образца и три задания):\n%s", got, printed)
 	}
-	for _, want := range []string{tracker.ProjectsLocalFile, jira.TrackerFile, "дальше"} {
+	for _, want := range []string{tracker.ProjectsLocalFile, jira.TrackerFile, yougile.TrackerFile, "дальше"} {
 		if !strings.Contains(printed, want) {
 			t.Errorf("вывод не называет %q:\n%s", want, printed)
 		}
@@ -130,9 +131,11 @@ func TestInitLeavesConfiguredHomeAlone(t *testing.T) {
 	if !strings.Contains(printed, "оставлен") || !strings.Contains(printed, tracker.ProjectsLocalExampleFile) {
 		t.Errorf("вывод не сообщает об оставленном образце:\n%s", printed)
 	}
-	// jira.ExampleFile (единственный отсутствовавший образец) теперь существует
-	if _, err := os.Stat(filepath.Join(home, jira.ExampleFile)); err != nil {
-		t.Errorf("%s не создан: %v", jira.ExampleFile, err)
+	// Отсутствовавшие образцы трекеров теперь существуют.
+	for _, name := range []string{jira.ExampleFile, yougile.ExampleFile} {
+		if _, err := os.Stat(filepath.Join(home, name)); err != nil {
+			t.Errorf("%s не создан: %v", name, err)
+		}
 	}
 }
 

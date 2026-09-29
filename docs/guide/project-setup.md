@@ -2,7 +2,8 @@
 
 Это делается на каждый проект. Машина к этому моменту подготовлена
 ([«Подготовка машины»](machine-setup.md)), а трекер отвечает требованиям из
-[«Что офис требует от вашей JIRA»](../reference/jira-requirements.md) — или
+[«Что офис требует от вашей JIRA»](../reference/jira-requirements.md) или
+[«Что офис требует от вашего YouGile»](../reference/yougile-requirements.md) — или
 проект ведётся на файловом трекере `mock` и трекера не нужно вовсе.
 
 ## Репозиторий проекта-клиента
@@ -86,13 +87,15 @@ cp "${OFFICE_HOME:-$HOME/.office}/projects.local.example.yaml" \
 Править в копии нужно ровно четыре значения: ключ проекта, `repo_url`,
 `default_branch` и `tracker`. Остальные ключи в образце закомментированы, у
 каждого своя строка-подсказка. Слои, перекрытия и переменные окружения —
-[«Конфигурация»](../reference/configuration.md); подключение к JIRA —
+[«Конфигурация»](../reference/configuration.md); подключение к JIRA или YouGile —
 раздел [«Подключение к трекеру»](#подключение-к-трекеру) ниже.
 
 ## Подключение к трекеру
 
-Только для проекта на JIRA — файловый трекер `mock` этого шага не требует
-вовсе. Копия образца, тем же приёмом, что и `projects.local.yaml`:
+Только для проекта на JIRA или YouGile — файловый трекер `mock` этого шага
+не требует вовсе. Копия образца, тем же приёмом, что и `projects.local.yaml`.
+
+### JIRA
 
 ```sh
 cp "${OFFICE_HOME:-$HOME/.office}/tracker.example.yaml" \
@@ -110,6 +113,25 @@ cp "${OFFICE_HOME:-$HOME/.office}/tracker.example.yaml" \
       про проект: [«Подготовка машины», «Креды»](machine-setup.md#креды).
       Что каждая учётка должна уметь на инстансе и сколько их нужно —
       [«Что офис требует от вашей JIRA», «Учётки»](../reference/jira-requirements.md#учётки).
+
+### YouGile
+
+```sh
+cp "${OFFICE_HOME:-$HOME/.office}/tracker-yougile.example.yaml" \
+   "${OFFICE_HOME:-$HOME/.office}/tracker-yougile.yaml"
+```
+
+- [ ] Ключ проекта под `projects` — тот же, что в `projects.local.yaml`. Иначе
+      раннер откажется открыть проект и назовёт оба ключа.
+- [ ] `project_id` и восемь id в `columns` — ваши, а не из образца. Как их
+      прочитать — [«Что офис требует от вашего YouGile», «Проект и
+      колонки»](../reference/yougile-requirements.md#проект-и-колонки).
+- [ ] `base_url` остаётся `https://yougile.com`. Почему не `ru.yougile.com` —
+      [там же, «base_url»](../reference/yougile-requirements.md#base_url).
+- [ ] Проект YouGile на раннер один: второй проект с `tracker: yougile`
+      в `projects.local.yaml` раннер не откроет.
+- [ ] Ключ API — только в окружении, под именем из `api_key_env`; в файле
+      лежит само имя: [«Подготовка машины», «Креды»](machine-setup.md#креды).
 
 ## Проверка: четыре по возрастанию цены
 
@@ -132,6 +154,7 @@ runner ls
   workflow.yaml          …/.office/office/<версия>/workflow.yaml (офис, есть)
   projects.local.yaml    …/.office/projects.local.yaml (машина, есть)
   tracker.yaml           …/.office/tracker.yaml (машина, есть)
+  tracker-yougile.yaml   …/.office/tracker-yougile.yaml (машина, есть)
   budgets.yaml           …/.office/office/<версия>/budgets.yaml (офис, есть)
   budgets.yaml           …/.office/budgets.yaml (машина, нет)
 ```
@@ -141,7 +164,8 @@ runner ls
 - [ ] Список **дошёл до конца**. Строка печатается сразу, как путь разрешён,
       поэтому оборвавшийся список сам показывает, на чём раннер встал: отказ идёт
       следующей строкой. Если ни один проект не назвал `jira`, строки `tracker.yaml`
-      не будет вовсе — файл не открывается. С двумя трекерами доска каждого
+      не будет вовсе — файл не открывается; так же со строкой
+      `tracker-yougile.yaml`, если ни один не назвал `yougile`. С двумя трекерами доска каждого
       печатается под заголовком `== трекер <имя> ==`.
 
 **Вторая — что получит агент.** Токенов не тратит, агента не запускает:

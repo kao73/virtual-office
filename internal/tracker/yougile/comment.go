@@ -75,7 +75,8 @@ func (t *Tracker) comments(msgs []messageDTO) ([]tracker.Comment, error) {
 // Пользователя, которого сервер больше не знает (удалён из компании) или
 // который не назвал email, автором называет его id: учёткой офиса он не
 // совпадёт ни с чем, то есть это слова человека, — и ронять из-за него
-// чтение задачи незачем.
+// чтение задачи незачем. Email — в нижнем регистре (normEmail): учётку
+// офиса и also_agents с автором сравнивают строкой.
 func (t *Tracker) userEmail(id string) (string, error) {
 	t.mu.Lock()
 	email, ok := t.users[id]
@@ -91,10 +92,10 @@ func (t *Tracker) userEmail(id string) (string, error) {
 		email = id
 	case err != nil:
 		return "", fmt.Errorf("автор комментария %s не определён: %w", id, err)
-	case user.Email == "":
-		email = id
 	default:
-		email = user.Email
+		if email = normEmail(user.Email); email == "" {
+			email = id
+		}
 	}
 
 	t.mu.Lock()
