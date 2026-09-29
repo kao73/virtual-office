@@ -11,12 +11,15 @@
 // имеет (docs/openspec/changes/archive/2026-09-28-yougile-adapter-core/design.md,
 // Decisions; дальше просто «design.md»).
 //
-// Аренда, счётчик попыток, флаг «ждёт человека» и метки живут в apiData
-// задачи — свободном JSON-поле (lease.go).
+// Всё своё офис хранит в apiData задачи — свободном JSON-поле — под одним
+// ключом virtual_office (lease.go): аренда, счётчик попыток, флаг «ждёт
+// человека», метки и зависимости. Остальные ключи apiData — чужие и
+// переписываются как были (docs/superpowers/specs/2026-09-29-yougile-dependencies-attachments-design.md, §2).
 //
-// Пакет пока не реализует tracker.Tracker целиком: LinkDependsOn и вложения
-// добавит yougile-dependencies-attachments, и только тогда здесь появится
-// проверка `var _ tracker.Tracker = (*Tracker)(nil)`.
+// Зависимость — id в virtual_office.depends_on плюс заметка в чате задачи:
+// своей связи между задачами у YouGile нет (depends.go). Вложения живут
+// там, куда их кладёт интерфейс, — сообщением-файлом в чате и ссылкой в
+// описании; скачиваются клиентом без ключа API (attachment.go).
 package yougile
 
 import (
@@ -96,6 +99,9 @@ type Tracker struct {
 	// его в лог раннера.
 	Logf func(format string, args ...any)
 }
+
+// Tracker реализует контракт целиком.
+var _ tracker.Tracker = (*Tracker)(nil)
 
 // maxFileRedirects — сколько перенаправлений разрешено скачиванию файла:
 // /user-data/… на хосте API отвечает одним 302 в хранилище, пять — с запасом.

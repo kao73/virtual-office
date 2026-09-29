@@ -8,30 +8,6 @@ import (
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
-// coreTracker — подмножество tracker.Tracker, которое реализует этот change:
-// сигнатуры скопированы из internal/tracker/tracker.go дословно. Полная
-// проверка `var _ tracker.Tracker = (*Tracker)(nil)` не скомпилируется, пока
-// yougile-dependencies-attachments не добавит LinkDependsOn/AddAttachment/
-// GetAttachment, — а расхождение сигнатур ловить надо уже сейчас.
-type coreTracker interface {
-	Whoami() (string, error)
-	ListReady(project, status string) ([]tracker.TaskRef, error)
-	ListExpired(project string, now time.Time) ([]tracker.TaskRef, error)
-	List(project string, statuses []string) ([]tracker.TaskRef, error)
-	Get(key string) (tracker.Task, error)
-	Claim(req tracker.ClaimRequest) error
-	Renew(key, runID string, leaseUntil time.Time) error
-	Release(key string, by tracker.Actor) error
-	Transition(key string, by tracker.Actor, toStatus string) error
-	Comment(key string, by tracker.Actor, body string) error
-	SetHumanFlag(key string, by tracker.Actor, on bool) error
-	SetAttempts(key string, by tracker.Actor, n int) error
-	CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error)
-	FindByMarker(project, marker string) ([]tracker.TaskRef, error)
-}
-
-var _ coreTracker = (*Tracker)(nil)
-
 // Правило владения общее для всех трекеров: ни одна мутация не проходит
 // ни у системной операции поверх живой аренды, ни у прогона без аренды,
 // и отказ случается до записи.
