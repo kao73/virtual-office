@@ -214,6 +214,7 @@ run-agent validate-result /tmp/task-123/.agent/result.json
 ${OFFICE_HOME:-$HOME/.office}/
 ├── projects.local.yaml             где проекты на этой машине
 ├── tracker.yaml                    подключение к JIRA: адрес, учётки, поля
+├── tracker-yougile.yaml            подключение к YouGile: проект, колонки, имя переменной с ключом
 ├── budgets.yaml                    перекрытие пределов, необязательное
 ├── scheduler/                      образцы заданий планировщика: launchd и systemd
 ├── runner.log                      только под launchd: лог заходов из local.office.runner.plist

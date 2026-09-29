@@ -1,11 +1,11 @@
 # Конфигурация: что где лежит и что что перекрывает
 
-У офиса два образца конфигурации — `office/tracker.example.yaml` и
-`office/projects.local.example.yaml` — и оба хорошо расписывают собственные
-ключи в комментариях; разойтись с релизом они не могут, потому что едут
-внутри бинарника. Этот документ — не про ключи, а про форму вокруг них: как
-складываются три слоя правил, какой файл читается откуда и какая переменная
-окружения на что влияет.
+У офиса три образца конфигурации — `office/tracker.example.yaml`,
+`office/tracker-yougile.example.yaml` и `office/projects.local.example.yaml` —
+и все три хорошо расписывают собственные ключи в комментариях; разойтись
+с релизом они не могут, потому что едут внутри бинарника. Этот документ —
+не про ключи, а про форму вокруг них: как складываются три слоя правил, какой
+файл читается откуда и какая переменная окружения на что влияет.
 
 ## Две половины: репозиторий и `${OFFICE_HOME}`
 
@@ -64,7 +64,7 @@
   (`${OFFICE_HOME}/office/<версия>/`). Отсюда читаются `workflow.yaml`,
   `roles/`, `skills/`, `hooks/`, `sbx-kits/` и `office/budgets.yaml`;
 - **корень хозяйства** — `${OFFICE_HOME}` целиком. Отсюда — `projects.local.yaml`,
-  `tracker.yaml`, необязательная накладка `budgets.yaml`, архив прогонов
+  `tracker.yaml`, `tracker-yougile.yaml`, необязательная накладка `budgets.yaml`, архив прогонов
   `runs/`, реестр `ledger.jsonl`, bare-клоны `repos/` и рабочие папки
   `worktrees/`. Полная раскладка этого дерева — там же, в
   `docs/guide/operations.md`.
@@ -99,6 +99,7 @@
 | `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` | `internal/adapters/claude/adapter.go` | кред агента; заданы обе — побеждает `ANTHROPIC_API_KEY` |
 | `GITHUB_TOKEN` | раннер при публикации ветки и на PR-проходе | право писать в репозиторий проекта |
 | имена из `accounts.*.user_env` / `accounts.*.secret_env` | значения — среда, читает `internal/tracker/jira` | учётки JIRA: в `${OFFICE_HOME}/tracker.yaml` только имена переменных, сами значения в файл не попадают |
+| имя из `api_key_env` | значение — среда, читает `cmd/runner` (`yougile.FileConfig.Tracker`) | ключ API YouGile: в `${OFFICE_HOME}/tracker-yougile.yaml` только имя переменной |
 
 ## Ключи: где искать
 
@@ -109,6 +110,8 @@
   `${OFFICE_HOME}/projects.local.example.yaml` после `runner init`;
 - подключение к JIRA — `office/tracker.example.yaml`, он же
   `${OFFICE_HOME}/tracker.example.yaml`;
+- подключение к YouGile — `office/tracker-yougile.example.yaml`, он же
+  `${OFFICE_HOME}/tracker-yougile.example.yaml`;
 - бюджеты — `office/budgets.yaml` и необязательная накладка
   `${OFFICE_HOME}/budgets.yaml`, разобранные в `docs/notes/budgets.md`;
 - граф статусов — `office/workflow.yaml`; его читает раннер, агент его не видит.

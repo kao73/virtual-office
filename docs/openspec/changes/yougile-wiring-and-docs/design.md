@@ -18,7 +18,7 @@ JIRA's file, per the existing `runner-multi-tracker` requirement text.
 **Goals:**
 - A project can declare `tracker: yougile` in `projects.local.yaml` and
   the runner opens it the same way it opens `jira`/`mock` projects today.
-- `docs/notes/yougile-setup.md` is sufficient, on its own, to provision a
+- `docs/reference/yougile-requirements.md` is sufficient, on its own, to provision a
   working YouGile-backed project from nothing.
 
 **Non-Goals:**
@@ -71,6 +71,6 @@ change to add them later if wanted purely for human readability.
   by making it a near-exact structural mirror of the JIRA file and
   documenting both the same way, rather than inventing a new pattern.
 - [No real dedicated non-human YouGile account exists yet as of this
-  change being designed] → `docs/notes/yougile-setup.md` documents how to
+  change being designed] → `docs/reference/yougile-requirements.md` documents how to
   create one; provisioning the actual account is a prerequisite for
   `yougile-live-validation`, not blocking this change's own content.
