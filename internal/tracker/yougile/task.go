@@ -71,7 +71,7 @@ func (t *Tracker) toTask(raw taskDTO) (tracker.Task, apiData, error) {
 	}
 	task := tracker.Task{
 		Key: raw.ID, Project: t.cfg.ProjectID, Summary: raw.Title, Description: raw.Description,
-		Status: status, Labels: slices.Clone(data.Labels), Attempts: data.Attempts, HumanFlag: data.HumanWait,
+		Status: status, Labels: slices.Clone(data.Labels), DependsOn: slices.Clone(data.DependsOn), Attempts: data.Attempts, HumanFlag: data.HumanWait,
 	}
 	if data.Lease != nil {
 		task.Owner, task.RunID, task.LeaseUntil = data.Lease.Owner, data.Lease.RunID, data.Lease.LeaseUntil

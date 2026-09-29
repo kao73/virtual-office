@@ -111,7 +111,7 @@ func TestEncodeWritesFullNamespace(t *testing.T) {
 	if !ok {
 		t.Fatalf("virtual_office не записан: %#v", out)
 	}
-	for _, key := range []string{"v", "lease", "attempts", "human_wait", "labels"} {
+	for _, key := range []string{"v", "lease", "attempts", "human_wait", "labels", "depends_on"} {
 		if _, ok := ns[key]; !ok {
 			t.Errorf("ключ %q не записан: %#v", key, ns)
 		}
@@ -124,6 +124,9 @@ func TestEncodeWritesFullNamespace(t *testing.T) {
 	}
 	if !reflect.DeepEqual(ns["labels"], []any{}) {
 		t.Errorf("пустые метки записаны как %#v, ожидался []", ns["labels"])
+	}
+	if !reflect.DeepEqual(ns["depends_on"], []any{}) {
+		t.Errorf("пустые зависимости записаны как %#v, ожидался []", ns["depends_on"])
 	}
 	if len(out) != 1 {
 		t.Errorf("на верхнем уровне лишнее: %#v", out)
@@ -492,5 +495,15 @@ func TestDeletedTaskIsNotFound(t *testing.T) {
 	}
 	if len(fake.puts) != 0 {
 		t.Error("в удалённую задачу записано")
+	}
+}
+
+func TestDecodeAPIDataReadsDependsOn(t *testing.T) {
+	d, err := decodeAPIData(json.RawMessage(`{"virtual_office":{"v":1,"depends_on":["task-a","task-b"]}}`))
+	if err != nil || !reflect.DeepEqual(d.DependsOn, []string{"task-a", "task-b"}) {
+		t.Errorf("depends_on: %+v, %v", d.DependsOn, err)
+	}
+	if out := roundTrip(t, d); !reflect.DeepEqual(out[keyNamespace].(map[string]any)["depends_on"], []any{"task-a", "task-b"}) {
+		t.Errorf("depends_on не пережил запись: %#v", out)
 	}
 }

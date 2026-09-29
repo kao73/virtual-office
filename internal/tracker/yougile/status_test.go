@@ -312,3 +312,24 @@ func TestOpenDefaultsLogf(t *testing.T) {
 		t.Error("Logf по умолчанию не задан — пропуск карточки упал бы паникой")
 	}
 }
+
+// Гейт очерёдности (pipeline.UnmetDependencies) и runner ls читают TaskRef
+// из ListReady/List, а не Task из Get: зависимость обязана доехать до ref.
+func TestDependsOnReachesRefsAndGet(t *testing.T) {
+	tr, fake := fixture(t)
+	fake.tasks[testKey].APIData = officeAPIData(map[string]any{"depends_on": []any{"task-base"}})
+	want := []string{"task-base"}
+
+	ready, err := tr.ListReady(testProject, "Ready")
+	if err != nil || len(ready) != 1 || !slices.Equal(ready[0].DependsOn, want) {
+		t.Errorf("ListReady: %+v, %v", ready, err)
+	}
+	all, err := tr.List(testProject, []string{"Ready"})
+	if err != nil || len(all) != 1 || !slices.Equal(all[0].DependsOn, want) {
+		t.Errorf("List: %+v, %v", all, err)
+	}
+	task, err := tr.Get(testKey)
+	if err != nil || !slices.Equal(task.DependsOn, want) {
+		t.Errorf("Get: %+v, %v", task.DependsOn, err)
+	}
+}

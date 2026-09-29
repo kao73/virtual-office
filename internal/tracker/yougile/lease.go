@@ -42,6 +42,7 @@ type officeData struct {
 	Attempts  int        `json:"attempts"`
 	HumanWait bool       `json:"human_wait"`
 	Labels    []string   `json:"labels"`
+	DependsOn []string   `json:"depends_on"`
 }
 
 // apiData — наш взгляд на apiData задачи. attempts и human_wait живут вне
@@ -55,6 +56,8 @@ type apiData struct {
 	Attempts  int
 	HumanWait bool
 	Labels    []string
+	// DependsOn — id задач YouGile, от которых зависит эта (LinkDependsOn).
+	DependsOn []string
 	extra     map[string]json.RawMessage
 }
 
@@ -77,7 +80,7 @@ func decodeAPIData(raw json.RawMessage) (apiData, error) {
 		if err != nil {
 			return apiData{}, err
 		}
-		d = apiData{Lease: od.Lease, Attempts: od.Attempts, HumanWait: od.HumanWait, Labels: od.Labels}
+		d = apiData{Lease: od.Lease, Attempts: od.Attempts, HumanWait: od.HumanWait, Labels: od.Labels, DependsOn: od.DependsOn}
 	}
 	if len(fields) > 0 {
 		d.extra = fields
@@ -122,7 +125,8 @@ func (d apiData) encode() map[string]any {
 	}
 	out[keyNamespace] = officeData{
 		V: schemaVersion, Lease: d.Lease, Attempts: d.Attempts, HumanWait: d.HumanWait,
-		Labels: orEmpty(d.Labels),
+		Labels:    orEmpty(d.Labels),
+		DependsOn: orEmpty(d.DependsOn),
 	}
 	return out
 }
