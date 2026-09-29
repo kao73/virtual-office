@@ -588,7 +588,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `yougile.LoadConfig`, `yougile.ExampleFile`, `yougile.TrackerFile` (Task 2).
 - Produces: `payload.Payload` contains `tracker-yougile.example.yaml`; `runner init` writes `${OFFICE_HOME}/tracker-yougile.example.yaml` and prints a `cp … tracker-yougile.yaml` hint.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `internal/tracker/yougile/config_test.go`:
 
@@ -621,13 +621,13 @@ In `cmd/runner/init_test.go`:
 
 In `cmd/runner/office_test.go` `TestOfficesUnpackPayloadWithoutConfigRoot`, add `"tracker-yougile.example.yaml"` next to `"tracker.example.yaml"`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run two commands:
 `go test ./internal/tracker/yougile/ -run TestShippedSampleLoads -v` → FAIL `no such file or directory`.
 `go test ./office/ ./cmd/runner/ -run 'TestPayload|TestInit|TestOfficesUnpack' -v` → FAIL (`tracker-yougile.example.yaml не в Payload`, `в хозяйстве … ожидались ровно …`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `office/tracker-yougile.example.yaml`:
 
@@ -702,12 +702,12 @@ Update the `initCommand` doc: "два образца конфигурации" �
 grep -q 'tracker-yougile.yaml' "$work/out-init" || fail "init не сказал, куда копировать образец YouGile"
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/tracker/yougile/ ./office/ ./cmd/runner/` then `sh scripts/doc-recipe-test.sh`
 Expected: PASS; the harness prints `ok: runner init` and runs to the end.
 
-- [ ] **Step 5: Tick and commit**
+- [x] **Step 5: Tick and commit**
 
 In `tasks.md`, tick 1.2.
 

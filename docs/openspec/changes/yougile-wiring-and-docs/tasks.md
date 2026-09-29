@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Add `"yougile"` to `internal/tracker/config.go`'s `trackers` list
       and any related validation.
-- [ ] 1.2 Define the `tracker-yougile.yaml` schema (`base_url`,
+- [x] 1.2 Define the `tracker-yougile.yaml` schema (`base_url`,
       `api_key_env`, `also_agents`, one `projects.<key>` with
       `project_id`/`columns`/`create_status`) with a strict `LoadConfig`,
       and write `office/tracker-yougile.example.yaml`; `runner init`
