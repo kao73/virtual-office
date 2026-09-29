@@ -35,7 +35,7 @@
       `docs/reference/jira-requirements.md`; add YouGile steps to
       `docs/guide/project-setup.md`, `docs/guide/machine-setup.md` and
       `docs/reference/configuration.md`.
-- [ ] 4.3 Add the minimal YouGile doctor stage (`config:tracker-yougile.yaml`,
+- [x] 4.3 Add the minimal YouGile doctor stage (`config:tracker-yougile.yaml`,
       `cred:<api_key_env>`, `yougile:open`, `yougile:account`) with tests.
 - [ ] 4.2 Update README and `docs/ONBOARDING.md` to mention `yougile` as a
       supported tracker option alongside `jira`/`mock`.

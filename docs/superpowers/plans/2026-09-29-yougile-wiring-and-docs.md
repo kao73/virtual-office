@@ -1208,7 +1208,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `func doctorYouGile(report func(finding), home string, projects tracker.Projects, office runner.Office, officeErr error)`
   - `func loadOfficeWorkflow(o runner.Office, resolveErr error) (tracker.Workflow, error)`
 
-- [ ] **Step 1: Write the failing tests** (append to `doctor_test.go`; add import `github.com/kao73/virtual-office/internal/tracker/yougile`)
+- [x] **Step 1: Write the failing tests** (append to `doctor_test.go`; add import `github.com/kao73/virtual-office/internal/tracker/yougile`)
 
 ```go
 func TestDoctorYouGileFullSuccess(t *testing.T) {
@@ -1375,12 +1375,12 @@ func TestDoctorBrokenJiraDoesNotHideYouGile(t *testing.T) {
 
 Also add `maps` to the imports if not present, and add an assertion to `TestDoctorMockOnlyOfficeSkipsJiraEntirelyWithoutTrackerFile`: `strings.Contains(printed, "yougile")` must be false.
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `go test ./cmd/runner/ -run 'TestDoctor.*YouGile' -v`
 Expected: FAIL. No `config:tracker-yougile.yaml` finding; `TestDoctorYouGileMissingFileSkipsDependentChecks` fails with "должен быть fatal".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `doctor.go`:
 
@@ -1490,12 +1490,12 @@ func doctorYouGile(report func(finding), home string, projects tracker.Projects,
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./cmd/runner/ -run 'TestDoctor' -v` then `go test ./... && go vet ./...`
 Expected: PASS, including every pre-existing JIRA doctor test, which proves the extraction kept behavior.
 
-- [ ] **Step 5: Tick and commit**
+- [x] **Step 5: Tick and commit**
 
 In `tasks.md`, tick 4.3.
 
