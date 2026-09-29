@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kao73/virtual-office/internal/pipeline"
 	"github.com/kao73/virtual-office/internal/tracker"
 )
 
@@ -135,6 +136,38 @@ func TestLinkDependsOnKeepsForeignKeys(t *testing.T) {
 	}
 	if fake.task(testKey).APIData["crm"] != "keep" {
 		t.Error("чужой ключ потерян")
+	}
+}
+
+// Spec «A dependent task is not claimable while its dependency is open» и
+// «…becomes claimable once its dependency resolves» — настоящим гейтом
+// pipeline над ref'ами этого адаптера. Review здесь — терминальный статус.
+func TestClaimGateBlocksUntilDependencyResolves(t *testing.T) {
+	tr, fake := fixture(t)
+	withDependency(fake, "ID-7") // стоит в InProgress
+	if err := tr.LinkDependsOn(testKey, depKey, tracker.BySystem()); err != nil {
+		t.Fatal(err)
+	}
+	terminal := func(status string) bool { return status == "Review" }
+	unmet := func() []tracker.TaskRef {
+		t.Helper()
+		ready, err := tr.ListReady(testProject, "Ready")
+		if err != nil || len(ready) != 1 {
+			t.Fatalf("ListReady: %+v, %v", ready, err)
+		}
+		all, err := tr.List(testProject, []string{"Ready", "InProgress", "Review"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pipeline.UnmetDependencies(ready[0], pipeline.ByKey(all), terminal)
+	}
+
+	if got := unmet(); len(got) != 1 || got[0].Key != depKey {
+		t.Errorf("пока зависимость открыта, гейт видит %+v", got)
+	}
+	fake.tasks[depKey].ColumnID = colReview
+	if got := unmet(); len(got) != 0 {
+		t.Errorf("зависимость закрыта, а гейт держит: %+v", got)
 	}
 }
 
