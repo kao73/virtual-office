@@ -1630,18 +1630,18 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: anchors from Task 6.
 
-- [ ] **Step 1: Edit**
+- [x] **Step 1: Edit**
 
 - `README.md:36`: `# диагностика без побочных эффектов: инструменты, креды, JIRA, YouGile, песочница, старые снапшоты`.
 - `README.md`: wherever the supported trackers are enumerated (search `grep -n "JIRA\|mock" README.md`), add YouGile as a third option with a link to `docs/reference/yougile-requirements.md`. Do **not** change the sentence about what was validated live: YouGile's live run belongs to `yougile-live-validation`.
 - `docs/ONBOARDING.md` step 5: "Инстанс трекера отвечает требованиям офиса — [JIRA](reference/jira-requirements.md) или [YouGile](reference/yougile-requirements.md)". Keep the local-JIRA bootstrap sentence and the `mock` sentence. Step 6: add "для YouGile — одна учётка офиса, не ваша: [«Учётка»](reference/yougile-requirements.md#учётка)".
 
-- [ ] **Step 2: Check**
+- [x] **Step 2: Check**
 
 Run: `grep -n -i yougile README.md docs/ONBOARDING.md` → the new mentions are present; every link target exists.
 Run: `sh scripts/doc-recipe-test.sh` → passes. The README recipe is unchanged.
 
-- [ ] **Step 3: Tick and commit**
+- [x] **Step 3: Tick and commit**
 
 In `tasks.md`, tick 4.2.
 
