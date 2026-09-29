@@ -145,6 +145,30 @@ func TestCreateTaskPostsIntoCreateColumn(t *testing.T) {
 	}
 }
 
+// idempotencyKey считается от id проекта в YouGile, а не от ключа раннера:
+// ключ в projects.local.yaml человек вправе переименовать, и повтор
+// complete-splits после этого не должен завести ребёнка второй раз.
+func TestCreateTaskIdempotencyKeyIgnoresRunnerKey(t *testing.T) {
+	input := tracker.TaskInput{Summary: "Child", Description: "prose", Labels: []string{"split:VO-1:a"}}
+	keyFor := func(runnerKey string) string {
+		fake := newFake(t)
+		cfg := testConfig(serve(t, fake))
+		cfg.Key = runnerKey
+		tr, err := Open(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tr.CreateTask(runnerKey, input); err != nil {
+			t.Fatal(err)
+		}
+		key, _ := fake.posts[0]["idempotencyKey"].(string)
+		return key
+	}
+	if a, b := keyFor("SHOP"), keyFor("STORE"); a != b {
+		t.Errorf("idempotencyKey зависит от ключа раннера: %s ≠ %s", a, b)
+	}
+}
+
 // Spec: «A repeated create returns the original task».
 func TestCreateTaskRepeatedReturnsSameTask(t *testing.T) {
 	tr, fake := fixture(t)

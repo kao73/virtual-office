@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"net/http"
@@ -1478,6 +1479,41 @@ func TestDoctorYouGileFreshPayloadChecksColumnsAgainstBinaryGraph(t *testing.T) 
 	}
 	if _, err := os.Stat(filepath.Join(home, runner.OfficeDir)); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("доктор распаковал офис: %v", err)
+	}
+}
+
+// Офис поставки уже распакован, а граф на диске сломан: это не «ещё не
+// распаковано», и подменять его графом из бинарника нельзя — колонки
+// сверились бы не с тем графом, по которому пойдёт tick. Отказ разбора
+// доходит до находки как есть.
+func TestDoctorYouGileBrokenUnpackedGraphIsNotReplacedFromBinary(t *testing.T) {
+	withLookPath(t, "git", "claude", "comet")
+	url, _ := youGileServer(t, youGileOpts{})
+	home := payloadFixture(t, "v0.9.0")
+	if _, err := newOffices(flags("tick"), nil, io.Discard); err != nil { // распаковывает office/v0.9.0/
+		t.Fatalf("офис не распакован: %v", err)
+	}
+	workflowPath := filepath.Join(home, runner.OfficeDir, "v0.9.0", tracker.WorkflowFile)
+	if err := os.WriteFile(workflowPath, []byte("это: не: граф: {{{"), 0o644); err != nil {
+		t.Fatalf("workflow.yaml не сломан: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, tracker.ProjectsLocalFile), []byte(youGileProject), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Без Blocked: подмена графом из бинарника дала бы fail про Blocked.
+	partial := maps.Clone(youGileColumnIDs)
+	delete(partial, "Blocked")
+	writeYouGileFile(t, home, trackerYouGileYAML(url, "SHOP", partial))
+	t.Setenv("YOUGILE_API_KEY", "секрет")
+
+	var out bytes.Buffer
+	_ = doctorCommand([]string{"--backend", "local"}, &out)
+	msg, ok := findingMessage(t, out.String(), "warn", "config:tracker-yougile.yaml")
+	if !ok || !strings.Contains(msg, "не разобран") {
+		t.Errorf("битый граф на диске не назван: %q\n%s", msg, out.String())
+	}
+	if strings.Contains(out.String(), "Blocked") {
+		t.Errorf("колонки сверены с графом из бинарника, а не с графом на диске:\n%s", out.String())
 	}
 }
 

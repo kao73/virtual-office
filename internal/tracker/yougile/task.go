@@ -136,6 +136,8 @@ func (t *Tracker) mutateAPIData(key string, by tracker.Actor, change func(*apiDa
 // созданную задачу. Это страховка поверх основного механизма — проверки
 // FindByMarker перед созданием (pipeline.ensureChildren). Метки входят в хэш,
 // чтобы два ребёнка split с одинаковым текстом не слились в одну задачу.
+// Проект в хэше — ProjectID, а не ключ раннера: тот человек вправе
+// переименовать, и повтор после этого должен дать тот же ключ.
 func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.TaskRef, error) {
 	if err := t.checkProject(project); err != nil {
 		return tracker.TaskRef{}, err
@@ -155,7 +157,7 @@ func (t *Tracker) CreateTask(project string, input tracker.TaskInput) (tracker.T
 		"description":    description,
 		"columnId":       column,
 		"apiData":        apiData{Labels: slices.Clone(input.Labels)}.encode(),
-		"idempotencyKey": idempotencyKey(append([]string{project, input.Summary, description}, labels...)...),
+		"idempotencyKey": idempotencyKey(append([]string{t.cfg.ProjectID, input.Summary, description}, labels...)...),
 	}
 	var created struct {
 		ID string `json:"id"`
