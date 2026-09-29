@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -300,6 +301,9 @@ func TestDoctorMockOnlyOfficeSkipsJiraEntirelyWithoutTrackerFile(t *testing.T) {
 	printed := out.String()
 	if strings.Contains(printed, "tracker.yaml") || strings.Contains(printed, "jira:") {
 		t.Errorf("mock-only офис не должен трогать jira/tracker.yaml:\n%s", printed)
+	}
+	if strings.Contains(printed, "yougile") {
+		t.Errorf("mock-only офис упомянул YouGile:\n%s", printed)
 	}
 }
 
@@ -1353,5 +1357,166 @@ func TestDoctorColumnWidthScalesWithLongProjectKey(t *testing.T) {
 	}
 	if !strings.HasPrefix(msg, "нет образца") {
 		t.Errorf("сообщение повреждено — check-id склеился с msg без пробела: %q", msg)
+	}
+}
+
+func TestDoctorYouGileFullSuccess(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	_, requests := youGileFixture(t, mockProject+youGileProject, youGileOpts{})
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("доктор отказал на счастливом пути: %v\n%s", err, out.String())
+	}
+	printed := out.String()
+	for _, want := range []string{
+		findingPrefix("ok", "config:tracker-yougile.yaml"), findingPrefix("ok", "cred:YOUGILE_API_KEY"),
+		findingPrefix("ok", "yougile:open"), findingPrefix("ok", "yougile:account"),
+	} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("нет строки %q:\n%s", want, printed)
+		}
+	}
+	if msg, _ := findingMessage(t, printed, "ok", "yougile:account"); !strings.Contains(msg, "office@example.com") {
+		t.Errorf("yougile:account не назвал учётку: %q", msg)
+	}
+	if strings.Contains(printed, "секрет") {
+		t.Errorf("ключ API попал в отчёт:\n%s", printed)
+	}
+	for _, r := range requests() {
+		if !strings.HasPrefix(r, "GET ") {
+			t.Errorf("доктор отправил %s — YouGile доктору только читать", r)
+		}
+	}
+}
+
+// Нет yougile-проектов — стадии нет вовсе.
+func TestDoctorWithoutYouGileProjectsSkipsStage(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	fixtureRunner(t, mockProject)
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err != nil {
+		t.Fatalf("доктор отказал: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "yougile") {
+		t.Errorf("mock-only офис упомянул YouGile:\n%s", out.String())
+	}
+}
+
+func TestDoctorYouGileMissingFileSkipsDependentChecks(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	fixtureRunner(t, mockProject+youGileProject)
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err == nil {
+		t.Fatal("отсутствующий tracker-yougile.yaml должен быть fatal")
+	}
+	printed := out.String()
+	for _, want := range []string{findingPrefix("fail", "config:tracker-yougile.yaml"), findingPrefix("warn", "skip:yougile")} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("нет строки %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "cred:YOUGILE") || strings.Contains(printed, "yougile:") {
+		t.Errorf("проверки, зависящие от файла, запустились:\n%s", printed)
+	}
+}
+
+// Покрытие графа колонками — под config:, до сети.
+func TestDoctorYouGileMissingColumnFailsConfig(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	url, requests := youGileServer(t, youGileOpts{})
+	_, home := fixtureRunner(t, youGileProject)
+	partial := maps.Clone(youGileColumnIDs)
+	delete(partial, "Blocked")
+	writeYouGileFile(t, home, trackerYouGileYAML(url, "SHOP", partial))
+	t.Setenv("YOUGILE_API_KEY", "секрет")
+
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err == nil {
+		t.Fatal("статус без колонки должен быть fatal")
+	}
+	msg, ok := findingMessage(t, out.String(), "fail", "config:tracker-yougile.yaml")
+	if !ok || !strings.Contains(msg, "Blocked") {
+		t.Errorf("config: не назвал Blocked: %q\n%s", msg, out.String())
+	}
+	if !strings.Contains(out.String(), findingPrefix("warn", "skip:yougile")) {
+		t.Errorf("нет skip:yougile:\n%s", out.String())
+	}
+	if len(requests()) != 0 {
+		t.Errorf("до отказа ушли запросы: %v", requests())
+	}
+}
+
+func TestDoctorYouGileEmptyKeySkipsServerChecks(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	youGileFixture(t, youGileProject, youGileOpts{})
+	t.Setenv("YOUGILE_API_KEY", "")
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err == nil {
+		t.Fatal("пустой ключ должен быть fatal")
+	}
+	printed := out.String()
+	for _, want := range []string{
+		findingPrefix("ok", "config:tracker-yougile.yaml"),
+		findingPrefix("fail", "cred:YOUGILE_API_KEY"), findingPrefix("warn", "skip:yougile-checks"),
+	} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("нет строки %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "yougile:open") || strings.Contains(printed, "yougile:account") {
+		t.Errorf("серверные проверки запустились без ключа:\n%s", printed)
+	}
+}
+
+func TestDoctorYouGileOpenFailureSkipsAccount(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	youGileFixture(t, youGileProject, youGileOpts{noProject: true})
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err == nil {
+		t.Fatal("несуществующий проект должен быть fatal")
+	}
+	printed := out.String()
+	for _, want := range []string{findingPrefix("fail", "yougile:open"), findingPrefix("warn", "skip:yougile-checks")} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("нет строки %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "yougile:account") {
+		t.Errorf("yougile:account запустился после отказа Open:\n%s", printed)
+	}
+}
+
+func TestDoctorYouGileRejectedKeyFailsAccount(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	youGileFixture(t, youGileProject, youGileOpts{meStatus: http.StatusUnauthorized})
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err == nil {
+		t.Fatal("отвергнутый ключ должен быть fatal")
+	}
+	if !strings.Contains(out.String(), findingPrefix("fail", "yougile:account")) {
+		t.Errorf("нет fail yougile:account:\n%s", out.String())
+	}
+}
+
+// Сломанный tracker.yaml не прячет YouGile: стадии независимы.
+func TestDoctorBrokenJiraDoesNotHideYouGile(t *testing.T) {
+	withLookPath(t, "git", "claude", "go", "comet")
+	home, _ := youGileFixture(t, mockProject+jiraProject+youGileProject, youGileOpts{})
+	if err := os.WriteFile(filepath.Join(home, jira.TrackerFile), []byte("это: не: tracker.yaml: {{{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := doctorCommand([]string{"--backend", "local"}, &out); err == nil {
+		t.Fatal("сломанный tracker.yaml должен быть fatal")
+	}
+	printed := out.String()
+	for _, want := range []string{
+		findingPrefix("fail", "config:tracker.yaml"), findingPrefix("warn", "skip:jira"),
+		findingPrefix("ok", "yougile:open"), findingPrefix("ok", "yougile:account"),
+	} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("нет строки %q:\n%s", want, printed)
+		}
 	}
 }
