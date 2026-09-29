@@ -1702,7 +1702,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 9: `AddAttachment`: upload plus a chat file message (tasks.md 3.2)
 
-- [ ] Task 9 complete: `AddAttachment`: upload plus a chat file message (tasks.md 3.2)
+- [x] Task 9 complete: `AddAttachment`: upload plus a chat file message (tasks.md 3.2)
 
 **Files:**
 - Modify: `internal/tracker/yougile/yougile.go` (`call` → `send`, new `upload`)
@@ -1720,7 +1720,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `func uploadedLink(raw string) (fileLink, bool)`
   - fake: `type fakeFile struct{ Name string; Data []byte }`, `fakeYouGile.uploads map[string]fakeFile`, `fakeYouGile.uploadURL func(id, name string) string`, `(*fakeYouGile).addFile(name string, data []byte) string`
 
-- [ ] **Step 1: Extend the fake** (`yougile_test.go`)
+- [x] **Step 1: Extend the fake** (`yougile_test.go`)
 
 Add the imports `"io"`. Add the type and fields:
 ```go
@@ -1770,7 +1770,7 @@ In `route`, before the `/chats/` case, add:
 		return http.StatusOK, map[string]any{"result": "ok", "url": u, "fullUrl": "https://ru.yougile.com" + u}
 ```
 
-- [ ] **Step 2: Write the failing tests** (`attachment_test.go`, add imports `"errors"`, `"strings"`, `"time"`, `"slices"` as needed)
+- [x] **Step 2: Write the failing tests** (`attachment_test.go`, add imports `"errors"`, `"strings"`, `"time"`, `"slices"` as needed)
 
 ```go
 func TestAddAttachmentUploadsAndPostsFileMessage(t *testing.T) {
@@ -1870,12 +1870,12 @@ func TestAddAttachmentUploadFailureNeverLeaksKey(t *testing.T) {
 ```
 In both `len(fake.puts)+len(fake.chatPosts) != 0` checks in that file, add `+len(fake.uploads)`.
 
-- [ ] **Step 3: Run and see red**
+- [x] **Step 3: Run and see red**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: compile error `tr.AddAttachment undefined`.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `yougile.go`: add `"mime/multipart"` to the imports. Replace `call` with:
 ```go
@@ -1977,12 +1977,12 @@ func uploadedLink(raw string) (fileLink, bool) {
 }
 ```
 
-- [ ] **Step 5: Run and see green**
+- [x] **Step 5: Run and see green**
 
 Run: `go test ./internal/tracker/yougile/`
 Expected: PASS, including every earlier `call` test (`TestCallSendsBearerKey`, `TestCallErrorNeverLeaksAPIKey`, `TestCallRejectsEmptyBodyWhenAnswerExpected`, `TestCallReportsBrokenBody`) and `TestEveryMutationFollowsOwnership/AddAttachment/*`.
 
-- [ ] **Step 6: Tick tasks.md 3.2, run the check set, commit**
+- [x] **Step 6: Tick tasks.md 3.2, run the check set, commit**
 
 ```bash
 go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./internal/tracker/yougile/
@@ -1992,7 +1992,7 @@ git commit -m "feat(yougile): AddAttachment uploads the file and posts a chat fi
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 7: Mutation probes**
+- [x] **Step 7: Mutation probes**
   - In `AddAttachment`, change `t.postChat(key, text, text)` to `t.postChat(key, text, messageHTML(text))`. Expect `TestAddAttachmentTextEqualsHTMLForAmpersand` red. (`url.PathEscape` leaves `&` as is, and `messageHTML` would turn it into `&amp;`.)
   - Delete the `if !ok { return … }` block, so `link` is zero. Expect `TestAddAttachmentRejectsMalformedUploadAnswer` red.
   - Move `owned` after `upload`. Expect `TestEveryMutationFollowsOwnership/AddAttachment/*` red (uploads > 0).

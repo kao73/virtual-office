@@ -24,7 +24,7 @@
 - [x] 3.1 Define the attachment manifest sub-object in `apiData` (id→url),
       namespaced alongside lease and dependency sub-objects.
       _Reframed (Design Doc §7): no manifest. Attachments are discovered from chat file messages and description links (§4.1)._
-- [ ] 3.2 Implement `AddAttachment` (upload via `upload-file`, record the
+- [x] 3.2 Implement `AddAttachment` (upload via `upload-file`, record the
       returned url in the manifest under a generated id).
 - [ ] 3.3 Implement `GetAttachment` (resolve id via the manifest, GET the
       stored url).
