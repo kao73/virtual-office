@@ -109,6 +109,8 @@ The five inputs most likely to bite a real user that the Design Doc's test list 
 
 ### Task 1: Check off the rebase items and record the reframing in tasks.md (tasks.md 1.1, 1.2)
 
+- [ ] Task 1 complete: Check off the rebase items and record the reframing in tasks.md (tasks.md 1.1, 1.2)
+
 **Files:**
 - Modify: `docs/openspec/changes/yougile-dependencies-attachments/tasks.md`
 
@@ -156,6 +158,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 2: Move office data in apiData under `virtual_office` (tasks.md 2.1, part 1)
+
+- [ ] Task 2 complete: Move office data in apiData under `virtual_office` (tasks.md 2.1, part 1)
 
 **Files:**
 - Modify: `internal/tracker/yougile/lease.go:1-90` (codec block)
@@ -597,6 +601,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 3: `Logf` hook, and listings skip unreadable cards (tasks.md: none, Design §2)
 
+- [ ] Task 3 complete: `Logf` hook, and listings skip unreadable cards (tasks.md: none, Design §2)
+
 **Files:**
 - Modify: `internal/tracker/yougile/yougile.go` (`Tracker` struct, `Open`, imports)
 - Modify: `internal/tracker/yougile/status.go:113-137` (`collect`)
@@ -751,6 +757,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 4: Store `depends_on` and surface it as `Task.DependsOn` (tasks.md 2.1)
 
+- [ ] Task 4 complete: Store `depends_on` and surface it as `Task.DependsOn` (tasks.md 2.1)
+
 **Files:**
 - Modify: `internal/tracker/yougile/lease.go` (`officeData`, `apiData`, `decodeAPIData`, `encode`)
 - Modify: `internal/tracker/yougile/task.go:72-75` (`toTask`)
@@ -846,6 +854,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 5: `LinkDependsOn` with a visible chat note (tasks.md 2.2)
+
+- [ ] Task 5 complete: `LinkDependsOn` with a visible chat note (tasks.md 2.2)
 
 **Files:**
 - Create: `internal/tracker/yougile/depends.go`
@@ -1147,6 +1157,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 6: Verify the claim gate reads the recorded link (tasks.md 2.3)
 
+- [ ] Task 6 complete: Verify the claim gate reads the recorded link (tasks.md 2.3)
+
 `tasks.md` 2.3 says "verify, don't reimplement". `pipeline.UnmetDependencies` (`internal/pipeline/deps.go:54`) reads `TaskRef.DependsOn` from `ListReady`, and `projectByKey` reads it from `List`. No `pipeline` change is made. The test drives the real gate function over this adapter's refs, which pins the two spec scenarios "not claimable while open" and "claimable once resolved". `go list -deps ./internal/pipeline` contains no `yougile` package, so the test import creates no cycle.
 
 **Files:**
@@ -1216,6 +1228,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 7: Attachment link parser (tasks.md 3.1, reframed, part 1)
+
+- [ ] Task 7 complete: Attachment link parser (tasks.md 3.1, reframed, part 1)
 
 Pure functions with no HTTP. Design §4.1.
 
@@ -1526,6 +1540,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 8: `Get` lists attachments and renders file messages (tasks.md 3.1, reframed)
 
+- [ ] Task 8 complete: `Get` lists attachments and renders file messages (tasks.md 3.1, reframed)
+
 **Files:**
 - Modify: `internal/tracker/yougile/comment.go` (`comments` → `chat` + `comments(msgs)`)
 - Modify: `internal/tracker/yougile/task.go` (`Get`)
@@ -1685,6 +1701,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 9: `AddAttachment`: upload plus a chat file message (tasks.md 3.2)
+
+- [ ] Task 9 complete: `AddAttachment`: upload plus a chat file message (tasks.md 3.2)
 
 **Files:**
 - Modify: `internal/tracker/yougile/yougile.go` (`call` → `send`, new `upload`)
@@ -1984,6 +2002,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 10: Download client with a narrow redirect policy (tasks.md 3.3, part 1)
 
+- [ ] Task 10 complete: Download client with a narrow redirect policy (tasks.md 3.3, part 1)
+
 **Files:**
 - Modify: `internal/tracker/yougile/yougile.go` (`Tracker.files`, `Open`, `newFileClient`, `fileHostAllowed`, `maxFileRedirects`)
 - Test: `internal/tracker/yougile/attachment_test.go`
@@ -2143,6 +2163,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 11: `GetAttachment` (tasks.md 3.3, 4.2)
+
+- [ ] Task 11 complete: `GetAttachment` (tasks.md 3.3, 4.2)
 
 **Files:**
 - Modify: `internal/tracker/yougile/attachment.go` (`GetAttachment`, `download`)
@@ -2412,6 +2434,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 12: Interface completion and package doc (tasks.md 4.1)
 
+- [ ] Task 12 complete: Interface completion and package doc (tasks.md 4.1)
+
 **Files:**
 - Modify: `internal/tracker/yougile/yougile.go` (package doc, `var _ tracker.Tracker`)
 - Modify: `internal/tracker/yougile/contract_test.go` (remove `coreTracker`)
@@ -2464,6 +2488,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 13: Live smoke test for dependency and attachment round-trip (tasks.md 4.3, 3.4)
+
+- [ ] Task 13 complete: Live smoke test for dependency and attachment round-trip (tasks.md 4.3, 3.4)
 
 **Files:**
 - Modify: `internal/tracker/yougile/live_test.go`
@@ -2606,6 +2632,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 14: Contract doc comments and full verification
+
+- [ ] Task 14 complete: Contract doc comments and full verification
 
 **Files:**
 - Modify: `internal/tracker/tracker.go` (doc comments only: `Task.DependsOn`, `Tracker.LinkDependsOn`)
