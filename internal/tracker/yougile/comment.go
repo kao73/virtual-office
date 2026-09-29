@@ -23,33 +23,47 @@ type messageDTO struct {
 	Deleted    bool    `json:"deleted"`
 }
 
-// comments — переписка задачи от старых к новым. Чат задачи в YouGile
-// адресуется id самой задачи. Порядок сервера не обещан — сортируем сами.
+// chat — сообщения чата задачи от старых к новым, без удалённых. Чат задачи
+// в YouGile адресуется id самой задачи. Порядок сервера не обещан — сортируем
+// сами. Авторов не разрешает: вложениям (GetAttachment) они не нужны.
 //
 // Системные сообщения (перенос карточки, смена исполнителя) — не реплики:
 // попади они сюда, tracker.HumanReply принял бы их за ответ человека. API
 // по умолчанию их не отдаёт; includeSystem=false — явно, чтобы не зависеть
 // от умолчания.
-func (t *Tracker) comments(key string) ([]tracker.Comment, error) {
+func (t *Tracker) chat(key string) ([]messageDTO, error) {
 	msgs, err := listAll[messageDTO](t, "/chats/"+url.PathEscape(key)+"/messages",
 		url.Values{"includeSystem": {"false"}})
 	if err != nil {
 		return nil, err
 	}
 	slices.SortStableFunc(msgs, func(a, b messageDTO) int { return cmp.Compare(a.ID, b.ID) })
+	live := msgs[:0]
+	for _, m := range msgs {
+		if !m.Deleted {
+			live = append(live, m)
+		}
+	}
+	return live, nil
+}
 
+// comments — переписка в модели раннера, с email'ами авторов. Сообщение-файл
+// остаётся репликой (ответ человека файлом — тоже ответ), но телом
+// «[вложение: имя]», а не служебной строкой /root/#file:….
+func (t *Tracker) comments(msgs []messageDTO) ([]tracker.Comment, error) {
 	comments := make([]tracker.Comment, 0, len(msgs))
 	for _, m := range msgs {
-		if m.Deleted {
-			continue
-		}
 		author, err := t.userEmail(m.FromUserID)
 		if err != nil {
 			return nil, err
 		}
+		body := m.Text
+		if link, ok := chatFileLink(m.Text); ok {
+			body = "[вложение: " + link.Name + "]"
+		}
 		ms := int64(m.ID)
 		comments = append(comments, tracker.Comment{
-			ID: strconv.FormatInt(ms, 10), Author: author, Created: time.UnixMilli(ms).UTC(), Body: m.Text,
+			ID: strconv.FormatInt(ms, 10), Author: author, Created: time.UnixMilli(ms).UTC(), Body: body,
 		})
 	}
 	return comments, nil

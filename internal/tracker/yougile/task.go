@@ -80,17 +80,22 @@ func (t *Tracker) toTask(raw taskDTO) (tracker.Task, apiData, error) {
 	return task, data, nil
 }
 
-// Get — задача целиком, включая всю переписку чата задачи.
+// Get — задача целиком: переписка чата и вложения из описания и чата.
 func (t *Tracker) Get(key string) (tracker.Task, error) {
-	_, task, _, err := t.load(key)
+	raw, task, _, err := t.load(key)
 	if err != nil {
 		return tracker.Task{}, err
 	}
-	comments, err := t.comments(key)
+	msgs, err := t.chat(key)
+	if err != nil {
+		return tracker.Task{}, err
+	}
+	comments, err := t.comments(msgs)
 	if err != nil {
 		return tracker.Task{}, err
 	}
 	task.Comments = comments
+	task.Attachments = attachmentRefs(fileLinks(raw.Description, msgs))
 	return task, nil
 }
 
