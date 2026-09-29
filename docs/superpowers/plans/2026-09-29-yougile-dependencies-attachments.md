@@ -2489,7 +2489,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 13: Live smoke test for dependency and attachment round-trip (tasks.md 4.3, 3.4)
 
-- [ ] Task 13 complete: Live smoke test for dependency and attachment round-trip (tasks.md 4.3, 3.4)
+- [x] Task 13 complete: Live smoke test for dependency and attachment round-trip (tasks.md 4.3, 3.4)
 
 **Files:**
 - Modify: `internal/tracker/yougile/live_test.go`
@@ -2497,7 +2497,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `CreateTask`, `LinkDependsOn`, `ListReady`, `List`, `Transition`, `Get`, `AddAttachment`, `GetAttachment`, `putTask`, `pipeline.UnmetDependencies`.
 
-- [ ] **Step 1: Add the test** (append. Add the imports `"bytes"` and `"github.com/kao73/virtual-office/internal/pipeline"`. Update the header comment's request budget line.)
+- [x] **Step 1: Add the test** (append. Add the imports `"bytes"` and `"github.com/kao73/virtual-office/internal/pipeline"`. Update the header comment's request budget line.)
 
 Header comment, replace the `// Запросов ~25 …` paragraph with:
 ```go
@@ -2601,12 +2601,12 @@ func TestLiveDependenciesAndAttachments(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Compile-check without the network**
+- [x] **Step 2: Compile-check without the network**
 
 Run: `go vet -tags yougile_live ./internal/tracker/yougile/ && go test ./internal/tracker/yougile/`
 Expected: vet is clean. The untagged tests still PASS, and the live file is not compiled into them.
 
-- [ ] **Step 3: Run live (office-polygon only)**
+- [x] **Step 3: Run live (office-polygon only)**
 
 Credentials and column ids come from the owner's environment (see memory notes on tracker credentials). Never use `Clens`.
 ```bash
@@ -2618,7 +2618,7 @@ Expected: PASS. If it fails only at `GetAttachment` with a dial/timeout error on
 … go test -tags yougile_live -run TestLiveLifecycle -count=1 -v ./internal/tracker/yougile/
 ```
 
-- [ ] **Step 4: Tick tasks.md 4.3 and 3.4 (keep its reframing note), commit**
+- [x] **Step 4: Tick tasks.md 4.3 and 3.4 (keep its reframing note), commit**
 
 Tick only if both live runs passed. If the round-trip was blocked by the network, leave 3.4/4.3 unticked and say so in the report.
 ```bash

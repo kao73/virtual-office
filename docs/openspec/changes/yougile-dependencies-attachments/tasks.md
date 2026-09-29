@@ -28,7 +28,7 @@
       returned url in the manifest under a generated id).
 - [x] 3.3 Implement `GetAttachment` (resolve id via the manifest, GET the
       stored url).
-- [ ] 3.4 Live-check that an `upload-file` URL fetched immediately after
+- [x] 3.4 Live-check that an `upload-file` URL fetched immediately after
       upload, and again after some delay, both return the same bytes
       (confirms or refutes the "URL stability" risk noted in design.md).
       _Reframed (Design Doc §1, §7): stability already confirmed live (identical bytes immediately and after 20 s); the remaining check is the live byte round-trip._
@@ -38,5 +38,5 @@
 - [x] 4.1 Confirm `var _ tracker.Tracker = (*Tracker)(nil)` compiles.
 - [x] 4.2 Unit tests for `LinkDependsOn`/`AddAttachment`/`GetAttachment`
       against a fixture/fake HTTP transport.
-- [ ] 4.3 Extend the gated live-API smoke tests from `yougile-adapter-core`
+- [x] 4.3 Extend the gated live-API smoke tests from `yougile-adapter-core`
       to cover a dependency-blocked claim and an attachment round-trip.
