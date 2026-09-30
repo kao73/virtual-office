@@ -36,11 +36,10 @@
 3. **Implementation vs Design Doc.** PASS with recorded departures.
    - Recorded in the retro «Отступления от дизайна»: P3 not shown on an
      empty board, no request count against the 50/min limit, no `--tracker`
-     flag, `forge: github` needed, `agent/<uuid>` branches (Design Doc §1, §4
-     and §6), worktree not
-     removed, the human-reply and negative-control checks moved to T2b, T2
-     re-issued as T2b, `idempotencyKey` dedupe not proven, children moved to
-     Analysis, C2 finished.
+     flag, `forge: github` needed, `agent/<uuid>` branches (Design Doc §1,
+     §4 and §6), worktree not removed, the human-reply and negative-control
+     checks moved to T2b, T2 re-issued as T2b, `idempotencyKey` dedupe not
+     proven, children moved to Analysis, C2 finished.
    - The first two, the dedupe item and the §6 reference were added after
      PR #27 external review round 1.
 4. **Capability spec scenarios.** N/A. There are no delta specs.
@@ -90,7 +89,14 @@ code claims.
   - The follow-ups got real capabilities and change names.
   - The design departures are listed.
   - tasks.md 1.3 and 3.7 are annotated.
-- Nothing is left open.
+- Nothing was left open after that review.
+
+After the change was archived, PR #27 went through three external review
+rounds (the `@claude` bot). Round 1 found 2 Important and 7 Minor issues,
+round 2 found 1 Important and 3 Minor, and round 3 found 0 Important and 6
+Minor. All were docs-accuracy issues, and all were fixed in `2b79028`,
+`dd159b5`, `79e12af` and the round-3 follow-up commit. No finding touched
+`internal/tracker/yougile`.
 
 ## Issues
 
