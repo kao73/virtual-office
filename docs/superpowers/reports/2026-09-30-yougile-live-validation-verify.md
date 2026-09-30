@@ -36,12 +36,13 @@
 3. **Implementation vs Design Doc.** PASS with recorded departures.
    - Recorded in the retro «Отступления от дизайна»: P3 not shown on an
      empty board, no request count against the 50/min limit, no `--tracker`
-     flag, `forge: github` needed, `agent/<uuid>` branches, worktree not
+     flag, `forge: github` needed, `agent/<uuid>` branches (Design Doc §1, §4
+     and §6), worktree not
      removed, the human-reply and negative-control checks moved to T2b, T2
      re-issued as T2b, `idempotencyKey` dedupe not proven, children moved to
      Analysis, C2 finished.
-   - The first three and the dedupe item were added after PR #27 external
-     review round 1.
+   - The first two, the dedupe item and the §6 reference were added after
+     PR #27 external review round 1.
 4. **Capability spec scenarios.** N/A. There are no delta specs.
 5. **proposal.md goals.**
    - A sandbox project with a demo task graph: `office-wiring`/`YGW`.
