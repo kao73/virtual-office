@@ -22,6 +22,11 @@
      not YouGile.
    - 3.7 is annotated: idempotency was not proven live, as retro finding 6
      says.
+   - 2.1 is annotated: `office-polygon` + sticker was replaced by
+     `office-wiring` + columns.
+   - Three plan steps are annotated the same way: P3 did not run on an empty
+     board, `idempotencyKey` dedupe was not proven, and the retro has no
+     request-count estimate.
 2. **Implementation vs open-phase `design.md`.** PASS with recorded
    departures.
    - `office-polygon` + sticker was replaced by `office-wiring` + columns
@@ -29,10 +34,14 @@
    - The full chain ran, not the minimal fallback.
    - The precondition held: the dedicated office account existed.
 3. **Implementation vs Design Doc.** PASS with recorded departures.
-   - Recorded in the retro «Отступления от дизайна»: no `--tracker` flag,
-     `forge: github` needed, `agent/<uuid>` branches, worktree not removed,
-     the human-reply and negative-control checks moved to T2b, T2 re-issued
-     as T2b, children moved to Analysis, C2 finished.
+   - Recorded in the retro «Отступления от дизайна»: P3 not shown on an
+     empty board, no request count against the 50/min limit, no `--tracker`
+     flag, `forge: github` needed, `agent/<uuid>` branches, worktree not
+     removed, the human-reply and negative-control checks moved to T2b, T2
+     re-issued as T2b, `idempotencyKey` dedupe not proven, children moved to
+     Analysis, C2 finished.
+   - The first three and the dedupe item were added after PR #27 external
+     review round 1.
 4. **Capability spec scenarios.** N/A. There are no delta specs.
 5. **proposal.md goals.**
    - A sandbox project with a demo task graph: `office-wiring`/`YGW`.

@@ -214,6 +214,8 @@ Pass: the shape is recorded. Either answer ("role visible" / "role not visible")
 
 - [x] **Step 1: P3 on the empty board**
 
+(Done, but not on an empty board: the first `ls` exited 2 without `GITHUB_TOKEN`, and T1 existed by the first clean `ls`. See retro, P1–P3.)
+
 ```sh
 eval "$(grep -hE '^ *export +YOUGILE_OFFICE_API_KEY=' ~/.zshrc)"
 ./bin/runner ls --project YGW
@@ -416,6 +418,8 @@ Await. Pass: two new cards C1 and C2 in the `create_status` column (`Backlog`), 
 
 - [x] **Step 2: Idempotency — second `complete-splits` (background)**
 
+(Run, no duplicates, but `idempotencyKey` dedupe not proven: the parent was already Done. See retro finding 6.)
+
 Same command. Await. Pass: `./bin/runner ls --project YGW` still shows exactly two children, no duplicates. Also check the YouGile board for duplicate titles through `mcp__yougile-mcp__get_tasks` on the Backlog column, read-only. Record it.
 
 **On failure:** duplicates created → blocking defect (idempotencyKey not honoured by the live API or not sent) → stop, ask the owner. Leave the duplicates in place as evidence.
@@ -465,6 +469,8 @@ Record which path was taken.
 - Create: `docs/notes/yougile-live-retro.md`
 
 - [x] **Step 1: Write the retro in Russian**
+
+(Written. The request-count estimate is missing: requests were not counted, only the absence of `429` is recorded. See retro «Расход».)
 
 Follow the heading style of `docs/notes/stage-5-live-retro.md`: `# …` title with scope, a short intro paragraph, then `##` sections. Required sections:
 - `## Статус`: one line per P1, P2, P3, T1, T2 with a pass/fail verdict.

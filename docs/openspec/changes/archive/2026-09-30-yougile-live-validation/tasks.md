@@ -16,6 +16,7 @@
 
 - [x] 2.1 Confirm/refresh `office-polygon`'s status sticker and add
       whatever demo task(s) the chosen role graph needs.
+      (Replaced by `office-wiring` with board columns; Design Doc §7.)
 - [x] 2.2 Declare the sandbox project in `projects.local.yaml` with
       `tracker: yougile`.
 
